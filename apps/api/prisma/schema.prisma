@@ -1,0 +1,753 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================
+// 1. ENUMS
+// ==========================================
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+  EDITOR
+  MANAGER
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PENDING_PAYMENT_APPROVAL
+  PAID
+  PROCESSING
+  AWAITING_UPLOAD
+  FORMATTING
+  ACTION_REQUIRED
+  PREVIEW_READY
+  PENDING_EXTRA_PAYMENT
+  APPROVED
+  IN_PRODUCTION
+  COMPLETED
+  CANCELLED
+  REFUNDED              // Added: For refund flow
+}
+
+// Single unified BookStatus enum — merged from the two duplicate enums.
+// Covers the full lifecycle from upload through production and delivery.
+enum BookStatus {
+  AWAITING_UPLOAD
+  UPLOADED
+  PAYMENT_RECEIVED
+  AI_PROCESSING
+  DESIGNING
+  DESIGNED
+  FORMATTING
+  FORMATTED
+  FORMATTING_REVIEW
+  PREVIEW_READY
+  REVIEW
+  APPROVED
+  REJECTED              // Added: Admin can reject with reason
+  IN_PRODUCTION
+  PRINTING
+  PRINTED
+  SHIPPING
+  DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  AWAITING_APPROVAL
+  FAILED
+  REFUNDED
+}
+
+enum PaymentType {
+  INITIAL
+  EXTRA_PAGES
+  MANUAL_ADJUSTMENT
+  CUSTOM_QUOTE
+  REFUND                // Added: For refund tracking
+  REPRINT               // Added: For reprint orders
+}
+
+enum OrderType {
+  STANDARD              // Normal first-time order
+  REPRINT_SAME          // Reprint same formatted PDF (no new formatting)
+  REPRINT_REVISED       // Revise manuscript and reprint (full flow again)
+}
+
+enum PaymentProvider {
+  PAYSTACK
+  STRIPE
+  PAYPAL
+  BANK_TRANSFER
+}
+
+enum JobType {
+  AI_CLEANING
+  PDF_GENERATION
+  PAGE_COUNT
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Added: CLEANED_HTML, PREVIEW_PDF, FINAL_PDF for engine pipeline tracking
+enum FileType {
+  RAW_MANUSCRIPT
+  CLEANED_TEXT
+  CLEANED_HTML
+  FORMATTED_PDF
+  PREVIEW_PDF
+  FINAL_PDF
+  ADMIN_GENERATED_DOCX
+  COVER_DESIGN_DRAFT
+  COVER_DESIGN_FINAL
+  USER_UPLOADED_IMAGE
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum QuoteStatus {
+  PENDING
+  REVIEWING
+  PROPOSAL_SENT
+  ACCEPTED
+  REJECTED
+}
+
+// ==========================================
+// 2. USER
+// ==========================================
+
+model User {
+  id                String         @id @default(cuid())
+  email             String         @unique
+  password          String?
+
+  firstName         String
+  lastName          String?
+  phoneNumber       String?
+  role              UserRole       @default(USER)
+
+  // Auth: "Pay First, Signup Later" flow
+  isVerified        Boolean        @default(false)
+  verificationToken String?        @unique
+  verificationCode  String?
+  resetToken        String?        @unique
+  tokenExpiry       DateTime?
+
+  // Auth: Refresh Token Rotation
+  // Short-lived access token (15min) + long-lived refresh token (7d)
+  // On refresh: old refresh token is invalidated, new pair issued
+  refreshToken      String?        @unique
+  refreshTokenExp   DateTime?
+
+  // i18n: User's preferred language for emails, notifications, UI
+  // Supported: "en", "fr", "es" — default English
+  preferredLanguage String         @default("en")
+
+  // Author Profile (public-facing, shown on showcase page)
+  // Users complete this from their dashboard profile tab
+  bio               String?        @db.Text   // Short author bio
+  profileImageUrl   String?                   // Author photo (Cloudinary)
+  whatsAppNumber    String?                   // For "Contact Author" on showcase
+  websiteUrl        String?                   // Personal website or blog
+  purchaseLinks     Json?                     // Array of { label, url } e.g. [{ "Amazon", "https://..." }]
+  socialLinks       Json?                     // Array of { platform, url } e.g. [{ "instagram", "https://..." }]
+  isProfileComplete Boolean        @default(false) // Controls "Complete your profile" banner
+
+  // Relations
+  orders            Order[]
+  payments          Payment[]
+  notifications     Notification[]
+  books             Book[]
+  addresses         Address[]
+  reviews           Review[]
+  auditLogs         AuditLog[]
+  customQuotes      CustomQuote[]
+  blogPosts         BlogPost[]
+  showcases         AuthorShowcase[]
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([email])
+}
+
+// ==========================================
+// 3. PACKAGE
+// ==========================================
+
+model Package {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  slug            String   @unique
+
+  basePrice       Decimal  @db.Decimal(10, 2)
+  pageLimit       Int
+  coverPrice      Decimal  @db.Decimal(10, 2)
+  formattingPrice Decimal  @db.Decimal(10, 2)
+  extraPagePrice  Decimal  @db.Decimal(10, 2)
+  features        Json
+  isActive        Boolean  @default(true)
+
+  orders          Order[]
+}
+
+// ==========================================
+// 4. ADDRESS
+// ==========================================
+
+model Address {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  street    String
+  city      String
+  state     String
+  country   String   @default("Nigeria")
+  zipCode   String?
+  isDefault Boolean  @default(false)
+
+  orders    Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// 5. ORDER
+// ==========================================
+
+model Order {
+  id                String      @id @default(cuid())
+  orderNumber       String      @unique
+
+  userId            String
+  user              User        @relation(fields: [userId], references: [id])
+
+  packageId         String
+  package           Package     @relation(fields: [packageId], references: [id])
+
+  // Order type: standard, reprint-same, or reprint-revised
+  orderType         OrderType   @default(STANDARD)
+
+  // Reprint: links back to the original book's finalPdfUrl
+  // Only set when orderType = REPRINT_SAME
+  originalBookId    String?
+
+  // Copies: minimum 25 for REPRINT_SAME, default 1 for standard orders
+  copies            Int         @default(1)
+
+  // Price snapshot at time of purchase (prevents corruption if prices change)
+  packagePriceSnap  Decimal     @default(0) @db.Decimal(10, 2)
+
+  hasCoverDesign    Boolean
+  hasFormatting     Boolean
+
+  // Print options (selected in config modal before payment)
+  paperColor        String      @default("white")   // "white" | "cream"
+  lamination        String      @default("gloss")    // "matt" | "gloss"
+
+  status            OrderStatus @default(PENDING_PAYMENT)
+
+  initialAmount     Decimal     @db.Decimal(10, 2)
+  extraAmount       Decimal     @default(0) @db.Decimal(10, 2)
+  discountAmount    Decimal     @default(0) @db.Decimal(10, 2)
+  totalAmount       Decimal     @db.Decimal(10, 2)
+
+  // Refund tracking
+  refundAmount      Decimal     @default(0) @db.Decimal(10, 2)
+  refundReason      String?
+  refundedAt        DateTime?
+  refundedBy        String?     // Admin user ID who processed refund
+
+  // Currency (all charges in NGN, frontend display may differ)
+  currency          String      @default("NGN")
+
+  // Shipping
+  shippingAddressId String?
+  shippingAddress   Address?    @relation(fields: [shippingAddressId], references: [id])
+  trackingNumber    String?
+  shippingProvider  String?
+
+  // Coupon
+  couponId          String?
+  coupon            Coupon?     @relation(fields: [couponId], references: [id])
+
+  // Optimistic concurrency control — prevents race conditions
+  // Usage: prisma.order.update({ where: { id, version }, data: { ..., version: { increment: 1 } } })
+  // If version doesn't match, Prisma throws P2025 → return 409 Conflict
+  version           Int         @default(1)
+
+  // Relations
+  book              Book?
+  payments          Payment[]
+  addons            OrderAddon[]
+
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([orderNumber])
+}
+
+// ==========================================
+// 6. BOOK
+// ==========================================
+
+model Book {
+  id              String     @id @default(cuid())
+  orderId         String     @unique
+  order           Order      @relation(fields: [orderId], references: [id])
+  userId          String
+  user            User       @relation(fields: [userId], references: [id])
+
+  status          BookStatus @default(AWAITING_UPLOAD)
+
+  // Page/word metrics
+  pageCount       Int?       // Actual count from server-side rendering
+  wordCount       Int?       // Extracted on upload
+  estimatedPages  Int?       // Math.ceil(wordCount / 300) — shown before actual count
+
+  // User formatting preferences
+  fontFamily      String?
+  fontSize        Int?
+  pageSize        String?    @default("A5")  // "A4", "A5", etc.
+
+  // Quick-access URLs (avoid joining File[] for common lookups)
+  currentHtmlUrl  String?
+  previewPdfUrl   String?
+  finalPdfUrl     String?
+
+  // Rejection (admin can reject manuscript with reason)
+  rejectionReason String?    @db.Text
+  rejectedAt      DateTime?
+  rejectedBy      String?    // Admin user ID who rejected
+
+  // Optimistic concurrency control
+  version         Int        @default(1)
+
+  // Relations
+  files           File[]
+  jobs            Job[]
+  reviews         Review[]
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([status])
+  @@index([userId])
+}
+
+// ==========================================
+// 7. FILE VERSIONING
+// ==========================================
+
+model File {
+  id        String   @id @default(cuid())
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id])
+
+  fileType  FileType
+  url       String
+  fileName  String?  // Original filename for display
+  fileSize  Int?     // Size in bytes (for upload validation / 10MB limit)
+  mimeType  String?  // "application/pdf", "application/vnd.openxmlformats...", etc.
+  version   Int      @default(1)
+  createdBy String?  // "AI", "ADMIN", "SYSTEM", or User ID
+
+  createdAt DateTime @default(now())
+}
+
+// ==========================================
+// 8. PAYMENT
+// ==========================================
+
+model Payment {
+  id              String          @id @default(cuid())
+  orderId         String?
+  order           Order?          @relation(fields: [orderId], references: [id])
+
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+
+  provider        PaymentProvider
+  type            PaymentType
+
+  amount          Decimal         @db.Decimal(10, 2)
+  currency        String          @default("NGN")
+  status          PaymentStatus   @default(PENDING)
+
+  // Webhook idempotency key — unique per provider transaction.
+  // BEFORE processing any webhook:
+  //   1. Check: Payment.findUnique({ where: { providerRef } })
+  //   2. If exists AND processedAt != null → return 200, skip processing
+  //   3. If not exists → create Payment, process, set processedAt
+  providerRef     String?         @unique
+  processedAt     DateTime?       // Set when webhook processing completes
+
+  // Bank transfer specific
+  receiptUrl      String?
+  payerName       String?
+  payerEmail      String?
+  payerPhone      String?
+
+  // Admin processing
+  adminNote       String?
+  approvedAt      DateTime?
+  approvedBy      String?
+
+  // Guest checkout state transfer
+  metadata        Json?
+
+  // Webhook debugging
+  gatewayResponse Json?
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([providerRef])
+  @@index([orderId])
+}
+
+// ==========================================
+// 9. CUSTOM QUOTE (Path B)
+// ==========================================
+
+model CustomQuote {
+  id                String      @id @default(cuid())
+
+  userId            String?
+  user              User?       @relation(fields: [userId], references: [id])
+
+  fullName          String
+  email             String
+  phone             String
+  organization      String?
+
+  workingTitle      String
+  genre             String
+  estimatedPages    Int
+
+  bookSize          String
+  quantity          String
+  coverType         String
+  specialReqs       Json
+
+  deadline          DateTime?
+  isEventSpecific   Boolean     @default(false)
+  eventName         String?
+  budgetRange       String
+
+  sampleImageUrl    String?
+  manuscriptUrl     String?
+  additionalDetails String?     @db.Text
+
+  status            QuoteStatus @default(PENDING)
+  adminNotes        String?
+  proposalUrl       String?
+  finalPrice        Decimal?    @db.Decimal(10, 2)
+
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+}
+
+// ==========================================
+// 10. JOB PERSISTENCE
+// ==========================================
+
+model Job {
+  id         String    @id @default(cuid())
+  bookId     String?
+  book       Book?     @relation(fields: [bookId], references: [id])
+
+  type       JobType
+  status     JobStatus @default(QUEUED)
+
+  attempts   Int       @default(0)
+  maxRetries Int       @default(3)
+  error      String?
+
+  payload    Json?
+  result     Json?
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  createdAt  DateTime  @default(now())
+
+  @@index([status, type])
+  @@index([bookId])
+}
+
+// ==========================================
+// 11. REVIEW
+// When Book.status reaches PRINTED, user is prompted to leave a review.
+// Dialog appears on dashboard + "Review" sidebar item is enabled.
+// ==========================================
+
+model Review {
+  id        String   @id @default(cuid())
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  rating    Int      // 1-5
+  comment   String?  @db.Text
+  isPublic  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([bookId, userId]) // One review per user per book
+}
+
+// ==========================================
+// 12. NOTIFICATION
+// ==========================================
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  title     String
+  message   String
+  type      String?  // "BANK_TRANSFER_RECEIVED", "ORDER_STATUS", "SYSTEM", etc.
+  isRead    Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+}
+
+// ==========================================
+// 13. PAYMENT GATEWAY (Admin-configurable)
+// ==========================================
+
+model PaymentGateway {
+  id           String          @id @default(cuid())
+  provider     PaymentProvider @unique
+  name         String
+
+  isEnabled    Boolean         @default(false)
+  isTestMode   Boolean         @default(true)
+
+  publicKey    String?
+  secretKey    String?
+  bankDetails  Json?
+  instructions String?         @db.Text
+
+  priority     Int             @default(0)
+
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+// ==========================================
+// 14. ADDON & ORDER ADDON
+// ==========================================
+
+model Addon {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  description String?
+  price       Decimal      @db.Decimal(10, 2)
+  isActive    Boolean      @default(true)
+
+  orderAddons OrderAddon[]
+}
+
+model OrderAddon {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id])
+  addonId   String
+  addon     Addon   @relation(fields: [addonId], references: [id])
+  priceSnap Decimal @db.Decimal(10, 2)
+
+  @@unique([orderId, addonId])
+}
+
+// ==========================================
+// 15. COUPON
+// ==========================================
+
+model Coupon {
+  id             String       @id @default(cuid())
+  code           String       @unique
+  type           DiscountType
+  value          Decimal      @db.Decimal(10, 2)
+  minOrderAmount Decimal?     @db.Decimal(10, 2)
+  usageLimit     Int?
+  usageCount     Int          @default(0)
+  expiresAt      DateTime?
+  isActive       Boolean      @default(true)
+
+  orders         Order[]
+
+  createdAt      DateTime     @default(now())
+}
+
+// ==========================================
+// 16. AUDIT LOG
+// ==========================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+
+  action     String
+  entityId   String
+  entityType String
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+}
+
+// ==========================================
+// 17. AUTHOR SHOWCASE
+// ==========================================
+
+// ==========================================
+// 17a. SHOWCASE CATEGORY
+// Admin-managed categories for book showcase (e.g. Fiction, Non-Fiction, Poetry)
+// Users NEVER interact with these — admin curates all showcase content
+// ==========================================
+
+model ShowcaseCategory {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  slug        String           @unique
+  description String?
+  sortOrder   Int              @default(0)
+  isActive    Boolean          @default(true)
+
+  showcases   AuthorShowcase[]
+
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+// ==========================================
+// 17b. AUTHOR SHOWCASE
+// Admin-curated entries — NOT auto-generated from books
+// Admin decides which delivered books to showcase publicly
+// ==========================================
+
+model AuthorShowcase {
+  id             String            @id @default(cuid())
+  authorName     String
+  bookTitle      String
+  bookCoverUrl   String
+  aboutBook      String?           @db.Text   // Short book description (admin writes or approves)
+  testimonial    String?           @db.Text
+
+  // Category: assigned by admin (not by user)
+  categoryId     String?
+  category       ShowcaseCategory? @relation(fields: [categoryId], references: [id])
+
+  publishedYear  Int?              // For year-based filtering
+  publishedAt    DateTime?         // For date-based sorting
+
+  // Links to internal data — userId powers "Contact Author" via user's profile
+  userId         String?
+  user           User?             @relation(fields: [userId], references: [id])
+  bookId         String?
+
+  isFeatured     Boolean           @default(true)
+  sortOrder      Int               @default(0)
+
+  createdAt      DateTime          @default(now())
+
+  @@index([categoryId])
+  @@index([publishedYear])
+  @@index([publishedAt])
+  @@index([authorName])
+  @@index([bookTitle])
+}
+
+// ==========================================
+// 18. RESOURCES (formerly Blog)
+// Route: /resources, /resources/[slug], /resources/category/[slug]
+// ==========================================
+
+model ResourceCategory {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  slug        String     @unique
+  description String?
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+
+  posts       BlogPost[]
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model BlogPost {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  excerpt     String?
+  content     String    @db.Text
+  coverImage  String?
+  authorId    String
+  author      User      @relation(fields: [authorId], references: [id])
+
+  // Category
+  categoryId  String?
+  category    ResourceCategory? @relation(fields: [categoryId], references: [id])
+
+  isPublished Boolean   @default(false)
+  publishedAt DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([categoryId])
+  @@index([isPublished, publishedAt])
+}
+
+// ==========================================
+// 19. SYSTEM SETTING
+// ==========================================
+
+model SystemSetting {
+  key         String   @id @unique
+  value       String
+  description String?
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+}

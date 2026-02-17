@@ -1,0 +1,2 @@
+# This handles the "Deep Stuff" (Type Logic) across the whole app
+bun run type-check
