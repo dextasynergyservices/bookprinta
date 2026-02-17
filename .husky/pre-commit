@@ -1,5 +1,1 @@
-# This handles the "Easy Stuff" (Formatting & Linting) quickly
 bun x lint-staged
-
-# This handles the "Deep Stuff" (Type Logic) across the whole app
-bun run type-check
