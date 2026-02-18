@@ -1,0 +1,76 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]
+
+env:
+  BUN_VERSION: '1'
+
+jobs:
+  # ─────────────────────────────────────
+  # Lint (Biome) & Type Check
+  # ─────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"  # Prisma generate needs this to load config (no DB connection made)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # Cache bun dependencies
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - run: bun install --frozen-lockfile
+      - run: cd apps/api && bunx prisma generate   # Generate Prisma client before type-check
+      - run: bun run check             # Biome check (lint + format)
+      - run: bun run type-check        # TypeScript across all packages
+
+  # ─────────────────────────────────────
+  # Build Check (includes Prisma generate)
+  # ─────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: lint
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # Cache bun dependencies
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      # Cache Next.js build
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: apps/web/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('**/bun.lockb') }}-${{ hashFiles('apps/web/**/*.ts', 'apps/web/**/*.tsx') }}
+          restore-keys: ${{ runner.os }}-nextjs-${{ hashFiles('**/bun.lockb') }}-
+
+      - run: bun install --frozen-lockfile
+      - run: cd apps/api && bunx prisma generate   # MUST run before build
+      - run: bun run build
