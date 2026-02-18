@@ -1,10 +1,42 @@
 import { Module } from "@nestjs/common";
-import { AppController } from "./app.controller";
-import { AppService } from "./app.service";
+import { APP_GUARD } from "@nestjs/core";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { AppController } from "./app.controller.js";
+import { AppService } from "./app.service.js";
+import { AuthModule } from "./auth/auth.module.js";
+import { PrismaModule } from "./prisma/prisma.module.js";
 
 @Module({
-  imports: [],
+  imports: [
+    // Global database access
+    PrismaModule,
+
+    // Rate limiting — 10 requests per minute on sensitive endpoints
+    // Individual endpoints can override with @Throttle()
+    ThrottlerModule.forRoot([
+      {
+        name: "short",
+        ttl: 60000, // 1 minute
+        limit: 10, // 10 requests
+      },
+      {
+        name: "long",
+        ttl: 3600000, // 1 hour
+        limit: 100, // 100 requests
+      },
+    ]),
+
+    // Authentication & authorization
+    AuthModule,
+  ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Global throttler guard — applies rate limiting to all endpoints
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

@@ -1,1 +1,2 @@
-console.log("Hello via Bun!");
+// @bookprinta/shared — Shared types, constants, Zod schemas
+export * from "./schemas/index.js";

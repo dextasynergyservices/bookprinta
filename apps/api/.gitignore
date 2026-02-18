@@ -6,3 +6,4 @@ node_modules
 .env.staging
 
 /generated/prisma
+/src/generated/prisma
