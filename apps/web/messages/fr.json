@@ -1,0 +1,131 @@
+{
+  "common": {
+    "loading": "Chargement...",
+    "error": "Une erreur est survenue",
+    "retry": "Réessayer",
+    "offline_banner": "Vous êtes hors ligne — certaines fonctionnalités nécessitent une connexion internet",
+    "back": "Retour",
+    "next": "Suivant",
+    "submit": "Envoyer",
+    "cancel": "Annuler"
+  },
+  "nav": {
+    "home": "Accueil",
+    "pricing": "Tarifs",
+    "showcase": "Vitrine",
+    "about": "À propos",
+    "resources": "Ressources",
+    "faq": "FAQ",
+    "contact": "Contact",
+    "login": "Connexion",
+    "dashboard": "Tableau de bord",
+    "get_quote": "Obtenir un devis"
+  },
+  "hero": {
+    "title": "Transformez votre manuscrit en livre",
+    "subtitle": "L'édition professionnelle simplifiée pour les auteurs nigérians",
+    "cta": "Commencer à publier"
+  },
+  "pricing": {
+    "title": "Choisissez votre formule",
+    "first_draft": "First Draft",
+    "glow_up": "Glow Up",
+    "legacy": "Legacy",
+    "per_page_extra": "par page supplémentaire",
+    "select_package": "Choisir cette formule"
+  },
+  "showcase": {
+    "title": "Nos livres publiés",
+    "search_placeholder": "Rechercher par titre ou auteur...",
+    "filter_sort": "Trier par",
+    "filter_year": "Année",
+    "filter_category": "Catégorie",
+    "all_categories": "Toutes",
+    "sort_az": "A - Z",
+    "sort_za": "Z - A",
+    "sort_newest": "Plus récents",
+    "sort_oldest": "Plus anciens",
+    "read_more": "Lire la suite",
+    "contact_author": "Contacter l'auteur",
+    "buy_book": "Acheter le livre",
+    "no_results": "Aucun livre ne correspond à votre recherche",
+    "clear_filters": "Effacer les filtres",
+    "loading_more": "Chargement..."
+  },
+  "resources": {
+    "title": "Ressources",
+    "all_categories": "Toutes",
+    "read_more": "Lire la suite",
+    "published_on": "Publié le",
+    "no_articles": "Aucun article dans cette catégorie pour le moment",
+    "back_to_resources": "Retour aux ressources"
+  },
+  "faq": {
+    "title": "Questions fréquentes"
+  },
+  "contact": {
+    "title": "Contactez-nous",
+    "name": "Votre nom",
+    "email": "Adresse e-mail",
+    "message": "Message",
+    "send": "Envoyer le message"
+  },
+  "checkout": {
+    "title": "Paiement",
+    "full_name": "Nom complet",
+    "email": "Adresse e-mail",
+    "phone": "Numéro de téléphone",
+    "paper_color": "Couleur du papier",
+    "paper_white": "Blanc",
+    "paper_cream": "Crème",
+    "lamination": "Pelliculage",
+    "lamination_matt": "Mat",
+    "lamination_gloss": "Brillant",
+    "pay_now": "Payer maintenant",
+    "bank_transfer": "Virement bancaire",
+    "upload_receipt": "Télécharger le reçu",
+    "payment_verified": "Votre paiement est en cours de vérification. Vous recevrez un e-mail une fois approuvé.",
+    "transfer_done": "J'ai effectué le virement"
+  },
+  "dashboard": {
+    "my_books": "Mes livres",
+    "upload_manuscript": "Télécharger le manuscrit",
+    "book_status": "Statut du livre",
+    "approve": "Approuver",
+    "pay_extra": "Payer les pages supplémentaires",
+    "reprint_same": "Réimprimer à l'identique",
+    "revise_reprint": "Réviser et réimprimer",
+    "copies": "Nombre d'exemplaires",
+    "min_copies": "Minimum 25 exemplaires",
+    "profile": "Profil",
+    "complete_profile_banner": "Complétez votre profil pour que les lecteurs puissent vous trouver et vous contacter depuis notre vitrine.",
+    "complete_profile_cta": "Compléter le profil",
+    "bio": "À propos de vous",
+    "website": "Site web",
+    "purchase_links": "Où acheter vos livres",
+    "social_links": "Réseaux sociaux",
+    "add_link": "Ajouter un lien",
+    "remove_link": "Supprimer",
+    "reviews": "Avis",
+    "reviews_disabled_tooltip": "Terminez votre premier livre pour laisser un avis",
+    "review_dialog_title": "Comment était votre expérience ?",
+    "review_dialog_subtitle": "Vos retours nous aident à nous améliorer",
+    "review_rating": "Note",
+    "review_comment": "Dites-nous en plus (facultatif)",
+    "review_submit": "Envoyer l'avis",
+    "review_thanks": "Merci pour votre retour !",
+    "review_pending": "En attente",
+    "review_submitted": "Avis donné",
+    "production_delay_banner": "Nous connaissons une forte demande. L'impression peut prendre plus de 72 heures. Nous vous remercions de votre patience.",
+    "select_book_size": "Format du livre",
+    "select_font_size": "Taille de police"
+  },
+  "auth": {
+    "login": "Connexion",
+    "signup": "Finaliser l'inscription",
+    "set_password": "Définir votre mot de passe",
+    "verify_email": "Vérifier votre e-mail",
+    "resend_link": "Renvoyer le lien d'inscription",
+    "forgot_password": "Mot de passe oublié ?"
+  }
+}

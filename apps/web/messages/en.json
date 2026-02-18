@@ -1,0 +1,131 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again",
+    "offline_banner": "You're offline — some features require an internet connection",
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit",
+    "cancel": "Cancel"
+  },
+  "nav": {
+    "home": "Home",
+    "pricing": "Pricing",
+    "showcase": "Showcase",
+    "about": "About",
+    "resources": "Resources",
+    "faq": "FAQ",
+    "contact": "Contact",
+    "login": "Log In",
+    "dashboard": "Dashboard",
+    "get_quote": "Get Custom Quote"
+  },
+  "hero": {
+    "title": "Turn Your Manuscript Into a Book",
+    "subtitle": "Professional publishing made simple for Nigerian authors",
+    "cta": "Start Publishing"
+  },
+  "pricing": {
+    "title": "Choose Your Package",
+    "first_draft": "First Draft",
+    "glow_up": "Glow Up",
+    "legacy": "Legacy",
+    "per_page_extra": "per extra page",
+    "select_package": "Select Package"
+  },
+  "showcase": {
+    "title": "Our Published Books",
+    "search_placeholder": "Search by book title or author...",
+    "filter_sort": "Sort By",
+    "filter_year": "Year",
+    "filter_category": "Category",
+    "all_categories": "All",
+    "sort_az": "A - Z",
+    "sort_za": "Z - A",
+    "sort_newest": "Newest First",
+    "sort_oldest": "Oldest First",
+    "read_more": "Read More",
+    "contact_author": "Contact Author",
+    "buy_book": "Buy Book",
+    "no_results": "No books match your search",
+    "clear_filters": "Clear Filters",
+    "loading_more": "Loading more..."
+  },
+  "resources": {
+    "title": "Resources",
+    "all_categories": "All",
+    "read_more": "Read More",
+    "published_on": "Published on",
+    "no_articles": "No articles in this category yet",
+    "back_to_resources": "Back to Resources"
+  },
+  "faq": {
+    "title": "Frequently Asked Questions"
+  },
+  "contact": {
+    "title": "Get In Touch",
+    "name": "Your Name",
+    "email": "Email Address",
+    "message": "Message",
+    "send": "Send Message"
+  },
+  "checkout": {
+    "title": "Checkout",
+    "full_name": "Full Name",
+    "email": "Email Address",
+    "phone": "Phone Number",
+    "paper_color": "Paper Color",
+    "paper_white": "White",
+    "paper_cream": "Cream",
+    "lamination": "Lamination",
+    "lamination_matt": "Matt",
+    "lamination_gloss": "Gloss",
+    "pay_now": "Pay Now",
+    "bank_transfer": "Bank Transfer",
+    "upload_receipt": "Upload Receipt",
+    "payment_verified": "Your payment is being verified. You will receive an email once approved.",
+    "transfer_done": "I've Transferred"
+  },
+  "dashboard": {
+    "my_books": "My Books",
+    "upload_manuscript": "Upload Manuscript",
+    "book_status": "Book Status",
+    "approve": "Approve",
+    "pay_extra": "Pay for Extra Pages",
+    "reprint_same": "Reprint Same",
+    "revise_reprint": "Revise & Reprint",
+    "copies": "Number of Copies",
+    "min_copies": "Minimum 25 copies",
+    "profile": "Profile",
+    "complete_profile_banner": "Complete your profile so readers can find and contact you from our showcase page.",
+    "complete_profile_cta": "Complete Profile",
+    "bio": "About You",
+    "website": "Website",
+    "purchase_links": "Where to Buy Your Books",
+    "social_links": "Social Media",
+    "add_link": "Add Link",
+    "remove_link": "Remove",
+    "reviews": "Reviews",
+    "reviews_disabled_tooltip": "Complete your first book to leave a review",
+    "review_dialog_title": "How was your experience?",
+    "review_dialog_subtitle": "Your feedback helps us improve",
+    "review_rating": "Rating",
+    "review_comment": "Tell us more (optional)",
+    "review_submit": "Submit Review",
+    "review_thanks": "Thank you for your feedback!",
+    "review_pending": "Pending",
+    "review_submitted": "Reviewed",
+    "production_delay_banner": "We're experiencing high demand. Printing may take longer than the usual 72 hours. We appreciate your patience.",
+    "select_book_size": "Book Size",
+    "select_font_size": "Font Size"
+  },
+  "auth": {
+    "login": "Log In",
+    "signup": "Complete Signup",
+    "set_password": "Set Your Password",
+    "verify_email": "Verify Your Email",
+    "resend_link": "Resend Signup Link",
+    "forgot_password": "Forgot Password?"
+  }
+}
