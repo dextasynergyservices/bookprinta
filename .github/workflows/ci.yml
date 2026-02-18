@@ -16,6 +16,8 @@ jobs:
   lint:
     name: Lint & Type Check
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"  # Prisma generate needs this to load config (no DB connection made)
     steps:
       - uses: actions/checkout@v4
 
