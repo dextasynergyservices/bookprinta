@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────
+  # PostgreSQL (local dev - production uses Neon)
+  # ─────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: bookprinta-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: bookprinta
+      POSTGRES_PASSWORD: bookprinta_dev
+      POSTGRES_DB: bookprinta
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookprinta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────
+  # Redis (local dev - production uses Upstash)
+  # ─────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: bookprinta-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────
+  # Gotenberg (PDF Generation Engine)
+  # In production: runs on its OWN Render service (separate from API)
+  # ─────────────────────────────────────
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: bookprinta-gotenberg
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    environment:
+      - GOTENBERG_API_TIMEOUT=120s
+    command:
+      - "gotenberg"
+      - "--api-timeout=120s"
+      - "--chromium-allow-list=file:///tmp/.*"
+
+  # ─────────────────────────────────────
+  # ClamAV (Malware Scanning)
+  # Scans uploaded files before storing in Cloudinary
+  # ─────────────────────────────────────
+  clamav:
+    image: clamav/clamav:stable
+    container_name: bookprinta-clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+  clamav_data:
