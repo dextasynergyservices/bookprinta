@@ -578,6 +578,7 @@ model Addon {
   description String?
   price       Decimal      @db.Decimal(10, 2)
   isActive    Boolean      @default(true)
+  sortOrder   Int          @default(0)   // Admin controls display order on checkout
 
   orderAddons OrderAddon[]
 }
