@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "ESNext"],
+    "lib": ["dom", "dom.iterable", "ESNext", "webworker"],
     "allowJs": true,
     "noEmit": true,
     "jsx": "preserve",
@@ -22,5 +22,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", ".next"]
 }
