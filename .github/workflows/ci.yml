@@ -32,6 +32,7 @@ jobs:
           restore-keys: ${{ runner.os }}-bun-
 
       - run: bun install --frozen-lockfile
+      - run: cd apps/api && bunx prisma generate   # Generate Prisma client before type-check
       - run: bun run check             # Biome check (lint + format)
       - run: bun run type-check        # TypeScript across all packages
 
