@@ -9,14 +9,17 @@
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
+    "dev": "nest start --watch",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
-    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "test": "jest --config ./test/jest.config.ts",
+    "test:watch": "jest --config ./test/jest.config.ts --watch",
+    "test:cov": "jest --config ./test/jest.config.ts --coverage",
+    "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand --config ./test/jest.config.ts",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:unit": "jest --config ./test/jest.config.ts --testPathPattern='src/.*\\.spec\\.ts$'",
+    "test:integration": "jest --config ./test/jest.config.ts --testPathPattern='test/integration'",
     "typecheck": "tsc --noEmit -p tsconfig.build.json"
   },
   "dependencies": {
@@ -72,22 +75,5 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3"
-  },
-  "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "ts"
-    ],
-    "rootDir": "src",
-    "testRegex": ".*\\.spec\\.ts$",
-    "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
-    },
-    "collectCoverageFrom": [
-      "**/*.(t|j)s"
-    ],
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
   }
 }
