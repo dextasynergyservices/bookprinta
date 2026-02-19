@@ -5,16 +5,16 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 
 # Install Bun for faster installs
-RUN npm install -g bun
+# Pin to same version as local development
+RUN npm install -g bun@1.3.4
 
-# Fix 1: Changed bun.lock → bun.lockb ... wait, you said bun.lock so keep it
-# Fix 2: Copy ALL workspace package.json files so lockfile resolves correctly
+# Copy ALL workspace package.json files so lockfile resolves correctly
 COPY package.json bun.lock ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/emails/package.json ./packages/emails/
 
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # ─────────────────────────────────────
 # Stage 2: Build
@@ -22,7 +22,7 @@ RUN bun install --frozen-lockfile
 FROM node:22-alpine AS builder
 WORKDIR /app
 
-RUN npm install -g bun
+RUN npm install -g bun@1.3.4
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
