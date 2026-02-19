@@ -1,9 +1,11 @@
 name: Sync main to develop
 
 on:
-  push:
+  pull_request:
     branches:
       - main
+    types:
+      - closed
 
 permissions:
   contents: write
@@ -12,6 +14,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'develop'
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
