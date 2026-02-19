@@ -24,8 +24,11 @@ RUN npm install -g bun@1.3.4
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Generate Prisma client (runs from apps/api, output goes to src/generated/prisma per schema.prisma)
-RUN cd apps/api && bunx prisma generate
+# Re-run install at monorepo root to fix workspace symlinks (deps stage only had package.jsons)
+RUN bun install
+
+# Generate Prisma client
+RUN cd apps/api && bun x prisma generate
 
 # Build the NestJS app
 RUN cd apps/api && bun run build
