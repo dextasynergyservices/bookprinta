@@ -4,11 +4,8 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 
-# Install Bun for faster installs
-# Pin to same version as local development
 RUN npm install -g bun@1.3.4
 
-# Copy ALL workspace package.json files so lockfile resolves correctly
 COPY package.json bun.lock ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
@@ -27,7 +24,7 @@ RUN npm install -g bun@1.3.4
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Generate Prisma client (v7: outputs to prisma/generated/prisma/)
+# Generate Prisma client (runs from apps/api, output goes to src/generated/prisma per schema.prisma)
 RUN cd apps/api && bunx prisma generate
 
 # Build the NestJS app
@@ -46,7 +43,7 @@ COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./dist
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma ./prisma
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma/generated ./prisma/generated
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/src/generated ./src/generated
 
 USER nestjs
 
