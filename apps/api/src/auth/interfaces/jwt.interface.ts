@@ -1,3 +1,5 @@
+import type { UserRole } from "../../generated/prisma/enums.js";
+
 /**
  * JWT Payload — stored inside both access and refresh tokens
  */
@@ -7,7 +9,7 @@ export interface JwtPayload {
   /** User email */
   email: string;
   /** User role for RBAC */
-  role: string;
+  role: UserRole;
 }
 
 /**

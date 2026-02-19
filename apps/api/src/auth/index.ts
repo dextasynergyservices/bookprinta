@@ -1,4 +1,6 @@
 // Auth Module — Public API
+
+export { UserRole } from "../generated/prisma/enums.js";
 export { AuthModule } from "./auth.module.js";
 export { AuthService } from "./auth.service.js";
 export { CurrentUser, Roles } from "./decorators/index.js";
