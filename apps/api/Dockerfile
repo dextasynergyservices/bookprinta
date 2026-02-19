@@ -10,7 +10,7 @@ RUN npm install -g bun
 COPY package.json bun.lock ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
-RUN bun install --frozen-lockfile --production=false
+RUN bun install --frozen-lockfile
 
 # ─────────────────────────────────────
 # Stage 2: Build
