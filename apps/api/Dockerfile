@@ -7,9 +7,13 @@ WORKDIR /app
 # Install Bun for faster installs
 RUN npm install -g bun
 
+# Fix 1: Changed bun.lock → bun.lockb ... wait, you said bun.lock so keep it
+# Fix 2: Copy ALL workspace package.json files so lockfile resolves correctly
 COPY package.json bun.lock ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/emails/package.json ./packages/emails/
+
 RUN bun install --frozen-lockfile
 
 # ─────────────────────────────────────
@@ -18,11 +22,13 @@ RUN bun install --frozen-lockfile
 FROM node:22-alpine AS builder
 WORKDIR /app
 
+RUN npm install -g bun
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Generate Prisma client (v7: outputs to prisma/generated/prisma/)
-RUN cd apps/api && npx prisma generate
+RUN cd apps/api && bunx prisma generate
 
 # Build the NestJS app
 RUN cd apps/api && bun run build
