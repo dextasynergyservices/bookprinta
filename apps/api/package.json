@@ -10,6 +10,7 @@
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
+    "predev": "node -e \"const{execSync}=require('child_process');try{const r=execSync('netstat -ano | findstr :3001 | findstr LISTENING',{encoding:'utf8'});const pids=[...new Set(r.trim().split('\\n').map(l=>l.trim().split(/\\s+/).pop()))];pids.forEach(p=>{try{execSync('taskkill /F /PID '+p)}catch{}});console.log('Killed stale process(es) on port 3001')}catch{console.log('Port 3001 is free')}\"",
     "dev": "nest start --watch",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
