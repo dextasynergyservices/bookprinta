@@ -4,12 +4,17 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { AppController } from "./app.controller.js";
 import { AppService } from "./app.service.js";
 import { AuthModule } from "./auth/auth.module.js";
+import { CloudinaryModule } from "./cloudinary/cloudinary.module.js";
+import { FilesModule } from "./files/files.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 
 @Module({
   imports: [
     // Global database access
     PrismaModule,
+
+    // Global Cloudinary signed upload infrastructure
+    CloudinaryModule,
 
     // Rate limiting — 10 requests per minute on sensitive endpoints
     // Individual endpoints can override with @Throttle()
@@ -28,6 +33,9 @@ import { PrismaModule } from "./prisma/prisma.module.js";
 
     // Authentication & authorization
     AuthModule,
+
+    // File upload & management (signed Cloudinary uploads)
+    FilesModule,
   ],
   controllers: [AppController],
   providers: [
