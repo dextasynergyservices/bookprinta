@@ -572,15 +572,17 @@ model PaymentGateway {
 // ==========================================
 
 model Addon {
-  id          String       @id @default(cuid())
-  name        String
-  slug        String       @unique
-  description String?
-  price       Decimal      @db.Decimal(10, 2)
-  isActive    Boolean      @default(true)
-  sortOrder   Int          @default(0)   // Admin controls display order on checkout
+  id            String       @id @default(cuid())
+  name          String
+  slug          String       @unique
+  description   String?
+  price         Decimal      @db.Decimal(10, 2)  // Fixed price for most addons
+  pricingType   String       @default("fixed")   // "fixed" | "per_word"
+  pricePerWord  Decimal?     @db.Decimal(10, 4)  // Only for pricingType: "per_word" (e.g. 0.50 per word)
+  isActive      Boolean      @default(true)
+  sortOrder     Int          @default(0)          // Admin controls display order on checkout
 
-  orderAddons OrderAddon[]
+  orderAddons   OrderAddon[]
 }
 
 model OrderAddon {
@@ -589,7 +591,8 @@ model OrderAddon {
   order     Order   @relation(fields: [orderId], references: [id])
   addonId   String
   addon     Addon   @relation(fields: [addonId], references: [id])
-  priceSnap Decimal @db.Decimal(10, 2)
+  priceSnap Decimal @db.Decimal(10, 2)  // Final calculated price at time of purchase
+  wordCount Int?                        // Only for formatting addon: user-entered word count used in calculation
 
   @@unique([orderId, addonId])
 }
