@@ -7,11 +7,15 @@ import { AuthModule } from "./auth/auth.module.js";
 import { CloudinaryModule } from "./cloudinary/cloudinary.module.js";
 import { FilesModule } from "./files/files.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
+import { RedisModule } from "./redis/redis.module.js";
 
 @Module({
   imports: [
     // Global database access
     PrismaModule,
+
+    // Global Redis connection (Upstash in production, Docker locally)
+    RedisModule,
 
     // Global Cloudinary signed upload infrastructure
     CloudinaryModule,
