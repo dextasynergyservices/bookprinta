@@ -6,6 +6,7 @@ import { AppService } from "./app.service.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { CloudinaryModule } from "./cloudinary/cloudinary.module.js";
 import { FilesModule } from "./files/files.module.js";
+import { JobsModule } from "./jobs/jobs.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { RedisModule } from "./redis/redis.module.js";
 
@@ -19,6 +20,10 @@ import { RedisModule } from "./redis/redis.module.js";
 
     // Global Cloudinary signed upload infrastructure
     CloudinaryModule,
+
+    // BullMQ job queues backed by Redis (ai-formatting, pdf-generation, page-count)
+    // Processors are added in Phase 5. See CLAUDE.md Section 18.4.
+    JobsModule.register(),
 
     // Rate limiting — 10 requests per minute on sensitive endpoints
     // Individual endpoints can override with @Throttle()
