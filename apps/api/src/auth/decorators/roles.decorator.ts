@@ -1,4 +1,5 @@
 import { SetMetadata } from "@nestjs/common";
+import type { UserRole } from "../../generated/prisma/enums.js";
 
 /**
  * Metadata key for storing required roles
@@ -12,6 +13,6 @@ export const ROLES_KEY = "roles";
  *   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
  *   @UseGuards(JwtAuthGuard, RolesGuard)
  *
- * @param roles - One or more UserRole enum values
+ * @param roles - One or more UserRole values
  */
-export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
+export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);

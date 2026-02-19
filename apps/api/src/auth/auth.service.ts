@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import type { UserRole } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type {
   FinishSignupDto,
@@ -267,7 +268,7 @@ export class AuthService {
    * 3. Issue new access + refresh token pair
    * 4. Store new refresh token in database
    */
-  async refresh(userId: string, email: string, role: string): Promise<TokenPair> {
+  async refresh(userId: string, email: string, role: UserRole): Promise<TokenPair> {
     return this.generateTokenPair(userId, email, role);
   }
 
@@ -403,7 +404,11 @@ export class AuthService {
    * - Refresh token (USER): 7 days
    * - Refresh token (ADMIN/SUPER_ADMIN): 1 hour
    */
-  private async generateTokenPair(userId: string, email: string, role: string): Promise<TokenPair> {
+  private async generateTokenPair(
+    userId: string,
+    email: string,
+    role: UserRole
+  ): Promise<TokenPair> {
     const payload: JwtPayload = { sub: userId, email, role };
 
     // Determine refresh token expiry based on role
