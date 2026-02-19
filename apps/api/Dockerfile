@@ -39,14 +39,18 @@ RUN cd apps/api && bun run build
 FROM node:22-alpine AS runner
 WORKDIR /app
 
+RUN npm install -g bun@1.3.4
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nestjs
 
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma ./prisma
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/src/generated ./src/generated
+
+# Install production deps fresh (outside workspace context — no broken symlinks)
+RUN bun install --production --ignore-scripts
 
 USER nestjs
 
