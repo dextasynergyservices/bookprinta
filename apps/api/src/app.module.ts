@@ -7,11 +7,15 @@ import { AuthModule } from "./auth/auth.module.js";
 import { CloudinaryModule } from "./cloudinary/cloudinary.module.js";
 import { FilesModule } from "./files/files.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
+import { LoggerModule } from "./logger/logger.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { RedisModule } from "./redis/redis.module.js";
 
 @Module({
   imports: [
+    // Structured logging via Pino (must be first so all modules can log)
+    LoggerModule,
+
     // Global database access
     PrismaModule,
 
