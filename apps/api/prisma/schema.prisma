@@ -203,14 +203,12 @@ model User {
 model Package {
   id              String   @id @default(cuid())
   name            String   @unique
-  slug            String   @unique
+  description     String?  @db.Text        // Package description shown on pricing page
 
   basePrice       Decimal  @db.Decimal(10, 2)
   pageLimit       Int
-  coverPrice      Decimal  @db.Decimal(10, 2)
-  formattingPrice Decimal  @db.Decimal(10, 2)
-  extraPagePrice  Decimal  @db.Decimal(10, 2)
-  features        Json
+  includesISBN    Boolean  @default(false)  // If true, ISBN addon is auto-selected + disabled + free at checkout
+  features        Json                      // Feature list + copy counts per size (A4/A5/A6)
   isActive        Boolean  @default(true)
 
   orders          Order[]
@@ -269,6 +267,7 @@ model Order {
   hasFormatting     Boolean
 
   // Print options (selected in config modal before payment)
+  bookSize          String      @default("A5")     // "A4" | "A5" | "A6"
   paperColor        String      @default("white")   // "white" | "cream"
   lamination        String      @default("gloss")    // "matt" | "gloss"
 
@@ -307,9 +306,6 @@ model Order {
   book              Book?
   payments          Payment[]
   addons            OrderAddon[]
-
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
 
   @@index([userId])
   @@index([status])
