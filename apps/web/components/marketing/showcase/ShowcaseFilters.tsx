@@ -33,6 +33,7 @@ export function ShowcaseFiltersBar({
         className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 scrollbar-none sm:-mx-5 sm:px-5 md:mx-0 md:flex-wrap md:gap-2 md:px-0 md:pb-0"
         role="tablist"
         aria-label={t("filter_category")}
+        data-lenis-prevent
       >
         <CategoryPill
           active={!filters.category}

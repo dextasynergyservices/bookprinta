@@ -1,9 +1,10 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useScroll, useTransform } from "framer-motion";
 import { ArrowUpRightIcon } from "lucide-react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
+import { useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import type { ShowcaseEntry } from "@/types/showcase";
 
@@ -15,6 +16,23 @@ interface ShowcaseCardProps {
 
 export function ShowcaseCard({ entry, onContactAuthor, index }: ShowcaseCardProps) {
   const t = useTranslations("showcase");
+  const cardRef = useRef<HTMLElement>(null);
+
+  // ── Card image parallax — image shifts within card as you scroll past ──
+  const { scrollYProgress } = useScroll({
+    target: cardRef,
+    offset: ["start end", "end start"],
+  });
+
+  // Subtle parallax range — image translates 6% of its height
+  const imageY = useTransform(scrollYProgress, [0, 1], ["-6%", "6%"]);
+
+  // ── Staggered row reveals ──
+  // On mobile (1 col): no stagger, just sequential
+  // On sm (2 cols): stagger within row of 2
+  // On lg (3 cols): stagger within row of 3
+  // We use a modest base delay that works across breakpoints
+  const staggerDelay = (index % 3) * 0.1;
 
   const truncatedAbout =
     entry.aboutBook && entry.aboutBook.length > 100
@@ -23,21 +41,29 @@ export function ShowcaseCard({ entry, onContactAuthor, index }: ShowcaseCardProp
 
   return (
     <motion.article
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: index * 0.06, ease: [0.22, 1, 0.36, 1] }}
+      ref={cardRef}
+      initial={{ opacity: 0, y: 32 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-50px" }}
+      transition={{
+        duration: 0.6,
+        delay: staggerDelay,
+        ease: [0.22, 1, 0.36, 1],
+      }}
       className="group relative flex flex-col overflow-hidden bg-primary"
     >
-      {/* Cover image — full bleed */}
+      {/* Cover image — full bleed with parallax */}
       <div className="relative aspect-3/4 w-full overflow-hidden">
-        <Image
-          src={entry.bookCoverUrl}
-          alt={`${t("cover_alt", { title: entry.bookTitle })}`}
-          fill
-          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-          className="object-cover transition-transform duration-700 ease-out md:group-hover:scale-105"
-          loading={index < 2 ? "eager" : "lazy"}
-        />
+        <motion.div className="absolute inset-[-8%] size-[116%]" style={{ y: imageY }}>
+          <Image
+            src={entry.bookCoverUrl}
+            alt={`${t("cover_alt", { title: entry.bookTitle })}`}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+            className="object-cover transition-transform duration-700 ease-out md:group-hover:scale-105"
+            loading={index < 2 ? "eager" : "lazy"}
+          />
+        </motion.div>
 
         {/* Gradient overlay — always visible on mobile, intensifies on desktop hover */}
         <div className="absolute inset-0 bg-linear-to-t from-black/85 via-black/40 to-transparent md:from-black/70 md:via-black/20 md:opacity-70 md:transition-opacity md:duration-500 md:group-hover:opacity-100" />

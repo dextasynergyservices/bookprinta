@@ -54,7 +54,7 @@ export function AuthorModal({ entry, open, onOpenChange }: AuthorModalProps) {
             </SheetTitle>
             <SheetDescription className="sr-only">{entry?.authorName}</SheetDescription>
           </SheetHeader>
-          <ScrollArea className="h-full max-h-[calc(85dvh-5rem)] px-6 pb-8">
+          <ScrollArea className="h-full max-h-[calc(85dvh-5rem)] px-6 pb-8" data-lenis-prevent>
             <AuthorProfileContent entry={entry} profile={profile ?? null} isLoading={isLoading} />
           </ScrollArea>
         </SheetContent>
