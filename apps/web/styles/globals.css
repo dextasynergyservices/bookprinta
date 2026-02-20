@@ -130,6 +130,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
@@ -138,9 +139,33 @@
   }
 }
 
-/* ─── Smooth scrolling (Lenis will override, this is fallback) ─── */
-html {
-  scroll-behavior: smooth;
+/* ─── Lenis Smooth Scroll ─────────────────────────────────────────────── */
+/* Lenis needs height: auto so it can control the scroll container         */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+/* Disable native smooth-scroll — Lenis handles scrolling instead */
+.lenis.lenis-smooth {
+  scroll-behavior: auto;
+}
+
+/* Scroll lock — applied when a modal/drawer is open */
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+/* Lenis scroll snap support */
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+/* Accessibility: respect prefers-reduced-motion — disable Lenis effects */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 /* ─── Selection highlight ─── */
