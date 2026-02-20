@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
 import { routing } from "@/lib/i18n/routing";
+import { Providers } from "@/lib/providers";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
@@ -40,7 +41,9 @@ export default async function LocaleLayout({
   return (
     <html lang={locale}>
       <body className={`${spaceGrotesk.variable} ${poppins.variable} antialiased`}>
-        <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>
+        <NextIntlClientProvider messages={messages}>
+          <Providers>{children}</Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   );
