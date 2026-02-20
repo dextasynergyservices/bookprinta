@@ -142,5 +142,36 @@
     "verify_email": "Verify Your Email",
     "resend_link": "Resend Signup Link",
     "forgot_password": "Forgot Password?"
+  },
+  "footer": {
+    "say_hello": "Say \u201chello\u201d.",
+    "cta_description": "Have an enquiry? Simply get in touch using the button below.",
+    "contact_cta": "contact us",
+    "pages_heading": "Pages",
+    "resources_heading": "Resources",
+    "follow_heading": "Follow Us",
+    "link_home": "Home",
+    "link_pricing": "Pricing",
+    "link_showcase": "Showcase",
+    "link_about": "About",
+    "link_resources": "Resources",
+    "link_faq": "FAQ",
+    "link_contact": "Contact",
+    "address": "Lagos, Nigeria",
+    "say_hello_label": "Say hello",
+    "phone": "+234 XXX XXX XXXX",
+    "email": "hello@bookprinta.com",
+    "privacy": "Privacy Policy",
+    "terms": "Terms & Conditions",
+    "cookies": "Cookie Policy",
+    "refund_policy": "Refund Policy",
+    "sustainability": "Sustainability Policy",
+    "company_number": "© 2026 BookPrinta",
+    "instagram": "Follow us on Instagram",
+    "twitter": "Follow us on X",
+    "linkedin": "Follow us on LinkedIn"
+  },
+  "language_switcher": {
+    "label": "Change language"
   }
 }
