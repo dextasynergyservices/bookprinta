@@ -3,11 +3,17 @@ import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
+import { Logger } from "nestjs-pino";
 import { cleanupOpenApiDoc, ZodValidationPipe } from "nestjs-zod";
 import { AppModule } from "./app.module.js";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Buffer early logs so nothing is lost before Pino is initialised
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+
+  // Swap NestJS's default ConsoleLogger for Pino (structured logging)
+  const logger = app.get(Logger);
+  app.useLogger(logger);
 
   // Global prefix for all routes
   app.setGlobalPrefix("api/v1");
@@ -77,7 +83,7 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
-  console.log(`Application running on port ${port}`);
-  console.log(`Swagger docs available at http://localhost:${port}/api/docs`);
+  logger.log(`Application running on port ${port}`, "Bootstrap");
+  logger.log(`Swagger docs available at http://localhost:${port}/api/docs`, "Bootstrap");
 }
 bootstrap();
