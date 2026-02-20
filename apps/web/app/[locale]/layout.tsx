@@ -2,6 +2,7 @@ import { Poppins, Space_Grotesk } from "next/font/google";
 import { notFound } from "next/navigation";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
+import { LenisProvider } from "@/components/shared/lenis-provider";
 import { routing } from "@/lib/i18n/routing";
 
 const spaceGrotesk = Space_Grotesk({
@@ -40,7 +41,9 @@ export default async function LocaleLayout({
   return (
     <html lang={locale}>
       <body className={`${spaceGrotesk.variable} ${poppins.variable} antialiased`}>
-        <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>
+        <NextIntlClientProvider messages={messages}>
+          <LenisProvider>{children}</LenisProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );
