@@ -59,7 +59,7 @@ COPY --from=builder --chown=nestjs:nodejs /app/packages/emails ./packages/emails
 COPY --from=builder --chown=nestjs:nodejs /app/packages/shared ./packages/shared
 
 # Install production deps within workspace context
-RUN cd apps/api && bun install --production --ignore-scripts
+RUN bun install --production --ignore-scripts --no-frozen-lockfile
 
 USER nestjs
 
