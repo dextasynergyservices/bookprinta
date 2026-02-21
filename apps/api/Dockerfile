@@ -29,6 +29,9 @@ RUN bun install
 # Generate Prisma client
 RUN cd apps/api && bun x prisma generate
 
+# Build the emails package (must come before API build)
+RUN cd packages/emails && bun run build
+
 # Build the NestJS app
 RUN cd apps/api && bun run build
 
