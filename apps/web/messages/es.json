@@ -190,5 +190,36 @@
     "verify_email": "Verifica tu correo",
     "resend_link": "Reenviar enlace de registro",
     "forgot_password": "¿Olvidaste tu contraseña?"
+  },
+  "footer": {
+    "say_hello": "Di \u201chola\u201d.",
+    "cta_description": "¿Tienes una consulta? Simplemente ponte en contacto usando el botón de abajo.",
+    "contact_cta": "contáctanos",
+    "pages_heading": "Páginas",
+    "resources_heading": "Recursos",
+    "follow_heading": "Síguenos",
+    "link_home": "Inicio",
+    "link_pricing": "Precios",
+    "link_showcase": "Galería",
+    "link_about": "Acerca de",
+    "link_resources": "Recursos",
+    "link_faq": "Preguntas frecuentes",
+    "link_contact": "Contacto",
+    "address": "Lagos, Nigeria",
+    "say_hello_label": "Saluda",
+    "phone": "+234 XXX XXX XXXX",
+    "email": "hello@bookprinta.com",
+    "privacy": "Política de privacidad",
+    "terms": "Términos y condiciones",
+    "cookies": "Política de cookies",
+    "refund_policy": "Política de reembolso",
+    "sustainability": "Política de sostenibilidad",
+    "company_number": "© 2026 BookPrinta",
+    "instagram": "Síguenos en Instagram",
+    "twitter": "Síguenos en X",
+    "linkedin": "Síguenos en LinkedIn"
+  },
+  "language_switcher": {
+    "label": "Cambiar idioma"
   }
 }
