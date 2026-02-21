@@ -207,5 +207,30 @@
     "benefit_1": "Etre decouvert par les lecteurs sur notre page vitrine",
     "benefit_2": "Diriger les lecteurs vers vos livres",
     "benefit_3": "Construire votre marque d'auteur et votre credibilite"
+  },
+  "contact_admin": {
+    "subject": "Nouveau message du formulaire de contact",
+    "heading": "Nouveau message de contact",
+    "body": "Un nouveau message a ete soumis via le formulaire de contact et necessite votre attention.",
+    "reference": "ID de soumission",
+    "contact_info": "Coordonnees",
+    "full_name": "Nom",
+    "email": "Email",
+    "phone": "Telephone",
+    "subject_label": "Sujet",
+    "message_label": "Message",
+    "cta": "Voir dans le panneau admin"
+  },
+  "contact_confirm": {
+    "subject": "Nous avons recu votre message — BookPrinta",
+    "heading": "Message recu !",
+    "body": "Merci de nous avoir contactes. Nous avons bien recu votre message et notre equipe vous repondra dans les 24 heures.",
+    "your_message": "Resume de votre message",
+    "subject_label": "Sujet",
+    "what_next": "Que se passe-t-il ensuite ?",
+    "step_1": "Notre equipe examine votre message",
+    "step_2": "Nous preparons une reponse adaptee a votre demande",
+    "step_3": "Vous recevrez une reponse dans les 24 heures",
+    "cta": "Visiter BookPrinta"
   }
 }

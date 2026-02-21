@@ -5,6 +5,7 @@
   "private": true,
   "exports": {
     ".": "./index.ts",
+    "./render": "./render.ts",
     "./components/*": "./components/*",
     "./translations/*": "./translations/*"
   },

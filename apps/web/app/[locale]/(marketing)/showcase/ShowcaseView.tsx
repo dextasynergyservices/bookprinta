@@ -107,7 +107,7 @@ function ShowcaseViewInner() {
 
         <div className="relative mx-auto flex w-full max-w-7xl flex-col items-center justify-center px-4 py-24 text-center sm:items-start sm:justify-start sm:px-5 sm:py-24 sm:text-left md:px-10 md:pb-28 md:pt-36 lg:px-14 lg:pb-36 lg:pt-44">
           <motion.div style={{ opacity: heroOpacity, y: heroTranslateY }}>
-            <h1 className="font-display text-[4rem] font-bold leading-[1] tracking-tight text-primary-foreground sm:text-[2.5rem] md:text-6xl lg:text-7xl">
+            <h1 className="font-display text-6xl font-bold leading-[1] tracking-tight text-primary-foreground md:text-7xl lg:text-[5.5rem]">
               {/* Line 1: "Stories" "worth" "telling." — stacked on mobile, inline on sm+ */}
               <span className="block sm:inline">{t("hero_line1").split(" ")[0]}</span>
               <span className="block sm:inline">
