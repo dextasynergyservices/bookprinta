@@ -1,5 +1,5 @@
 import { Button } from "@react-email/components";
-import { BRAND } from "./EmailLayout";
+import { BRAND } from "./EmailLayout.tsx";
 
 interface EmailButtonProps {
   href: string;
