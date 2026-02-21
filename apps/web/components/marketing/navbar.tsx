@@ -69,10 +69,8 @@ export function Navbar() {
 
       <header
         className={cn(
-          "fixed top-0 right-0 left-0 z-50 transition-colors duration-300",
-          isScrolled
-            ? "bg-primary/95 shadow-sm backdrop-blur-md"
-            : "bg-white/60 backdrop-blur-md shadow-sm"
+          "fixed top-0 right-0 left-0 z-50 transition-all duration-300",
+          isScrolled ? "bg-primary/95 shadow-sm backdrop-blur-md" : "bg-transparent"
         )}
       >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:h-20 lg:px-8">
@@ -81,7 +79,7 @@ export function Navbar() {
             href="/"
             className={cn(
               "font-display shrink-0 text-lg font-bold tracking-tight lg:text-xl transition-colors duration-300",
-              isScrolled ? "text-primary-foreground" : "text-foreground"
+              "text-primary-foreground"
             )}
             aria-label="BookPrinta — Home"
           >
@@ -102,7 +100,7 @@ export function Navbar() {
                       ? "text-accent"
                       : isScrolled
                         ? "text-primary-foreground/70 hover:text-primary-foreground"
-                        : "text-foreground/70 hover:text-foreground"
+                        : "text-primary-foreground/70 hover:text-primary-foreground"
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
@@ -125,7 +123,7 @@ export function Navbar() {
                 "font-display px-3 py-2 text-sm font-medium transition-colors duration-300",
                 isScrolled
                   ? "text-primary-foreground/70 hover:text-primary-foreground"
-                  : "text-foreground/70 hover:text-foreground"
+                  : "text-primary-foreground/70 hover:text-primary-foreground"
               )}
             >
               {t("login")}
@@ -141,6 +139,17 @@ export function Navbar() {
           {/* Mobile right actions */}
           <div className="flex items-center gap-1 lg:hidden">
             <LanguageSwitcher isScrolled={isScrolled} />
+            <Link
+              href="/login"
+              className={cn(
+                "font-display min-h-[44px] inline-flex items-center px-2 text-sm font-medium transition-colors duration-300",
+                isScrolled
+                  ? "text-primary-foreground/70 hover:text-primary-foreground"
+                  : "text-primary-foreground/70 hover:text-primary-foreground"
+              )}
+            >
+              {t("login")}
+            </Link>
             <button
               type="button"
               onClick={() => setIsDrawerOpen(true)}
@@ -148,7 +157,7 @@ export function Navbar() {
                 "font-display inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 text-sm font-medium transition-colors duration-300",
                 isScrolled
                   ? "text-primary-foreground/80 hover:text-primary-foreground"
-                  : "text-foreground/80 hover:text-foreground"
+                  : "text-primary-foreground/80 hover:text-primary-foreground"
               )}
               aria-label="Open navigation menu"
               aria-expanded={isDrawerOpen}

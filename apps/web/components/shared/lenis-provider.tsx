@@ -1,7 +1,14 @@
 "use client";
 
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Lenis from "lenis";
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
+
+/* ─── Register GSAP ScrollTrigger ─── */
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -24,7 +31,6 @@ const LenisContext = createContext<LenisContextValue>({
 
 export function LenisProvider({ children }: { children: React.ReactNode }) {
   const [lenis, setLenis] = useState<Lenis | null>(null);
-  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Respect prefers-reduced-motion — do not init Lenis, use native scroll
@@ -41,25 +47,30 @@ export function LenisProvider({ children }: { children: React.ReactNode }) {
       gestureOrientation: "vertical",
       // Sensitivity for touch scroll on mobile
       touchMultiplier: 2,
-      // Mimic touch inertia on devices that support it
-      syncTouch: false,
+      // Sync touch scroll on mobile so Lenis manages it
+      syncTouch: true,
       // Infinite scroll disabled
       infinite: false,
     });
 
+    /* ── Bridge Lenis → GSAP ScrollTrigger ──
+     * Without this, ScrollTrigger reads native scrollY while
+     * Lenis manages its own scroll position — they're out of sync
+     * and scroll-driven animations (like the book flip) won't fire. */
+    lenisInstance.on("scroll", ScrollTrigger.update);
+
+    gsap.ticker.add((time) => {
+      lenisInstance.raf(time * 1000);
+    });
+    gsap.ticker.lagSmoothing(0);
+
     setLenis(lenisInstance);
 
-    // RAF loop — drives the Lenis animation engine at 60fps
-    function raf(time: number) {
-      lenisInstance.raf(time);
-      rafRef.current = requestAnimationFrame(raf);
-    }
-    rafRef.current = requestAnimationFrame(raf);
+    // Note: Lenis RAF is now driven by gsap.ticker above
+    // (removed manual requestAnimationFrame loop to avoid double-updates)
 
     return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-      }
+      gsap.ticker.remove(lenisInstance.raf);
       lenisInstance.destroy();
       setLenis(null);
     };

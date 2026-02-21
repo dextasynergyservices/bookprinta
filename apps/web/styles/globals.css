@@ -204,3 +204,91 @@ html.lenis body {
   font-weight: 600;
   z-index: 100;
 }
+
+/* ─── Hero Section ─────────────────────────────────────────────────────── */
+
+/* Mobile: dark overlay on top of the 3D book background so text is readable */
+.book-mobile-overlay {
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.88) 0%,
+    rgba(0, 0, 0, 0.75) 40%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+  backdrop-filter: blur(4px);
+}
+
+/* Text reveal animation for GSAP — initial state handled by JS */
+.hero-text-reveal {
+  will-change: clip-path, transform;
+}
+
+/* ─── Homepage Sections ───────────────────────────────────────────────── */
+
+/* Pricing card glow on hover */
+.pricing-card-glow {
+  position: relative;
+  overflow: hidden;
+}
+
+.pricing-card-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--accent) 0%, transparent 50%, var(--accent) 100%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: -1;
+}
+
+.pricing-card-glow:hover::before {
+  opacity: 0.15;
+}
+
+/* Step number circle */
+.step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 700;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+/* Testimonial quote decoration */
+.testimonial-card {
+  position: relative;
+}
+
+.testimonial-card::before {
+  content: "\201C";
+  position: absolute;
+  top: -0.25rem;
+  left: 1.25rem;
+  font-size: 4rem;
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0.2;
+  font-family: Georgia, serif;
+  pointer-events: none;
+}
+
+/* Section angled divider */
+.section-divider-angle {
+  clip-path: polygon(0 0, 100% 60%, 100% 100%, 0 100%);
+}
+
+/* FAQ accordion item */
+.faq-accordion-item {
+  border-bottom: 1px solid oklch(0.929 0.013 255.508);
+}
+
+.dark .faq-accordion-item {
+  border-bottom-color: oklch(1 0 0 / 10%);
+}
