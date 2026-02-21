@@ -1,10 +1,10 @@
 "use client";
 
 import { animate, motion, useInView, useMotionValue, useTransform } from "framer-motion";
-import { ArrowUpRightIcon } from "lucide-react";
+import { ArrowRightIcon, BookOpenIcon, PackageIcon } from "lucide-react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
-import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FaqAccordionItem,
   FaqCategoryHeading,
@@ -167,28 +167,6 @@ export function FaqView() {
   const heroTextOpacity = useTransform(scrollY, [0, 400], [1, 0]);
   const heroTextY = useTransform(scrollY, [0, 400], [0, -30]);
 
-  // ── Magnetic CTA button ──
-  const ctaRef = useRef<HTMLAnchorElement>(null);
-  const ctaX = useMotionValue(0);
-  const ctaY = useMotionValue(0);
-
-  const handleCtaMouseMove = useCallback(
-    (e: MouseEvent<HTMLAnchorElement>) => {
-      if (!ctaRef.current) return;
-      const rect = ctaRef.current.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      ctaX.set((e.clientX - centerX) * 0.12);
-      ctaY.set((e.clientY - centerY) * 0.12);
-    },
-    [ctaX, ctaY]
-  );
-
-  const handleCtaMouseLeave = useCallback(() => {
-    animate(ctaX, 0, { duration: 0.4, ease: [0.22, 1, 0.36, 1] });
-    animate(ctaY, 0, { duration: 0.4, ease: [0.22, 1, 0.36, 1] });
-  }, [ctaX, ctaY]);
-
   // ── #1 — Smooth scroll to section via Lenis ──
   const scrollToSection = useCallback(
     (target: string) => {
@@ -230,7 +208,7 @@ export function FaqView() {
             {/* ── Text column ── */}
             <motion.div
               style={{ opacity: heroTextOpacity, y: heroTextY }}
-              className="relative z-20 flex flex-1 flex-col items-center justify-center py-10 md:items-start md:justify-end md:max-w-[55%] md:pb-20 lg:pb-28"
+              className="relative z-20 flex flex-1 flex-col items-center justify-center py-10 md:items-start md:justify-end md:max-w-[55%] md:pt-24 md:pb-20 lg:pt-28 lg:pb-28"
             >
               {/* Staggered line reveal */}
               <h1 className="font-display text-8xl font-bold leading-[1.02] tracking-tight text-primary-foreground sm:text-8xl md:text-6xl lg:text-[5.5rem]">
@@ -441,59 +419,97 @@ export function FaqView() {
         <SectionCrossfade from="dark" to="primary" />
 
         {/* ════════════════════════════════════════════════════════════
-				    CTA — Magnetic button + accent blue band
+				    "Ready to Publish?" — Two-pathway cards
 				    ════════════════════════════════════════════════════════════ */}
         <motion.section
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true, margin: "-60px" }}
-          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] as const }}
           className="bg-accent"
+          aria-labelledby="ready-heading"
         >
-          <div className="mx-auto flex max-w-7xl flex-col gap-6 px-5 py-14 md:flex-row md:items-center md:justify-between md:px-10 md:py-20 lg:px-14">
-            <div>
+          <div className="mx-auto max-w-7xl px-5 py-16 md:px-10 md:py-24 lg:px-14">
+            {/* Header */}
+            <div className="mb-10 text-center md:mb-14">
               <motion.h2
+                id="ready-heading"
                 initial={{ opacity: 0, y: 16 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-                className="font-display text-2xl font-bold tracking-tight text-white md:text-3xl lg:text-4xl"
+                transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] as const }}
+                className="font-display text-3xl font-bold tracking-tight text-primary-foreground md:text-4xl lg:text-5xl"
               >
-                {t("cta_title")}
+                {t("ready_title")}
               </motion.h2>
               <motion.p
                 initial={{ opacity: 0, y: 12 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                className="mt-2 font-serif text-sm text-white/60 md:text-base"
+                transition={{ duration: 0.5, delay: 0.2, ease: [0.22, 1, 0.36, 1] as const }}
+                className="mx-auto mt-3 max-w-lg font-serif text-sm text-primary-foreground/50 md:text-base"
               >
-                {t("cta_subtitle")}
+                {t("ready_subtitle")}
               </motion.p>
             </div>
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            >
-              {/* Magnetic CTA button */}
-              <motion.div style={{ x: ctaX, y: ctaY }}>
+
+            {/* Two-pathway cards */}
+            {/* Two-pathway cards */}
+            <div className="mx-auto grid max-w-3xl gap-5 md:grid-cols-2">
+              {/* Pricing card */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.25, ease: [0.22, 1, 0.36, 1] as const }}
+              >
                 <Link
-                  ref={ctaRef}
-                  href="/contact"
-                  className="group inline-flex items-center gap-2 border-2 border-white bg-transparent px-8 py-4 font-sans text-sm font-semibold uppercase tracking-wider text-white transition-all duration-300 hover:bg-white hover:text-accent"
-                  onMouseMove={handleCtaMouseMove}
-                  onMouseLeave={handleCtaMouseLeave}
+                  href="/pricing"
+                  className="group flex h-full flex-col rounded-2xl border border-primary-foreground/10 bg-primary-foreground/5 p-6 transition-all duration-300 hover:border-primary-foreground/30 hover:bg-primary-foreground/10 md:p-8"
                 >
-                  {t("cta_button")}
-                  <ArrowUpRightIcon
-                    className="size-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-                    aria-hidden="true"
-                  />
+                  <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary-foreground/10 text-primary-foreground">
+                    <PackageIcon className="size-6" aria-hidden="true" />
+                  </div>
+                  <h3 className="font-display text-lg font-semibold text-primary-foreground md:text-xl">
+                    {t("ready_pricing_title")}
+                  </h3>
+                  <p className="mt-2 flex-1 font-serif text-sm leading-relaxed text-primary-foreground/60">
+                    {t("ready_pricing_desc")}
+                  </p>
+                  <span className="mt-5 inline-flex items-center gap-1.5 font-display text-sm font-semibold text-primary-foreground transition-transform duration-200 group-hover:translate-x-1">
+                    {t("ready_pricing_cta")}
+                    <ArrowRightIcon className="size-4" aria-hidden="true" />
+                  </span>
                 </Link>
               </motion.div>
-            </motion.div>
+
+              {/* Showcase card */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: 0.35, ease: [0.22, 1, 0.36, 1] as const }}
+              >
+                <Link
+                  href="/showcase"
+                  className="group flex h-full flex-col rounded-2xl border border-primary-foreground/10 bg-primary-foreground/5 p-6 transition-all duration-300 hover:border-primary-foreground/30 hover:bg-primary-foreground/10 md:p-8"
+                >
+                  <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary-foreground/10 text-primary-foreground">
+                    <BookOpenIcon className="size-6" aria-hidden="true" />
+                  </div>
+                  <h3 className="font-display text-lg font-semibold text-primary-foreground md:text-xl">
+                    {t("ready_showcase_title")}
+                  </h3>
+                  <p className="mt-2 flex-1 font-serif text-sm leading-relaxed text-primary-foreground/60">
+                    {t("ready_showcase_desc")}
+                  </p>
+                  <span className="mt-5 inline-flex items-center gap-1.5 font-display text-sm font-semibold text-primary-foreground transition-transform duration-200 group-hover:translate-x-1">
+                    {t("ready_showcase_cta")}
+                    <ArrowRightIcon className="size-4" aria-hidden="true" />
+                  </span>
+                </Link>
+              </motion.div>
+            </div>
           </div>
         </motion.section>
       </div>
