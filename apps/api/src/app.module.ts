@@ -5,6 +5,7 @@ import { AppController } from "./app.controller.js";
 import { AppService } from "./app.service.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { CloudinaryModule } from "./cloudinary/cloudinary.module.js";
+import { ContactModule } from "./contact/contact.module.js";
 import { FilesModule } from "./files/files.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { LoggerModule } from "./logger/logger.module.js";
@@ -49,6 +50,9 @@ import { RedisModule } from "./redis/redis.module.js";
 
     // File upload & management (signed Cloudinary uploads)
     FilesModule,
+
+    // Public contact form submissions
+    ContactModule,
   ],
   controllers: [AppController],
   providers: [

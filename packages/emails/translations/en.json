@@ -207,5 +207,30 @@
     "benefit_1": "Get discovered by readers on our showcase page",
     "benefit_2": "Direct readers to where they can buy your books",
     "benefit_3": "Build your author brand and credibility"
+  },
+  "contact_admin": {
+    "subject": "New Contact Form Submission",
+    "heading": "New Contact Message",
+    "body": "A new message has been submitted through the contact form and requires your attention.",
+    "reference": "Submission ID",
+    "contact_info": "Contact Information",
+    "full_name": "Name",
+    "email": "Email",
+    "phone": "Phone",
+    "subject_label": "Subject",
+    "message_label": "Message",
+    "cta": "View in Admin Panel"
+  },
+  "contact_confirm": {
+    "subject": "We Received Your Message — BookPrinta",
+    "heading": "Message Received!",
+    "body": "Thank you for reaching out to us. We've received your message and our team will get back to you within 24 hours.",
+    "your_message": "Your Message Summary",
+    "subject_label": "Subject",
+    "what_next": "What happens next?",
+    "step_1": "Our team reviews your message",
+    "step_2": "We prepare a response tailored to your inquiry",
+    "step_3": "You'll hear back from us within 24 hours",
+    "cta": "Visit BookPrinta"
   }
 }
