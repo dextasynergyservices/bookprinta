@@ -16,7 +16,6 @@ const navLinks = [
   { href: "/showcase", labelKey: "showcase" },
   { href: "/about", labelKey: "about" },
   { href: "/resources", labelKey: "resources" },
-  { href: "/faq", labelKey: "faq" },
   { href: "/contact", labelKey: "contact" },
 ] as const;
 
