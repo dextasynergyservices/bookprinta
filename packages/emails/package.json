@@ -4,14 +4,31 @@
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./index.ts",
-    "./render": "./render.ts",
-    "./components/*": "./components/*",
-    "./translations/*": "./translations/*"
+    ".": {
+      "bun": "./index.ts",
+      "types": "./index.ts",
+      "default": "./dist/index.js"
+    },
+    "./render": {
+      "bun": "./render.ts",
+      "types": "./render.ts",
+      "default": "./dist/render.js"
+    },
+    "./components/*": {
+      "bun": "./components/*",
+      "default": "./dist/components/*"
+    },
+    "./translations/*": {
+      "bun": "./translations/*",
+      "default": "./dist/translations/*"
+    }
   },
   "scripts": {
     "email:dev": "email dev -p 3002",
-    "build": "tsc --noEmit"
+    "build": "bun run build:js && bun run build:copy",
+    "build:js": "bun build ./index.ts ./render.ts --outdir ./dist --target node --format esm --splitting --packages external",
+    "build:copy": "node -e \"const fs=require('fs');const path=require('path');function cp(s,d){fs.mkdirSync(d,{recursive:true});for(const e of fs.readdirSync(s,{withFileTypes:true})){const sp=path.join(s,e.name),dp=path.join(d,e.name);e.isDirectory()?cp(sp,dp):fs.copyFileSync(sp,dp)}}cp('translations',path.join('dist','translations'))\"",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@react-email/components": "^1.0.8",
