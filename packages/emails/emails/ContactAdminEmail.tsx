@@ -1,9 +1,9 @@
 import { Link, Section, Text } from "@react-email/components";
-import { EmailButton } from "../components/EmailButton.tsx";
-import { EmailHeading } from "../components/EmailHeading.tsx";
-import { BRAND, EmailLayout } from "../components/EmailLayout.tsx";
-import type { Locale } from "../translations/index.ts";
-import { t } from "../translations/index.ts";
+import { EmailButton } from "../components/EmailButton";
+import { EmailHeading } from "../components/EmailHeading";
+import { BRAND, EmailLayout } from "../components/EmailLayout";
+import type { Locale } from "../translations/index";
+import { t } from "../translations/index";
 
 interface ContactAdminEmailProps {
   locale?: Locale;
