@@ -11,7 +11,7 @@ COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/emails/package.json ./packages/emails/
 
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # ─────────────────────────────────────
 # Stage 2: Build
@@ -24,7 +24,7 @@ RUN npm install -g bun@1.3.4
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Generate Prisma client
 RUN cd apps/api && bun x prisma generate
@@ -67,5 +67,4 @@ EXPOSE 3001
 ENV PORT=3001
 ENV NODE_ENV=production
 
-CMD ["node", "apps/api/dist/main.js"]
 CMD ["node", "apps/api/dist/main.js"]
