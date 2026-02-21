@@ -22,7 +22,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:unit": "jest --config ./test/jest.config.ts --testPathPattern='src/.*\\.spec\\.ts$'",
     "test:integration": "jest --config ./test/jest.config.ts --testPathPattern='test/integration'",
-    "typecheck": "tsc --noEmit -p tsconfig.build.json"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@bookprinta/emails": "workspace:*",

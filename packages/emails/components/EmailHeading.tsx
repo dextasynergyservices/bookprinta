@@ -1,5 +1,5 @@
 import { Heading } from "@react-email/components";
-import { BRAND } from "./EmailLayout";
+import { BRAND } from "./EmailLayout.tsx";
 
 interface EmailHeadingProps {
   children: React.ReactNode;

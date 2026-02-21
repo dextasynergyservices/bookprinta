@@ -5,10 +5,10 @@
  * JSX/TSX support — it just gets back an HTML string.
  */
 import { render } from "@react-email/components";
-import { ContactAdminEmail } from "./emails/ContactAdminEmail";
-import { ContactConfirmationEmail } from "./emails/ContactConfirmationEmail";
-import type { Locale } from "./translations/index";
-import { getEmailSubject } from "./translations/index";
+import { ContactAdminEmail } from "./emails/ContactAdminEmail.tsx";
+import { ContactConfirmationEmail } from "./emails/ContactConfirmationEmail.tsx";
+import type { Locale } from "./translations/index.ts";
+import { getEmailSubject } from "./translations/index.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
