@@ -53,6 +53,15 @@ COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./apps/api/dist
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma ./apps/api/prisma
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/src/generated ./apps/api/src/generated
+# Copy workspace root package.json + lockfile (needed for workspace resolution)
+COPY --from=builder --chown=nestjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nestjs:nodejs /app/bun.lock ./bun.lock
+
+# Copy API dist + config
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./apps/api/dist
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./apps/api/package.json
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma ./apps/api/prisma
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/src/generated ./apps/api/src/generated
 
 # Copy workspace packages (emails + shared) so bun can resolve workspace:* deps
 COPY --from=builder --chown=nestjs:nodejs /app/packages/emails ./packages/emails
@@ -67,4 +76,5 @@ EXPOSE 3001
 ENV PORT=3001
 ENV NODE_ENV=production
 
+CMD ["node", "apps/api/dist/main.js"]
 CMD ["node", "apps/api/dist/main.js"]
