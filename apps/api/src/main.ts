@@ -22,9 +22,17 @@ async function bootstrap() {
   app.use(helmet());
   app.use(cookieParser());
 
-  // CORS — restrict to frontend origin
+  // CORS — restrict to frontend origins (with and without www)
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+  const allowedOrigins = [frontendUrl];
+  // Auto-add www variant (or non-www variant) so both work
+  if (frontendUrl.includes("://www.")) {
+    allowedOrigins.push(frontendUrl.replace("://www.", "://"));
+  } else if (frontendUrl.match(/^https?:\/\/[^/]+\./)) {
+    allowedOrigins.push(frontendUrl.replace("://", "://www."));
+  }
   app.enableCors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: allowedOrigins,
     credentials: true,
   });
 
