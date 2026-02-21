@@ -10,8 +10,8 @@ import {
   Section,
   Text,
 } from "@react-email/components";
-import type { Locale } from "../translations/index.ts";
-import { t } from "../translations/index.ts";
+import type { Locale } from "../translations/index";
+import { t } from "../translations/index";
 
 const BRAND = {
   black: "#000000",
