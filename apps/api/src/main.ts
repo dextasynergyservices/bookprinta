@@ -60,6 +60,7 @@ async function bootstrap() {
       description: "JWT stored in HttpOnly cookie",
     })
     .addTag("Auth", "Authentication & authorization")
+    .addTag("Contact", "Public contact form submissions")
     .addTag("Users", "User management")
     .addTag("Orders", "Order lifecycle")
     .addTag("Books", "Book management & processing")
