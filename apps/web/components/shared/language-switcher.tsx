@@ -40,7 +40,7 @@ export function LanguageSwitcher({ isScrolled = true }: LanguageSwitcherProps) {
           className={`size-10 shrink-0 transition-colors duration-300 ${
             isScrolled
               ? "text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10"
-              : "text-foreground/70 hover:text-foreground hover:bg-black/5"
+              : "text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10"
           }`}
           aria-label={t("label")}
         >
