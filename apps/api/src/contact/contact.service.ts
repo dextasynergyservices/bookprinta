@@ -120,6 +120,7 @@ export class ContactService {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ secret: secretKey, response: token }),
+        signal: AbortSignal.timeout(5000), // 5s timeout — don't let Google hang us
       });
 
       const data = await response.json();
