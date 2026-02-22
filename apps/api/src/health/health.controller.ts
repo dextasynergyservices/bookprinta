@@ -18,8 +18,8 @@ export class HealthController {
   @ApiOperation({
     summary: "Basic health check",
     description:
-      "Lightweight keep-alive endpoint. Returns immediately with no external service calls. " +
-      "Point UptimeRobot or similar monitoring here at 5-minute intervals to prevent Render cold starts.",
+      "Keep-alive endpoint that also warms DB and Redis connections. " +
+      "Point UptimeRobot or similar monitoring here at 5-minute intervals to prevent Render and Neon cold starts.",
   })
   @ApiResponse({
     status: 200,

@@ -18,8 +18,13 @@ async function bootstrap() {
   // Global prefix for all routes
   app.setGlobalPrefix("api/v1");
 
-  // Security
-  app.use(helmet());
+  // Security — helmet with CORS-compatible settings
+  app.use(
+    helmet({
+      // Allow cross-origin requests (our frontend is on a different domain)
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+    })
+  );
   app.use(cookieParser());
 
   // CORS — restrict to frontend origins (with and without www)
