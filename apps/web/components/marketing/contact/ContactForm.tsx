@@ -60,7 +60,7 @@ interface ContactPayload {
 
 async function submitContact(payload: ContactPayload) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-  const response = await fetch(`${apiUrl}/v1/contact`, {
+  const response = await fetch(`${apiUrl}/api/v1/contact`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

@@ -266,5 +266,14 @@
   },
   "language_switcher": {
     "label": "Changer de langue"
+  },
+  "not_found": {
+    "title": "Page introuvable",
+    "heading": "404",
+    "subheading": "Perdu entre les pages.",
+    "description": "La page que vous cherchez n'existe pas ou a été déplacée. Revenons à un chapitre qui existe.",
+    "back_home": "Retour à l'accueil",
+    "browse_books": "Voir la vitrine",
+    "contact_us": "Nous contacter"
   }
 }

@@ -266,5 +266,14 @@
   },
   "language_switcher": {
     "label": "Cambiar idioma"
+  },
+  "not_found": {
+    "title": "Página no encontrada",
+    "heading": "404",
+    "subheading": "Perdido entre las páginas.",
+    "description": "La página que buscas no existe o ha sido movida. Volvamos a un capítulo que sí existe.",
+    "back_home": "Volver al inicio",
+    "browse_books": "Ver galería",
+    "contact_us": "Contáctanos"
   }
 }
