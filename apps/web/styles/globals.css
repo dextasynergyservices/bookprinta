@@ -7,6 +7,30 @@
 @theme {
   /* ─── Custom BookPrinta tokens (not covered by Shadcn) ─── */
   --color-primary-light: #ffffff;
+
+  /* ─── 404 floating page animation ─── */
+  --animate-float: float 16s ease-in-out infinite;
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(-10%) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.04;
+  }
+  50% {
+    transform: translateY(55vh) rotate(180deg);
+    opacity: 0.06;
+  }
+  90% {
+    opacity: 0.03;
+  }
+  100% {
+    transform: translateY(110vh) rotate(360deg);
+    opacity: 0;
+  }
 }
 
 @theme inline {
