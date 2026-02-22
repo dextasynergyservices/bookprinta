@@ -7,6 +7,7 @@ import { AuthModule } from "./auth/auth.module.js";
 import { CloudinaryModule } from "./cloudinary/cloudinary.module.js";
 import { ContactModule } from "./contact/contact.module.js";
 import { FilesModule } from "./files/files.module.js";
+import { HealthModule } from "./health/health.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { LoggerModule } from "./logger/logger.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
@@ -53,6 +54,9 @@ import { RedisModule } from "./redis/redis.module.js";
 
     // Public contact form submissions
     ContactModule,
+
+    // Health check endpoints (keep-alive for UptimeRobot, detailed status)
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [
