@@ -50,6 +50,20 @@ const RATE_LIMIT = {
   keyPrefix: "contact_rl:",
 };
 
+/**
+ * Race a promise against a timeout. Used to cap Redis/DB operations
+ * that may hang after Render cold starts (maxRetriesPerRequest: null
+ * means ioredis retries forever if connection is reconnecting).
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 @Injectable()
 export class ContactService {
   private readonly logger = new Logger(ContactService.name);
@@ -79,20 +93,32 @@ export class ContactService {
       return;
     }
 
-    const key = `${RATE_LIMIT.keyPrefix}${ip}`;
-    const current = await redis.incr(key);
+    try {
+      const key = `${RATE_LIMIT.keyPrefix}${ip}`;
+      // 3s timeout — prevents hanging when Redis is reconnecting after cold start
+      // (maxRetriesPerRequest: null means ioredis retries forever by default)
+      const current = await withTimeout(redis.incr(key), 3000, "Redis rate limit");
 
-    // Set expiry on first request in window
-    if (current === 1) {
-      await redis.expire(key, RATE_LIMIT.windowSeconds);
-    }
+      // Set expiry on first request in window
+      if (current === 1) {
+        // Fire-and-forget — expiry is best-effort
+        redis.expire(key, RATE_LIMIT.windowSeconds).catch(() => {});
+      }
 
-    if (current > RATE_LIMIT.maxRequests) {
-      this.logger.warn(`Rate limit exceeded for IP ${ip} (${current}/${RATE_LIMIT.maxRequests})`);
-      throw new HttpException(
-        "Too many contact submissions. Please try again in an hour.",
-        HttpStatus.TOO_MANY_REQUESTS
-      );
+      if (current > RATE_LIMIT.maxRequests) {
+        this.logger.warn(`Rate limit exceeded for IP ${ip} (${current}/${RATE_LIMIT.maxRequests})`);
+        throw new HttpException(
+          "Too many contact submissions. Please try again in an hour.",
+          HttpStatus.TOO_MANY_REQUESTS
+        );
+      }
+    } catch (error) {
+      // If it's our own rate limit error, re-throw it
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      // Redis timed out or errored — allow the request (lossy rate limiting)
+      this.logger.warn(`Rate limit check failed, allowing request: ${error}`);
     }
   }
 
@@ -170,14 +196,22 @@ export class ContactService {
         adminPanelUrl,
       });
 
-      await this.resend.emails.send({
+      const adminResult = await this.resend.emails.send({
         from: this.contactFromEmail,
         to: this.contactAdminEmail,
         subject: admin.subject,
         html: admin.html,
       });
 
-      this.logger.log(`Admin notification sent for submission ${submission.id}`);
+      if (adminResult.error) {
+        this.logger.error(
+          `Resend admin email failed: ${adminResult.error.name} — ${adminResult.error.message}`
+        );
+      } else {
+        this.logger.log(
+          `Admin notification sent for submission ${submission.id} (Resend ID: ${adminResult.data?.id})`
+        );
+      }
 
       // 2. User confirmation — rendered via helper
       const confirm = await renderContactConfirmEmail({
@@ -188,18 +222,28 @@ export class ContactService {
         message: submission.message,
       });
 
-      await this.resend.emails.send({
+      const confirmResult = await this.resend.emails.send({
         from: this.contactFromEmail,
         to: submission.email,
         subject: confirm.subject,
         html: confirm.html,
       });
 
-      this.logger.log(`User confirmation sent to ${submission.email}`);
+      if (confirmResult.error) {
+        this.logger.error(
+          `Resend user email failed: ${confirmResult.error.name} — ${confirmResult.error.message}`
+        );
+      } else {
+        this.logger.log(
+          `User confirmation sent to ${submission.email} (Resend ID: ${confirmResult.data?.id})`
+        );
+      }
     } catch (error) {
       // Don't fail the entire request if email sending fails.
       // The submission is already saved to the database.
-      this.logger.error("Failed to send contact emails", error);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const errStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`Failed to send contact emails: ${errMsg}`, errStack);
     }
   }
 
@@ -227,17 +271,21 @@ export class ContactService {
       throw new BadRequestException("Please specify your subject");
     }
 
-    // 4. Save to database
-    const submission = await this.prisma.contactSubmission.create({
-      data: {
-        name: dto.name.trim(),
-        email: dto.email.trim().toLowerCase(),
-        phone: dto.phone?.trim() || null,
-        subject: dto.subject,
-        subjectOther: dto.subject === "OTHER" ? dto.subjectOther?.trim() : null,
-        message: dto.message.trim(),
-      },
-    });
+    // 4. Save to database (10s timeout — Neon cold start can take up to 8s)
+    const submission = await withTimeout(
+      this.prisma.contactSubmission.create({
+        data: {
+          name: dto.name.trim(),
+          email: dto.email.trim().toLowerCase(),
+          phone: dto.phone?.trim() || null,
+          subject: dto.subject,
+          subjectOther: dto.subject === "OTHER" ? dto.subjectOther?.trim() : null,
+          message: dto.message.trim(),
+        },
+      }),
+      10000,
+      "Database save"
+    );
 
     this.logger.log(`New contact submission: ${submission.id} from ${submission.email}`);
 
