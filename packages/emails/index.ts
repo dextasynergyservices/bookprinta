@@ -7,6 +7,8 @@ export { EmailLayout } from "./components/EmailLayout.tsx";
 export { BankTransferAdminEmail } from "./emails/BankTransferAdminEmail.tsx";
 export { BankTransferUserEmail } from "./emails/BankTransferUserEmail.tsx";
 export { BookStatusEmail } from "./emails/BookStatusEmail.tsx";
+export { ContactAdminEmail } from "./emails/ContactAdminEmail.tsx";
+export { ContactConfirmationEmail } from "./emails/ContactConfirmationEmail.tsx";
 export { ManuscriptRejectedEmail } from "./emails/ManuscriptRejectedEmail.tsx";
 export { PasswordResetEmail } from "./emails/PasswordResetEmail.tsx";
 export { ProductionDelayEmail } from "./emails/ProductionDelayEmail.tsx";

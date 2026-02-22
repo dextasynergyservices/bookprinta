@@ -18,9 +18,9 @@ import { Link } from "@/lib/i18n/navigation";
 
 // ── Staggered clip-path line reveal ─────────────────────────────────────────
 const HERO_LINES = [
-  { text: "Questions", accent: false },
+  { text: "Q", accent: false },
   { text: "&", accent: true },
-  { text: "Answers", accent: false },
+  { text: "A", accent: false },
 ] as const;
 
 const lineRevealVariants = {
@@ -204,22 +204,22 @@ export function FaqView() {
             ?
           </motion.div>
 
-          <div className="relative mx-auto flex min-h-[60svh] max-w-7xl flex-col items-center justify-center px-5 text-center md:min-h-[90svh] md:flex-row md:items-end md:justify-start md:text-left md:px-10 lg:px-14">
+          <div className="relative mx-auto flex min-h-[55svh] max-w-7xl flex-col items-center justify-center px-5 text-center sm:min-h-[60svh] md:min-h-[90svh] md:flex-row md:items-end md:justify-start md:text-left md:px-10 lg:px-14">
             {/* ── Text column ── */}
             <motion.div
               style={{ opacity: heroTextOpacity, y: heroTextY }}
               className="relative z-20 flex flex-1 flex-col items-center justify-center py-10 md:items-start md:justify-end md:max-w-[55%] md:pt-24 md:pb-20 lg:pt-28 lg:pb-28"
             >
               {/* Staggered line reveal */}
-              <h1 className="font-display text-8xl font-bold leading-[1.02] tracking-tight text-primary-foreground sm:text-8xl md:text-6xl lg:text-[5.5rem]">
+              <h1 className="font-display text-6xl font-bold leading-[1.02] tracking-tight text-primary-foreground md:text-7xl lg:text-[5.5rem]">
                 {HERO_LINES.map((line, i) => (
-                  <span key={line.text} className="block overflow-hidden">
+                  <span key={line.text} className="inline overflow-hidden">
                     <motion.span
                       custom={i}
                       initial="hidden"
                       animate="visible"
                       variants={lineRevealVariants}
-                      className={`block ${line.accent ? "text-accent" : ""}`}
+                      className={`inline ${line.accent ? "text-accent" : ""}`}
                     >
                       {line.text}
                     </motion.span>
@@ -234,12 +234,12 @@ export function FaqView() {
                 transition={{ duration: 0.7, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
                 className="mt-5 flex flex-col gap-4 md:mt-8"
               >
-                <p className="max-w-md border-l-[3px] border-accent pl-4 text-left font-serif text-sm leading-relaxed text-primary-foreground/45 md:text-base lg:text-lg">
+                <p className="max-w-md border-l-[3px] border-accent pl-4 text-left font-serif text-base leading-relaxed text-primary-foreground/45 md:text-lg lg:text-xl">
                   {t("hero_subtitle")}
                 </p>
 
                 {/* Animated counter */}
-                <p className="font-sans text-xs uppercase tracking-widest text-primary-foreground/25 md:text-sm">
+                <p className="font-sans text-sm uppercase tracking-widest text-primary-foreground/25 md:text-base">
                   <span ref={counter.ref} className="tabular-nums text-accent">
                     {counter.display}
                   </span>{" "}
@@ -252,10 +252,10 @@ export function FaqView() {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.85, ease: [0.22, 1, 0.36, 1] }}
-                className="mt-6 flex flex-wrap items-center gap-2 md:mt-8"
+                className="mt-6 flex flex-wrap items-center justify-center gap-2 md:mt-8 md:justify-start"
                 aria-label={t("jump_to")}
               >
-                <span className="mr-1 font-sans text-xs uppercase tracking-widest text-primary-foreground/20">
+                <span className="mr-1 font-sans text-sm uppercase tracking-widest text-primary-foreground/20">
                   {t("jump_to")}
                 </span>
                 {ANCHOR_PILLS.map((pill) => (
@@ -263,7 +263,7 @@ export function FaqView() {
                     key={pill.target}
                     type="button"
                     onClick={() => scrollToSection(pill.target)}
-                    className="rounded-full border border-white/10 px-4 py-1.5 font-sans text-xs text-white/40 transition-all duration-200 hover:border-accent/50 hover:text-accent"
+                    className="rounded-full border border-white/10 px-4 py-2 font-sans text-sm text-white/40 transition-all duration-200 hover:border-accent/50 hover:text-accent"
                   >
                     {t(pill.label)}
                   </button>

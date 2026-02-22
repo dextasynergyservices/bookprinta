@@ -223,6 +223,7 @@ export function FaqCategoryHeading({ children }: { children: ReactNode }) {
 const crossfadeColors = {
   primary: "rgb(0,0,0)",
   dark: "rgb(10,10,10)",
+  accent: "rgb(0,126,255)",
 } as const;
 
 type CrossfadeVariant = keyof typeof crossfadeColors;

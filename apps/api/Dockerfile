@@ -24,11 +24,13 @@ RUN npm install -g bun@1.3.4
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Re-run install at monorepo root to fix workspace symlinks (deps stage only had package.jsons)
 RUN bun install
 
 # Generate Prisma client
 RUN cd apps/api && bun x prisma generate
+
+# Build the emails package (must come before API build)
+RUN cd packages/emails && bun run build
 
 # Build the NestJS app
 RUN cd apps/api && bun run build
@@ -44,13 +46,23 @@ RUN npm install -g bun@1.3.4
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nestjs
 
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma ./prisma
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/src/generated ./src/generated
+# Copy workspace root files
+COPY --from=builder --chown=nestjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nestjs:nodejs /app/bun.lock ./bun.lock
 
-# Install production deps fresh (outside workspace context — no broken symlinks)
-RUN bun install --production --ignore-scripts
+# Copy built API
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./apps/api/dist
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./apps/api/package.json
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma ./apps/api/prisma
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/src/generated ./apps/api/src/generated
+
+# Copy workspace packages
+COPY --from=builder --chown=nestjs:nodejs /app/packages/emails ./packages/emails
+COPY --from=builder --chown=nestjs:nodejs /app/packages/shared ./packages/shared
+
+# Copy pre-built node_modules — no re-install needed
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./apps/api/node_modules
 
 USER nestjs
 
@@ -58,4 +70,4 @@ EXPOSE 3001
 ENV PORT=3001
 ENV NODE_ENV=production
 
-CMD ["node", "dist/main.js"]
+CMD ["node", "apps/api/dist/main.js"]

@@ -1,8 +1,9 @@
+//
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "Preserve",
+    "moduleResolution": "bundler",
     "baseUrl": ".",
     "resolvePackageJsonExports": true,
     "emitDecoratorMetadata": true,
@@ -10,6 +11,9 @@
     "allowSyntheticDefaultImports": true,
     "removeComments": true,
     "outDir": "./dist",
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "paths": {
       "@/*": ["./src/*"],
       "shared": ["../../packages/shared/index.ts"],

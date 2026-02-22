@@ -18,13 +18,26 @@ async function bootstrap() {
   // Global prefix for all routes
   app.setGlobalPrefix("api/v1");
 
-  // Security
-  app.use(helmet());
+  // Security — helmet with CORS-compatible settings
+  app.use(
+    helmet({
+      // Allow cross-origin requests (our frontend is on a different domain)
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+    })
+  );
   app.use(cookieParser());
 
-  // CORS — restrict to frontend origin
+  // CORS — restrict to frontend origins (with and without www)
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+  const allowedOrigins = [frontendUrl];
+  // Auto-add www variant (or non-www variant) so both work
+  if (frontendUrl.includes("://www.")) {
+    allowedOrigins.push(frontendUrl.replace("://www.", "://"));
+  } else if (frontendUrl.match(/^https?:\/\/[^/]+\./)) {
+    allowedOrigins.push(frontendUrl.replace("://", "://www."));
+  }
   app.enableCors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: allowedOrigins,
     credentials: true,
   });
 
@@ -52,6 +65,7 @@ async function bootstrap() {
       description: "JWT stored in HttpOnly cookie",
     })
     .addTag("Auth", "Authentication & authorization")
+    .addTag("Contact", "Public contact form submissions")
     .addTag("Users", "User management")
     .addTag("Orders", "Order lifecycle")
     .addTag("Books", "Book management & processing")

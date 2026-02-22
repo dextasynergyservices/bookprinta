@@ -751,3 +751,39 @@ model SystemSetting {
   updatedBy   String?
   updatedAt   DateTime @updatedAt
 }
+
+// ==========================================
+// 20. CONTACT SUBMISSION
+// ==========================================
+
+enum ContactSubject {
+  GENERAL_INQUIRY
+  CUSTOM_QUOTE
+  PARTNERSHIP
+  SUPPORT
+  OTHER
+}
+
+model ContactSubmission {
+  id            String          @id @default(cuid())
+
+  name          String
+  email         String
+  phone         String?
+  subject       ContactSubject
+  subjectOther  String?         // Free text when subject = OTHER
+  message       String          @db.Text
+
+  isRead        Boolean         @default(false)
+  isArchived    Boolean         @default(false)
+  readAt        DateTime?
+  readBy        String?         // Admin user ID
+
+  adminReply    String?         @db.Text  // Admin's reply message
+  repliedAt     DateTime?                 // When the admin replied
+
+  createdAt     DateTime        @default(now())
+
+  @@index([isRead])
+  @@index([createdAt])
+}
