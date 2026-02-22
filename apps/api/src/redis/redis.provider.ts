@@ -32,6 +32,7 @@ export const RedisProvider = {
       // For local Docker Redis (redis://), TLS is skipped automatically.
       maxRetriesPerRequest: null, // Required by BullMQ — disables default retry limit
       enableReadyCheck: true,
+      connectTimeout: 5000, // 5s max for initial TCP connection (prevents cold-start hangs)
       retryStrategy(times: number) {
         // Exponential backoff: 50ms, 100ms, 200ms... up to 5s
         const delay = Math.min(times * 50, 5000);
