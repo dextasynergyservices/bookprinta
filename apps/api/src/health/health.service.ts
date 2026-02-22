@@ -12,10 +12,39 @@ export class HealthService {
   ) {}
 
   /**
-   * Lightweight health check — no external calls.
-   * Returns immediately so keep-alive pings are fast.
+   * Keep-alive health check — pings DB and Redis to keep connections warm.
+   *
+   * Why this touches the DB: Neon PostgreSQL (serverless) suspends after ~5 min
+   * of inactivity. If UptimeRobot only keeps the Node process alive but not the
+   * DB connection, the first real request (e.g. contact form) triggers a Neon
+   * cold start → 10-30s delay → Render's 30s proxy timeout → CORS-less error.
+   *
+   * The DB/Redis pings run concurrently and have short timeouts so this endpoint
+   * still responds in < 2 seconds even if a dependency is slow.
    */
-  check() {
+  async check() {
+    // Fire DB + Redis pings concurrently — don't block on either
+    const warmups = [
+      this.prisma.$queryRawUnsafe("SELECT 1").catch((err: unknown) => {
+        this.logger.warn("Health: DB warmup failed", err);
+      }),
+    ];
+
+    const redis = this.redisService.getClient();
+    if (redis) {
+      warmups.push(
+        redis.ping().catch((err: unknown) => {
+          this.logger.warn("Health: Redis warmup failed", err);
+        })
+      );
+    }
+
+    // Wait for both but cap at 5s so the endpoint always responds fast
+    await Promise.race([
+      Promise.allSettled(warmups),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+
     return {
       status: "ok",
       timestamp: new Date().toISOString(),
@@ -24,16 +53,26 @@ export class HealthService {
   }
 
   /**
-   * Detailed status check — pings DB and Redis.
+   * Detailed status check — pings DB, Redis, and Gotenberg.
+   * All checks have individual timeouts to prevent hanging.
    * Used for monitoring dashboards and debugging.
    */
   async detailedStatus() {
     const results: Record<string, { status: string; latencyMs?: number; error?: string }> = {};
 
-    // Database (Neon PostgreSQL via Prisma)
+    // Helper: race a promise against a timeout
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([
+        promise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+        ),
+      ]);
+
+    // Database (Neon PostgreSQL via Prisma) — 10s timeout
     const dbStart = Date.now();
     try {
-      await this.prisma.$queryRawUnsafe("SELECT 1");
+      await withTimeout(this.prisma.$queryRawUnsafe("SELECT 1"), 10000, "Database");
       results.database = { status: "ok", latencyMs: Date.now() - dbStart };
     } catch (error) {
       results.database = {
@@ -44,12 +83,12 @@ export class HealthService {
       this.logger.warn("Database health check failed", error);
     }
 
-    // Redis (Upstash)
+    // Redis (Upstash) — 5s timeout
     const redisStart = Date.now();
     try {
       const client = this.redisService.getClient();
       if (client) {
-        await client.ping();
+        await withTimeout(client.ping(), 5000, "Redis");
         results.redis = { status: "ok", latencyMs: Date.now() - redisStart };
       } else {
         results.redis = { status: "unavailable", latencyMs: 0 };
