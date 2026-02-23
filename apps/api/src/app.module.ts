@@ -10,6 +10,7 @@ import { FilesModule } from "./files/files.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { LoggerModule } from "./logger/logger.module.js";
+import { PackagesModule } from "./packages/packages.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { RedisModule } from "./redis/redis.module.js";
 
@@ -57,6 +58,9 @@ import { RedisModule } from "./redis/redis.module.js";
 
     // Health check endpoints (keep-alive for UptimeRobot, detailed status)
     HealthModule,
+
+    // Public package/tier endpoints (First Draft, Glow Up, Legacy)
+    PackagesModule,
   ],
   controllers: [AppController],
   providers: [

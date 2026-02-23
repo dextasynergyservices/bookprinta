@@ -22,10 +22,15 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:unit": "jest --config ./test/jest.config.ts --testPathPattern='src/.*\\.spec\\.ts$'",
     "test:integration": "jest --config ./test/jest.config.ts --testPathPattern='test/integration'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:seed": "bun x prisma db seed"
+  },
+  "prisma": {
+    "seed": "bun run prisma/seed.ts"
   },
   "dependencies": {
     "@bookprinta/emails": "workspace:*",
+    "@bookprinta/shared": "workspace:*",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
