@@ -94,7 +94,67 @@ const packages: PackageSeed[] = [
   },
 ];
 
-async function main() {
+// ──────────────────────────────────────────────
+// Addon seed data (Cover Design → Content Formatting → ISBN + Barcode)
+// ──────────────────────────────────────────────
+// Notes:
+// - "fixed" addons: `price` is the flat NGN cost, `pricePerWord` is null.
+// - "per_word" addons: `price` is 0.00 (placeholder — actual cost = wordCount × pricePerWord
+//   at checkout), `pricePerWord` is the per-word rate.
+// - ISBN + Barcode price is only charged when the user's selected package has
+//   includesISBN: false. When true (Glow Up, Legacy), the addon is auto-selected,
+//   disabled, and its price is NOT added to the order total. That logic lives in the
+//   checkout UI / pricing calculator, not here.
+// ──────────────────────────────────────────────
+
+interface AddonSeed {
+  name: string;
+  slug: string;
+  description: string;
+  pricingType: string;
+  price: number;
+  pricePerWord: number | null;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+const addons: AddonSeed[] = [
+  {
+    name: "Cover Design",
+    slug: "cover-design",
+    description:
+      "Professional cover design by our in-house design team. Includes 2 revision rounds.",
+    pricingType: "fixed",
+    price: 45_000.0,
+    pricePerWord: null,
+    sortOrder: 1,
+    isActive: true,
+  },
+  {
+    name: "Content Formatting",
+    slug: "content-formatting",
+    description:
+      "We format your raw manuscript into a professionally typeset, print-ready layout. Priced per word.",
+    pricingType: "per_word",
+    price: 0.0,
+    pricePerWord: 0.5,
+    sortOrder: 2,
+    isActive: true,
+  },
+  {
+    name: "ISBN + Barcode",
+    slug: "isbn-barcode",
+    description:
+      "Official ISBN registration and barcode for your book, enabling distribution to bookstores and libraries.",
+    pricingType: "fixed",
+    price: 15_000.0,
+    pricePerWord: null,
+    sortOrder: 3,
+    isActive: true,
+  },
+];
+
+async function seedPackages() {
   console.log("🌱 Seeding packages...\n");
 
   for (const pkg of packages) {
@@ -116,7 +176,38 @@ async function main() {
     console.log(`  ✔ ${result.name} (id: ${result.id})`);
   }
 
-  console.log("\n✅ Seeding complete — 3 packages created.\n");
+  console.log("\n✅ 3 packages seeded.\n");
+}
+
+async function seedAddons() {
+  console.log("🌱 Seeding addons...\n");
+
+  for (const addon of addons) {
+    const result = await prisma.addon.upsert({
+      where: { slug: addon.slug },
+      update: {},
+      create: {
+        name: addon.name,
+        slug: addon.slug,
+        description: addon.description,
+        pricingType: addon.pricingType,
+        price: addon.price,
+        pricePerWord: addon.pricePerWord,
+        sortOrder: addon.sortOrder,
+        isActive: addon.isActive,
+      },
+    });
+
+    console.log(`  ✔ ${result.name} [${result.pricingType}] (id: ${result.id})`);
+  }
+
+  console.log("\n✅ 3 addons seeded.\n");
+}
+
+async function main() {
+  await seedPackages();
+  await seedAddons();
+  console.log("🎉 All seeding complete.\n");
 }
 
 main()
