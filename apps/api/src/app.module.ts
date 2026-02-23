@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { AddonsModule } from "./addons/addons.module.js";
 import { AppController } from "./app.controller.js";
 import { AppService } from "./app.service.js";
 import { AuthModule } from "./auth/auth.module.js";
@@ -61,6 +62,9 @@ import { RedisModule } from "./redis/redis.module.js";
 
     // Public package/tier endpoints (First Draft, Glow Up, Legacy)
     PackagesModule,
+
+    // Public addon endpoints (Cover Design, Formatting, ISBN Registration)
+    AddonsModule,
   ],
   controllers: [AppController],
   providers: [
