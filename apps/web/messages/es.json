@@ -40,7 +40,20 @@
     "glow_up": "Glow Up",
     "legacy": "Legacy",
     "per_page_extra": "por página adicional",
-    "select_package": "Elegir paquete"
+    "select_package": "Elegir paquete",
+    "hero_title": "Elige tu camino de publicación",
+    "hero_subtitle": "Publicación profesional simplificada para autores nigerianos",
+    "most_popular": "Más popular",
+    "isbn_included": "ISBN incluido",
+    "pages_up_to": "Hasta {limit} páginas",
+    "starting_from": "Desde",
+    "compare_title": "Comparación completa de características",
+    "faq_title": "Preguntas comunes",
+    "cta_title": "¿No estás seguro de qué plan te conviene?",
+    "cta_button": "Obtener un presupuesto",
+    "loading": "Cargando paquetes...",
+    "error": "No se pudieron cargar los paquetes. Inténtalo de nuevo.",
+    "retry": "Reintentar"
   },
   "showcase": {
     "title": "Nuestros libros publicados",

@@ -1,42 +1,11 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowRight, Check } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { PricingCards } from "@/components/marketing/pricing/PricingCards";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
-
-const tiers = [
-  {
-    key: "first_draft",
-    features: ["f1", "f2", "f3"],
-    popular: false,
-  },
-  {
-    key: "glow_up",
-    features: ["f1", "f2", "f3"],
-    popular: true,
-  },
-  {
-    key: "legacy",
-    features: ["f1", "f2", "f3"],
-    popular: false,
-  },
-] as const;
-
-const cardVariants = {
-  hidden: { opacity: 0, y: 40, scale: 0.95 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: {
-      duration: 0.7,
-      delay: i * 0.15,
-      ease: [0.22, 1, 0.36, 1] as const,
-    },
-  }),
-};
 
 export function PricingPreview() {
   const t = useTranslations("home");
@@ -72,60 +41,8 @@ export function PricingPreview() {
         </motion.div>
 
         {/* Cards */}
-        <div className="grid gap-6 md:grid-cols-3 md:gap-5 lg:gap-8">
-          {tiers.map((tier, i) => (
-            <div key={tier.key} className="relative">
-              {/* Popular badge — sits above the card, outside overflow */}
-              {tier.popular && (
-                <div className="absolute -top-3 left-1/2 z-10 -translate-x-1/2 rounded-full bg-accent px-4 py-1 font-display text-xs font-semibold tracking-wider text-accent-foreground uppercase">
-                  {t("pricing_glow_up_badge")}
-                </div>
-              )}
-
-              <motion.div
-                custom={i}
-                variants={cardVariants}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true, margin: "-60px" }}
-                className={cn(
-                  "pricing-card-glow group rounded-2xl border p-8 transition-all duration-300 lg:p-10",
-                  tier.popular
-                    ? "border-accent/40 bg-accent/5 shadow-lg shadow-accent/10"
-                    : "border-white/10 bg-white/5"
-                )}
-              >
-                {/* Tier name */}
-                <h3 className="font-display text-xl font-bold text-primary-foreground lg:text-2xl">
-                  {t(`pricing_${tier.key}`)}
-                </h3>
-
-                {/* Description */}
-                <p className="mt-2 font-serif text-sm text-primary-foreground/50 lg:text-base">
-                  {t(`pricing_${tier.key}_desc`)}
-                </p>
-
-                {/* Price */}
-                <div className="mt-6 mb-6">
-                  <span className="font-display text-2xl font-bold text-accent lg:text-3xl">
-                    {t(`pricing_${tier.key}_price`)}
-                  </span>
-                </div>
-
-                {/* Features */}
-                <ul className="space-y-3">
-                  {tier.features.map((f) => (
-                    <li key={f} className="flex items-start gap-3">
-                      <Check className="mt-0.5 size-4 flex-shrink-0 text-accent" />
-                      <span className="text-sm text-primary-foreground/70">
-                        {t(`pricing_${tier.key}_${f}`)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </motion.div>
-            </div>
-          ))}
+        <div className="-mx-5 lg:-mx-8">
+          <PricingCards />
         </div>
 
         {/* CTA */}

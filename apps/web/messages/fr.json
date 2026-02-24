@@ -40,7 +40,20 @@
     "glow_up": "Glow Up",
     "legacy": "Legacy",
     "per_page_extra": "par page supplémentaire",
-    "select_package": "Choisir cette formule"
+    "select_package": "Choisir cette formule",
+    "hero_title": "Choisissez votre parcours de publication",
+    "hero_subtitle": "L'édition professionnelle simplifiée pour les auteurs nigérians",
+    "most_popular": "Le plus populaire",
+    "isbn_included": "ISBN inclus",
+    "pages_up_to": "Jusqu'à {limit} pages",
+    "starting_from": "À partir de",
+    "compare_title": "Comparaison complète des fonctionnalités",
+    "faq_title": "Questions courantes",
+    "cta_title": "Vous ne savez pas quel plan vous convient ?",
+    "cta_button": "Obtenir un devis",
+    "loading": "Chargement des forfaits...",
+    "error": "Impossible de charger les forfaits. Veuillez réessayer.",
+    "retry": "Réessayer"
   },
   "showcase": {
     "title": "Nos livres publiés",
