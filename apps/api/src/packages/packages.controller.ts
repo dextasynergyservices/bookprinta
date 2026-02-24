@@ -5,7 +5,7 @@ import { PackageResponseDto } from "./dto/package-response.dto.js";
 import { PackagesService } from "./packages.service.js";
 
 /**
- * Public endpoints for retrieving package/tier information.
+ * Public endpoints for retrieving package information.
  * No authentication required — pricing data is publicly visible.
  * Rate limiting is skipped (read-only reference data).
  */
@@ -23,8 +23,8 @@ export class PackagesController {
   @ApiOperation({
     summary: "List active packages",
     description:
-      "Returns all active publishing packages (First Draft, Glow Up, Legacy) " +
-      "sorted by display order. Used on the pricing page. No authentication required.",
+      "Returns all active publishing packages sorted by category and package display order. " +
+      "Each package includes its category details. No authentication required.",
   })
   @ApiResponse({
     status: 200,
@@ -44,7 +44,7 @@ export class PackagesController {
     summary: "Get package by ID",
     description:
       "Returns a single package by its unique identifier. " +
-      "Returns 404 if the package does not exist or is inactive.",
+      "Includes category details. Returns 404 if the package does not exist or is inactive.",
   })
   @ApiParam({
     name: "id",

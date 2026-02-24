@@ -11,11 +11,11 @@ const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
 // ──────────────────────────────────────────────
-// Package seed data (First Draft → Glow Up → Legacy)
+// Package Category + Package seed data
 // ──────────────────────────────────────────────
 
-interface PackageSeed {
-  name: string;
+interface PackageTemplateSeed {
+  tier: 1 | 2 | 3;
   basePrice: number;
   pageLimit: number;
   description: string;
@@ -25,9 +25,21 @@ interface PackageSeed {
   features: string[];
 }
 
-const packages: PackageSeed[] = [
+interface PackageCategorySeed {
+  name: string;
+  slug: string;
+  description: string;
+  copies: number;
+  tierPrices?: Partial<Record<PackageTemplateSeed["tier"], number>>;
+  sortOrder: number;
+  isActive: boolean;
+  packageNamePrefix: string;
+  packageSlugPrefix: string;
+}
+
+const packageTemplates: PackageTemplateSeed[] = [
   {
-    name: "First Draft",
+    tier: 1,
     basePrice: 75_000,
     pageLimit: 100,
     description: "For authors starting out",
@@ -35,7 +47,6 @@ const packages: PackageSeed[] = [
     isActive: true,
     sortOrder: 0,
     features: [
-      "25 copies, A5 size (or 50 copies, A6 size, or 12 copies, A4 size)",
       "300gsm Cover",
       "80gsm pages",
       "Up to 100 pages",
@@ -46,7 +57,7 @@ const packages: PackageSeed[] = [
     ],
   },
   {
-    name: "Glow Up",
+    tier: 2,
     basePrice: 125_000,
     pageLimit: 150,
     description: "For authors who want more",
@@ -54,7 +65,6 @@ const packages: PackageSeed[] = [
     isActive: true,
     sortOrder: 1,
     features: [
-      "35 copies, A5 size (or 70 copies, A6 size, or 15 copies, A4 size)",
       "300gsm Cover",
       "80gsm pages",
       "Up to 150 pages",
@@ -68,7 +78,7 @@ const packages: PackageSeed[] = [
     ],
   },
   {
-    name: "Legacy",
+    tier: 3,
     basePrice: 200_000,
     pageLimit: 200,
     description: "For authors concerned about legacy",
@@ -76,7 +86,6 @@ const packages: PackageSeed[] = [
     isActive: true,
     sortOrder: 2,
     features: [
-      "50 copies, A5 size (or 100 copies, A6 size, or 25 copies, A4 size)",
       "300gsm Cover",
       "80gsm pages",
       "Up to 200 pages",
@@ -93,6 +102,50 @@ const packages: PackageSeed[] = [
     ],
   },
 ];
+
+const packageCategories: PackageCategorySeed[] = [
+  {
+    name: "Author Lunch",
+    slug: "author-lunch",
+    description: "For author-focused publishing bundles with fixed default copies.",
+    copies: 25,
+    sortOrder: 0,
+    isActive: true,
+    packageNamePrefix: "Author Launch",
+    packageSlugPrefix: "author-launch",
+  },
+  {
+    name: "Dexta Lunch",
+    slug: "dexta-lunch",
+    description: "For Dexta-focused publishing bundles with fixed default copies.",
+    copies: 35,
+    tierPrices: {
+      1: 250_000,
+      2: 300_000,
+      3: 350_000,
+    },
+    sortOrder: 1,
+    isActive: true,
+    packageNamePrefix: "Dexta Launch",
+    packageSlugPrefix: "dexta-launch",
+  },
+];
+
+const copyProfiles: Record<number, { A4: number; A5: number; A6: number }> = {
+  25: { A4: 12, A5: 25, A6: 50 },
+  35: { A4: 15, A5: 35, A6: 70 },
+};
+
+function getCopyProfile(copies: number): { A4: number; A5: number; A6: number } {
+  const profile = copyProfiles[copies];
+  if (profile) return profile;
+  return { A4: copies, A5: copies, A6: copies };
+}
+
+function getCopyFeature(copies: number): string {
+  const profile = getCopyProfile(copies);
+  return `${profile.A5} copies, A5 size (or ${profile.A6} copies, A6 size, or ${profile.A4} copies, A4 size)`;
+}
 
 // ──────────────────────────────────────────────
 // Addon seed data (Cover Design → Content Formatting → ISBN + Barcode)
@@ -154,29 +207,99 @@ const addons: AddonSeed[] = [
   },
 ];
 
-async function seedPackages() {
-  console.log("🌱 Seeding packages...\n");
+async function seedPackageCatalog() {
+  console.log("🌱 Seeding package categories and packages...\n");
 
-  for (const pkg of packages) {
-    const result = await prisma.package.upsert({
-      where: { name: pkg.name },
-      update: {},
+  const categoryBySlug = new Map<string, { id: string; copies: number; sortOrder: number }>();
+
+  for (const category of packageCategories) {
+    const result = await prisma.packageCategory.upsert({
+      where: { slug: category.slug },
+      update: {
+        name: category.name,
+        description: category.description,
+        copies: category.copies,
+        sortOrder: category.sortOrder,
+        isActive: category.isActive,
+      },
       create: {
-        name: pkg.name,
-        basePrice: pkg.basePrice,
-        pageLimit: pkg.pageLimit,
-        description: pkg.description,
-        includesISBN: pkg.includesISBN,
-        isActive: pkg.isActive,
-        sortOrder: pkg.sortOrder,
-        features: pkg.features,
+        name: category.name,
+        slug: category.slug,
+        description: category.description,
+        copies: category.copies,
+        sortOrder: category.sortOrder,
+        isActive: category.isActive,
       },
     });
 
-    console.log(`  ✔ ${result.name} (id: ${result.id})`);
+    categoryBySlug.set(category.slug, {
+      id: result.id,
+      copies: result.copies,
+      sortOrder: result.sortOrder,
+    });
+
+    console.log(`  ✔ Category: ${result.name} (${result.copies} copies, id: ${result.id})`);
   }
 
-  console.log("\n✅ 3 packages seeded.\n");
+  for (const category of packageCategories) {
+    const categoryMeta = categoryBySlug.get(category.slug);
+    if (!categoryMeta) continue;
+
+    for (const template of packageTemplates) {
+      const packageName = `${category.packageNamePrefix} ${template.tier}`;
+      const packageSlug = `${category.packageSlugPrefix}-${template.tier}`;
+      const copyProfile = getCopyProfile(categoryMeta.copies);
+      const basePrice = category.tierPrices?.[template.tier] ?? template.basePrice;
+
+      const result = await prisma.package.upsert({
+        where: { slug: packageSlug },
+        update: {
+          categoryId: categoryMeta.id,
+          name: packageName,
+          description: template.description,
+          basePrice,
+          pageLimit: template.pageLimit,
+          includesISBN: template.includesISBN,
+          isActive: template.isActive,
+          sortOrder: categoryMeta.sortOrder * 10 + template.sortOrder,
+          features: {
+            items: [getCopyFeature(categoryMeta.copies), ...template.features],
+            copies: copyProfile,
+          },
+        },
+        create: {
+          categoryId: categoryMeta.id,
+          name: packageName,
+          slug: packageSlug,
+          description: template.description,
+          basePrice,
+          pageLimit: template.pageLimit,
+          includesISBN: template.includesISBN,
+          isActive: template.isActive,
+          sortOrder: categoryMeta.sortOrder * 10 + template.sortOrder,
+          features: {
+            items: [getCopyFeature(categoryMeta.copies), ...template.features],
+            copies: copyProfile,
+          },
+        },
+      });
+
+      console.log(`  ✔ Package: ${result.name} (category: ${category.name}, id: ${result.id})`);
+    }
+  }
+
+  const legacyResult = await prisma.package.updateMany({
+    where: { slug: { in: ["first-draft", "glow-up", "legacy"] } },
+    data: { isActive: false },
+  });
+
+  if (legacyResult.count > 0) {
+    console.log(
+      `  ℹ Deactivated ${legacyResult.count} legacy packages (First Draft, Glow Up, Legacy).`
+    );
+  }
+
+  console.log("\n✅ 2 package categories and 6 packages seeded.\n");
 }
 
 async function seedAddons() {
@@ -288,7 +411,7 @@ async function seedGateways() {
 }
 
 async function main() {
-  await seedPackages();
+  await seedPackageCatalog();
   await seedAddons();
   await seedGateways();
   console.log("🎉 All seeding complete.\n");
