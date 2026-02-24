@@ -21,13 +21,28 @@ export const PackageFeaturesSchema = z.object({
 export type PackageFeatures = z.infer<typeof PackageFeaturesSchema>;
 
 /**
- * Public package response shape returned by:
- *   GET /api/v1/packages
- *   GET /api/v1/packages/:id
+ * Public category summary shared in package payloads.
+ * Category-level `copies` is the fixed default copy count for that bundle family.
  */
-export const PackageResponseSchema = z.object({
+export const PackageCategorySummarySchema = z.object({
   id: z.string().cuid(),
   name: z.string(),
+  slug: z.string(),
+  description: z.string().nullable(),
+  copies: z.number().int().positive(),
+  isActive: z.boolean(),
+  sortOrder: z.number().int(),
+});
+
+export type PackageCategorySummary = z.infer<typeof PackageCategorySummarySchema>;
+
+/**
+ * Package fields shared between list/detail endpoints.
+ */
+export const PackageBaseResponseSchema = z.object({
+  id: z.string().cuid(),
+  name: z.string(),
+  slug: z.string(),
   description: z.string().nullable(),
   basePrice: z.number().nonnegative(),
   pageLimit: z.number().int().positive(),
@@ -37,4 +52,29 @@ export const PackageResponseSchema = z.object({
   sortOrder: z.number().int(),
 });
 
+export type PackageBaseResponse = z.infer<typeof PackageBaseResponseSchema>;
+
+/**
+ * Public package response shape returned by:
+ *   GET /api/v1/packages
+ *   GET /api/v1/packages/:id
+ *
+ * Includes category info so checkout can display bundle family details.
+ */
+export const PackageResponseSchema = PackageBaseResponseSchema.extend({
+  category: PackageCategorySummarySchema,
+});
+
 export type PackageResponse = z.infer<typeof PackageResponseSchema>;
+
+/**
+ * Public package-category response shape returned by:
+ *   GET /api/v1/package-categories
+ *
+ * Categories are returned with nested active packages for the pricing page.
+ */
+export const PackageCategoryResponseSchema = PackageCategorySummarySchema.extend({
+  packages: z.array(PackageBaseResponseSchema),
+});
+
+export type PackageCategoryResponse = z.infer<typeof PackageCategoryResponseSchema>;

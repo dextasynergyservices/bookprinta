@@ -9,7 +9,7 @@ import { ApiProperty } from "@nestjs/swagger";
  * exists purely for Swagger documentation.
  */
 
-class PackageFeaturesDto {
+export class PackageFeaturesDto {
   @ApiProperty({
     description: "List of feature descriptions included in this package",
     example: ["Professional formatting", "Custom cover design", "ISBN registration"],
@@ -30,7 +30,52 @@ class PackageFeaturesDto {
   copies!: { A4: number; A5: number; A6: number };
 }
 
-export class PackageResponseDto {
+export class PackageCategorySummaryDto {
+  @ApiProperty({
+    description: "Unique package category identifier (CUID)",
+    example: "cm1234567890abcdef1234567",
+  })
+  id!: string;
+
+  @ApiProperty({
+    description: "Package category name",
+    example: "Author Lunch",
+  })
+  name!: string;
+
+  @ApiProperty({
+    description: "URL-safe category slug",
+    example: "author-lunch",
+  })
+  slug!: string;
+
+  @ApiProperty({
+    description: "Category description shown on pricing page",
+    example: "For author-focused publishing bundles with fixed default copies.",
+    nullable: true,
+  })
+  description!: string | null;
+
+  @ApiProperty({
+    description: "Fixed default copy count for all packages in this category",
+    example: 25,
+  })
+  copies!: number;
+
+  @ApiProperty({
+    description: "Whether this category is currently active",
+    example: true,
+  })
+  isActive!: boolean;
+
+  @ApiProperty({
+    description: "Display order for categories on pricing page (ascending)",
+    example: 0,
+  })
+  sortOrder!: number;
+}
+
+export class PackageBaseResponseDto {
   @ApiProperty({
     description: "Unique package identifier (CUID)",
     example: "clxyz1234567890abcdef",
@@ -38,10 +83,16 @@ export class PackageResponseDto {
   id!: string;
 
   @ApiProperty({
-    description: "Package tier name",
-    example: "Glow Up",
+    description: "Package name",
+    example: "Author Launch 2",
   })
   name!: string;
+
+  @ApiProperty({
+    description: "URL-safe package slug",
+    example: "author-launch-2",
+  })
+  slug!: string;
 
   @ApiProperty({
     description: "Package description shown on the pricing page",
@@ -86,4 +137,12 @@ export class PackageResponseDto {
     example: 2,
   })
   sortOrder!: number;
+}
+
+export class PackageResponseDto extends PackageBaseResponseDto {
+  @ApiProperty({
+    description: "Category this package belongs to",
+    type: PackageCategorySummaryDto,
+  })
+  category!: PackageCategorySummaryDto;
 }

@@ -8,17 +8,31 @@ import { PackagesService } from "./packages.service.js";
 // Test data factories
 // ─────────────────────────────────────────────
 
-function makePackageRow(overrides: Record<string, unknown> = {}) {
+function makeCategoryRow(overrides: Record<string, unknown> = {}) {
   return {
-    id: "cltest00001",
-    name: "Glow Up",
-    description: "Perfect for authors who want a professional finish.",
-    basePrice: { toNumber: () => 150000 } as unknown, // Prisma Decimal mock
-    pageLimit: 200,
+    id: "cmcat00001",
+    name: "Author Lunch",
+    slug: "author-lunch",
+    description: "For author-focused publishing bundles with fixed default copies.",
+    copies: 25,
+    isActive: true,
+    sortOrder: 0,
+    ...overrides,
+  };
+}
+
+function makePackageBaseRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "cmpkg00001",
+    name: "Author Launch 2",
+    slug: "author-launch-2",
+    description: "For authors who want more",
+    basePrice: { toNumber: () => 125000 } as unknown, // Prisma Decimal mock
+    pageLimit: 150,
     includesISBN: true,
     features: {
-      items: ["Professional formatting", "Custom cover design", "ISBN registration"],
-      copies: { A4: 1, A5: 2, A6: 3 },
+      items: ["300gsm Cover", "80gsm pages", "Up to 150 pages"],
+      copies: { A4: 12, A5: 25, A6: 50 },
     },
     isActive: true,
     sortOrder: 1,
@@ -26,20 +40,68 @@ function makePackageRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function makePackageWithCategoryRow(overrides: Record<string, unknown> = {}) {
+  return {
+    ...makePackageBaseRow(),
+    category: makeCategoryRow(),
+    ...overrides,
+  };
+}
+
 function makeSerializedPackage(overrides: Record<string, unknown> = {}) {
   return {
-    id: "cltest00001",
-    name: "Glow Up",
-    description: "Perfect for authors who want a professional finish.",
-    basePrice: 150000,
-    pageLimit: 200,
+    id: "cmpkg00001",
+    name: "Author Launch 2",
+    slug: "author-launch-2",
+    description: "For authors who want more",
+    basePrice: 125000,
+    pageLimit: 150,
     includesISBN: true,
     features: {
-      items: ["Professional formatting", "Custom cover design", "ISBN registration"],
-      copies: { A4: 1, A5: 2, A6: 3 },
+      items: ["300gsm Cover", "80gsm pages", "Up to 150 pages"],
+      copies: { A4: 12, A5: 25, A6: 50 },
     },
     isActive: true,
     sortOrder: 1,
+    category: {
+      id: "cmcat00001",
+      name: "Author Lunch",
+      slug: "author-lunch",
+      description: "For author-focused publishing bundles with fixed default copies.",
+      copies: 25,
+      isActive: true,
+      sortOrder: 0,
+    },
+    ...overrides,
+  };
+}
+
+function makeSerializedCategory(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "cmcat00001",
+    name: "Author Lunch",
+    slug: "author-lunch",
+    description: "For author-focused publishing bundles with fixed default copies.",
+    copies: 25,
+    isActive: true,
+    sortOrder: 0,
+    packages: [
+      {
+        id: "cmpkg00001",
+        name: "Author Launch 2",
+        slug: "author-launch-2",
+        description: "For authors who want more",
+        basePrice: 125000,
+        pageLimit: 150,
+        includesISBN: true,
+        features: {
+          items: ["300gsm Cover", "80gsm pages", "Up to 150 pages"],
+          copies: { A4: 12, A5: 25, A6: 50 },
+        },
+        isActive: true,
+        sortOrder: 1,
+      },
+    ],
     ...overrides,
   };
 }
@@ -52,6 +114,9 @@ const mockPrismaService = {
   package: {
     findMany: jest.fn(),
     findUnique: jest.fn(),
+  },
+  packageCategory: {
+    findMany: jest.fn(),
   },
 };
 
@@ -68,8 +133,6 @@ describe("PackagesService", () => {
     }).compile();
 
     service = module.get<PackagesService>(PackagesService);
-
-    // Reset mocks between tests
     jest.clearAllMocks();
   });
 
@@ -78,61 +141,64 @@ describe("PackagesService", () => {
   // ─────────────────────────────────────
 
   describe("findAllActive", () => {
-    it("should return all active packages sorted by sortOrder", async () => {
-      const firstDraft = makePackageRow({
-        id: "cltest00002",
-        name: "First Draft",
-        basePrice: 75000,
-        sortOrder: 0,
-        includesISBN: false,
-      });
-      const glowUp = makePackageRow({ sortOrder: 1 });
-      const legacy = makePackageRow({
-        id: "cltest00003",
-        name: "Legacy",
-        basePrice: 250000,
-        sortOrder: 2,
-      });
-
-      mockPrismaService.package.findMany.mockResolvedValue([firstDraft, glowUp, legacy]);
+    it("should return active packages with category info", async () => {
+      mockPrismaService.package.findMany.mockResolvedValue([makePackageWithCategoryRow()]);
 
       const result = await service.findAllActive();
 
-      expect(result).toHaveLength(3);
-      expect(result[0].name).toBe("First Draft");
-      expect(result[1].name).toBe("Glow Up");
-      expect(result[2].name).toBe("Legacy");
-
-      // Verify Prisma was called with correct filters
+      expect(result).toEqual([makeSerializedPackage()]);
       expect(mockPrismaService.package.findMany).toHaveBeenCalledWith({
+        where: {
+          isActive: true,
+          category: { isActive: true },
+        },
+        orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }],
+        select: expect.objectContaining({
+          id: true,
+          name: true,
+          slug: true,
+          category: expect.any(Object),
+        }),
+      });
+    });
+  });
+
+  // ─────────────────────────────────────
+  // findAllActiveByCategory
+  // ─────────────────────────────────────
+
+  describe("findAllActiveByCategory", () => {
+    it("should return active categories with nested active packages", async () => {
+      mockPrismaService.packageCategory.findMany.mockResolvedValue([
+        {
+          ...makeCategoryRow(),
+          packages: [makePackageBaseRow()],
+        },
+      ]);
+
+      const result = await service.findAllActiveByCategory();
+
+      expect(result).toEqual([makeSerializedCategory()]);
+      expect(mockPrismaService.packageCategory.findMany).toHaveBeenCalledWith({
         where: { isActive: true },
         orderBy: { sortOrder: "asc" },
         select: expect.objectContaining({
           id: true,
           name: true,
-          basePrice: true,
-          isActive: true,
-          sortOrder: true,
+          packages: expect.objectContaining({
+            where: { isActive: true },
+            orderBy: { sortOrder: "asc" },
+          }),
         }),
       });
     });
 
-    it("should convert Prisma Decimal basePrice to a plain number", async () => {
-      const decimalMock = { toNumber: () => 150000, toString: () => "150000" };
-      mockPrismaService.package.findMany.mockResolvedValue([
-        makePackageRow({ basePrice: decimalMock }),
+    it("should omit categories that have no active packages", async () => {
+      mockPrismaService.packageCategory.findMany.mockResolvedValue([
+        { ...makeCategoryRow(), packages: [] },
       ]);
 
-      const result = await service.findAllActive();
-
-      expect(typeof result[0].basePrice).toBe("number");
-      expect(result[0].basePrice).toBe(150000);
-    });
-
-    it("should return an empty array when no active packages exist", async () => {
-      mockPrismaService.package.findMany.mockResolvedValue([]);
-
-      const result = await service.findAllActive();
+      const result = await service.findAllActiveByCategory();
 
       expect(result).toEqual([]);
     });
@@ -143,62 +209,49 @@ describe("PackagesService", () => {
   // ─────────────────────────────────────
 
   describe("findOneById", () => {
-    it("should return a single package by ID", async () => {
-      mockPrismaService.package.findUnique.mockResolvedValue(makePackageRow());
+    it("should return a single package with category info", async () => {
+      mockPrismaService.package.findUnique.mockResolvedValue(makePackageWithCategoryRow());
 
-      const result = await service.findOneById("cltest00001");
+      const result = await service.findOneById("cmpkg00001");
 
       expect(result).toEqual(makeSerializedPackage());
       expect(mockPrismaService.package.findUnique).toHaveBeenCalledWith({
-        where: { id: "cltest00001" },
-        select: expect.objectContaining({ id: true, name: true }),
+        where: { id: "cmpkg00001" },
+        select: expect.objectContaining({
+          id: true,
+          slug: true,
+          category: expect.any(Object),
+        }),
       });
-    });
-
-    it("should convert Prisma Decimal basePrice to a number", async () => {
-      mockPrismaService.package.findUnique.mockResolvedValue(makePackageRow());
-
-      const result = await service.findOneById("cltest00001");
-
-      expect(typeof result.basePrice).toBe("number");
-      expect(result.basePrice).toBe(150000);
     });
 
     it("should throw NotFoundException when package does not exist", async () => {
       mockPrismaService.package.findUnique.mockResolvedValue(null);
 
-      await expect(service.findOneById("clnonexistent")).rejects.toThrow(NotFoundException);
-      await expect(service.findOneById("clnonexistent")).rejects.toThrow(
-        'Package with ID "clnonexistent" not found'
+      await expect(service.findOneById("missing")).rejects.toThrow(NotFoundException);
+      await expect(service.findOneById("missing")).rejects.toThrow(
+        'Package with ID "missing" not found'
       );
     });
 
     it("should throw NotFoundException when package is inactive", async () => {
-      mockPrismaService.package.findUnique.mockResolvedValue(makePackageRow({ isActive: false }));
+      mockPrismaService.package.findUnique.mockResolvedValue(
+        makePackageWithCategoryRow({ isActive: false })
+      );
 
-      await expect(service.findOneById("cltest00001")).rejects.toThrow(NotFoundException);
-      await expect(service.findOneById("cltest00001")).rejects.toThrow("no longer available");
+      await expect(service.findOneById("cmpkg00001")).rejects.toThrow(NotFoundException);
+      await expect(service.findOneById("cmpkg00001")).rejects.toThrow("no longer available");
     });
 
-    it("should preserve null description", async () => {
-      mockPrismaService.package.findUnique.mockResolvedValue(makePackageRow({ description: null }));
+    it("should throw NotFoundException when package category is inactive", async () => {
+      mockPrismaService.package.findUnique.mockResolvedValue(
+        makePackageWithCategoryRow({
+          category: makeCategoryRow({ isActive: false }),
+        })
+      );
 
-      const result = await service.findOneById("cltest00001");
-
-      expect(result.description).toBeNull();
-    });
-
-    it("should preserve features JSON structure", async () => {
-      const features = {
-        items: ["Feature A", "Feature B"],
-        copies: { A4: 5, A5: 10, A6: 15 },
-      };
-      mockPrismaService.package.findUnique.mockResolvedValue(makePackageRow({ features }));
-
-      const result = await service.findOneById("cltest00001");
-
-      expect(result.features).toEqual(features);
-      expect(result.features.copies.A4).toBe(5);
+      await expect(service.findOneById("cmpkg00001")).rejects.toThrow(NotFoundException);
+      await expect(service.findOneById("cmpkg00001")).rejects.toThrow("no longer available");
     });
   });
 });

@@ -132,8 +132,9 @@ enum DiscountType {
 enum QuoteStatus {
   PENDING
   REVIEWING
-  PROPOSAL_SENT
-  ACCEPTED
+  PAYMENT_LINK_SENT   // Admin generated and sent unique payment link
+  PAID                // User paid via the payment link
+  COMPLETED           // Order fulfilled
   REJECTED
 }
 
@@ -197,25 +198,43 @@ model User {
 }
 
 // ==========================================
-// 3. PACKAGE
+// 3. PACKAGE CATEGORY & PACKAGE
 // ==========================================
 
-model Package {
-  id              String   @id @default(cuid())
-  name            String   @unique
-  description     String?  @db.Text        // Package description shown on pricing page
+model PackageCategory {
+  id          String    @id @default(cuid())
+  name        String    @unique         // e.g. "Author Launch", "Corporate Print"
+  slug        String    @unique
+  description String?   @db.Text
+  copies      Int                       // Fixed copy count for all packages in this category (e.g. 25)
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
 
-  basePrice       Decimal  @db.Decimal(10, 2)
-  pageLimit       Int
-  includesISBN    Boolean  @default(false)  // If true, ISBN addon is auto-selected + disabled + free at checkout
-  features        Json                      // Feature list + copy counts per size (A4/A5/A6)
-  isActive        Boolean  @default(true)
-  sortOrder       Int      @default(0)      // Display order on pricing page (ascending)
+  packages    Package[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Package {
+  id              String           @id @default(cuid())
+  categoryId      String
+  category        PackageCategory  @relation(fields: [categoryId], references: [id])
+
+  name            String           @unique        // e.g. "Author Launch 1", "Author Launch 2"
+  slug            String           @unique
+  description     String?          @db.Text
+
+  basePrice       Decimal          @db.Decimal(10, 2)
+  pageLimit       Int                              // Different page limits per package within same category
+  includesISBN    Boolean          @default(false) // If true, ISBN addon is auto-selected + disabled + free at checkout
+  features        Json                             // Feature list + details
+  isActive        Boolean          @default(true)
+  sortOrder       Int              @default(0)
 
   orders          Order[]
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  @@index([categoryId])
 }
 
 // ==========================================
@@ -256,6 +275,13 @@ model Order {
 
   // Order type: standard, reprint-same, or reprint-revised
   orderType         OrderType   @default(STANDARD)
+
+  // Custom Quote link: if order originated from Path B custom quote
+  customQuoteId     String?     @unique
+  customQuote       CustomQuote? @relation(fields: [customQuoteId], references: [id])
+
+  // Skip AI formatting + page count for custom quote orders (price already agreed offline)
+  skipFormatting    Boolean     @default(false)
 
   // Reprint: links back to the original book's finalPdfUrl
   // Only set when orderType = REPRINT_SAME
@@ -311,10 +337,14 @@ model Order {
   payments          Payment[]
   addons            OrderAddon[]
 
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
   @@index([userId])
   @@index([status])
   @@index([orderNumber])
 }
+
 
 // ==========================================
 // 6. BOOK
@@ -440,42 +470,58 @@ model Payment {
 // ==========================================
 
 model CustomQuote {
-  id                String      @id @default(cuid())
+  id                  String      @id @default(cuid())
 
-  userId            String?
-  user              User?       @relation(fields: [userId], references: [id])
+  userId              String?
+  user                User?       @relation(fields: [userId], references: [id])
 
-  fullName          String
-  email             String
-  phone             String
-  organization      String?
+  // Step 1: Your Manuscript
+  workingTitle        String
+  estimatedWordCount  Int
 
-  workingTitle      String
-  genre             String
-  estimatedPages    Int
+  // Step 2: Book Print
+  bookPrintSize       String           // "A4" | "A5" | "A6"
+  quantity            Int              // Number of copies (typed by user)
+  coverType           String           @default("paperback") // "paperback" (pre-checked)
 
-  bookSize          String
-  quantity          String
-  coverType         String
-  specialReqs       Json
+  // Step 3: Special Requirements
+  hasSpecialReqs      Boolean          @default(false) // If true, skip price estimator
+  specialReqs         Json?            // Array of selected: ["hardback", "embossing", "gold_foil", "special_size", "full_color_interior", "special_paper", "other"]
+  specialReqsOther    String?          @db.Text  // Free text when "other" is selected
 
-  deadline          DateTime?
-  isEventSpecific   Boolean     @default(false)
-  eventName         String?
-  budgetRange       String
+  // Step 4: Contact Information
+  fullName            String
+  email               String
+  phone               String           // WhatsApp number
 
-  sampleImageUrl    String?
-  manuscriptUrl     String?
-  additionalDetails String?     @db.Text
+  // Price Estimator (only calculated when hasSpecialReqs = false)
+  // Formula (A5 base): ((NP + 10) × CPP + C) × Q × 1.35
+  // NP = estimatedWordCount / 200
+  // A4 = result × 2, A5 = result × 1, A6 = result / 2
+  // Estimate shown as range: Total ± ₦5,000
+  estimatedPriceLow   Decimal?         @db.Decimal(10, 2) // Total - 5000
+  estimatedPriceHigh  Decimal?         @db.Decimal(10, 2) // Total + 5000
 
-  status            QuoteStatus @default(PENDING)
-  adminNotes        String?
-  proposalUrl       String?
-  finalPrice        Decimal?    @db.Decimal(10, 2)
+  // Admin processing
+  status              QuoteStatus      @default(PENDING)
+  adminNotes          String?          @db.Text
+  finalPrice          Decimal?         @db.Decimal(10, 2)
 
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  // Admin-generated unique payment link
+  paymentLinkToken    String?          @unique   // Unique token for the payment link URL
+  paymentLinkUrl      String?                    // Full payment link sent to user
+  paymentLinkExpiresAt DateTime?                 // Expiry for the payment link
+
+  // Resulting order (created when user pays via payment link)
+  order               Order?
+
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([email])
+  @@index([status])
 }
+
 
 // ==========================================
 // 10. JOB PERSISTENCE
