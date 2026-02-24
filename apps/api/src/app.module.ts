@@ -65,7 +65,7 @@ import { ScannerModule } from "./scanner/scanner.module.js";
     // Health check endpoints (keep-alive for UptimeRobot, detailed status)
     HealthModule,
 
-    // Public package/tier endpoints (First Draft, Glow Up, Legacy)
+    // Public package category + package endpoints (pricing bundles)
     PackagesModule,
 
     // Public addon endpoints (Cover Design, Formatting, ISBN Registration)
