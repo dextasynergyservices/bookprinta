@@ -393,8 +393,8 @@ model Payment {
   orderId         String?
   order           Order?          @relation(fields: [orderId], references: [id])
 
-  userId          String
-  user            User            @relation(fields: [userId], references: [id])
+  userId          String?
+  user            User?           @relation(fields: [userId], references: [id])
 
   provider        PaymentProvider
   type            PaymentType
