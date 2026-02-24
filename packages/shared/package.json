@@ -1,11 +1,27 @@
 {
   "name": "@bookprinta/shared",
-  "module": "index.ts",
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./index.ts",
-    "./schemas/*": "./schemas/*"
+    ".": {
+      "bun": "./index.ts",
+      "types": "./index.ts",
+      "default": "./dist/index.js"
+    },
+    "./schemas/*.ts": {
+      "bun": "./schemas/*.ts",
+      "types": "./schemas/*.ts",
+      "default": "./dist/schemas/*.js"
+    },
+    "./schemas/*": {
+      "bun": "./schemas/*",
+      "types": "./schemas/*",
+      "default": "./dist/schemas/*.js"
+    }
+  },
+  "scripts": {
+    "build": "bun run build.ts",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/bun": "latest"
