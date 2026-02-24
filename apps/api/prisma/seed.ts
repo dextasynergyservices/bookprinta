@@ -11,11 +11,11 @@ const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
 // ──────────────────────────────────────────────
-// Package seed data (First Draft → Glow Up → Legacy)
+// Package Category + Package seed data
 // ──────────────────────────────────────────────
 
-interface PackageSeed {
-  name: string;
+interface PackageTemplateSeed {
+  tier: 1 | 2 | 3;
   basePrice: number;
   pageLimit: number;
   description: string;
@@ -25,9 +25,21 @@ interface PackageSeed {
   features: string[];
 }
 
-const packages: PackageSeed[] = [
+interface PackageCategorySeed {
+  name: string;
+  slug: string;
+  description: string;
+  copies: number;
+  tierPrices?: Partial<Record<PackageTemplateSeed["tier"], number>>;
+  sortOrder: number;
+  isActive: boolean;
+  packageNamePrefix: string;
+  packageSlugPrefix: string;
+}
+
+const packageTemplates: PackageTemplateSeed[] = [
   {
-    name: "First Draft",
+    tier: 1,
     basePrice: 75_000,
     pageLimit: 100,
     description: "For authors starting out",
@@ -35,7 +47,6 @@ const packages: PackageSeed[] = [
     isActive: true,
     sortOrder: 0,
     features: [
-      "25 copies, A5 size (or 50 copies, A6 size, or 12 copies, A4 size)",
       "300gsm Cover",
       "80gsm pages",
       "Up to 100 pages",
@@ -46,7 +57,7 @@ const packages: PackageSeed[] = [
     ],
   },
   {
-    name: "Glow Up",
+    tier: 2,
     basePrice: 125_000,
     pageLimit: 150,
     description: "For authors who want more",
@@ -54,7 +65,6 @@ const packages: PackageSeed[] = [
     isActive: true,
     sortOrder: 1,
     features: [
-      "35 copies, A5 size (or 70 copies, A6 size, or 15 copies, A4 size)",
       "300gsm Cover",
       "80gsm pages",
       "Up to 150 pages",
@@ -68,7 +78,7 @@ const packages: PackageSeed[] = [
     ],
   },
   {
-    name: "Legacy",
+    tier: 3,
     basePrice: 200_000,
     pageLimit: 200,
     description: "For authors concerned about legacy",
@@ -76,7 +86,6 @@ const packages: PackageSeed[] = [
     isActive: true,
     sortOrder: 2,
     features: [
-      "50 copies, A5 size (or 100 copies, A6 size, or 25 copies, A4 size)",
       "300gsm Cover",
       "80gsm pages",
       "Up to 200 pages",
@@ -94,29 +103,318 @@ const packages: PackageSeed[] = [
   },
 ];
 
-async function main() {
-  console.log("🌱 Seeding packages...\n");
+const packageCategories: PackageCategorySeed[] = [
+  {
+    name: "Author Lunch",
+    slug: "author-lunch",
+    description: "For author-focused publishing bundles with fixed default copies.",
+    copies: 25,
+    sortOrder: 0,
+    isActive: true,
+    packageNamePrefix: "Author Launch",
+    packageSlugPrefix: "author-launch",
+  },
+  {
+    name: "Dexta Lunch",
+    slug: "dexta-lunch",
+    description: "For Dexta-focused publishing bundles with fixed default copies.",
+    copies: 35,
+    tierPrices: {
+      1: 250_000,
+      2: 300_000,
+      3: 350_000,
+    },
+    sortOrder: 1,
+    isActive: true,
+    packageNamePrefix: "Dexta Launch",
+    packageSlugPrefix: "dexta-launch",
+  },
+];
 
-  for (const pkg of packages) {
-    const result = await prisma.package.upsert({
-      where: { name: pkg.name },
-      update: {},
+const copyProfiles: Record<number, { A4: number; A5: number; A6: number }> = {
+  25: { A4: 12, A5: 25, A6: 50 },
+  35: { A4: 15, A5: 35, A6: 70 },
+};
+
+function getCopyProfile(copies: number): { A4: number; A5: number; A6: number } {
+  const profile = copyProfiles[copies];
+  if (profile) return profile;
+  return { A4: copies, A5: copies, A6: copies };
+}
+
+function getCopyFeature(copies: number): string {
+  const profile = getCopyProfile(copies);
+  return `${profile.A5} copies, A5 size (or ${profile.A6} copies, A6 size, or ${profile.A4} copies, A4 size)`;
+}
+
+// ──────────────────────────────────────────────
+// Addon seed data (Cover Design → Content Formatting → ISBN + Barcode)
+// ──────────────────────────────────────────────
+// Notes:
+// - "fixed" addons: `price` is the flat NGN cost, `pricePerWord` is null.
+// - "per_word" addons: `price` is 0.00 (placeholder — actual cost = wordCount × pricePerWord
+//   at checkout), `pricePerWord` is the per-word rate.
+// - ISBN + Barcode price is only charged when the user's selected package has
+//   includesISBN: false. When true (Glow Up, Legacy), the addon is auto-selected,
+//   disabled, and its price is NOT added to the order total. That logic lives in the
+//   checkout UI / pricing calculator, not here.
+// ──────────────────────────────────────────────
+
+interface AddonSeed {
+  name: string;
+  slug: string;
+  description: string;
+  pricingType: string;
+  price: number;
+  pricePerWord: number | null;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+const addons: AddonSeed[] = [
+  {
+    name: "Cover Design",
+    slug: "cover-design",
+    description:
+      "Professional cover design by our in-house design team. Includes 2 revision rounds.",
+    pricingType: "fixed",
+    price: 45_000.0,
+    pricePerWord: null,
+    sortOrder: 1,
+    isActive: true,
+  },
+  {
+    name: "Content Formatting",
+    slug: "content-formatting",
+    description:
+      "We format your raw manuscript into a professionally typeset, print-ready layout. Priced per word.",
+    pricingType: "per_word",
+    price: 0.0,
+    pricePerWord: 0.5,
+    sortOrder: 2,
+    isActive: true,
+  },
+  {
+    name: "ISBN + Barcode",
+    slug: "isbn-barcode",
+    description:
+      "Official ISBN registration and barcode for your book, enabling distribution to bookstores and libraries.",
+    pricingType: "fixed",
+    price: 15_000.0,
+    pricePerWord: null,
+    sortOrder: 3,
+    isActive: true,
+  },
+];
+
+async function seedPackageCatalog() {
+  console.log("🌱 Seeding package categories and packages...\n");
+
+  const categoryBySlug = new Map<string, { id: string; copies: number; sortOrder: number }>();
+
+  for (const category of packageCategories) {
+    const result = await prisma.packageCategory.upsert({
+      where: { slug: category.slug },
+      update: {
+        name: category.name,
+        description: category.description,
+        copies: category.copies,
+        sortOrder: category.sortOrder,
+        isActive: category.isActive,
+      },
       create: {
-        name: pkg.name,
-        basePrice: pkg.basePrice,
-        pageLimit: pkg.pageLimit,
-        description: pkg.description,
-        includesISBN: pkg.includesISBN,
-        isActive: pkg.isActive,
-        sortOrder: pkg.sortOrder,
-        features: pkg.features,
+        name: category.name,
+        slug: category.slug,
+        description: category.description,
+        copies: category.copies,
+        sortOrder: category.sortOrder,
+        isActive: category.isActive,
       },
     });
 
-    console.log(`  ✔ ${result.name} (id: ${result.id})`);
+    categoryBySlug.set(category.slug, {
+      id: result.id,
+      copies: result.copies,
+      sortOrder: result.sortOrder,
+    });
+
+    console.log(`  ✔ Category: ${result.name} (${result.copies} copies, id: ${result.id})`);
   }
 
-  console.log("\n✅ Seeding complete — 3 packages created.\n");
+  for (const category of packageCategories) {
+    const categoryMeta = categoryBySlug.get(category.slug);
+    if (!categoryMeta) continue;
+
+    for (const template of packageTemplates) {
+      const packageName = `${category.packageNamePrefix} ${template.tier}`;
+      const packageSlug = `${category.packageSlugPrefix}-${template.tier}`;
+      const copyProfile = getCopyProfile(categoryMeta.copies);
+      const basePrice = category.tierPrices?.[template.tier] ?? template.basePrice;
+
+      const result = await prisma.package.upsert({
+        where: { slug: packageSlug },
+        update: {
+          categoryId: categoryMeta.id,
+          name: packageName,
+          description: template.description,
+          basePrice,
+          pageLimit: template.pageLimit,
+          includesISBN: template.includesISBN,
+          isActive: template.isActive,
+          sortOrder: categoryMeta.sortOrder * 10 + template.sortOrder,
+          features: {
+            items: [getCopyFeature(categoryMeta.copies), ...template.features],
+            copies: copyProfile,
+          },
+        },
+        create: {
+          categoryId: categoryMeta.id,
+          name: packageName,
+          slug: packageSlug,
+          description: template.description,
+          basePrice,
+          pageLimit: template.pageLimit,
+          includesISBN: template.includesISBN,
+          isActive: template.isActive,
+          sortOrder: categoryMeta.sortOrder * 10 + template.sortOrder,
+          features: {
+            items: [getCopyFeature(categoryMeta.copies), ...template.features],
+            copies: copyProfile,
+          },
+        },
+      });
+
+      console.log(`  ✔ Package: ${result.name} (category: ${category.name}, id: ${result.id})`);
+    }
+  }
+
+  const legacyResult = await prisma.package.updateMany({
+    where: { slug: { in: ["first-draft", "glow-up", "legacy"] } },
+    data: { isActive: false },
+  });
+
+  if (legacyResult.count > 0) {
+    console.log(
+      `  ℹ Deactivated ${legacyResult.count} legacy packages (First Draft, Glow Up, Legacy).`
+    );
+  }
+
+  console.log("\n✅ 2 package categories and 6 packages seeded.\n");
+}
+
+async function seedAddons() {
+  console.log("🌱 Seeding addons...\n");
+
+  for (const addon of addons) {
+    const result = await prisma.addon.upsert({
+      where: { slug: addon.slug },
+      update: {},
+      create: {
+        name: addon.name,
+        slug: addon.slug,
+        description: addon.description,
+        pricingType: addon.pricingType,
+        price: addon.price,
+        pricePerWord: addon.pricePerWord,
+        sortOrder: addon.sortOrder,
+        isActive: addon.isActive,
+      },
+    });
+
+    console.log(`  ✔ ${result.name} [${result.pricingType}] (id: ${result.id})`);
+  }
+
+  console.log("\n✅ 3 addons seeded.\n");
+}
+
+// ──────────────────────────────────────────────
+// Payment Gateway seed data
+// ──────────────────────────────────────────────
+// Each record corresponds to a PaymentProvider enum value.
+// Keys are intentionally NULL — they come from env vars at runtime.
+// These rows let the admin panel toggle gateways on/off and control
+// test-mode independently of whether API keys are configured.
+// ──────────────────────────────────────────────
+
+interface GatewaySeed {
+  provider: string;
+  name: string;
+  isEnabled: boolean;
+  isTestMode: boolean;
+  priority: number;
+  instructions?: string;
+  bankDetails?: Record<string, string>;
+}
+
+const gateways: GatewaySeed[] = [
+  {
+    provider: "PAYSTACK",
+    name: "Paystack",
+    isEnabled: true,
+    isTestMode: true,
+    priority: 1,
+  },
+  {
+    provider: "STRIPE",
+    name: "Stripe",
+    isEnabled: true,
+    isTestMode: true,
+    priority: 2,
+  },
+  {
+    provider: "PAYPAL",
+    name: "PayPal",
+    isEnabled: false,
+    isTestMode: true,
+    priority: 3,
+  },
+  {
+    provider: "BANK_TRANSFER",
+    name: "Bank Transfer",
+    isEnabled: true,
+    isTestMode: false,
+    priority: 0,
+    instructions:
+      "Transfer the exact amount to the account below. Upload your receipt after payment.",
+    bankDetails: {
+      bankName: "Access Bank",
+      accountName: "BookPrinta Limited",
+      accountNumber: "0123456789",
+    },
+  },
+];
+
+async function seedGateways() {
+  console.log("🌱 Seeding payment gateways...\n");
+
+  for (const gw of gateways) {
+    const result = await prisma.paymentGateway.upsert({
+      where: { provider: gw.provider as never },
+      update: {},
+      create: {
+        provider: gw.provider as never,
+        name: gw.name,
+        isEnabled: gw.isEnabled,
+        isTestMode: gw.isTestMode,
+        priority: gw.priority,
+        instructions: gw.instructions ?? null,
+        bankDetails: gw.bankDetails ?? undefined,
+      },
+    });
+
+    const status = result.isEnabled ? "enabled" : "disabled";
+    const mode = result.isTestMode ? "test" : "live";
+    console.log(`  ✔ ${result.name} [${status}, ${mode}] (id: ${result.id})`);
+  }
+
+  console.log("\n✅ 4 payment gateways seeded.\n");
+}
+
+async function main() {
+  await seedPackageCatalog();
+  await seedAddons();
+  await seedGateways();
+  console.log("🎉 All seeding complete.\n");
 }
 
 main()

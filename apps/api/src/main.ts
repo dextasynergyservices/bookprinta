@@ -9,7 +9,9 @@ import { AppModule } from "./app.module.js";
 
 async function bootstrap() {
   // Buffer early logs so nothing is lost before Pino is initialised
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // rawBody: true — preserves the raw request body for Stripe webhook signature verification.
+  // NestJS stores it on req.rawBody; only routes using @RawBodyRequest<Request> access it.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
 
   // Swap NestJS's default ConsoleLogger for Pino (structured logging)
   const logger = app.get(Logger);

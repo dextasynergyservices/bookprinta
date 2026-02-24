@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { AddonsModule } from "./addons/addons.module.js";
 import { AppController } from "./app.controller.js";
 import { AppService } from "./app.service.js";
 import { AuthModule } from "./auth/auth.module.js";
@@ -11,8 +12,10 @@ import { HealthModule } from "./health/health.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { LoggerModule } from "./logger/logger.module.js";
 import { PackagesModule } from "./packages/packages.module.js";
+import { PaymentsModule } from "./payments/payments.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { RedisModule } from "./redis/redis.module.js";
+import { ScannerModule } from "./scanner/scanner.module.js";
 
 @Module({
   imports: [
@@ -50,7 +53,10 @@ import { RedisModule } from "./redis/redis.module.js";
     // Authentication & authorization
     AuthModule,
 
-    // File upload & management (signed Cloudinary uploads)
+    // Global malware scanning (ClamAV local / VirusTotal production)
+    ScannerModule,
+
+    // File upload & management (backend proxy with ClamAV/VirusTotal scanning)
     FilesModule,
 
     // Public contact form submissions
@@ -59,8 +65,14 @@ import { RedisModule } from "./redis/redis.module.js";
     // Health check endpoints (keep-alive for UptimeRobot, detailed status)
     HealthModule,
 
-    // Public package/tier endpoints (First Draft, Glow Up, Legacy)
+    // Public package category + package endpoints (pricing bundles)
     PackagesModule,
+
+    // Public addon endpoints (Cover Design, Formatting, ISBN Registration)
+    AddonsModule,
+
+    // Payment processing & webhook handlers (Paystack, Stripe, PayPal, Bank Transfer)
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [
