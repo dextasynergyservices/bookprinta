@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/redis.service.js";
+import { ScannerService } from "../scanner/scanner.service.js";
 
 @Injectable()
 export class HealthService {
@@ -8,7 +9,8 @@ export class HealthService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redisService: RedisService
+    private readonly redisService: RedisService,
+    private readonly scanner: ScannerService
   ) {}
 
   /**
@@ -58,7 +60,10 @@ export class HealthService {
    * Used for monitoring dashboards and debugging.
    */
   async detailedStatus() {
-    const results: Record<string, { status: string; latencyMs?: number; error?: string }> = {};
+    const results: Record<
+      string,
+      { status: string; latencyMs?: number; error?: string; provider?: string }
+    > = {};
 
     // Helper: race a promise against a timeout
     const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
@@ -124,6 +129,26 @@ export class HealthService {
       }
     } else {
       results.gotenberg = { status: "not_configured", latencyMs: 0 };
+    }
+
+    // Scanner (ClamAV or VirusTotal) — 10s timeout
+    const scannerStart = Date.now();
+    try {
+      const available = await withTimeout(this.scanner.isAvailable(), 10000, "Scanner");
+      results.scanner = {
+        status: available ? "ok" : "error",
+        latencyMs: Date.now() - scannerStart,
+        ...(available ? {} : { error: "Scanner is not reachable" }),
+        provider: this.scanner.getProviderName(),
+      };
+    } catch (error) {
+      results.scanner = {
+        status: "error",
+        latencyMs: Date.now() - scannerStart,
+        error: error instanceof Error ? error.message : "Unknown error",
+        provider: this.scanner.getProviderName(),
+      };
+      this.logger.warn("Scanner health check failed", error);
     }
 
     const allHealthy = Object.values(results).every(

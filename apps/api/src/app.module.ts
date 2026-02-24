@@ -12,8 +12,10 @@ import { HealthModule } from "./health/health.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { LoggerModule } from "./logger/logger.module.js";
 import { PackagesModule } from "./packages/packages.module.js";
+import { PaymentsModule } from "./payments/payments.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { RedisModule } from "./redis/redis.module.js";
+import { ScannerModule } from "./scanner/scanner.module.js";
 
 @Module({
   imports: [
@@ -51,7 +53,10 @@ import { RedisModule } from "./redis/redis.module.js";
     // Authentication & authorization
     AuthModule,
 
-    // File upload & management (signed Cloudinary uploads)
+    // Global malware scanning (ClamAV local / VirusTotal production)
+    ScannerModule,
+
+    // File upload & management (backend proxy with ClamAV/VirusTotal scanning)
     FilesModule,
 
     // Public contact form submissions
@@ -65,6 +70,9 @@ import { RedisModule } from "./redis/redis.module.js";
 
     // Public addon endpoints (Cover Design, Formatting, ISBN Registration)
     AddonsModule,
+
+    // Payment processing & webhook handlers (Paystack, Stripe, PayPal, Bank Transfer)
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [

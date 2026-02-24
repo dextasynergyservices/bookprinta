@@ -1,7 +1,2 @@
-export type { ConfirmUploadInput, GenerateSignatureInput } from "./files.dto.js";
-export {
-  ConfirmUploadDto,
-  ConfirmUploadSchema,
-  GenerateSignatureDto,
-  GenerateSignatureSchema,
-} from "./files.dto.js";
+export type { UploadFileInput } from "./files.dto.js";
+export { UploadFileDto, UploadFileSchema } from "./files.dto.js";

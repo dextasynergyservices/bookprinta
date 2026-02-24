@@ -46,7 +46,7 @@ export class HealthController {
   @ApiOperation({
     summary: "Detailed service status",
     description:
-      "Pings database (Neon PostgreSQL), Redis (Upstash), and Gotenberg (PDF engine) to verify connectivity. " +
+      "Pings database (Neon PostgreSQL), Redis (Upstash), Gotenberg (PDF engine), and Scanner (ClamAV/VirusTotal) to verify connectivity. " +
       "Returns per-service latency and overall health status (ok / degraded).",
   })
   @ApiResponse({
@@ -80,6 +80,14 @@ export class HealthController {
               properties: {
                 status: { type: "string", example: "ok" },
                 latencyMs: { type: "number", example: 45 },
+              },
+            },
+            scanner: {
+              type: "object",
+              properties: {
+                status: { type: "string", example: "ok" },
+                latencyMs: { type: "number", example: 20 },
+                provider: { type: "string", example: "clamav" },
               },
             },
           },
