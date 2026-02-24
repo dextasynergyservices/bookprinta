@@ -29,6 +29,9 @@ RUN bun install
 # Generate Prisma client
 RUN cd apps/api && bun x prisma generate
 
+# Build the shared package (must come before API runtime starts)
+RUN cd packages/shared && bun run build
+
 # Build the emails package (must come before API build)
 RUN cd packages/emails && bun run build
 
