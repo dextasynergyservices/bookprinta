@@ -1,6 +1,7 @@
 "use client";
 
 import { MenuIcon } from "lucide-react";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
@@ -75,15 +76,15 @@ export function Navbar() {
       >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:h-20 lg:px-8">
           {/* Logo */}
-          <Link
-            href="/"
-            className={cn(
-              "font-display shrink-0 text-lg font-bold tracking-tight lg:text-xl transition-colors duration-300",
-              "text-primary-foreground"
-            )}
-            aria-label="BookPrinta — Home"
-          >
-            BookPrinta
+          <Link href="/" className="shrink-0" aria-label="BookPrinta — Home">
+            <Image
+              src="/logo-main-white.png"
+              alt="BookPrinta"
+              width={180}
+              height={48}
+              priority
+              className="h-8 w-auto lg:h-10"
+            />
           </Link>
 
           {/* Desktop nav links */}
@@ -96,11 +97,7 @@ export function Navbar() {
                   href={href}
                   className={cn(
                     "font-display relative px-3 py-2 text-sm font-medium tracking-wide transition-colors duration-300",
-                    isActive
-                      ? "text-accent"
-                      : isScrolled
-                        ? "text-primary-foreground/70 hover:text-primary-foreground"
-                        : "text-primary-foreground/70 hover:text-primary-foreground"
+                    isActive ? "text-accent" : "text-dexta hover:text-accent"
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
@@ -121,9 +118,7 @@ export function Navbar() {
               href="/login"
               className={cn(
                 "font-display px-3 py-2 text-sm font-medium transition-colors duration-300",
-                isScrolled
-                  ? "text-primary-foreground/70 hover:text-primary-foreground"
-                  : "text-primary-foreground/70 hover:text-primary-foreground"
+                "text-primary-foreground hover:text-primary-foreground"
               )}
             >
               {t("login")}
@@ -143,9 +138,7 @@ export function Navbar() {
               href="/login"
               className={cn(
                 "font-display min-h-[44px] inline-flex items-center px-2 text-sm font-medium transition-colors duration-300",
-                isScrolled
-                  ? "text-primary-foreground/70 hover:text-primary-foreground"
-                  : "text-primary-foreground/70 hover:text-primary-foreground"
+                "text-primary-foreground/90 hover:text-primary-foreground"
               )}
             >
               {t("login")}
@@ -156,7 +149,7 @@ export function Navbar() {
               className={cn(
                 "font-display inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 text-sm font-medium transition-colors duration-300",
                 isScrolled
-                  ? "text-primary-foreground/80 hover:text-primary-foreground"
+                  ? "text-dexta hover:text-primary-foreground"
                   : "text-primary-foreground/80 hover:text-primary-foreground"
               )}
               aria-label="Open navigation menu"
