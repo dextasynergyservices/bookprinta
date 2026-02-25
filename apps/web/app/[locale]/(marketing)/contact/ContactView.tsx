@@ -3,19 +3,11 @@
 import { motion, useScroll, useTransform } from "framer-motion";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import {
-  ArrowRightIcon,
-  ClockIcon,
-  MailIcon,
-  MapPinIcon,
-  MessageCircleIcon,
-  PhoneIcon,
-} from "lucide-react";
+import { ClockIcon, MailIcon, MapPinIcon, MessageCircleIcon, PhoneIcon } from "lucide-react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 import { ContactForm } from "@/components/marketing/contact/ContactForm";
-import { SectionCrossfade } from "@/components/marketing/faq/FaqAccordionItem";
 import { ScrollProgress } from "@/components/marketing/showcase/ScrollProgress";
 import { useLenis } from "@/hooks/use-lenis";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -394,7 +386,7 @@ export function ContactView() {
         {/* ════════════════════════════════════════════════════════════
             Section transition
             ════════════════════════════════════════════════════════════ */}
-        <SectionCrossfade from="dark" to="accent" />
+        {/* <SectionCrossfade from="dark" to="accent" /> */}
 
         {/* ════════════════════════════════════════════════════════════
             CTA — Accent blue band with text split reveal
@@ -427,11 +419,11 @@ export function ContactView() {
             >
               <Link
                 href="/pricing"
-                className="group inline-flex items-center gap-2 border-2 border-white bg-transparent px-8 py-4 font-sans text-sm font-semibold uppercase tracking-wider text-white transition-all duration-300 hover:bg-white hover:text-accent"
+                className="group relative inline-flex items-center justify-center overflow-hidden rounded-full border-2 border-white/80 bg-transparent px-10 py-4 font-display text-sm font-bold tracking-wide text-white transition-all duration-300 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-white/20 md:px-12 md:py-5"
               >
-                {t("cta_button")}
-                <ArrowRightIcon
-                  className="size-4 transition-transform duration-300 group-hover:translate-x-1"
+                <span className="relative z-10">{t("cta_button")}</span>
+                <div
+                  className="absolute inset-0 z-0 bg-white/10 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
                   aria-hidden="true"
                 />
               </Link>
