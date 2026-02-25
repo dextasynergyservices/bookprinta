@@ -1,68 +1,73 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown } from "lucide-react";
+import { motion } from "framer-motion";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
-import { cn } from "@/lib/utils";
 
-const faqs = [
-  { q: "q1", a: "a1" },
-  { q: "q4", a: "a4" },
-  { q: "q6", a: "a6" },
-  { q: "q8", a: "a8" },
+import { FaqAccordionItem, FaqCategoryHeading } from "@/components/marketing/faq/FaqAccordionItem";
+import { Accordion } from "@/components/ui/accordion";
+import { Link } from "@/lib/i18n/navigation";
+
+// Pricing-related FAQ items — subset of the full FAQ page
+const PRICING_FAQS = [
+  {
+    qKey: "q1",
+    aKey: "a1",
+    relatedLinks: [{ labelKey: "link_showcase", href: "/showcase" }],
+  },
+  {
+    qKey: "q4",
+    aKey: "a4",
+    relatedLinks: [{ labelKey: "link_pricing", href: "/pricing" }],
+  },
+  {
+    qKey: "q6",
+    aKey: "a6",
+    relatedLinks: [{ labelKey: "link_pricing", href: "/pricing" }],
+  },
+  {
+    qKey: "q8",
+    aKey: "a8",
+    relatedLinks: [{ labelKey: "link_contact", href: "/contact" }],
+  },
 ];
 
 export function PricingFAQ() {
   const t = useTranslations("faq");
-  // biome-ignore lint/suspicious/noExplicitAny: string union state
-  const [openIndex, setOpenIndex] = useState<any>(faqs[0].q);
 
   return (
-    <div className="mx-auto max-w-3xl px-5">
-      <div className="divide-y divide-secondary border-y border-secondary">
-        {faqs.map((faq) => {
-          const isOpen = openIndex === faq.q;
+    <div className="mx-auto max-w-3xl px-5 md:px-10 lg:px-14">
+      <Accordion type="single" collapsible className="w-full">
+        <FaqCategoryHeading>{t("category_pricing")}</FaqCategoryHeading>
 
-          return (
-            <div key={faq.q} className="group">
-              <button
-                type="button"
-                onClick={() => setOpenIndex(isOpen ? null : (faq.q as any))}
-                className="flex w-full items-center justify-between py-6 text-left focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary rounded-sm"
-              >
-                <span className="font-display text-lg font-bold text-primary-foreground transition-colors group-hover:text-accent">
-                  {/* biome-ignore lint/suspicious/noExplicitAny: Intentional cast for next-intl keys */}
-                  {t(faq.q as any)}
-                </span>
-                <ChevronDown
-                  className={cn(
-                    "size-5 shrink-0 text-primary-foreground/50 transition-transform duration-300",
-                    isOpen && "rotate-180 text-accent"
-                  )}
-                />
-              </button>
+        {PRICING_FAQS.map((faq, i) => (
+          <FaqAccordionItem
+            key={faq.qKey}
+            value={faq.qKey}
+            question={t(faq.qKey)}
+            answer={t(faq.aKey)}
+            index={i}
+            displayNumber={i + 1}
+            relatedLinks={faq.relatedLinks}
+          />
+        ))}
+      </Accordion>
 
-              <AnimatePresence initial={false}>
-                {isOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="overflow-hidden"
-                  >
-                    <p className="pb-6 font-serif text-primary-foreground/70 leading-relaxed min-h-[44px]">
-                      {/* biome-ignore lint/suspicious/noExplicitAny: Intentional cast for next-intl keys */}
-                      {t(faq.a as any)}
-                    </p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          );
-        })}
-      </div>
+      {/* Link to full FAQ page */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+        className="mt-10 text-center"
+      >
+        <Link
+          href="/faq"
+          className="inline-flex items-center gap-2 rounded-full border border-white/10 px-6 py-3 font-display text-sm font-semibold text-primary-foreground/60 transition-all duration-200 hover:border-accent/50 hover:text-accent"
+        >
+          {t("see_all_faqs")}
+          <span aria-hidden="true">→</span>
+        </Link>
+      </motion.div>
     </div>
   );
 }

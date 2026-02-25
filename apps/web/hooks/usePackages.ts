@@ -1,79 +1,84 @@
 import { useQuery } from "@tanstack/react-query";
 
-export type PackageFeature = {
-  name: string;
-  included: boolean;
-  value?: string;
-  group?: string; // e.g. "Print Specs", "Extras"
-  originalText?: string;
+function getApiV1BaseUrl() {
+  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
+
+  if (base.endsWith("/api/v1")) return base;
+  if (base.endsWith("/api")) return `${base}/v1`;
+  return `${base}/api/v1`;
+}
+
+const API_V1_BASE_URL = getApiV1BaseUrl();
+
+// ─── Types matching the new API shape (PackageCategoryResponse) ───
+
+export type PackageCopies = {
+  A4: number;
+  A5: number;
+  A6: number;
 };
 
-export type Package = {
+export type PackageFeatures = {
+  items: string[];
+  copies: PackageCopies;
+};
+
+export type PackageBase = {
   id: string;
-  key: string;
   name: string;
-  description: string;
+  slug: string;
+  description: string | null;
   basePrice: number;
   pageLimit: number;
   includesISBN: boolean;
-  popular?: boolean;
-  features: PackageFeature[];
+  features: PackageFeatures;
+  isActive: boolean;
+  sortOrder: number;
 };
 
+export type PackageCategory = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  copies: number;
+  isActive: boolean;
+  sortOrder: number;
+  packages: PackageBase[];
+};
+
+/**
+ * Fetch package categories with nested packages from the API.
+ * Used on the pricing page for category-grouped display.
+ *
+ * Endpoint: GET /api/v1/package-categories
+ */
+export function usePackageCategories() {
+  return useQuery<PackageCategory[]>({
+    queryKey: ["package-categories"],
+    queryFn: async () => {
+      const res = await fetch(`${API_V1_BASE_URL}/package-categories`);
+      if (!res.ok) throw new Error("Failed to fetch package categories");
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 10,
+  });
+}
+
+/**
+ * Fetch flat list of all active packages.
+ * Used for checkout, package detail, and places that don't need grouping.
+ *
+ * Endpoint: GET /api/v1/packages
+ */
 export function usePackages() {
-  return useQuery({
+  return useQuery<(PackageBase & { category: Omit<PackageCategory, "packages"> })[]>({
     queryKey: ["packages"],
-    queryFn: () =>
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/packages`).then((r) => {
-        if (!r.ok) {
-          throw new Error("Network response was not ok");
-        }
-        return r.json().then((data: any[]) => {
-          return data.map((pkg, index) => ({
-            ...pkg,
-            popular: index === 1, // highlight the middle package as recommended
-            features: pkg.features.map((feat: string) => {
-              let name = feat;
-              let value: string | undefined;
-              const group = "Features";
-
-              if (feat.includes("copies, A5 size")) {
-                name = "Printed Copies";
-                value = feat.split(",")[0]; // "25 copies"
-              } else if (feat.startsWith("Up to ") && feat.includes(" pages")) {
-                name = "Page Limit";
-                value = feat;
-              } else if (feat.includes("Promo Flyers")) {
-                const match = feat.match(/^(\d+)\s+(.+)$/);
-                if (match) {
-                  value = match[1];
-                  name = match[2];
-                }
-              } else if (feat.includes("Promo Bookmarks")) {
-                const match = feat.match(/^(\d+)\s+(.+)$/);
-                if (match) {
-                  value = match[1];
-                  name = match[2];
-                }
-              } else if (feat.includes("e-Marketing Flyers")) {
-                const match = feat.match(/^(\d+)\s+(.+)$/);
-                if (match) {
-                  value = match[1];
-                  name = match[2];
-                }
-              }
-
-              return {
-                name,
-                included: true,
-                value,
-                originalText: feat,
-                group,
-              };
-            }),
-          })) as Package[];
-        });
-      }),
-    staleTime: 1000 * 60 * 10, // 10 minutes — packages change rarely
+    queryFn: async () => {
+      const res = await fetch(`${API_V1_BASE_URL}/packages`);
+      if (!res.ok) throw new Error("Failed to fetch packages");
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 10,
   });
 }
