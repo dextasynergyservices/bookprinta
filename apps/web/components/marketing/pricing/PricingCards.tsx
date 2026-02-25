@@ -8,9 +8,10 @@ import { BookOpen, Check, Shield, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useRef, useState } from "react";
 
+import { ConfigurationModal } from "@/components/marketing/ConfigurationModal";
 import type { PackageBase, PackageCategory } from "@/hooks/usePackages";
 import { usePackageCategories } from "@/hooks/usePackages";
-import { Link } from "@/lib/i18n/navigation";
+import { useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 if (typeof window !== "undefined") {
@@ -26,6 +27,12 @@ function formatPrice(price: number) {
     maximumFractionDigits: 0,
   }).format(price);
 }
+
+type SelectedPackage = {
+  slug: string;
+  name: string;
+  categorySlug: string;
+};
 
 // ─── Category Tabs — Mobile compact pills, desktop full pills ───
 
@@ -209,11 +216,13 @@ function PackageCard({
   isPopular,
   categorySlug,
   index,
+  onSelectPackage,
 }: {
   pkg: PackageBase;
   isPopular: boolean;
   categorySlug: string;
   index: number;
+  onSelectPackage: (selection: SelectedPackage) => void;
 }) {
   const t = useTranslations("pricing");
 
@@ -320,8 +329,16 @@ function PackageCard({
         </div>
 
         {/* CTA */}
-        <Link
-          href={`/checkout?package=${pkg.slug}&category=${categorySlug}`}
+        <button
+          type="button"
+          onClick={() =>
+            onSelectPackage({
+              slug: pkg.slug,
+              name: pkg.name,
+              categorySlug,
+            })
+          }
+          aria-label={t("select_package")}
           className={cn(
             "relative mt-auto flex h-12 w-full items-center justify-center rounded-full px-6 text-center font-display text-sm font-semibold tracking-wide transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-primary",
             isPopular
@@ -330,7 +347,7 @@ function PackageCard({
           )}
         >
           {t("select_package")}
-        </Link>
+        </button>
       </div>
     </motion.div>
   );
@@ -338,7 +355,15 @@ function PackageCard({
 
 // ─── Category Panel ───
 
-function CategoryPanel({ category, isActive }: { category: PackageCategory; isActive: boolean }) {
+function CategoryPanel({
+  category,
+  isActive,
+  onSelectPackage,
+}: {
+  category: PackageCategory;
+  isActive: boolean;
+  onSelectPackage: (selection: SelectedPackage) => void;
+}) {
   const midIndex = Math.floor(category.packages.length / 2);
 
   return (
@@ -370,6 +395,7 @@ function CategoryPanel({ category, isActive }: { category: PackageCategory; isAc
                 isPopular={category.packages.length > 1 && idx === midIndex}
                 categorySlug={category.slug}
                 index={idx}
+                onSelectPackage={onSelectPackage}
               />
             ))}
           </div>
@@ -435,8 +461,11 @@ function PricingCardsSkeleton() {
 
 export function PricingCards() {
   const t = useTranslations("pricing");
+  const router = useRouter();
   const { data: categories, isLoading, isError, refetch } = usePackageCategories();
   const [activeCategorySlug, setActiveCategorySlug] = useState<string | null>(null);
+  const [selectedPackage, setSelectedPackage] = useState<SelectedPackage | null>(null);
+  const [isConfigurationOpen, setIsConfigurationOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Set default active category once data loads
@@ -446,6 +475,19 @@ export function PricingCards() {
   const handleCategorySelect = useCallback((slug: string) => {
     setActiveCategorySlug(slug);
   }, []);
+
+  const handlePackageSelect = useCallback((selection: SelectedPackage) => {
+    setSelectedPackage(selection);
+    setIsConfigurationOpen(true);
+  }, []);
+
+  const handleConfigurationContinue = useCallback(() => {
+    if (!selectedPackage) return;
+    setIsConfigurationOpen(false);
+    router.push(
+      `/checkout?package=${selectedPackage.slug}&category=${selectedPackage.categorySlug}`
+    );
+  }, [router, selectedPackage]);
 
   useGSAP(
     () => {
@@ -512,8 +554,16 @@ export function PricingCards() {
           key={category.id}
           category={category}
           isActive={category.slug === activeSlug}
+          onSelectPackage={handlePackageSelect}
         />
       ))}
+
+      <ConfigurationModal
+        open={isConfigurationOpen}
+        packageName={selectedPackage?.name}
+        onOpenChange={setIsConfigurationOpen}
+        onContinue={handleConfigurationContinue}
+      />
     </div>
   );
 }
