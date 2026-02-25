@@ -7,6 +7,7 @@
 @theme {
   /* ─── Custom BookPrinta tokens (not covered by Shadcn) ─── */
   --color-primary-light: #ffffff;
+  --color-dexta: #ffffff;
 
   /* ─── 404 floating page animation ─── */
   --animate-float: float 16s ease-in-out infinite;
@@ -161,6 +162,15 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+}
+
+/* ─── Scrollbar utilities ─────────────────────────────────────────────── */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 /* ─── Lenis Smooth Scroll ─────────────────────────────────────────────── */

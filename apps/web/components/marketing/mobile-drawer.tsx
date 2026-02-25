@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useEffect } from "react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -52,20 +53,22 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
         {/* Header with close button */}
         <div className="flex items-center justify-between px-6 pt-6">
           {/* Logo */}
-          <Link
-            href="/"
-            onClick={onClose}
-            className="font-display text-xl font-bold tracking-tight text-primary-foreground"
-            aria-label="BookPrinta Home"
-          >
-            BookPrinta
+          <Link href="/" onClick={onClose} className="shrink-0" aria-label="BookPrinta Home">
+            <Image
+              src="/logo-main-white.png"
+              alt="BookPrinta"
+              width={180}
+              height={48}
+              priority
+              className="h-8 w-auto"
+            />
           </Link>
 
           {/* Close button */}
           <button
             type="button"
             onClick={onClose}
-            className="font-display min-h-[44px] min-w-[44px] text-sm font-medium tracking-wide text-primary-foreground/80 transition-colors hover:text-primary-foreground"
+            className="font-display min-h-[44px] min-w-[44px] text-sm font-medium tracking-wide text-white/95 transition-colors hover:text-white"
             aria-label="Close navigation menu"
           >
             Close &gt;
@@ -86,9 +89,7 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
                     href={href}
                     onClick={onClose}
                     className={`font-display block py-3 text-3xl font-bold tracking-tight transition-colors md:text-4xl ${
-                      isActive
-                        ? "text-accent"
-                        : "text-primary-foreground/70 hover:text-primary-foreground"
+                      isActive ? "text-accent" : "text-white/95 hover:text-white"
                     }`}
                   >
                     {t(labelKey)}.
@@ -111,7 +112,7 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
           <Link
             href="/login"
             onClick={onClose}
-            className="font-display block w-full py-3 text-center text-sm font-medium text-primary-foreground/60 transition-colors hover:text-primary-foreground"
+            className="font-display block w-full py-3 text-center text-sm font-medium text-white/95 transition-colors hover:text-white"
           >
             {t("login")}
           </Link>
