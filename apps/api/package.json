@@ -23,7 +23,8 @@
     "test:unit": "jest --config ./test/jest.config.ts --testPathPattern='src/.*\\.spec\\.ts$'",
     "test:integration": "jest --config ./test/jest.config.ts --testPathPattern='test/integration'",
     "typecheck": "tsc --noEmit",
-    "db:seed": "bun x prisma db seed"
+    "db:seed": "bun x prisma db seed",
+    "db:seed:gateways": "bun run prisma/seed-payment-gateways.ts"
   },
   "prisma": {
     "seed": "bun run prisma/seed.ts"

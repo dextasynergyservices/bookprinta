@@ -18,6 +18,7 @@ import { StripeService } from "./services/stripe.service.js";
  * provider service based on the requested payment provider.
  *
  * Endpoints:
+ *   GET  /payments/gateways
  *   POST /payments/initialize
  *   POST /payments/verify/:reference
  *   POST /payments/bank-transfer

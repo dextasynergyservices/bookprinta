@@ -58,6 +58,14 @@ interface ContactPayload {
   recaptchaToken: string;
 }
 
+type HttpError = Error & { status?: number };
+
+function createHttpError(message: string, status: number): HttpError {
+  const error = new Error(message) as HttpError;
+  error.status = status;
+  return error;
+}
+
 async function submitContact(payload: ContactPayload) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
   const response = await fetch(`${apiUrl}/api/v1/contact`, {
@@ -68,7 +76,7 @@ async function submitContact(payload: ContactPayload) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => null);
-    throw new Error(errorData?.message || "Failed to send message");
+    throw createHttpError(errorData?.message || "Failed to send message", response.status);
   }
 
   return response.json();
@@ -99,6 +107,10 @@ function ContactFormInner() {
 
   // ── TanStack Query mutation ──
   const mutation = useMutation({
+    meta: {
+      sentryName: "submitContactForm",
+      sentryEndpoint: "/api/v1/contact",
+    },
     mutationFn: submitContact,
     onSuccess: () => {
       toast.success(t("form_success_title"), {

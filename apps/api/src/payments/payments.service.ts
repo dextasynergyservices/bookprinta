@@ -44,6 +44,40 @@ export class PaymentsService {
   // ────────────────────────────────────────────
 
   /**
+   * List gateways available to frontend checkout.
+   * Returns enabled gateways sorted by priority.
+   *
+   * For card gateways (Paystack/Stripe/PayPal), we only expose gateways
+   * that are both enabled in DB and have provider configuration available.
+   * BANK_TRANSFER is config-only (no SDK keys required).
+   */
+  async listAvailableGateways() {
+    const gateways = await this.prisma.paymentGateway.findMany({
+      where: { isEnabled: true },
+      orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
+    });
+
+    return gateways
+      .filter((gateway) => this.isGatewayAvailableForCheckout(gateway.provider))
+      .map((gateway) => ({
+        id: gateway.id,
+        provider: gateway.provider,
+        name: gateway.name,
+        isEnabled: gateway.isEnabled,
+        isTestMode: gateway.isTestMode,
+        bankDetails:
+          gateway.provider === PaymentProvider.BANK_TRANSFER
+            ? ((gateway.bankDetails as Record<string, unknown> | null) ?? null)
+            : null,
+        instructions:
+          gateway.provider === PaymentProvider.BANK_TRANSFER
+            ? (gateway.instructions ?? null)
+            : null,
+        priority: gateway.priority,
+      }));
+  }
+
+  /**
    * Initialize a payment session with the chosen provider.
    *
    * Per CLAUDE.md Section 8 (Path A, step 6) and the payment flow diagram:
@@ -585,6 +619,29 @@ export class PaymentsService {
     if (!available) {
       throw new ServiceUnavailableException(`${provider} is not configured. API keys are missing.`);
     }
+  }
+
+  /**
+   * Whether an enabled gateway can be shown in checkout.
+   */
+  private isGatewayAvailableForCheckout(provider: PaymentProvider): boolean {
+    if (provider === PaymentProvider.BANK_TRANSFER) {
+      return true;
+    }
+
+    if (provider === PaymentProvider.PAYSTACK) {
+      return this.paystackService.isAvailable;
+    }
+
+    if (provider === PaymentProvider.STRIPE) {
+      return this.stripeService.isAvailable;
+    }
+
+    if (provider === PaymentProvider.PAYPAL) {
+      return this.paypalService.isAvailable;
+    }
+
+    return false;
   }
 
   /**

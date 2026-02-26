@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import type {
   AuthorProfile,
   ShowcaseCategoriesResponse,
@@ -8,12 +9,71 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
+type HttpError = Error & { status?: number };
+
+function captureShowcaseFallback(url: string, status: number | null, error?: unknown): void {
+  const endpoint = (() => {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return url;
+    }
+  })();
+
+  const level = status !== null && status >= 400 && status < 500 ? "warning" : "error";
+
+  Sentry.withScope((scope) => {
+    scope.setLevel(level);
+    scope.setTag("layer", "web");
+    scope.setTag("source", "showcase-fallback");
+    scope.setTag("endpoint", endpoint);
+    scope.setTag("fallback", "mock-data");
+
+    if (status !== null) {
+      scope.setTag("status_code", String(status));
+    }
+
+    scope.setContext("showcase_api", {
+      endpoint,
+      status,
+      fallback: "mock-data",
+    });
+
+    if (error instanceof Error) {
+      Sentry.captureException(error);
+      return;
+    }
+
+    const statusError = new Error(
+      status === null
+        ? "Showcase API request failed and mock fallback was used"
+        : `Showcase API request failed with status ${status}; mock fallback was used`
+    ) as HttpError;
+    if (status !== null) {
+      statusError.status = status;
+    }
+
+    Sentry.captureException(statusError);
+  });
+}
+
 async function tryFetch(url: string): Promise<Response | null> {
   try {
     const res = await fetch(url);
     if (res.ok) return res;
+
+    captureShowcaseFallback(url, res.status);
     return null;
-  } catch {
+  } catch (error) {
+    const name =
+      error && typeof error === "object" && "name" in error && typeof error.name === "string"
+        ? error.name
+        : "";
+    if (name.toLowerCase().includes("abort")) {
+      return null;
+    }
+
+    captureShowcaseFallback(url, null, error);
     return null;
   }
 }

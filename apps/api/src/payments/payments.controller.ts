@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Headers,
   HttpCode,
   HttpStatus,
@@ -24,6 +25,7 @@ import {
 import {
   BankTransferResponseDto,
   InitializePaymentResponseDto,
+  PaymentGatewayResponseDto,
   VerifyPaymentResponseDto,
 } from "./dto/payment-response.dto.js";
 import { PaymentsService } from "./payments.service.js";
@@ -32,6 +34,7 @@ import { PaymentsService } from "./payments.service.js";
 // Payments Controller
 //
 // Endpoints from CLAUDE.md Section 9.1 — Payments:
+//   GET  /payments/gateways            (Public)
 //   POST /payments/initialize          (Public)
 //   POST /payments/verify/:reference   (Public)
 //   POST /payments/bank-transfer       (Public)
@@ -49,6 +52,28 @@ export class PaymentsController {
   // ────────────────────────────────────────────
   // Public endpoints
   // ────────────────────────────────────────────
+
+  /**
+   * GET /api/v1/payments/gateways
+   * Returns active checkout gateways, sorted by priority.
+   */
+  @Get("gateways")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "List available payment gateways",
+    description:
+      "Returns enabled gateways for checkout (e.g. Paystack, Bank Transfer), sorted by priority. " +
+      "Card gateways are returned only when provider keys are configured.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Available gateways",
+    type: PaymentGatewayResponseDto,
+    isArray: true,
+  })
+  async listGateways() {
+    return this.paymentsService.listAvailableGateways();
+  }
 
   /**
    * POST /api/v1/payments/initialize

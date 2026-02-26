@@ -1,11 +1,12 @@
-import "dotenv/config";
-import { NestFactory } from "@nestjs/core";
+import "./instrument.js";
+import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 import { cleanupOpenApiDoc, ZodValidationPipe } from "nestjs-zod";
 import { AppModule } from "./app.module.js";
+import { SentryExceptionFilter } from "./sentry/sentry-exception.filter.js";
 
 async function bootstrap() {
   // Buffer early logs so nothing is lost before Pino is initialised
@@ -16,6 +17,10 @@ async function bootstrap() {
   // Swap NestJS's default ConsoleLogger for Pino (structured logging)
   const logger = app.get(Logger);
   app.useLogger(logger);
+
+  // Global exception filter: report 5xx errors to Sentry
+  const httpAdapterHost = app.get(HttpAdapterHost);
+  app.useGlobalFilters(new SentryExceptionFilter(httpAdapterHost));
 
   // Global prefix for all routes
   app.setGlobalPrefix("api/v1");

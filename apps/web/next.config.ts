@@ -1,3 +1,4 @@
+import { withSentryConfig } from "@sentry/nextjs";
 import withSerwist from "@serwist/next";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
@@ -23,4 +24,23 @@ const withPWA = withSerwist({
   disable: process.env.NODE_ENV === "development",
 });
 
-export default withPWA(withNextIntl(nextConfig));
+const hasSentryBuildAuth = Boolean(
+  process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
+);
+
+const sentryBuildOptions = {
+  silent: !process.env.CI,
+  telemetry: false,
+  sourcemaps: {
+    disable: !hasSentryBuildAuth,
+  },
+  ...(hasSentryBuildAuth
+    ? {
+        authToken: process.env.SENTRY_AUTH_TOKEN,
+        org: process.env.SENTRY_ORG,
+        project: process.env.SENTRY_PROJECT,
+      }
+    : {}),
+};
+
+export default withSentryConfig(withPWA(withNextIntl(nextConfig)), sentryBuildOptions);
