@@ -47,6 +47,14 @@ export type PackageCategory = {
   packages: PackageBase[];
 };
 
+type HttpError = Error & { status?: number };
+
+function createHttpError(message: string, status: number): HttpError {
+  const error = new Error(message) as HttpError;
+  error.status = status;
+  return error;
+}
+
 /**
  * Fetch package categories with nested packages from the API.
  * Used on the pricing page for category-grouped display.
@@ -56,9 +64,15 @@ export type PackageCategory = {
 export function usePackageCategories() {
   return useQuery<PackageCategory[]>({
     queryKey: ["package-categories"],
+    meta: {
+      sentryName: "fetchPackageCategories",
+      sentryEndpoint: "/api/v1/package-categories",
+    },
     queryFn: async () => {
       const res = await fetch(`${API_V1_BASE_URL}/package-categories`);
-      if (!res.ok) throw new Error("Failed to fetch package categories");
+      if (!res.ok) {
+        throw createHttpError("Failed to fetch package categories", res.status);
+      }
       return res.json();
     },
     staleTime: 1000 * 60 * 10,
@@ -74,9 +88,15 @@ export function usePackageCategories() {
 export function usePackages() {
   return useQuery<(PackageBase & { category: Omit<PackageCategory, "packages"> })[]>({
     queryKey: ["packages"],
+    meta: {
+      sentryName: "fetchPackages",
+      sentryEndpoint: "/api/v1/packages",
+    },
     queryFn: async () => {
       const res = await fetch(`${API_V1_BASE_URL}/packages`);
-      if (!res.ok) throw new Error("Failed to fetch packages");
+      if (!res.ok) {
+        throw createHttpError("Failed to fetch packages", res.status);
+      }
       return res.json();
     },
     staleTime: 1000 * 60 * 10,
