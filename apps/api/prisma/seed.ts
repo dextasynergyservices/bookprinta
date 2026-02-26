@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
+import { buildGatewaySeedsFromEnv } from "./payment-gateways.seed.js";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -330,59 +331,11 @@ async function seedAddons() {
 // ──────────────────────────────────────────────
 // Payment Gateway seed data
 // ──────────────────────────────────────────────
-// Each record corresponds to a PaymentProvider enum value.
-// Keys are intentionally NULL — they come from env vars at runtime.
-// These rows let the admin panel toggle gateways on/off and control
-// test-mode independently of whether API keys are configured.
+// Shared with prisma/seed-payment-gateways.ts so both full and targeted
+// seed runs produce the same gateway records.
 // ──────────────────────────────────────────────
 
-interface GatewaySeed {
-  provider: string;
-  name: string;
-  isEnabled: boolean;
-  isTestMode: boolean;
-  priority: number;
-  instructions?: string;
-  bankDetails?: Record<string, string>;
-}
-
-const gateways: GatewaySeed[] = [
-  {
-    provider: "PAYSTACK",
-    name: "Paystack",
-    isEnabled: true,
-    isTestMode: true,
-    priority: 1,
-  },
-  {
-    provider: "STRIPE",
-    name: "Stripe",
-    isEnabled: true,
-    isTestMode: true,
-    priority: 2,
-  },
-  {
-    provider: "PAYPAL",
-    name: "PayPal",
-    isEnabled: false,
-    isTestMode: true,
-    priority: 3,
-  },
-  {
-    provider: "BANK_TRANSFER",
-    name: "Bank Transfer",
-    isEnabled: true,
-    isTestMode: false,
-    priority: 0,
-    instructions:
-      "Transfer the exact amount to the account below. Upload your receipt after payment.",
-    bankDetails: {
-      bankName: "Access Bank",
-      accountName: "BookPrinta Limited",
-      accountNumber: "0123456789",
-    },
-  },
-];
+const gateways = buildGatewaySeedsFromEnv();
 
 async function seedGateways() {
   console.log("🌱 Seeding payment gateways...\n");
@@ -390,12 +343,23 @@ async function seedGateways() {
   for (const gw of gateways) {
     const result = await prisma.paymentGateway.upsert({
       where: { provider: gw.provider as never },
-      update: {},
+      update: {
+        name: gw.name,
+        isEnabled: gw.isEnabled,
+        isTestMode: gw.isTestMode,
+        publicKey: gw.publicKey ?? null,
+        secretKey: gw.secretKey ?? null,
+        priority: gw.priority,
+        instructions: gw.instructions ?? null,
+        bankDetails: gw.bankDetails ?? undefined,
+      },
       create: {
         provider: gw.provider as never,
         name: gw.name,
         isEnabled: gw.isEnabled,
         isTestMode: gw.isTestMode,
+        publicKey: gw.publicKey ?? null,
+        secretKey: gw.secretKey ?? null,
         priority: gw.priority,
         instructions: gw.instructions ?? null,
         bankDetails: gw.bankDetails ?? undefined,
