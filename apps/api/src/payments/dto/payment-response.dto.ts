@@ -27,7 +27,7 @@ export class InitializePaymentResponseDto {
 
   @ApiProperty({
     description: "Payment provider used",
-    enum: ["PAYSTACK", "STRIPE"],
+    enum: ["PAYSTACK", "STRIPE", "PAYPAL"],
     example: "PAYSTACK",
   })
   provider!: string;
@@ -51,19 +51,33 @@ export class VerifyPaymentResponseDto {
     description: "Amount in Naira",
     example: 75000,
   })
-  amount!: number;
+  amount!: number | null;
 
   @ApiProperty({
     description: "Currency code",
     example: "NGN",
   })
-  currency!: string;
+  currency!: string | null;
 
   @ApiProperty({
     description: "Whether the payment was verified as successful",
     example: true,
   })
   verified!: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      "Signup completion URL. Available once webhook-created user/order state is ready for /signup/finish.",
+    example: "https://bookprinta.com/en/signup/finish?token=abc123",
+    nullable: true,
+  })
+  signupUrl?: string | null;
+
+  @ApiPropertyOptional({
+    description: "True when provider confirms payment but webhook linking is still in progress.",
+    example: true,
+  })
+  awaitingWebhook?: boolean;
 }
 
 /** Response returned by POST /api/v1/payments/bank-transfer. */

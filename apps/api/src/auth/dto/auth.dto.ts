@@ -65,6 +65,10 @@ export const ResendSignupLinkSchema = z.object({
   email: z.string().email("Invalid email address"),
 });
 
+export const SignupContextSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+});
+
 // ==========================================
 // Auth DTOs — Derived from Zod schemas above
 // Used for NestJS validation + Swagger docs
@@ -81,3 +85,5 @@ export class ForgotPasswordDto extends createZodDto(ForgotPasswordSchema) {}
 export class ResetPasswordDto extends createZodDto(ResetPasswordSchema) {}
 
 export class ResendSignupLinkDto extends createZodDto(ResendSignupLinkSchema) {}
+
+export class SignupContextDto extends createZodDto(SignupContextSchema) {}

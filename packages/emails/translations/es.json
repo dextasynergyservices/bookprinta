@@ -12,11 +12,11 @@
     "support_email": "support@bookprinta.com"
   },
   "welcome": {
-    "subject": "Bienvenido a BookPrinta - Completa tu cuenta",
+    "subject": "Bienvenido a BookPrinta - Tu cuenta esta lista",
     "heading": "Bienvenido a BookPrinta!",
-    "body": "Tu pago ha sido confirmado y tu cuenta esta lista para configurarse. Haz clic en el boton de abajo para establecer tu contrasena y completar tu registro.",
-    "cta": "Completar tu cuenta",
-    "expires": "Este enlace expira en 24 horas. Si expira, puedes solicitar uno nuevo desde la pagina de inicio de sesion.",
+    "body": "Tu correo ya esta verificado y tu cuenta esta activa. Ve a tu panel para empezar a publicar con BookPrinta.",
+    "cta": "Ir al panel",
+    "expires": "Estamos encantados de tenerte con nosotros.",
     "order_summary": "Resumen del pedido",
     "package": "Paquete",
     "amount_paid": "Monto pagado",
@@ -29,6 +29,15 @@
     "cta": "Completar registro",
     "expires": "Este enlace expira en 24 horas.",
     "requested": "Tu o alguien solicito un nuevo enlace de registro para tu cuenta de BookPrinta."
+  },
+  "signup_verification": {
+    "subject": "Verifica tu correo de BookPrinta",
+    "heading": "Verifica tu correo",
+    "body": "Tu contrasena ya fue configurada. Usa este codigo y enlace de verificacion para finalizar tu cuenta.",
+    "code_label": "Codigo de verificacion",
+    "token_label": "Token de verificacion",
+    "cta": "Abrir pagina de verificacion",
+    "expires": "Este codigo y token expiran en 15 minutos."
   },
   "book_status": {
     "subject": "Actualizacion del libro: {bookTitle}",

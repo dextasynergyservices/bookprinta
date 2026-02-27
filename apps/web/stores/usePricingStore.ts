@@ -6,10 +6,7 @@ export type Lamination = "matt" | "gloss";
 export type AddonType = "cover" | "formatting" | "isbn" | "other";
 
 type NullableBoolean = boolean | null;
-type AddonSource = "selected" | "scenario";
-
-const DEFAULT_COVER_FEE = 45_000;
-const DEFAULT_FORMATTING_FEE = 35_000;
+type AddonSource = "selected";
 
 export interface PricingPackage {
   id: string;
@@ -68,8 +65,6 @@ export interface PaymentMetadata {
 
 type PricingCalculationInput = {
   selectedPackage: PricingPackage | null;
-  hasCoverDesign: NullableBoolean;
-  hasFormatting: NullableBoolean;
   selectedAddons: PricingAddon[];
   formattingWordCount: number;
   formattingPricePerWord: number;
@@ -93,18 +88,6 @@ function addonFingerprint(addon: Pick<PricingAddon, "slug" | "name">) {
   return `${addon.slug} ${addon.name}`.toLowerCase();
 }
 
-function isCoverAddon(addon: Pick<PricingAddon, "slug" | "name" | "type">) {
-  if (addon.type === "cover") return true;
-  const fp = addonFingerprint(addon);
-  return fp.includes("cover");
-}
-
-function isFormattingAddon(addon: Pick<PricingAddon, "slug" | "name" | "type">) {
-  if (addon.type === "formatting") return true;
-  const fp = addonFingerprint(addon);
-  return fp.includes("format");
-}
-
 function isIsbnAddon(addon: Pick<PricingAddon, "slug" | "name" | "type">) {
   if (addon.type === "isbn") return true;
   const fp = addonFingerprint(addon);
@@ -112,62 +95,24 @@ function isIsbnAddon(addon: Pick<PricingAddon, "slug" | "name" | "type">) {
 }
 
 function resolveAddonPrice(addon: PricingAddon, input: PricingCalculationInput) {
+  const effectivePerWordPrice =
+    input.formattingPricePerWord > 0 ? input.formattingPricePerWord : addon.pricePerWord;
   if (
     addon.pricingType === "per_word" &&
-    addon.pricePerWord &&
+    effectivePerWordPrice &&
     input.formattingWordCount > 0 &&
-    addon.pricePerWord > 0
+    effectivePerWordPrice > 0
   ) {
-    return toCurrency(input.formattingWordCount * addon.pricePerWord);
+    return toCurrency(input.formattingWordCount * effectivePerWordPrice);
   }
 
   return toCurrency(addon.price);
-}
-
-function pickScenarioAddon(
-  input: PricingCalculationInput,
-  matcher: (addon: Pick<PricingAddon, "slug" | "name" | "type">) => boolean
-) {
-  return input.selectedAddons.find((addon) => matcher(addon));
-}
-
-function getScenarioCoverPrice(input: PricingCalculationInput) {
-  if (input.hasCoverDesign !== false) return 0;
-  const coverAddon = pickScenarioAddon(input, isCoverAddon);
-  return coverAddon ? toCurrency(coverAddon.price) : DEFAULT_COVER_FEE;
-}
-
-function getScenarioFormattingPrice(input: PricingCalculationInput) {
-  if (input.hasFormatting !== false) return 0;
-
-  if (input.formattingWordCount > 0 && input.formattingPricePerWord > 0) {
-    return toCurrency(input.formattingWordCount * input.formattingPricePerWord);
-  }
-
-  const formattingAddon = pickScenarioAddon(input, isFormattingAddon);
-  if (!formattingAddon) return DEFAULT_FORMATTING_FEE;
-
-  if (
-    formattingAddon.pricingType === "per_word" &&
-    formattingAddon.pricePerWord &&
-    input.formattingWordCount > 0
-  ) {
-    return toCurrency(input.formattingWordCount * formattingAddon.pricePerWord);
-  }
-
-  if (formattingAddon.price > 0) {
-    return toCurrency(formattingAddon.price);
-  }
-
-  return DEFAULT_FORMATTING_FEE;
 }
 
 function getSelectableAddonCharges(input: PricingCalculationInput): ChargeLine[] {
   return input.selectedAddons
     .filter((addon) => !addon.isAutoIncluded)
     .filter((addon) => !(input.selectedPackage?.includesISBN && isIsbnAddon(addon)))
-    .filter((addon) => !(input.hasCoverDesign === false && isCoverAddon(addon)))
-    .filter((addon) => !(input.hasFormatting === false && isFormattingAddon(addon)))
     .map((addon) => ({
       id: addon.id,
       slug: addon.slug,
@@ -178,38 +123,8 @@ function getSelectableAddonCharges(input: PricingCalculationInput): ChargeLine[]
     .filter((addon) => addon.price > 0);
 }
 
-function getScenarioCharges(input: PricingCalculationInput): ChargeLine[] {
-  const scenarioCharges: ChargeLine[] = [];
-
-  const coverPrice = getScenarioCoverPrice(input);
-  if (coverPrice > 0) {
-    const coverAddon = pickScenarioAddon(input, isCoverAddon);
-    scenarioCharges.push({
-      id: coverAddon?.id ?? null,
-      slug: coverAddon?.slug ?? "cover-design",
-      name: coverAddon?.name ?? "Cover Design",
-      price: coverPrice,
-      source: "scenario",
-    });
-  }
-
-  const formattingPrice = getScenarioFormattingPrice(input);
-  if (formattingPrice > 0) {
-    const formattingAddon = pickScenarioAddon(input, isFormattingAddon);
-    scenarioCharges.push({
-      id: formattingAddon?.id ?? null,
-      slug: formattingAddon?.slug ?? "formatting",
-      name: formattingAddon?.name ?? "Formatting",
-      price: formattingPrice,
-      source: "scenario",
-    });
-  }
-
-  return scenarioCharges;
-}
-
 function getChargeLines(input: PricingCalculationInput) {
-  return [...getSelectableAddonCharges(input), ...getScenarioCharges(input)];
+  return getSelectableAddonCharges(input);
 }
 
 function getBasePriceValue(input: PricingCalculationInput) {

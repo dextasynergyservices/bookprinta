@@ -6,10 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { AddonCard } from "@/components/checkout/AddonCard";
+import { PaymentMethodModal } from "@/components/checkout/PaymentMethodModal";
 import { type Addon, useAddons } from "@/hooks/useAddons";
 import { usePackages } from "@/hooks/usePackages";
 import { useRouter } from "@/lib/i18n/navigation";
-import { cn } from "@/lib/utils";
 import {
   type AddonType,
   isPricingConfigurationComplete,
@@ -25,6 +25,8 @@ type CheckoutAddon = Addon & {
   resolvedPrice: number;
 };
 
+const FALLBACK_FORMATTING_PRICE = 35_000;
+
 function formatPrice(price: number) {
   return new Intl.NumberFormat("en-NG", {
     style: "currency",
@@ -33,14 +35,20 @@ function formatPrice(price: number) {
   }).format(price);
 }
 
-function inferAddonType(addon: Addon): AddonType | null {
+function inferAddonType(addon: Addon): AddonType {
   const fingerprint = `${addon.slug} ${addon.name}`.toLowerCase();
 
   if (fingerprint.includes("isbn")) return "isbn";
   if (fingerprint.includes("format")) return "formatting";
   if (fingerprint.includes("cover")) return "cover";
 
-  return null;
+  return "other";
+}
+
+function resolveAddonPrice(addon: Addon, type: AddonType) {
+  if (typeof addon.price === "number") return addon.price;
+  if (type === "formatting") return FALLBACK_FORMATTING_PRICE;
+  return 0;
 }
 
 function toSelectedAddon(addon: CheckoutAddon, isAutoIncluded: boolean): SelectedAddon {
@@ -50,6 +58,8 @@ function toSelectedAddon(addon: CheckoutAddon, isAutoIncluded: boolean): Selecte
     name: addon.name,
     type: addon.type,
     price: addon.resolvedPrice,
+    pricingType: addon.pricingType,
+    pricePerWord: addon.pricePerWord,
     isAutoIncluded,
   };
 }
@@ -92,9 +102,7 @@ export function CheckoutView() {
   const t = useTranslations("checkout");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
   const packageSlug = searchParams.get("package");
   const categorySlug = searchParams.get("category");
@@ -103,6 +111,7 @@ export function CheckoutView() {
   const { data: addons, isLoading: isLoadingAddons, isError: isAddonsError, refetch } = useAddons();
 
   const {
+    selectedPackage: pricingSelectedPackage,
     hasCoverDesign,
     hasFormatting,
     bookSize,
@@ -112,6 +121,7 @@ export function CheckoutView() {
     setSelectedPackage,
     setSelectedAddons,
     toggleSelectedAddon,
+    toPaymentMetadata,
   } = usePricingStore();
 
   const packageBasePrice = usePricingStore(selectBasePrice);
@@ -138,51 +148,20 @@ export function CheckoutView() {
     return packages.find((pkg) => pkg.slug === packageSlug) ?? null;
   }, [categorySlug, packageSlug, packages]);
 
-  const addonsByType = useMemo(() => {
-    const byType: Partial<Record<AddonType, CheckoutAddon>> = {};
-
-    for (const addon of addons ?? []) {
+  const checkoutAddons = useMemo(() => {
+    return (addons ?? []).map((addon) => {
       const type = inferAddonType(addon);
-      if (!type || byType[type]) continue;
-
-      // Formatting is moving from per-word to fixed checkout pricing. Use a temporary fallback
-      // so the add-on stays selectable before manuscript upload.
-      const fallbackPrice = type === "formatting" ? 35_000 : 0;
-      const resolvedPrice = addon.price ?? fallbackPrice;
-
-      byType[type] = {
+      return {
         ...addon,
         type,
-        resolvedPrice,
+        resolvedPrice: resolveAddonPrice(addon, type),
       };
-    }
-
-    return byType;
+    });
   }, [addons]);
 
-  const scrollToPaymentSection = () => {
-    const paymentSection = document.getElementById("payment-section");
-    if (!paymentSection) return;
-    paymentSection.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  const openPaymentModal = () => setIsPaymentModalOpen(true);
 
-  const visibleAddons = useMemo(() => {
-    const cards: CheckoutAddon[] = [];
-
-    if (hasCoverDesign === false && addonsByType.cover) {
-      cards.push(addonsByType.cover);
-    }
-
-    if (hasFormatting === false && addonsByType.formatting) {
-      cards.push(addonsByType.formatting);
-    }
-
-    if (addonsByType.isbn) {
-      cards.push(addonsByType.isbn);
-    }
-
-    return cards;
-  }, [addonsByType, hasCoverDesign, hasFormatting]);
+  const visibleAddons = checkoutAddons;
 
   useEffect(() => {
     if (!selectedPackage) return;
@@ -211,9 +190,19 @@ export function CheckoutView() {
 
   useEffect(() => {
     if (!selectedPackage) {
-      setSelectedPackage(null);
+      if (pricingSelectedPackage !== null) {
+        setSelectedPackage(null);
+      }
       return;
     }
+
+    const hasSamePackage =
+      pricingSelectedPackage?.id === selectedPackage.id &&
+      pricingSelectedPackage?.slug === selectedPackage.slug &&
+      pricingSelectedPackage?.basePrice === selectedPackage.basePrice &&
+      pricingSelectedPackage?.includesISBN === selectedPackage.includesISBN;
+
+    if (hasSamePackage) return;
 
     setSelectedPackage({
       id: selectedPackage.id,
@@ -222,7 +211,7 @@ export function CheckoutView() {
       basePrice: selectedPackage.basePrice,
       includesISBN: selectedPackage.includesISBN,
     });
-  }, [selectedPackage, setSelectedPackage]);
+  }, [pricingSelectedPackage, selectedPackage, setSelectedPackage]);
 
   const isLoading = isLoadingPackages || isLoadingAddons;
 
@@ -316,7 +305,7 @@ export function CheckoutView() {
               {t("addons_step_badge")}
             </span>
             <h1 className="font-display text-3xl font-bold tracking-tight text-white md:text-4xl">
-              {t("title")}
+              {t("addons_title")}
             </h1>
             <p className="max-w-2xl font-sans text-sm text-white/65 md:text-base">
               {t("addons_subtitle")}
@@ -345,7 +334,7 @@ export function CheckoutView() {
                       name={addon.name}
                       description={addon.description}
                       priceLabel={
-                        isLockedIncluded
+                        addon.type === "isbn" && selectedPackage.includesISBN
                           ? t("addons_included_label")
                           : formatPrice(addon.resolvedPrice)
                       }
@@ -404,10 +393,8 @@ export function CheckoutView() {
 
                 <button
                   type="button"
-                  onClick={scrollToPaymentSection}
-                  className={cn(
-                    "mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-                  )}
+                  onClick={openPaymentModal}
+                  className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 >
                   <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
                   {t("addons_continue")}
@@ -416,110 +403,62 @@ export function CheckoutView() {
             </aside>
           </div>
 
-          <section
-            id="payment-section"
-            className="mt-10 rounded-3xl border border-[#2A2A2A] bg-[#090909] p-5 md:mt-12 md:p-6"
-          >
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div>
-                <h2 className="font-display text-2xl font-bold tracking-tight text-white">
-                  {t("payment_section_title")}
-                </h2>
-                <p className="mt-2 font-sans text-sm text-white/60">
-                  {t("payment_section_subtitle")}
+          <section className="mt-10 rounded-3xl border border-[#2A2A2A] bg-[#090909] p-5 md:mt-12 md:p-6 lg:hidden">
+            <div className="mx-auto max-w-2xl">
+              <h2 className="font-display text-2xl font-bold tracking-tight text-white">
+                {t("payment_section_title")}
+              </h2>
+              <p className="mt-2 font-sans text-sm text-white/60">
+                {t("payment_section_subtitle")}
+              </p>
+
+              <div className="mt-5 rounded-2xl border border-[#2A2A2A] bg-black p-4 md:p-5">
+                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                  {t("configuration_package", { packageName: selectedPackage.name })}
+                </p>
+                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                  {t("order_total")}
+                </p>
+                <p className="mt-2 font-sans text-3xl font-semibold text-white">
+                  {formatPrice(orderTotal)}
                 </p>
 
-                <div className="mt-5 grid grid-cols-1 gap-4">
-                  <label className="block">
-                    <span className="mb-2 block font-sans text-sm font-medium text-white">
-                      {t("full_name")}
+                <div className="mt-4 space-y-2 border-t border-[#2A2A2A] pt-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-sans text-sm text-white/65">
+                      {t("package_base_total")}
                     </span>
-                    <input
-                      type="text"
-                      value={fullName}
-                      onChange={(event) => setFullName(event.target.value)}
-                      placeholder={t("full_name")}
-                      className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-2 block font-sans text-sm font-medium text-white">
-                      {t("email")}
+                    <span className="font-sans text-sm font-medium text-white">
+                      {formatPrice(packageBasePrice)}
                     </span>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      placeholder={t("email")}
-                      className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-2 block font-sans text-sm font-medium text-white">
-                      {t("phone")}
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-sans text-sm text-white/65">{t("addon_total")}</span>
+                    <span className="font-sans text-sm font-medium text-white">
+                      {formatPrice(addonTotal)}
                     </span>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
-                      placeholder={t("phone")}
-                      className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
-                    />
-                  </label>
-                </div>
-
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                  <button
-                    type="button"
-                    className="inline-flex min-h-11 min-w-11 flex-1 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-                  >
-                    {t("pay_now")}
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex min-h-11 min-w-11 flex-1 items-center justify-center rounded-full border border-[#2A2A2A] bg-black px-5 font-sans text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-                  >
-                    {t("bank_transfer")}
-                  </button>
-                </div>
-              </div>
-
-              <aside>
-                <div className="rounded-2xl border border-[#2A2A2A] bg-black p-4">
-                  <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
-                    {t("configuration_package", { packageName: selectedPackage.name })}
-                  </p>
-                  <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
-                    {t("order_total")}
-                  </p>
-                  <p className="mt-2 font-sans text-3xl font-semibold text-white">
-                    {formatPrice(orderTotal)}
-                  </p>
-
-                  <div className="mt-4 space-y-2 border-t border-[#2A2A2A] pt-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-sans text-sm text-white/65">
-                        {t("package_base_total")}
-                      </span>
-                      <span className="font-sans text-sm font-medium text-white">
-                        {formatPrice(packageBasePrice)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-sans text-sm text-white/65">{t("addon_total")}</span>
-                      <span className="font-sans text-sm font-medium text-white">
-                        {formatPrice(addonTotal)}
-                      </span>
-                    </div>
                   </div>
                 </div>
 
-                <p className="mt-4 font-sans text-xs leading-relaxed text-white/45">
-                  {t("payment_verified")}
-                </p>
-              </aside>
+                <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-[#0a0a0a] px-4 py-3">
+                  <p className="font-sans text-xs text-white/55">
+                    {t("addons_selected_count", { count: selectedAddons.length })}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={openPaymentModal}
+                className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              >
+                <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
+                {t("addons_continue")}
+              </button>
+
+              <p className="mt-4 font-sans text-xs leading-relaxed text-white/45">
+                {t("payment_verified")}
+              </p>
             </div>
           </section>
         </div>
@@ -536,13 +475,21 @@ export function CheckoutView() {
 
           <button
             type="button"
-            onClick={scrollToPaymentSection}
+            onClick={openPaymentModal}
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
             {t("addons_continue")}
           </button>
         </div>
       </div>
+
+      <PaymentMethodModal
+        open={isPaymentModalOpen}
+        onOpenChange={setIsPaymentModalOpen}
+        amount={orderTotal}
+        packageName={selectedPackage.name}
+        paymentMetadata={toPaymentMetadata()}
+      />
     </main>
   );
 }

@@ -53,12 +53,12 @@ const EXPRESS_ADDON: PricingAddon = {
   pricingType: "fixed",
 };
 
-describe("usePricingStore scenario pricing", () => {
+describe("usePricingStore pricing", () => {
   beforeEach(() => {
     usePricingStore.getState().reset();
   });
 
-  it("calculates The Pro: base + selected addons", () => {
+  it("calculates base + selected addons", () => {
     const store = usePricingStore.getState();
     store.setSelectedPackage(PACKAGE_WITHOUT_ISBN);
     store.setHasCoverDesign(true);
@@ -70,49 +70,21 @@ describe("usePricingStore scenario pricing", () => {
     expect(store.getAddonBreakdown()).toEqual([{ name: "Express Delivery", price: 5_000 }]);
   });
 
-  it("calculates The Writer: base + cover fee + selected addons", () => {
-    const store = usePricingStore.getState();
-    store.setSelectedPackage(PACKAGE_WITHOUT_ISBN);
-    store.setHasCoverDesign(false);
-    store.setHasFormatting(true);
-    store.setSelectedAddons([COVER_ADDON, EXPRESS_ADDON]);
-
-    expect(store.getTotalPrice()).toBe(150_000);
-    expect(store.getAddonBreakdown()).toEqual([
-      { name: "Express Delivery", price: 5_000 },
-      { name: "Cover Design", price: 45_000 },
-    ]);
-  });
-
-  it("calculates The Designer: base + formatting cost + selected addons", () => {
+  it("does not change total when config modal selections change", () => {
     const store = usePricingStore.getState();
     store.setSelectedPackage(PACKAGE_WITHOUT_ISBN);
     store.setHasCoverDesign(true);
-    store.setHasFormatting(false);
-    store.setSelectedAddons([FORMATTING_ADDON_PER_WORD, EXPRESS_ADDON]);
-    store.applyFormattingCost(12_000, 0.5);
+    store.setHasFormatting(true);
+    store.setSelectedAddons([COVER_ADDON, EXPRESS_ADDON]);
 
-    expect(store.getTotalPrice()).toBe(111_000);
-    expect(store.getAddonBreakdown()).toEqual([
-      { name: "Express Delivery", price: 5_000 },
-      { name: "Formatting", price: 6_000 },
-    ]);
-  });
+    const totalWithYesYes = store.getTotalPrice();
 
-  it("calculates The Newbie: base + cover + formatting + selected addons", () => {
-    const store = usePricingStore.getState();
-    store.setSelectedPackage(PACKAGE_WITHOUT_ISBN);
     store.setHasCoverDesign(false);
     store.setHasFormatting(false);
-    store.setSelectedAddons([COVER_ADDON, FORMATTING_ADDON_PER_WORD, EXPRESS_ADDON]);
-    store.applyFormattingCost(10_000, 0.5);
+    const totalWithNoNo = store.getTotalPrice();
 
-    expect(store.getTotalPrice()).toBe(155_000);
-    expect(store.getAddonBreakdown()).toEqual([
-      { name: "Express Delivery", price: 5_000 },
-      { name: "Cover Design", price: 45_000 },
-      { name: "Formatting", price: 5_000 },
-    ]);
+    expect(totalWithYesYes).toBe(150_000);
+    expect(totalWithNoNo).toBe(150_000);
   });
 
   it("excludes ISBN from total when package includes ISBN", () => {
@@ -181,26 +153,26 @@ describe("usePricingStore scenario pricing", () => {
     expect(metadata.totalPrice).toBe(150_000);
     expect(metadata.addons).toEqual([
       {
+        id: "addon_cover",
+        slug: "cover-design",
+        name: "Cover Design",
+        price: 45_000,
+        source: "selected",
+      },
+      {
         id: "addon_express",
         slug: "express-delivery",
         name: "Express Delivery",
         price: 5_000,
         source: "selected",
       },
-      {
-        id: "addon_cover",
-        slug: "cover-design",
-        name: "Cover Design",
-        price: 45_000,
-        source: "scenario",
-      },
     ]);
   });
 
-  it("uses formatting wordCount × pricePerWord (not flat fee)", () => {
+  it("uses formatting wordCount × pricePerWord for selected formatting addon", () => {
     const store = usePricingStore.getState();
     store.setSelectedPackage(PACKAGE_WITHOUT_ISBN);
-    store.setHasCoverDesign(true);
+    store.setHasCoverDesign(false);
     store.setHasFormatting(false);
     store.setSelectedAddons([FORMATTING_ADDON_PER_WORD]);
     store.applyFormattingCost(1_500, 2);

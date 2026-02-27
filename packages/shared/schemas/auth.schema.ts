@@ -97,3 +97,13 @@ export const ResendSignupLinkSchema = z.object({
 });
 
 export type ResendSignupLinkInput = z.infer<typeof ResendSignupLinkSchema>;
+
+/**
+ * POST /auth/signup/context
+ * Resolve prefill data for /signup/finish
+ */
+export const SignupContextSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+});
+
+export type SignupContextInput = z.infer<typeof SignupContextSchema>;
