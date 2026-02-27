@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { VerificationCodeInput } from "@/components/shared/VerificationCodeInput";
 import { Link, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,7 @@ async function extractError(response: Response, fallback: string) {
   return fallback;
 }
 
-export default function SignupFinishPage() {
+function SignupFinishPageContent() {
   const t = useTranslations("auth");
   const checkoutT = useTranslations("checkout");
   const router = useRouter();
@@ -605,5 +605,35 @@ export default function SignupFinishPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function SignupFinishFallback() {
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-primary text-primary-foreground">
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-72 opacity-90"
+        aria-hidden="true"
+        style={{
+          background: "radial-gradient(80% 60% at 50% 0%, rgba(0,126,255,0.16), transparent)",
+        }}
+      />
+      <div className="relative mx-auto w-full max-w-6xl px-4 pb-12 pt-20 md:px-6 md:pb-14 md:pt-24 lg:px-8 lg:pb-16 lg:pt-28">
+        <div className="rounded-3xl border border-white/10 bg-[#0a0a0a] p-6 md:p-8">
+          <p className="inline-flex items-center gap-2 font-sans text-sm text-white/70">
+            <Loader2 className="size-4 animate-spin text-[#007eff]" aria-hidden="true" />
+            Loading...
+          </p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export default function SignupFinishPage() {
+  return (
+    <Suspense fallback={<SignupFinishFallback />}>
+      <SignupFinishPageContent />
+    </Suspense>
   );
 }

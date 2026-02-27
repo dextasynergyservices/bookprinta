@@ -1,5 +1,6 @@
 import { CheckCircle2, ShieldCheck } from "lucide-react";
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { Suspense } from "react";
 import { ResendSignupLinkForm } from "@/components/checkout/ResendSignupLinkForm";
 import { Link } from "@/lib/i18n/navigation";
 
@@ -39,7 +40,9 @@ export default async function CheckoutConfirmationPage({
           <p className="font-sans text-sm text-white/75">{t("payment_confirmation_note")}</p>
         </div>
 
-        <ResendSignupLinkForm />
+        <Suspense fallback={null}>
+          <ResendSignupLinkForm />
+        </Suspense>
 
         <div className="mt-7 flex flex-col gap-3 md:flex-row">
           <Link

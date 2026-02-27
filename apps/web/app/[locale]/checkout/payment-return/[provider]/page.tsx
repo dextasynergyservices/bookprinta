@@ -3,7 +3,7 @@
 import { CheckCircle2, Loader2, ShieldAlert } from "lucide-react";
 import { useParams, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useRouter } from "@/lib/i18n/navigation";
 
 type VerificationState = "loading" | "waiting" | "cancelled" | "error";
@@ -45,7 +45,7 @@ export function redirectToUrl(url: string) {
   window.location.assign(url);
 }
 
-export default function PaymentReturnPage() {
+function PaymentReturnPageContent() {
   const t = useTranslations("checkout");
   const router = useRouter();
   const routeParams = useParams<{ provider?: string | string[] }>();
@@ -222,5 +222,26 @@ export default function PaymentReturnPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function PaymentReturnFallback() {
+  return (
+    <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6 md:py-14 lg:px-8">
+      <section className="mx-auto w-full max-w-2xl rounded-3xl border border-[#2A2A2A] bg-[#090909] p-6 md:p-8">
+        <div className="flex size-14 items-center justify-center rounded-full border border-[#007eff]/40 bg-[#007eff]/12 text-[#9fd0ff]">
+          <Loader2 className="size-7 animate-spin" aria-hidden="true" />
+        </div>
+        <p className="mt-5 font-sans text-sm text-white/75">Loading...</p>
+      </section>
+    </main>
+  );
+}
+
+export default function PaymentReturnPage() {
+  return (
+    <Suspense fallback={<PaymentReturnFallback />}>
+      <PaymentReturnPageContent />
+    </Suspense>
   );
 }

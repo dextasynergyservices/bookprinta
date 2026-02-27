@@ -1,4 +1,5 @@
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { Suspense } from "react";
 import { CheckoutView } from "./CheckoutView";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -14,5 +15,9 @@ export default async function CheckoutPage({ params }: { params: Promise<{ local
   const { locale } = await params;
   setRequestLocale(locale);
 
-  return <CheckoutView />;
+  return (
+    <Suspense fallback={null}>
+      <CheckoutView />
+    </Suspense>
+  );
 }
