@@ -1,5 +1,11 @@
 import { DEFAULT_CURRENCY } from "@bookprinta/shared";
-import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import type Stripe from "stripe";
 import { STRIPE_CLIENT } from "../constants.js";
 
@@ -70,7 +76,7 @@ export class StripeService {
       cancel_url: params.callbackUrl ? `${params.callbackUrl}?cancelled=true` : undefined,
       metadata: {
         orderId: params.orderId ?? "",
-        ...((params.metadata as Record<string, string>) ?? {}),
+        checkout_state: this.serializeCheckoutState(params.metadata),
       },
     });
 
@@ -161,5 +167,84 @@ export class StripeService {
     const refund = await client.refunds.create(params);
 
     return refund as unknown as Record<string, unknown>;
+  }
+
+  private serializeCheckoutState(metadata?: Record<string, unknown>): string {
+    const normalized = this.minimizeCheckoutMetadata(metadata ?? {});
+    const serialized = JSON.stringify(normalized);
+    if (serialized.length <= 500) return serialized;
+
+    const minimal = {
+      locale: normalized.locale,
+      fullName: normalized.fullName,
+      phone: normalized.phone,
+      packageId: normalized.packageId,
+      packageSlug: normalized.packageSlug,
+      tier: normalized.tier,
+      hasCover: normalized.hasCover,
+      hasFormatting: normalized.hasFormatting,
+      bookSize: normalized.bookSize,
+      paperColor: normalized.paperColor,
+      lamination: normalized.lamination,
+      discountAmount: normalized.discountAmount,
+      totalPrice: normalized.totalPrice,
+      addons: Array.isArray(normalized.addons)
+        ? (normalized.addons as Array<Record<string, unknown>>).map((addon) => ({
+            id: addon.id,
+            slug: addon.slug,
+            price: addon.price,
+          }))
+        : undefined,
+    };
+
+    const compact = JSON.stringify(minimal);
+    if (compact.length <= 500) return compact;
+    throw new BadRequestException("Checkout metadata is too large for Stripe metadata limits.");
+  }
+
+  private minimizeCheckoutMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+    const scalarKeys = [
+      "locale",
+      "fullName",
+      "phone",
+      "hasCover",
+      "hasFormatting",
+      "tier",
+      "packageId",
+      "packageSlug",
+      "packageName",
+      "includesISBN",
+      "bookSize",
+      "paperColor",
+      "lamination",
+      "formattingWordCount",
+      "couponCode",
+      "discountAmount",
+      "basePrice",
+      "addonTotal",
+      "totalPrice",
+    ] as const;
+
+    const result: Record<string, unknown> = {};
+    for (const key of scalarKeys) {
+      const value = metadata[key];
+      if (value !== undefined && value !== null) result[key] = value;
+    }
+
+    if (Array.isArray(metadata.addons)) {
+      result.addons = metadata.addons
+        .filter((addon) => addon && typeof addon === "object")
+        .map((addon) => {
+          const item = addon as Record<string, unknown>;
+          return {
+            id: item.id,
+            slug: item.slug,
+            name: item.name,
+            price: item.price,
+          };
+        });
+    }
+
+    return result;
   }
 }

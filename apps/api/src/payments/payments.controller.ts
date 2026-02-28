@@ -9,15 +9,26 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { FileInterceptor } from "@nestjs/platform-express";
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from "@nestjs/swagger";
 import { SkipThrottle } from "@nestjs/throttler";
 import type { Request } from "express";
-import { CurrentUser, JwtAuthGuard } from "../auth/index.js";
+import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
+import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
 import {
-  BankTransferDto,
   ExtraPagesPaymentDto,
   InitializePaymentDto,
   ReprintPaymentDto,
@@ -120,8 +131,8 @@ export class PaymentsController {
     type: VerifyPaymentResponseDto,
   })
   @ApiResponse({ status: 404, description: "Payment reference not found" })
-  async verify(@Param("reference") reference: string) {
-    return this.paymentsService.verify(reference);
+  async verify(@Param("reference") reference: string, @Query("provider") provider?: string) {
+    return this.paymentsService.verify(reference, provider);
   }
 
   /**
@@ -130,6 +141,36 @@ export class PaymentsController {
    */
   @Post("bank-transfer")
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileInterceptor("receipt", {
+      limits: { fileSize: MAX_FILE_SIZE_BYTES },
+    })
+  )
+  @ApiConsumes("multipart/form-data", "application/json")
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        payerName: { type: "string", example: "Adaeze Okafor" },
+        payerEmail: { type: "string", example: "adaeze@example.com" },
+        payerPhone: { type: "string", example: "+2348012345678" },
+        amount: { type: "number", example: 150000 },
+        currency: { type: "string", example: "NGN" },
+        receiptUrl: { type: "string", nullable: true },
+        metadata: {
+          type: "string",
+          nullable: true,
+          description: "JSON stringified checkout metadata",
+        },
+        receipt: {
+          type: "string",
+          format: "binary",
+          description: "Receipt file (PDF/JPG/PNG), max 10MB",
+        },
+      },
+      required: ["payerName", "payerEmail", "payerPhone", "amount"],
+    },
+  })
   @ApiOperation({
     summary: "Submit bank transfer receipt",
     description:
@@ -144,13 +185,109 @@ export class PaymentsController {
   })
   @ApiResponse({ status: 400, description: "Validation error" })
   @ApiResponse({ status: 503, description: "Bank transfer gateway disabled" })
-  async submitBankTransfer(@Body() dto: BankTransferDto) {
-    return this.paymentsService.submitBankTransfer(dto);
+  async submitBankTransfer(
+    @Body() body: Record<string, unknown>,
+    @UploadedFile() receipt?: Express.Multer.File
+  ) {
+    const metadata = this.parseMetadata(body.metadata);
+    const amount = this.parseAmount(body.amount);
+
+    const payerName = this.parseRequiredString(body.payerName, "payerName");
+    const payerEmail = this.parseRequiredString(body.payerEmail, "payerEmail").toLowerCase();
+    const payerPhone = this.parseRequiredString(body.payerPhone, "payerPhone");
+    const currency = this.parseOptionalString(body.currency)?.toUpperCase() ?? "NGN";
+    const receiptUrl = this.parseOptionalString(body.receiptUrl);
+    const orderId = this.parseOptionalString(body.orderId);
+
+    if (!receipt && !receiptUrl) {
+      throw new BadRequestException("Upload a receipt file or provide receiptUrl");
+    }
+
+    return this.paymentsService.submitBankTransfer(
+      {
+        payerName,
+        payerEmail,
+        payerPhone,
+        amount,
+        currency,
+        receiptUrl,
+        orderId,
+        metadata,
+      },
+      receipt
+    );
   }
 
   // ────────────────────────────────────────────
   // Authenticated endpoints
   // ────────────────────────────────────────────
+
+  @Get("bank-transfer/pending")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiBearerAuth("access-token")
+  @ApiOperation({
+    summary: "List pending bank transfers",
+    description:
+      "Returns all bank-transfer payments awaiting approval, sorted oldest first with SLA age metadata.",
+  })
+  @ApiResponse({ status: 200, description: "Pending bank transfer payments" })
+  @ApiResponse({ status: 401, description: "Unauthorized — JWT required" })
+  @ApiResponse({ status: 403, description: "Forbidden — admin role required" })
+  async listPendingBankTransfers() {
+    return this.paymentsService.listPendingBankTransfers();
+  }
+
+  @Post("bank-transfer/:paymentId/approve")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiBearerAuth("access-token")
+  @ApiOperation({
+    summary: "Approve bank transfer",
+    description:
+      "Approves a pending bank transfer. On approval, links user/order and sends signup link email.",
+  })
+  @ApiResponse({ status: 200, description: "Bank transfer approved" })
+  @ApiResponse({ status: 400, description: "Payment is not awaiting approval" })
+  @ApiResponse({ status: 404, description: "Payment not found" })
+  async approveBankTransfer(
+    @Param("paymentId") paymentId: string,
+    @Body() body: Record<string, unknown>,
+    @CurrentUser("sub") adminId: string
+  ) {
+    return this.paymentsService.approveBankTransfer({
+      paymentId,
+      adminId,
+      adminNote: this.parseOptionalString(body.adminNote),
+    });
+  }
+
+  @Post("bank-transfer/:paymentId/reject")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiBearerAuth("access-token")
+  @ApiOperation({
+    summary: "Reject bank transfer",
+    description: "Rejects a pending bank transfer with an admin note.",
+  })
+  @ApiResponse({ status: 200, description: "Bank transfer rejected" })
+  @ApiResponse({ status: 400, description: "Payment is not awaiting approval or note missing" })
+  @ApiResponse({ status: 404, description: "Payment not found" })
+  async rejectBankTransfer(
+    @Param("paymentId") paymentId: string,
+    @Body() body: Record<string, unknown>,
+    @CurrentUser("sub") adminId: string
+  ) {
+    const adminNote = this.parseRequiredString(body.adminNote, "adminNote");
+    return this.paymentsService.rejectBankTransfer({
+      paymentId,
+      adminId,
+      adminNote,
+    });
+  }
 
   /**
    * POST /api/v1/payments/extra-pages
@@ -304,5 +441,52 @@ export class PaymentsController {
     return this.paymentsService.handleStripeWebhook(
       event as unknown as Parameters<typeof this.paymentsService.handleStripeWebhook>[0]
     );
+  }
+
+  private parseMetadata(value: unknown): Record<string, unknown> | undefined {
+    if (!value) return undefined;
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+        throw new BadRequestException("metadata must be a JSON object");
+      } catch {
+        throw new BadRequestException("metadata must be valid JSON");
+      }
+    }
+
+    if (typeof value === "object" && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    throw new BadRequestException("metadata must be a JSON object");
+  }
+
+  private parseAmount(value: unknown): number {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+
+    throw new BadRequestException("amount must be a positive number");
+  }
+
+  private parseRequiredString(value: unknown, field: string): string {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new BadRequestException(`${field} is required`);
+    }
+    return value.trim();
+  }
+
+  private parseOptionalString(value: unknown): string | undefined {
+    if (typeof value !== "string") return undefined;
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
   }
 }

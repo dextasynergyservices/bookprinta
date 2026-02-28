@@ -8,6 +8,7 @@ import { Check, ChevronDown, Minus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import type { PackageBase } from "@/hooks/usePackages";
 import { usePackageCategories } from "@/hooks/usePackages";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,7 @@ export function FeatureComparisonTable() {
   const t = useTranslations("pricing");
   const { data: categories, isLoading } = usePackageCategories();
   const containerRef = useRef<HTMLDivElement>(null);
+  const prefersReducedMotion = useReducedMotion();
 
   // Active category for the comparison table
   const [activeCategorySlug, setActiveCategorySlug] = useState<string | null>(null);
@@ -95,7 +97,7 @@ export function FeatureComparisonTable() {
 
   useGSAP(
     () => {
-      if (isLoading || !categories?.length) return;
+      if (prefersReducedMotion || isLoading || !categories?.length) return;
 
       gsap.from(".compare-heading", {
         y: 30,
@@ -120,7 +122,10 @@ export function FeatureComparisonTable() {
         },
       });
     },
-    { dependencies: [isLoading, categories, activeCategorySlug], scope: containerRef }
+    {
+      dependencies: [prefersReducedMotion, isLoading, categories, activeCategorySlug],
+      scope: containerRef,
+    }
   );
 
   if (isLoading || !categories?.length || !activeCategory) {
@@ -162,7 +167,7 @@ export function FeatureComparisonTable() {
                       aria-selected={isActive}
                       onClick={() => handleCategoryChange(cat.slug)}
                       className={cn(
-                        "relative shrink-0 rounded-lg px-3 py-1.5 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary",
+                        "relative shrink-0 min-h-11 min-w-11 rounded-lg px-3 py-1.5 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary",
                         isActive
                           ? "text-accent-foreground"
                           : "text-primary-foreground/55 hover:text-primary-foreground/85"
@@ -202,7 +207,7 @@ export function FeatureComparisonTable() {
                     aria-selected={isActive}
                     onClick={() => handleCategoryChange(cat.slug)}
                     className={cn(
-                      "relative rounded-lg px-4 py-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary",
+                      "relative min-h-11 min-w-11 rounded-lg px-4 py-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary",
                       isActive
                         ? "text-accent-foreground"
                         : "text-primary-foreground/50 hover:text-primary-foreground/80"
@@ -232,7 +237,7 @@ export function FeatureComparisonTable() {
           <button
             type="button"
             onClick={() => setPkgDropdownOpen((o) => !o)}
-            className="flex w-full items-center justify-between rounded-xl border border-accent/20 bg-accent/[0.04] px-4 py-3 transition-colors hover:border-accent/30"
+            className="flex min-h-11 min-w-11 w-full items-center justify-between rounded-xl border border-accent/20 bg-accent/[0.04] px-4 py-3 transition-colors hover:border-accent/30"
             aria-expanded={pkgDropdownOpen}
             aria-haspopup="listbox"
           >
@@ -274,7 +279,7 @@ export function FeatureComparisonTable() {
                         setPkgDropdownOpen(false);
                       }}
                       className={cn(
-                        "flex w-full items-center justify-between px-4 py-3 text-left transition-colors",
+                        "flex min-h-11 min-w-11 w-full items-center justify-between px-4 py-3 text-left transition-colors",
                         isActive
                           ? "bg-accent/10 text-accent"
                           : "text-primary-foreground/70 hover:bg-white/[0.04] hover:text-primary-foreground"
