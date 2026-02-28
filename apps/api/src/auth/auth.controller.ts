@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, Res, UseGuards } from "@nestjs/common";
 import { ApiBody, ApiCookieAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import type { Response } from "express";
 import { AuthService } from "./auth.service.js";
 import { CurrentUser } from "./decorators/index.js";
@@ -9,6 +10,7 @@ import {
   LoginDto,
   ResendSignupLinkDto,
   ResetPasswordDto,
+  SignupContextDto,
   VerifyEmailDto,
 } from "./dto/index.js";
 import { JwtAuthGuard, JwtRefreshGuard } from "./guards/index.js";
@@ -36,6 +38,25 @@ import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "./interfaces/index.js
 @Controller("auth")
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  // ==========================================
+  // POST /auth/signup/context
+  // ==========================================
+  @Post("signup/context")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Get signup context from token",
+    description:
+      "Resolves prefill data (name + email) for /signup/finish using the unique signup token.",
+  })
+  @ApiBody({ type: SignupContextDto })
+  @ApiResponse({ status: 200, description: "Signup context resolved" })
+  @ApiResponse({ status: 404, description: "Invalid or expired signup link" })
+  @ApiResponse({ status: 400, description: "Signup link expired" })
+  @ApiResponse({ status: 409, description: "Account setup already completed" })
+  async signupContext(@Body() dto: SignupContextDto) {
+    return this.authService.getSignupContext(dto);
+  }
 
   // ==========================================
   // POST /auth/signup/finish
@@ -202,6 +223,10 @@ export class AuthController {
   // ==========================================
   @Post("resend-signup-link")
   @HttpCode(HttpStatus.OK)
+  @Throttle({
+    short: { limit: 3, ttl: 3_600_000 },
+    long: { limit: 3, ttl: 3_600_000 },
+  })
   @ApiOperation({
     summary: "Resend signup link",
     description:

@@ -20,6 +20,7 @@ export { RefundConfirmEmail } from "./emails/RefundConfirmEmail.tsx";
 export { ReprintConfirmEmail } from "./emails/ReprintConfirmEmail.tsx";
 export { ReviewRequestEmail } from "./emails/ReviewRequestEmail.tsx";
 export { SignupLinkEmail } from "./emails/SignupLinkEmail.tsx";
+export { SignupVerificationEmail } from "./emails/SignupVerificationEmail.tsx";
 export { WelcomeEmail } from "./emails/WelcomeEmail.tsx";
 export type { Locale } from "./translations/index.ts";
 // Translation utilities

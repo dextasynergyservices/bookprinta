@@ -45,13 +45,13 @@ export type PaymentType = z.infer<typeof PaymentTypeSchema>;
 
 /**
  * POST /api/v1/payments/initialize
- * Initialize a payment session with Paystack or Stripe.
+ * Initialize a payment session with Paystack, Stripe, or PayPal.
  *
  * `orderId` is optional for guest checkout — the order is created
  * after payment succeeds via the webhook.
  */
 export const InitializePaymentSchema = z.object({
-  provider: z.enum(["PAYSTACK", "STRIPE"]),
+  provider: z.enum(["PAYSTACK", "STRIPE", "PAYPAL"]),
   email: z.string().email("Please enter a valid email address"),
   amount: z
     .number()
@@ -78,7 +78,7 @@ export const BankTransferSchema = z.object({
   payerPhone: z.string().min(7, "Phone number is too short").max(20, "Phone number is too long"),
   amount: z.number().positive("Amount must be greater than zero"),
   currency: z.string().length(3).default(DEFAULT_CURRENCY),
-  receiptUrl: z.string().url("Receipt URL must be a valid URL"),
+  receiptUrl: z.string().url("Receipt URL must be a valid URL").optional(),
   orderId: z.string().cuid().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -133,7 +133,7 @@ export const InitializePaymentResponseSchema = z.object({
   authorizationUrl: z.string().url(),
   accessCode: z.string().optional(),
   reference: z.string(),
-  provider: z.enum(["PAYSTACK", "STRIPE"]),
+  provider: z.enum(["PAYSTACK", "STRIPE", "PAYPAL"]),
 });
 export type InitializePaymentResponse = z.infer<typeof InitializePaymentResponseSchema>;
 
