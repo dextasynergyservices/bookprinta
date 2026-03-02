@@ -4,13 +4,17 @@ import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { useTranslations } from "next-intl";
 import { useRef } from "react";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 export function PricingHero() {
   const t = useTranslations("pricing");
   const containerRef = useRef<HTMLDivElement>(null);
+  const prefersReducedMotion = useReducedMotion();
 
   useGSAP(
     () => {
+      if (prefersReducedMotion) return;
+
       const tl = gsap.timeline({ defaults: { ease: "power3.out" } });
 
       tl.from(".pricing-hero-title", {
@@ -52,7 +56,7 @@ export function PricingHero() {
         }
       );
     },
-    { scope: containerRef }
+    { dependencies: [prefersReducedMotion], scope: containerRef }
   );
 
   return (

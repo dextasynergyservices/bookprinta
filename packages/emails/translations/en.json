@@ -12,11 +12,11 @@
     "support_email": "support@bookprinta.com"
   },
   "welcome": {
-    "subject": "Welcome to BookPrinta - Complete Your Account",
+    "subject": "Welcome to BookPrinta - Your Account Is Ready",
     "heading": "Welcome to BookPrinta!",
-    "body": "Your payment has been confirmed and your account is ready to be set up. Click the button below to set your password and complete your registration.",
-    "cta": "Complete Your Account",
-    "expires": "This link expires in 24 hours. If it expires, you can request a new one from the login page.",
+    "body": "Your email is verified and your account is now active. Continue to your dashboard to start publishing with BookPrinta.",
+    "cta": "Go to Dashboard",
+    "expires": "We're excited to have you on board.",
     "order_summary": "Order Summary",
     "package": "Package",
     "amount_paid": "Amount Paid",
@@ -29,6 +29,15 @@
     "cta": "Complete Signup",
     "expires": "This link expires in 24 hours.",
     "requested": "You or someone requested a new signup link for your BookPrinta account."
+  },
+  "signup_verification": {
+    "subject": "Verify Your BookPrinta Email",
+    "heading": "Verify Your Email",
+    "body": "Your password has been set. Use this verification code and link to complete your account.",
+    "code_label": "Verification Code",
+    "token_label": "Verification Token",
+    "cta": "Open Verification Page",
+    "expires": "This code and token expire in 15 minutes."
   },
   "book_status": {
     "subject": "Book Update: {bookTitle}",

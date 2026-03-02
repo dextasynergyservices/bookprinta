@@ -9,6 +9,7 @@ import { useTranslations } from "next-intl";
 import { useCallback, useRef, useState } from "react";
 
 import { ConfigurationModal } from "@/components/marketing/ConfigurationModal";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import type { PackageBase, PackageCategory } from "@/hooks/usePackages";
 import { usePackageCategories } from "@/hooks/usePackages";
 import { useRouter } from "@/lib/i18n/navigation";
@@ -69,7 +70,7 @@ function CategoryTabs({
                   aria-controls={`panel-${cat.slug}`}
                   onClick={() => onSelect(cat.slug)}
                   className={cn(
-                    "relative shrink-0 rounded-lg px-3 py-1.5 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary",
+                    "relative shrink-0 min-h-11 min-w-11 rounded-lg px-3 py-1.5 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary",
                     isActive
                       ? "text-accent-foreground"
                       : "text-primary-foreground/55 hover:text-primary-foreground/85"
@@ -103,7 +104,7 @@ function CategoryTabs({
       {/* ── Desktop: Wrapped pills (supports many categories) ── */}
       <div className="hidden px-5 md:block">
         <div
-          className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-1.5 rounded-xl bg-white/[0.03] p-1.5"
+          className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-1.5 rounded-xl p-1.5"
           role="tablist"
           aria-label={t("title")}
         >
@@ -118,7 +119,7 @@ function CategoryTabs({
                 aria-controls={`panel-${cat.slug}`}
                 onClick={() => onSelect(cat.slug)}
                 className={cn(
-                  "relative rounded-lg px-4 py-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary",
+                  "relative min-h-11 min-w-11 rounded-lg px-4 py-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary",
                   isActive
                     ? "text-accent-foreground"
                     : "text-primary-foreground/50 hover:text-primary-foreground/80"
@@ -462,6 +463,7 @@ function PricingCardsSkeleton() {
 export function PricingCards() {
   const t = useTranslations("pricing");
   const router = useRouter();
+  const prefersReducedMotion = useReducedMotion();
   const { data: categories, isLoading, isError, refetch } = usePackageCategories();
   const [activeCategorySlug, setActiveCategorySlug] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<SelectedPackage | null>(null);
@@ -491,7 +493,7 @@ export function PricingCards() {
 
   useGSAP(
     () => {
-      if (isLoading || isError || !categories?.length) return;
+      if (prefersReducedMotion || isLoading || isError || !categories?.length) return;
 
       gsap.from(".category-tabs", {
         y: 20,
@@ -504,7 +506,7 @@ export function PricingCards() {
         },
       });
     },
-    { dependencies: [isLoading, isError, categories], scope: containerRef }
+    { dependencies: [prefersReducedMotion, isLoading, isError, categories], scope: containerRef }
   );
 
   if (isLoading) {

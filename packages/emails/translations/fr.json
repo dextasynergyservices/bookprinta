@@ -12,11 +12,11 @@
     "support_email": "support@bookprinta.com"
   },
   "welcome": {
-    "subject": "Bienvenue sur BookPrinta - Completez votre compte",
+    "subject": "Bienvenue sur BookPrinta - Votre compte est pret",
     "heading": "Bienvenue sur BookPrinta !",
-    "body": "Votre paiement a ete confirme et votre compte est pret a etre configure. Cliquez sur le bouton ci-dessous pour definir votre mot de passe et completer votre inscription.",
-    "cta": "Completer votre compte",
-    "expires": "Ce lien expire dans 24 heures. S'il expire, vous pouvez en demander un nouveau depuis la page de connexion.",
+    "body": "Votre e-mail est verifie et votre compte est maintenant actif. Accedez a votre tableau de bord pour commencer a publier avec BookPrinta.",
+    "cta": "Aller au tableau de bord",
+    "expires": "Nous sommes ravis de vous compter parmi nous.",
     "order_summary": "Resume de la commande",
     "package": "Forfait",
     "amount_paid": "Montant paye",
@@ -29,6 +29,15 @@
     "cta": "Completer l'inscription",
     "expires": "Ce lien expire dans 24 heures.",
     "requested": "Vous ou quelqu'un avez demande un nouveau lien d'inscription pour votre compte BookPrinta."
+  },
+  "signup_verification": {
+    "subject": "Verifiez votre email BookPrinta",
+    "heading": "Verifiez votre email",
+    "body": "Votre mot de passe est defini. Utilisez ce code et ce lien de verification pour finaliser votre compte.",
+    "code_label": "Code de verification",
+    "token_label": "Jeton de verification",
+    "cta": "Ouvrir la page de verification",
+    "expires": "Ce code et ce jeton expirent dans 15 minutes."
   },
   "book_status": {
     "subject": "Mise a jour du livre : {bookTitle}",

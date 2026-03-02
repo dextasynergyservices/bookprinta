@@ -1,14 +1,17 @@
 import * as crypto from "node:crypto";
+import type { Locale } from "@bookprinta/emails";
 import {
   BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import type { UserRole } from "../generated/prisma/enums.js";
+import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type {
   FinishSignupDto,
@@ -16,6 +19,7 @@ import type {
   LoginDto,
   ResendSignupLinkDto,
   ResetPasswordDto,
+  SignupContextDto,
   VerifyEmailDto,
 } from "./dto/index.js";
 import type { JwtPayload, TokenPair } from "./interfaces/index.js";
@@ -40,12 +44,69 @@ export class AuthService {
   private readonly ACCESS_TOKEN_EXPIRY: string;
   private readonly REFRESH_TOKEN_EXPIRY_USER: string;
   private readonly REFRESH_TOKEN_EXPIRY_ADMIN: string;
+  private readonly fromEmail: string;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly signupNotificationsService: SignupNotificationsService
+  ) {
     this.JWT_SECRET = process.env.JWT_SECRET || "fallback-dev-secret-change-me";
     this.ACCESS_TOKEN_EXPIRY = process.env.JWT_ACCESS_EXPIRY || "15m";
     this.REFRESH_TOKEN_EXPIRY_USER = process.env.JWT_REFRESH_EXPIRY_USER || "7d";
     this.REFRESH_TOKEN_EXPIRY_ADMIN = process.env.JWT_REFRESH_EXPIRY_ADMIN || "1h";
+    this.fromEmail =
+      process.env.AUTH_FROM_EMAIL ||
+      process.env.PAYMENTS_FROM_EMAIL ||
+      "BookPrinta <onboarding@resend.dev>";
+  }
+
+  // ==========================================
+  // SIGNUP CONTEXT (POST /auth/signup/context)
+  // ==========================================
+
+  /**
+   * Resolve signup identity details from a valid signup token.
+   * Used to prefill /signup/finish form fields.
+   */
+  async getSignupContext(dto: SignupContextDto): Promise<{
+    email: string;
+    firstName: string;
+    lastName: string | null;
+    phoneNumber: string | null;
+    nextStep: "password" | "verify";
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { verificationToken: dto.token },
+      select: {
+        email: true,
+        firstName: true,
+        lastName: true,
+        phoneNumber: true,
+        password: true,
+        isVerified: true,
+        tokenExpiry: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException("Invalid or expired signup link");
+    }
+
+    if (user.tokenExpiry && user.tokenExpiry < new Date()) {
+      throw new BadRequestException("Signup link has expired. Please request a new one.");
+    }
+
+    if (user.password && user.isVerified) {
+      throw new ConflictException("Account setup already completed. Please log in.");
+    }
+
+    return {
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phoneNumber: user.phoneNumber,
+      nextStep: user.password ? "verify" : "password",
+    };
   }
 
   // ==========================================
@@ -64,6 +125,9 @@ export class AuthService {
       select: {
         id: true,
         email: true,
+        firstName: true,
+        preferredLanguage: true,
+        phoneNumber: true,
         password: true,
         isVerified: true,
         tokenExpiry: true,
@@ -89,21 +153,35 @@ export class AuthService {
 
     // Generate a 6-digit email verification code
     const verificationCode = this.generateVerificationCode();
+    const verificationToken = dto.token;
     const codeExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    // Update user: set password, generate verification code, clear signup token
+    // Update user: set password, generate verification code, keep token for verify-step reopen
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
         password: hashedPassword,
         verificationCode,
-        verificationToken: null, // Invalidate the signup link
-        tokenExpiry: codeExpiry, // Reuse for code expiry
+        verificationToken,
+        tokenExpiry: codeExpiry, // Shared expiry for code + token
       },
     });
 
-    // TODO: Send verification code via email (Resend + React Email template)
-    // await this.emailService.sendVerificationCode(user.email, verificationCode, locale);
+    try {
+      await this.signupNotificationsService.sendVerificationChallenge({
+        email: user.email,
+        name: user.firstName || user.email.split("@")[0] || "Author",
+        locale: this.resolveLocale(user.preferredLanguage),
+        verificationCode,
+        verificationToken,
+        phoneNumber: user.phoneNumber,
+        fromEmail: this.fromEmail,
+      });
+    } catch {
+      throw new ServiceUnavailableException(
+        "We couldn't send your verification code and link right now. Please try again."
+      );
+    }
 
     return {
       message: "Password set successfully. Please verify your email with the code sent.",
@@ -128,6 +206,7 @@ export class AuthService {
         role: true,
         firstName: true,
         lastName: true,
+        preferredLanguage: true,
         isVerified: true,
         verificationCode: true,
         tokenExpiry: true,
@@ -162,12 +241,21 @@ export class AuthService {
       data: {
         isVerified: true,
         verificationCode: null,
+        verificationToken: null,
         tokenExpiry: null,
       },
     });
 
     // Generate tokens and set refresh token in database
     const tokens = await this.generateTokenPair(user.id, user.email, user.role);
+
+    // Best-effort welcome email after successful verification.
+    void this.signupNotificationsService.sendWelcomeEmail({
+      email: user.email,
+      name: user.firstName || user.email.split("@")[0] || "Author",
+      locale: this.resolveLocale(user.preferredLanguage),
+      fromEmail: this.fromEmail,
+    });
 
     return {
       user: {
@@ -359,7 +447,15 @@ export class AuthService {
   async resendSignupLink(dto: ResendSignupLinkDto): Promise<{ message: string }> {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
-      select: { id: true, isVerified: true, password: true },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        phoneNumber: true,
+        preferredLanguage: true,
+        isVerified: true,
+        password: true,
+      },
     });
 
     // Always return success to prevent email enumeration
@@ -369,6 +465,39 @@ export class AuthService {
 
     // If already verified and has password, they should just log in
     if (user.isVerified && user.password) {
+      return { message: "If the email exists, a new signup link has been sent." };
+    }
+
+    if (user.password && !user.isVerified) {
+      const verificationCode = this.generateVerificationCode();
+      const verificationToken = this.generateSecureToken();
+      const codeExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          verificationCode,
+          verificationToken,
+          tokenExpiry: codeExpiry,
+        },
+      });
+
+      try {
+        await this.signupNotificationsService.sendVerificationChallenge({
+          email: user.email,
+          name: user.firstName || user.email.split("@")[0] || "Author",
+          locale: this.resolveLocale(user.preferredLanguage),
+          verificationCode,
+          verificationToken,
+          phoneNumber: user.phoneNumber,
+          fromEmail: this.fromEmail,
+        });
+      } catch {
+        throw new ServiceUnavailableException(
+          "We couldn't resend your verification code and link right now. Please try again."
+        );
+      }
+
       return { message: "If the email exists, a new signup link has been sent." };
     }
 
@@ -384,9 +513,23 @@ export class AuthService {
       },
     });
 
-    // TODO: Send signup link email (Resend + React Email template)
-    // const signupUrl = `${process.env.FRONTEND_URL}/signup/finish?token=${verificationToken}`;
-    // await this.emailService.sendSignupLink(dto.email, signupUrl, locale);
+    try {
+      await this.signupNotificationsService.sendRegistrationLink(
+        {
+          email: user.email,
+          token: verificationToken,
+          locale: this.resolveLocale(user.preferredLanguage),
+          name: user.firstName || user.email.split("@")[0] || "Author",
+          phoneNumber: user.phoneNumber,
+          fromEmail: this.fromEmail,
+        },
+        { requireDelivery: true }
+      );
+    } catch {
+      throw new ServiceUnavailableException(
+        "We couldn't resend your signup link right now. Please try again."
+      );
+    }
 
     return { message: "If the email exists, a new signup link has been sent." };
   }
@@ -496,6 +639,12 @@ export class AuthService {
   // ==========================================
   // PRIVATE HELPERS
   // ==========================================
+
+  private resolveLocale(value: string | null | undefined): Locale {
+    const normalized = value?.trim().toLowerCase();
+    if (normalized === "fr" || normalized === "es") return normalized;
+    return "en";
+  }
 
   /**
    * Generate a cryptographically secure random token.
