@@ -34,6 +34,10 @@ export const VerifyEmailSchema = z.object({
     .regex(/^\d{6}$/, "Code must be 6 digits"),
 });
 
+export const VerifyEmailLinkSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+});
+
 export const LoginSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(1, "Password is required"),
@@ -77,6 +81,8 @@ export const SignupContextSchema = z.object({
 export class FinishSignupDto extends createZodDto(FinishSignupSchema) {}
 
 export class VerifyEmailDto extends createZodDto(VerifyEmailSchema) {}
+
+export class VerifyEmailLinkDto extends createZodDto(VerifyEmailLinkSchema) {}
 
 export class LoginDto extends createZodDto(LoginSchema) {}
 

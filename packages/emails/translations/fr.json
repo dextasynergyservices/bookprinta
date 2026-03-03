@@ -20,7 +20,8 @@
     "order_summary": "Resume de la commande",
     "package": "Forfait",
     "amount_paid": "Montant paye",
-    "order_number": "Numero de commande"
+    "order_number": "Numero de commande",
+    "addons": "Services supplementaires"
   },
   "signup_link": {
     "subject": "Votre lien d'inscription BookPrinta",
@@ -28,16 +29,20 @@
     "body": "Utilisez le lien ci-dessous pour terminer la configuration de votre compte BookPrinta. Vous devrez definir un mot de passe et verifier votre email.",
     "cta": "Completer l'inscription",
     "expires": "Ce lien expire dans 24 heures.",
-    "requested": "Vous ou quelqu'un avez demande un nouveau lien d'inscription pour votre compte BookPrinta."
+    "requested": "Votre paiement a ete recu ! Completez votre compte pour commencer.",
+    "order_summary": "Resume de la commande",
+    "package": "Forfait",
+    "order_number": "Numero de commande",
+    "amount_paid": "Montant paye",
+    "addons": "Services supplementaires"
   },
   "signup_verification": {
     "subject": "Verifiez votre email BookPrinta",
     "heading": "Verifiez votre email",
-    "body": "Votre mot de passe est defini. Utilisez ce code et ce lien de verification pour finaliser votre compte.",
+    "body": "Votre mot de passe est defini. Entrez ce code de verification pour finaliser votre compte.",
     "code_label": "Code de verification",
-    "token_label": "Jeton de verification",
     "cta": "Ouvrir la page de verification",
-    "expires": "Ce code et ce jeton expirent dans 15 minutes."
+    "expires": "Ce code expire dans 15 minutes."
   },
   "book_status": {
     "subject": "Mise a jour du livre : {bookTitle}",
@@ -158,8 +163,11 @@
     "subject": "Paiement en cours de verification - Commande #{orderNumber}",
     "heading": "Nous avons recu votre paiement",
     "body": "Merci pour votre virement bancaire. Notre equipe verifie actuellement votre paiement. Cela prend generalement moins de 30 minutes pendant les heures ouvrables.",
+    "order_summary": "Resume de commande",
+    "package": "Pack",
     "order_number": "Numero de commande",
     "amount": "Montant transfere",
+    "addons": "Modules",
     "what_next": "Que se passe-t-il ensuite ?",
     "step_1": "Notre equipe verifie votre recu de transfert",
     "step_2": "Une fois verifie, vous recevrez votre lien d'inscription par email",

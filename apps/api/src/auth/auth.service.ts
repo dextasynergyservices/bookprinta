@@ -21,6 +21,7 @@ import type {
   ResetPasswordDto,
   SignupContextDto,
   VerifyEmailDto,
+  VerifyEmailLinkDto,
 } from "./dto/index.js";
 import type { JwtPayload, TokenPair } from "./interfaces/index.js";
 
@@ -55,9 +56,11 @@ export class AuthService {
     this.REFRESH_TOKEN_EXPIRY_USER = process.env.JWT_REFRESH_EXPIRY_USER || "7d";
     this.REFRESH_TOKEN_EXPIRY_ADMIN = process.env.JWT_REFRESH_EXPIRY_ADMIN || "1h";
     this.fromEmail =
-      process.env.AUTH_FROM_EMAIL ||
-      process.env.PAYMENTS_FROM_EMAIL ||
-      "BookPrinta <onboarding@resend.dev>";
+      process.env.ADMIN_FROM_EMAIL ||
+      process.env.CONTACT_FROM_EMAIL ||
+      process.env.RESEND_FROM_EMAIL ||
+      process.env.DEFAULT_FROM_EMAIL ||
+      "BookPrinta <info@bookprinta.com>";
   }
 
   // ==========================================
@@ -235,7 +238,61 @@ export class AuthService {
       throw new BadRequestException("Invalid verification code");
     }
 
-    // Mark user as verified, clear code
+    return this.completeEmailVerification(user);
+  }
+
+  // ==========================================
+  // VERIFY EMAIL LINK (POST /auth/verify-email-link)
+  // ==========================================
+
+  /**
+   * Verify email directly from tokenized verification link.
+   * Token expiry is shared with the 6-digit code window (15 minutes).
+   */
+  async verifyEmailLink(dto: VerifyEmailLinkDto): Promise<{ user: SafeUser; tokens: TokenPair }> {
+    const user = await this.prisma.user.findUnique({
+      where: { verificationToken: dto.token },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        preferredLanguage: true,
+        isVerified: true,
+        password: true,
+        tokenExpiry: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException("Invalid or expired verification link");
+    }
+
+    if (user.isVerified) {
+      throw new ConflictException("Email already verified");
+    }
+
+    if (!user.password) {
+      throw new BadRequestException("Please complete signup first before verifying your email.");
+    }
+
+    if (user.tokenExpiry && user.tokenExpiry < new Date()) {
+      throw new BadRequestException("Verification link has expired. Please request a new one.");
+    }
+
+    return this.completeEmailVerification(user);
+  }
+
+  private async completeEmailVerification(user: {
+    id: string;
+    email: string;
+    role: UserRole;
+    firstName: string;
+    lastName: string | null;
+    preferredLanguage: string | null;
+  }): Promise<{ user: SafeUser; tokens: TokenPair }> {
+    // Mark user as verified, clear challenge artifacts.
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
@@ -246,8 +303,10 @@ export class AuthService {
       },
     });
 
-    // Generate tokens and set refresh token in database
+    // Generate tokens and set refresh token in database.
     const tokens = await this.generateTokenPair(user.id, user.email, user.role);
+
+    const latestOrder = await this.getLatestOrderSummary(user.id);
 
     // Best-effort welcome email after successful verification.
     void this.signupNotificationsService.sendWelcomeEmail({
@@ -255,6 +314,16 @@ export class AuthService {
       name: user.firstName || user.email.split("@")[0] || "Author",
       locale: this.resolveLocale(user.preferredLanguage),
       fromEmail: this.fromEmail,
+      orderNumber: latestOrder?.orderNumber,
+      packageName: latestOrder?.packageName,
+      amountPaid: latestOrder
+        ? new Intl.NumberFormat("en-NG", {
+            style: "currency",
+            currency: latestOrder.currency,
+            maximumFractionDigits: 0,
+          }).format(Number(latestOrder.totalAmount))
+        : undefined,
+      addons: latestOrder?.addons,
     });
 
     return {
@@ -513,6 +582,8 @@ export class AuthService {
       },
     });
 
+    const latestOrder = await this.getLatestOrderSummary(user.id);
+
     try {
       await this.signupNotificationsService.sendRegistrationLink(
         {
@@ -522,6 +593,16 @@ export class AuthService {
           name: user.firstName || user.email.split("@")[0] || "Author",
           phoneNumber: user.phoneNumber,
           fromEmail: this.fromEmail,
+          orderNumber: latestOrder?.orderNumber,
+          packageName: latestOrder?.packageName,
+          amountPaid: latestOrder
+            ? new Intl.NumberFormat("en-NG", {
+                style: "currency",
+                currency: latestOrder.currency,
+                maximumFractionDigits: 0,
+              }).format(Number(latestOrder.totalAmount))
+            : undefined,
+          addons: latestOrder?.addons,
         },
         { requireDelivery: true }
       );
@@ -682,6 +763,41 @@ export class AuthService {
     };
 
     return value * (multipliers[unit] ?? 0);
+  }
+
+  private async getLatestOrderSummary(userId: string): Promise<{
+    orderNumber: string;
+    packageName: string;
+    totalAmount: number;
+    currency: string;
+    addons: string[];
+  } | null> {
+    const latestOrder = await this.prisma.order.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        orderNumber: true,
+        totalAmount: true,
+        currency: true,
+        package: { select: { name: true } },
+      },
+    });
+
+    if (!latestOrder) return null;
+
+    const orderAddons = await this.prisma.orderAddon.findMany({
+      where: { orderId: latestOrder.id },
+      select: { addon: { select: { name: true } } },
+    });
+
+    return {
+      orderNumber: latestOrder.orderNumber,
+      packageName: latestOrder.package?.name ?? "BookPrinta Package",
+      totalAmount: Number(latestOrder.totalAmount),
+      currency: latestOrder.currency || "NGN",
+      addons: orderAddons.map((item) => item.addon.name).filter(Boolean),
+    };
   }
 }
 

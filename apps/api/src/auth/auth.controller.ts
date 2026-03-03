@@ -12,6 +12,7 @@ import {
   ResetPasswordDto,
   SignupContextDto,
   VerifyEmailDto,
+  VerifyEmailLinkDto,
 } from "./dto/index.js";
 import { JwtAuthGuard, JwtRefreshGuard } from "./guards/index.js";
 import type { JwtPayload } from "./interfaces/index.js";
@@ -96,6 +97,37 @@ export class AuthController {
     const result = await this.authService.verifyEmail(dto);
 
     // Set tokens in HttpOnly cookies
+    this.setTokenCookies(
+      res,
+      result.tokens.accessToken,
+      result.tokens.refreshToken,
+      result.user.role
+    );
+
+    return { user: result.user };
+  }
+
+  // ==========================================
+  // POST /auth/verify-email-link
+  // ==========================================
+  @Post("verify-email-link")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Verify email from secure tokenized link",
+    description:
+      "Verifies email directly using the signup verification token and sets JWT tokens in HttpOnly cookies.",
+  })
+  @ApiBody({ type: VerifyEmailLinkDto })
+  @ApiResponse({ status: 200, description: "Email verified, tokens set" })
+  @ApiResponse({ status: 400, description: "Invalid or expired verification link" })
+  @ApiResponse({ status: 404, description: "Invalid or expired verification link" })
+  @ApiResponse({ status: 409, description: "Email already verified" })
+  async verifyEmailLink(
+    @Body() dto: VerifyEmailLinkDto,
+    @Res({ passthrough: true }) res: Response
+  ) {
+    const result = await this.authService.verifyEmailLink(dto);
+
     this.setTokenCookies(
       res,
       result.tokens.accessToken,

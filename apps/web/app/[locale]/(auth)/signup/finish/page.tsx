@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { type FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { type FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { VerificationCodeInput } from "@/components/shared/VerificationCodeInput";
 import { Link, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,16 @@ type SignupContextResponse = {
 };
 
 const RESEND_COOLDOWN_SECONDS = 60;
+const PASSWORD_STRENGTH_SEGMENTS = 4;
+const PASSWORD_STRENGTH_SEGMENT_KEYS = Array.from(
+  { length: PASSWORD_STRENGTH_SEGMENTS },
+  (_, segmentIndex) => `password-strength-${segmentIndex + 1}`
+);
+
+type PasswordStrength = {
+  score: number;
+  key: "very_weak" | "weak" | "fair" | "good" | "strong";
+};
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -47,6 +57,26 @@ async function extractError(response: Response, fallback: string) {
   return fallback;
 }
 
+function evaluatePasswordStrength(password: string): PasswordStrength {
+  const value = password.trim();
+  if (!value) return { score: 0, key: "very_weak" };
+
+  const hasLower = /[a-z]/.test(value);
+  const hasUpper = /[A-Z]/.test(value);
+  const hasDigit = /\d/.test(value);
+  const hasSymbol = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(value);
+  const classes = [hasLower, hasUpper, hasDigit, hasSymbol].filter(Boolean).length;
+
+  let score = 0;
+  if (value.length >= 8) score = 1;
+  if (value.length >= 8 && classes >= 2) score = 2;
+  if (value.length >= 8 && classes >= 3) score = 3;
+  if (value.length >= 12 && classes === 4) score = 4;
+
+  const keyByScore: PasswordStrength["key"][] = ["very_weak", "weak", "fair", "good", "strong"];
+  return { score, key: keyByScore[score] };
+}
+
 function SignupFinishPageContent() {
   const t = useTranslations("auth");
   const checkoutT = useTranslations("checkout");
@@ -54,6 +84,11 @@ function SignupFinishPageContent() {
   const searchParams = useSearchParams();
 
   const token = useMemo(() => searchParams.get("token")?.trim() ?? "", [searchParams]);
+  const stepParam = useMemo(
+    () => searchParams.get("step")?.trim().toLowerCase() ?? "",
+    [searchParams]
+  );
+  const autoVerifyAttempted = useRef(false);
   const [step, setStep] = useState<SignupStep>("password");
   const [context, setContext] = useState<SignupContextResponse | null>(null);
   const [isLoadingContext, setIsLoadingContext] = useState(true);
@@ -100,7 +135,7 @@ function SignupFinishPageContent() {
         const payload = (await response.json()) as SignupContextResponse;
         if (!isCancelled) {
           setContext(payload);
-          const isVerifyStep = payload.nextStep === "verify";
+          const isVerifyStep = payload.nextStep === "verify" || stepParam === "verify";
           setStep(isVerifyStep ? "verify" : "password");
           setResendCooldown(isVerifyStep ? RESEND_COOLDOWN_SECONDS : 0);
         }
@@ -116,7 +151,7 @@ function SignupFinishPageContent() {
     return () => {
       isCancelled = true;
     };
-  }, [invalidTokenText, prefillErrorText, token]);
+  }, [invalidTokenText, prefillErrorText, stepParam, token]);
 
   const fullName = useMemo(() => {
     if (!context) return "";
@@ -144,6 +179,8 @@ function SignupFinishPageContent() {
   const showConfirmPasswordText = t("signup_finish_show_confirm_password");
   const hideConfirmPasswordText = t("signup_finish_hide_confirm_password");
   const resendCooldownText = t("signup_finish_resend_wait", { seconds: resendCooldown });
+  const passwordStrength = useMemo(() => evaluatePasswordStrength(password), [password]);
+  const passwordStrengthText = t(`signup_finish_password_strength_${passwordStrength.key}`);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -154,6 +191,46 @@ function SignupFinishPageContent() {
 
     return () => window.clearTimeout(timer);
   }, [resendCooldown]);
+
+  useEffect(() => {
+    if (autoVerifyAttempted.current) return;
+    if (stepParam !== "verify") return;
+    if (step !== "verify") return;
+    if (!token) return;
+    if (!context?.email) return;
+    if (isSubmittingCode) return;
+
+    autoVerifyAttempted.current = true;
+    setErrorMessage("");
+    setStatusMessage("");
+    setIsSubmittingCode(true);
+
+    const verifyFromToken = async () => {
+      try {
+        const response = await fetch(`${getApiV1BaseUrl()}/auth/verify-email-link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+
+        if (!response.ok) {
+          const message = await extractError(response, t("signup_finish_verify_error"));
+          setErrorMessage(message);
+          return;
+        }
+
+        setStep("done");
+        setStatusMessage(t("signup_finish_verified_subtitle"));
+        router.replace("/signup/finish/confirmation");
+      } catch {
+        setErrorMessage(t("signup_finish_verify_error"));
+      } finally {
+        setIsSubmittingCode(false);
+      }
+    };
+
+    void verifyFromToken();
+  }, [context?.email, isSubmittingCode, router, step, stepParam, t, token]);
 
   const submitPassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -457,6 +534,47 @@ function SignupFinishPageContent() {
                         <Eye className="size-4" aria-hidden="true" />
                       )}
                     </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="font-sans text-xs text-white/65">
+                      {t("signup_finish_password_strength")}
+                    </p>
+                    <p
+                      className={cn(
+                        "font-sans text-xs font-semibold",
+                        passwordStrength.score >= 4
+                          ? "text-emerald-300"
+                          : passwordStrength.score >= 3
+                            ? "text-[#9fd0ff]"
+                            : passwordStrength.score >= 2
+                              ? "text-amber-300"
+                              : "text-[#ffb4b4]"
+                      )}
+                    >
+                      {passwordStrengthText}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1" aria-hidden="true">
+                    {PASSWORD_STRENGTH_SEGMENT_KEYS.map((segmentKey, index) => (
+                      <span
+                        key={segmentKey}
+                        className={cn(
+                          "h-1.5 rounded-full",
+                          index < passwordStrength.score
+                            ? passwordStrength.score >= 4
+                              ? "bg-emerald-400"
+                              : passwordStrength.score >= 3
+                                ? "bg-[#007eff]"
+                                : passwordStrength.score >= 2
+                                  ? "bg-amber-400"
+                                  : "bg-[#ff6b6b]"
+                            : "bg-white/10"
+                        )}
+                      />
+                    ))}
                   </div>
                 </div>
 

@@ -44,6 +44,16 @@ export const VerifyEmailSchema = z.object({
 export type VerifyEmailInput = z.infer<typeof VerifyEmailSchema>;
 
 /**
+ * POST /auth/verify-email-link
+ * Verify email directly from tokenized link
+ */
+export const VerifyEmailLinkSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+});
+
+export type VerifyEmailLinkInput = z.infer<typeof VerifyEmailLinkSchema>;
+
+/**
  * POST /auth/login
  * Login with email & password
  */
