@@ -1,18 +1,24 @@
 import * as crypto from "node:crypto";
 import type { Locale } from "@bookprinta/emails";
+import { renderPasswordResetEmail } from "@bookprinta/emails/render";
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { Resend } from "resend";
 import type { UserRole } from "../generated/prisma/enums.js";
 import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 import type {
   FinishSignupDto,
   ForgotPasswordDto,
@@ -20,10 +26,38 @@ import type {
   ResendSignupLinkDto,
   ResetPasswordDto,
   SignupContextDto,
+  ValidateResetPasswordTokenDto,
   VerifyEmailDto,
   VerifyEmailLinkDto,
 } from "./dto/index.js";
 import type { JwtPayload, TokenPair } from "./interfaces/index.js";
+
+const LOGIN_RATE_LIMIT = {
+  keyPrefix: "ratelimit:auth:login:",
+  windowSeconds: 60,
+  maxRequests: 10,
+};
+
+const FORGOT_PASSWORD_RATE_LIMIT = {
+  keyPrefix: "ratelimit:auth:forgot-password:",
+  windowSeconds: 3600,
+  maxRequests: 3,
+};
+
+const RESET_PASSWORD_RATE_LIMIT = {
+  keyPrefix: "ratelimit:auth:reset-password:",
+  windowSeconds: 60,
+  maxRequests: 10,
+};
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
 /**
  * Auth Service — Core authentication and authorization logic.
@@ -40,27 +74,28 @@ import type { JwtPayload, TokenPair } from "./interfaces/index.js";
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  private readonly resend: Resend | null;
   private readonly SALT_ROUNDS = 12;
   private readonly JWT_SECRET: string;
   private readonly ACCESS_TOKEN_EXPIRY: string;
   private readonly REFRESH_TOKEN_EXPIRY_USER: string;
   private readonly REFRESH_TOKEN_EXPIRY_ADMIN: string;
+  private readonly frontendBaseUrl: string;
   private readonly fromEmail: string;
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly signupNotificationsService: SignupNotificationsService
+    private readonly signupNotificationsService: SignupNotificationsService,
+    private readonly redisService: RedisService
   ) {
+    this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.JWT_SECRET = process.env.JWT_SECRET || "fallback-dev-secret-change-me";
     this.ACCESS_TOKEN_EXPIRY = process.env.JWT_ACCESS_EXPIRY || "15m";
     this.REFRESH_TOKEN_EXPIRY_USER = process.env.JWT_REFRESH_EXPIRY_USER || "7d";
     this.REFRESH_TOKEN_EXPIRY_ADMIN = process.env.JWT_REFRESH_EXPIRY_ADMIN || "1h";
-    this.fromEmail =
-      process.env.ADMIN_FROM_EMAIL ||
-      process.env.CONTACT_FROM_EMAIL ||
-      process.env.RESEND_FROM_EMAIL ||
-      process.env.DEFAULT_FROM_EMAIL ||
-      "BookPrinta <info@bookprinta.com>";
+    this.frontendBaseUrl = this.resolveFrontendBaseUrl();
+    this.fromEmail = this.resolveFromEmail();
   }
 
   // ==========================================
@@ -343,38 +378,64 @@ export class AuthService {
   // ==========================================
 
   /**
-   * Authenticate user with email and password.
+   * Authenticate user with email/phone and password.
    * Returns token pair + user info on success.
    */
-  async login(dto: LoginDto): Promise<{ user: SafeUser; tokens: TokenPair }> {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        firstName: true,
-        lastName: true,
-        password: true,
-        isVerified: true,
-      },
-    });
-
-    if (!user || !user.password) {
-      throw new UnauthorizedException("Invalid email or password");
+  async login(dto: LoginDto, ip = "unknown"): Promise<{ user: SafeUser; tokens: TokenPair }> {
+    await this.checkLoginRateLimit(ip);
+    const isHuman = await this.verifyRecaptcha(dto.recaptchaToken);
+    if (!isHuman) {
+      throw new BadRequestException({
+        message: "reCAPTCHA verification failed. Please try again.",
+        errorCode: "AUTH_RECAPTCHA_FAILED",
+      });
     }
 
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(dto.password, user.password);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException("Invalid email or password");
+    const identifier = dto.identifier.trim();
+    let user: {
+      id: string;
+      email: string;
+      role: UserRole;
+      firstName: string;
+      lastName: string | null;
+      password: string | null;
+      isVerified: boolean;
+    } | null = null;
+
+    if (this.isEmailIdentifier(identifier)) {
+      user = await this.findUserForEmailLogin(identifier);
+
+      if (!user || !user.password) {
+        throw new UnauthorizedException({
+          message: "Invalid email or password",
+          errorCode: "AUTH_INVALID_CREDENTIALS",
+        });
+      }
+
+      const isPasswordValid = await bcrypt.compare(dto.password, user.password);
+      if (!isPasswordValid) {
+        throw new UnauthorizedException({
+          message: "Invalid email or password",
+          errorCode: "AUTH_INVALID_CREDENTIALS",
+        });
+      }
+    } else {
+      user = await this.findUserForPhoneLogin(identifier, dto.password);
+      if (!user) {
+        throw new UnauthorizedException({
+          message: "Invalid email or password",
+          errorCode: "AUTH_INVALID_CREDENTIALS",
+        });
+      }
     }
 
     // Check if email is verified
     if (!user.isVerified) {
-      throw new UnauthorizedException(
-        "Please verify your email before logging in. Check your inbox for the verification code."
-      );
+      throw new UnauthorizedException({
+        message: "Please complete your account setup. Check your email for the signup link.",
+        errorCode: "AUTH_UNVERIFIED_ACCOUNT",
+        resendEmail: user.email,
+      });
     }
 
     // Generate tokens and set refresh token in database
@@ -438,9 +499,31 @@ export class AuthService {
    * Always returns success to prevent email enumeration.
    */
   async forgotPassword(dto: ForgotPasswordDto): Promise<{ message: string }> {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-      select: { id: true, email: true, isVerified: true },
+    const isHuman = await this.verifyRecaptcha(dto.recaptchaToken);
+    if (!isHuman) {
+      throw new BadRequestException({
+        message: "reCAPTCHA verification failed. Please try again.",
+        errorCode: "AUTH_RECAPTCHA_FAILED",
+      });
+    }
+
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    await this.checkForgotPasswordRateLimit(normalizedEmail);
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        email: {
+          equals: normalizedEmail,
+          mode: "insensitive",
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        preferredLanguage: true,
+        isVerified: true,
+      },
     });
 
     // Always return success to prevent email enumeration
@@ -460,35 +543,46 @@ export class AuthService {
       },
     });
 
-    // TODO: Send password reset email (Resend + React Email template)
-    // const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
-    // await this.emailService.sendPasswordReset(user.email, resetUrl, locale);
+    try {
+      await this.sendPasswordResetEmail({
+        email: user.email,
+        name: user.firstName || user.email.split("@")[0] || "Author",
+        token: resetToken,
+        locale: this.resolveLocale(user.preferredLanguage),
+      });
+    } catch (error) {
+      this.logger.error(
+        `Password reset email send failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
 
     return { message: "If the email exists, a password reset link has been sent." };
   }
 
   // ==========================================
-  // RESET PASSWORD (POST /auth/reset-password)
+  // RESET PASSWORD (GET/POST /auth/reset-password)
   // ==========================================
+
+  /**
+   * Validate reset token before showing reset-password form.
+   */
+  async validateResetPasswordToken(
+    dto: ValidateResetPasswordTokenDto,
+    ip = "unknown"
+  ): Promise<{ valid: true }> {
+    await this.checkResetPasswordRateLimit(ip);
+    await this.getValidResetTokenUser(dto.token);
+    return { valid: true };
+  }
 
   /**
    * Reset password using the token from the reset email.
    */
-  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
-    const user = await this.prisma.user.findUnique({
-      where: { resetToken: dto.token },
-      select: { id: true, tokenExpiry: true },
-    });
+  async resetPassword(dto: ResetPasswordDto, ip = "unknown"): Promise<{ message: string }> {
+    await this.checkResetPasswordRateLimit(ip);
+    const user = await this.getValidResetTokenUser(dto.token);
 
-    if (!user) {
-      throw new NotFoundException("Invalid or expired reset link");
-    }
-
-    if (user.tokenExpiry && user.tokenExpiry < new Date()) {
-      throw new BadRequestException("Reset link has expired. Please request a new one.");
-    }
-
-    const hashedPassword = await bcrypt.hash(dto.password, this.SALT_ROUNDS);
+    const hashedPassword = await bcrypt.hash(dto.newPassword, this.SALT_ROUNDS);
 
     // Update password, clear reset token, invalidate all refresh tokens
     await this.prisma.user.update({
@@ -652,15 +746,16 @@ export class AuthService {
     const refreshToken = jwt.sign(payload, this.JWT_SECRET, {
       expiresIn: Math.floor(refreshExpiryMs / 1000),
     });
+    const hashedRefreshToken = await bcrypt.hash(refreshToken, this.SALT_ROUNDS);
 
     // Calculate refresh token expiry date for database storage
     const refreshTokenExp = new Date(Date.now() + refreshExpiryMs);
 
-    // Store refresh token in database (rotation: replaces old token)
+    // Store hashed refresh token in database (rotation: replaces old token)
     await this.prisma.user.update({
       where: { id: userId },
       data: {
-        refreshToken,
+        refreshToken: hashedRefreshToken,
         refreshTokenExp,
       },
     });
@@ -763,6 +858,328 @@ export class AuthService {
     };
 
     return value * (multipliers[unit] ?? 0);
+  }
+
+  private async findUserForEmailLogin(identifier: string): Promise<{
+    id: string;
+    email: string;
+    role: UserRole;
+    firstName: string;
+    lastName: string | null;
+    password: string | null;
+    isVerified: boolean;
+  } | null> {
+    const select = {
+      id: true,
+      email: true,
+      role: true,
+      firstName: true,
+      lastName: true,
+      password: true,
+      isVerified: true,
+    } as const;
+
+    return this.prisma.user.findFirst({
+      where: {
+        email: {
+          equals: identifier,
+          mode: "insensitive",
+        },
+      },
+      select,
+    });
+  }
+
+  private async findUserForPhoneLogin(
+    identifier: string,
+    password: string
+  ): Promise<{
+    id: string;
+    email: string;
+    role: UserRole;
+    firstName: string;
+    lastName: string | null;
+    password: string | null;
+    isVerified: boolean;
+  } | null> {
+    const phoneCandidates = this.buildPhoneCandidates(identifier);
+    if (phoneCandidates.length === 0) return null;
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        OR: phoneCandidates.map((phoneNumber) => ({ phoneNumber })),
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        firstName: true,
+        lastName: true,
+        password: true,
+        isVerified: true,
+      },
+    });
+
+    for (const candidate of users) {
+      if (!candidate.password) continue;
+      const isPasswordValid = await bcrypt.compare(password, candidate.password);
+      if (isPasswordValid) return candidate;
+    }
+
+    return null;
+  }
+
+  private isEmailIdentifier(value: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  }
+
+  private buildPhoneCandidates(value: string): string[] {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    const digits = trimmed.replace(/\D/g, "");
+    const normalizedWithPlus = trimmed.startsWith("+") ? `+${digits}` : "";
+    const normalizedDigits = digits;
+    const withPlusDigits = digits ? `+${digits}` : "";
+
+    return [...new Set([trimmed, normalizedWithPlus, normalizedDigits, withPlusDigits])].filter(
+      Boolean
+    );
+  }
+
+  /**
+   * Redis-backed login limiter (10 req/min per IP).
+   * Degrades gracefully if Redis is unavailable.
+   */
+  private async checkLoginRateLimit(ip: string): Promise<void> {
+    const redis = this.redisService.getClient();
+    if (!redis) {
+      this.logger.warn("Redis unavailable — skipping login rate limit check");
+      return;
+    }
+
+    const key = `${LOGIN_RATE_LIMIT.keyPrefix}${ip}`;
+
+    try {
+      const current = await withTimeout(redis.incr(key), 3000, "Redis login rate limit");
+
+      if (current === 1) {
+        redis.expire(key, LOGIN_RATE_LIMIT.windowSeconds).catch(() => {});
+      }
+
+      if (current > LOGIN_RATE_LIMIT.maxRequests) {
+        const ttl = await withTimeout(redis.ttl(key), 3000, "Redis login rate limit ttl");
+        const retryAfterSeconds = ttl > 0 ? ttl : LOGIN_RATE_LIMIT.windowSeconds;
+        throw new HttpException(
+          {
+            message: "Too many login attempts. Please wait a few minutes.",
+            errorCode: "AUTH_LOGIN_RATE_LIMIT",
+            retryAfterSeconds,
+          },
+          HttpStatus.TOO_MANY_REQUESTS
+        );
+      }
+    } catch (error) {
+      if (error instanceof HttpException && error.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
+        throw error;
+      }
+
+      this.logger.warn(`Login rate limit check failed, allowing request: ${String(error)}`);
+    }
+  }
+
+  /**
+   * Redis-backed forgot-password limiter (3 req/hour per email).
+   * Degrades gracefully if Redis is unavailable.
+   */
+  private async checkForgotPasswordRateLimit(email: string): Promise<void> {
+    const redis = this.redisService.getClient();
+    if (!redis) {
+      this.logger.warn("Redis unavailable — skipping forgot-password rate limit check");
+      return;
+    }
+
+    const key = `${FORGOT_PASSWORD_RATE_LIMIT.keyPrefix}${email}`;
+
+    try {
+      const current = await withTimeout(redis.incr(key), 3000, "Redis forgot-password rate limit");
+
+      if (current === 1) {
+        redis.expire(key, FORGOT_PASSWORD_RATE_LIMIT.windowSeconds).catch(() => {});
+      }
+
+      if (current > FORGOT_PASSWORD_RATE_LIMIT.maxRequests) {
+        const ttl = await withTimeout(redis.ttl(key), 3000, "Redis forgot-password rate limit ttl");
+        const retryAfterSeconds = ttl > 0 ? ttl : FORGOT_PASSWORD_RATE_LIMIT.windowSeconds;
+        throw new HttpException(
+          {
+            message: "Too many password reset requests. Please wait before trying again.",
+            errorCode: "AUTH_FORGOT_PASSWORD_RATE_LIMIT",
+            retryAfterSeconds,
+          },
+          HttpStatus.TOO_MANY_REQUESTS
+        );
+      }
+    } catch (error) {
+      if (error instanceof HttpException && error.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `Forgot-password rate limit check failed, allowing request: ${String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Redis-backed reset-password limiter (10 req/min per IP).
+   * Degrades gracefully if Redis is unavailable.
+   */
+  private async checkResetPasswordRateLimit(ip: string): Promise<void> {
+    const redis = this.redisService.getClient();
+    if (!redis) {
+      this.logger.warn("Redis unavailable — skipping reset-password rate limit check");
+      return;
+    }
+
+    const key = `${RESET_PASSWORD_RATE_LIMIT.keyPrefix}${ip}`;
+
+    try {
+      const current = await withTimeout(redis.incr(key), 3000, "Redis reset-password rate limit");
+
+      if (current === 1) {
+        redis.expire(key, RESET_PASSWORD_RATE_LIMIT.windowSeconds).catch(() => {});
+      }
+
+      if (current > RESET_PASSWORD_RATE_LIMIT.maxRequests) {
+        const ttl = await withTimeout(redis.ttl(key), 3000, "Redis reset-password rate limit ttl");
+        const retryAfterSeconds = ttl > 0 ? ttl : RESET_PASSWORD_RATE_LIMIT.windowSeconds;
+        throw new HttpException(
+          {
+            message: "Too many reset attempts. Please wait a minute and try again.",
+            errorCode: "AUTH_RESET_PASSWORD_RATE_LIMIT",
+            retryAfterSeconds,
+          },
+          HttpStatus.TOO_MANY_REQUESTS
+        );
+      }
+    } catch (error) {
+      if (error instanceof HttpException && error.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `Reset-password rate limit check failed, allowing request: ${String(error)}`
+      );
+    }
+  }
+
+  private async getValidResetTokenUser(token: string): Promise<{ id: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { resetToken: token },
+      select: { id: true, tokenExpiry: true },
+    });
+
+    if (!user) {
+      throw new BadRequestException("Invalid or expired reset link");
+    }
+
+    if (user.tokenExpiry && user.tokenExpiry < new Date()) {
+      throw new BadRequestException("Reset link has expired. Please request a new one.");
+    }
+
+    return { id: user.id };
+  }
+
+  private async sendPasswordResetEmail(params: {
+    email: string;
+    name: string;
+    locale: Locale;
+    token: string;
+  }): Promise<boolean> {
+    if (!this.resend) {
+      this.logger.warn("RESEND_API_KEY not set — password reset email skipped");
+      return false;
+    }
+
+    const rendered = await renderPasswordResetEmail({
+      locale: params.locale,
+      userName: params.name,
+      resetUrl: this.buildResetPasswordUrl(params.token),
+    });
+
+    const result = await this.resend.emails.send({
+      from: this.fromEmail,
+      to: params.email,
+      subject: rendered.subject,
+      html: rendered.html,
+    });
+
+    if (result.error) {
+      this.logger.error(
+        `Failed to send password reset email: ${result.error.name} — ${result.error.message}`
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private buildResetPasswordUrl(token: string): string {
+    return `${this.frontendBaseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+  }
+
+  private resolveFromEmail(): string {
+    const configured =
+      process.env.ADMIN_FROM_EMAIL ||
+      process.env.CONTACT_FROM_EMAIL ||
+      process.env.DEFAULT_FROM_EMAIL ||
+      "BookPrinta <info@bookprinta.com>";
+
+    const normalized = configured.trim();
+    return normalized.length > 0 ? normalized : "BookPrinta <info@bookprinta.com>";
+  }
+
+  /**
+   * Validate reCAPTCHA token with Google's API.
+   * Skips verification in development or when secret key is missing.
+   */
+  private async verifyRecaptcha(token: string): Promise<boolean> {
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+    if (!secretKey) {
+      this.logger.warn("RECAPTCHA_SECRET_KEY not set — skipping verification");
+      return true;
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      this.logger.warn("Development mode — skipping reCAPTCHA verification");
+      return true;
+    }
+
+    try {
+      const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ secret: secretKey, response: token }),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      const data = (await response.json()) as { success?: boolean; score?: number };
+      return data.success === true && (data.score === undefined || data.score >= 0.5);
+    } catch (error) {
+      this.logger.error("reCAPTCHA verification failed", error);
+      return false;
+    }
+  }
+
+  private resolveFrontendBaseUrl(): string {
+    const raw = process.env.FRONTEND_URL?.trim();
+    if (!raw) {
+      this.logger.warn("FRONTEND_URL not set — using http://localhost:3000 for reset links");
+      return "http://localhost:3000";
+    }
+
+    return raw.replace(/\/+$/, "");
   }
 
   private async getLatestOrderSummary(userId: string): Promise<{

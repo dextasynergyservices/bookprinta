@@ -10,6 +10,10 @@ import { Link, usePathname } from "@/lib/i18n/navigation";
 interface MobileDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  isAuthenticated: boolean;
+  dashboardHref: "/dashboard" | "/admin";
+  onLogout: () => Promise<void>;
+  isLoggingOut: boolean;
 }
 
 const navLinks = [
@@ -21,7 +25,14 @@ const navLinks = [
   { href: "/contact", labelKey: "contact" },
 ] as const;
 
-export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
+export function MobileDrawer({
+  isOpen,
+  onClose,
+  isAuthenticated,
+  dashboardHref,
+  onLogout,
+  isLoggingOut,
+}: MobileDrawerProps) {
   const t = useTranslations("nav");
   const pathname = usePathname();
   const { lenis } = useLenis();
@@ -109,13 +120,36 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
           >
             {t("get_quote")} &gt;
           </Link>
-          <Link
-            href="/login"
-            onClick={onClose}
-            className="font-display block w-full py-3 text-center text-sm font-medium text-white/95 transition-colors hover:text-white"
-          >
-            {t("login")}
-          </Link>
+          {isAuthenticated ? (
+            <>
+              <Link
+                href={dashboardHref}
+                onClick={onClose}
+                className="font-display block w-full py-3 text-center text-sm font-medium text-white/95 transition-colors hover:text-white"
+              >
+                {t("dashboard")}
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  void onLogout();
+                }}
+                disabled={isLoggingOut}
+                className="font-display block min-h-[44px] w-full py-3 text-center text-sm font-medium text-white/95 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isLoggingOut ? t("logout_loading") : t("logout")}
+              </button>
+            </>
+          ) : (
+            <Link
+              href="/login"
+              onClick={onClose}
+              className="font-display block w-full py-3 text-center text-sm font-medium text-white/95 transition-colors hover:text-white"
+            >
+              {t("login")}
+            </Link>
+          )}
         </div>
       </SheetContent>
     </Sheet>

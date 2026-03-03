@@ -47,7 +47,6 @@ export class SignupNotificationsService {
     this.fallbackFromEmail =
       process.env.ADMIN_FROM_EMAIL ||
       process.env.CONTACT_FROM_EMAIL ||
-      process.env.RESEND_FROM_EMAIL ||
       process.env.DEFAULT_FROM_EMAIL ||
       DEFAULT_FROM_EMAIL;
   }
