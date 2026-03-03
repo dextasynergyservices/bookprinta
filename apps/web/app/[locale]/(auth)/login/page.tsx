@@ -5,7 +5,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useGoogleReCaptcha } from "react-google-recaptcha-v3";
 import { toast } from "sonner";
 import { RecaptchaProvider } from "@/components/shared/RecaptchaProvider";
@@ -506,10 +506,27 @@ function LoginPageInner() {
   );
 }
 
+function LoginPageFallback() {
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-black text-white">
+      <div className="relative mx-auto flex min-h-screen w-full max-w-[480px] items-center px-4 py-8 sm:px-6 sm:py-12">
+        <section className="w-full rounded-[28px] border border-[#2A2A2A] bg-[#050505] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)] sm:p-8">
+          <p className="inline-flex items-center gap-2 font-sans text-sm text-white/70">
+            <Loader2 className="size-4 animate-spin text-[#007eff]" aria-hidden="true" />
+            Loading...
+          </p>
+        </section>
+      </div>
+    </main>
+  );
+}
+
 export default function LoginPage() {
   return (
     <RecaptchaProvider>
-      <LoginPageInner />
+      <Suspense fallback={<LoginPageFallback />}>
+        <LoginPageInner />
+      </Suspense>
     </RecaptchaProvider>
   );
 }
