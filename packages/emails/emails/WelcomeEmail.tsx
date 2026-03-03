@@ -8,7 +8,7 @@ import { t } from "../translations/index.ts";
 interface WelcomeEmailProps {
   locale?: Locale;
   userName: string;
-  signupUrl: string;
+  dashboardUrl: string;
   orderNumber?: string;
   packageName?: string;
   amountPaid?: string;
@@ -17,7 +17,7 @@ interface WelcomeEmailProps {
 export function WelcomeEmail({
   locale = "en",
   userName,
-  signupUrl,
+  dashboardUrl,
   orderNumber,
   packageName,
   amountPaid,
@@ -48,7 +48,7 @@ export function WelcomeEmail({
       )}
 
       <Section style={ctaSection}>
-        <EmailButton href={signupUrl}>{t(locale, "welcome", "cta")}</EmailButton>
+        <EmailButton href={dashboardUrl}>{t(locale, "welcome", "cta")}</EmailButton>
       </Section>
 
       <Text style={mutedText}>{t(locale, "welcome", "expires")}</Text>
@@ -59,10 +59,10 @@ export function WelcomeEmail({
 WelcomeEmail.PreviewProps = {
   locale: "en" as Locale,
   userName: "Adaeze",
-  signupUrl: "https://bookprinta.com/signup/finish?token=abc123",
+  dashboardUrl: "https://bookprinta.com/en/dashboard",
   orderNumber: "BP-2026-0001",
   packageName: "Glow Up",
-  amountPaid: "N150,000",
+  amountPaid: "₦150,000",
 };
 
 export default WelcomeEmail;

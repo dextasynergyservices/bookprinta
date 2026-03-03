@@ -20,7 +20,8 @@
     "order_summary": "Order Summary",
     "package": "Package",
     "amount_paid": "Amount Paid",
-    "order_number": "Order Number"
+    "order_number": "Order Number",
+    "addons": "Extra Services"
   },
   "signup_link": {
     "subject": "Your BookPrinta Signup Link",
@@ -28,16 +29,20 @@
     "body": "Use the link below to finish setting up your BookPrinta account. You'll need to set a password and verify your email.",
     "cta": "Complete Signup",
     "expires": "This link expires in 24 hours.",
-    "requested": "You or someone requested a new signup link for your BookPrinta account."
+    "requested": "Your payment has been received! Complete your account to get started.",
+    "order_summary": "Order Summary",
+    "package": "Package",
+    "order_number": "Order Number",
+    "amount_paid": "Amount Paid",
+    "addons": "Extra Services"
   },
   "signup_verification": {
     "subject": "Verify Your BookPrinta Email",
     "heading": "Verify Your Email",
-    "body": "Your password has been set. Use this verification code and link to complete your account.",
+    "body": "Your password has been set. Enter this verification code to complete your account.",
     "code_label": "Verification Code",
-    "token_label": "Verification Token",
     "cta": "Open Verification Page",
-    "expires": "This code and token expire in 15 minutes."
+    "expires": "This code expires in 15 minutes."
   },
   "book_status": {
     "subject": "Book Update: {bookTitle}",
@@ -158,8 +163,11 @@
     "subject": "Payment Being Verified - Order #{orderNumber}",
     "heading": "We Received Your Payment",
     "body": "Thank you for your bank transfer. Our team is currently verifying your payment. This typically takes less than 30 minutes during business hours.",
+    "order_summary": "Order Summary",
+    "package": "Package",
     "order_number": "Order Number",
     "amount": "Amount Transferred",
+    "addons": "Add-ons",
     "what_next": "What happens next?",
     "step_1": "Our team verifies your transfer receipt",
     "step_2": "Once verified, you'll receive your account signup link via email",

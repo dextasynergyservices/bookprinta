@@ -43,6 +43,8 @@ export interface RenderBankTransferUserProps {
   userName: string;
   orderNumber: string;
   amount: string;
+  packageName?: string;
+  addons?: string[];
 }
 
 export interface RenderBankTransferAdminProps {
@@ -60,23 +62,27 @@ export interface RenderSignupLinkProps {
   locale?: Locale;
   userName: string;
   signupUrl: string;
+  orderNumber?: string;
+  packageName?: string;
+  amountPaid?: string;
+  addons?: string[];
 }
 
 export interface RenderSignupVerificationProps {
   locale?: Locale;
   userName: string;
   verificationCode: string;
-  verificationToken: string;
   verificationUrl: string;
 }
 
 export interface RenderWelcomeProps {
   locale?: Locale;
   userName: string;
-  signupUrl: string;
+  dashboardUrl: string;
   orderNumber?: string;
   packageName?: string;
   amountPaid?: string;
+  addons?: string[];
 }
 
 // ── Render helpers ───────────────────────────────────────────────────────────
