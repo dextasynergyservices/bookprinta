@@ -4,9 +4,15 @@
   "testEnvironment": "node",
   "testMatch": ["<rootDir>/test/e2e/**/*.e2e-spec.ts"],
   "transform": {
-    "^.+\\.ts$": "ts-jest"
+    "^.+\\.ts$": [
+      "ts-jest",
+      {
+        "tsconfig": "<rootDir>/test/tsconfig.jest.json"
+      }
+    ]
   },
   "moduleNameMapper": {
+    "^(\\.{1,2}/.*)\\.js$": "$1",
     "^@/(.*)$": "<rootDir>/src/$1"
   }
 }

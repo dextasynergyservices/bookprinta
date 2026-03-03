@@ -5,9 +5,19 @@ const config: Config = {
   rootDir: "..",
   testEnvironment: "node",
   transform: {
-    "^.+\\.ts$": "ts-jest",
+    "^.+\\.ts$": [
+      "ts-jest",
+      {
+        tsconfig: "<rootDir>/test/tsconfig.jest.json",
+      },
+    ],
   },
   moduleNameMapper: {
+    "^\\.\\./generated/prisma/client\\.js$": "<rootDir>/test/mocks/prisma-client.mock.ts",
+    "^@bookprinta/emails/render$": "<rootDir>/test/mocks/emails-render.mock.ts",
+    "^@bookprinta/shared$": "<rootDir>/../../packages/shared/index.ts",
+    "^@bookprinta/shared/(.*)$": "<rootDir>/../../packages/shared/$1",
+    "^(\\.{1,2}/.*)\\.js$": "$1",
     "^@/(.*)$": "<rootDir>/src/$1",
   },
 

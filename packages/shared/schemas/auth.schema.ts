@@ -55,11 +55,27 @@ export type VerifyEmailLinkInput = z.infer<typeof VerifyEmailLinkSchema>;
 
 /**
  * POST /auth/login
- * Login with email & password
+ * Login with email/phone & password
  */
 export const LoginSchema = z.object({
-  email: z.email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
+  identifier: z
+    .string()
+    .min(1, "Email or phone number is required")
+    .refine(
+      (value) => {
+        const trimmed = value.trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const digits = trimmed.replace(/\D/g, "");
+        const looksLikePhone = digits.length >= 7 && digits.length <= 15;
+        return emailRegex.test(trimmed) || looksLikePhone;
+      },
+      { message: "Enter a valid email address or phone number" }
+    ),
+  password: z
+    .string()
+    .min(1, "Password is required")
+    .min(8, "Password must be at least 8 characters"),
+  recaptchaToken: z.string().min(1, "reCAPTCHA verification failed"),
 });
 
 export type LoginInput = z.infer<typeof LoginSchema>;
@@ -70,31 +86,32 @@ export type LoginInput = z.infer<typeof LoginSchema>;
  */
 export const ForgotPasswordSchema = z.object({
   email: z.email("Invalid email address"),
+  recaptchaToken: z.string().min(1, "reCAPTCHA verification failed"),
 });
 
 export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
 
 /**
+ * GET /auth/reset-password?token=...
+ * Validate password reset token before showing reset form
+ */
+export const ValidateResetPasswordTokenSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+});
+
+export type ValidateResetPasswordTokenInput = z.infer<typeof ValidateResetPasswordTokenSchema>;
+
+/**
  * POST /auth/reset-password
  * Reset password with token
  */
-export const ResetPasswordSchema = z
-  .object({
-    token: z.string().min(1, "Token is required"),
-    password: z
-      .string()
-      .min(8, "Password must be at least 8 characters")
-      .max(128, "Password must be at most 128 characters")
-      .regex(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/,
-        "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character"
-      ),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
-  });
+export const ResetPasswordSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+  newPassword: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must be at most 128 characters"),
+});
 
 export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
 

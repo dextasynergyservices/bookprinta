@@ -1,13 +1,21 @@
 "use client";
 
-import { MenuIcon } from "lucide-react";
+import { CircleUserRound, LayoutDashboard, LogOut, MenuIcon } from "lucide-react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useAuthSession } from "@/hooks/use-auth-session";
 import { useLenis } from "@/hooks/use-lenis";
-import { Link, usePathname } from "@/lib/i18n/navigation";
+import { Link, usePathname, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import { MobileDrawer } from "./mobile-drawer";
 
@@ -20,13 +28,34 @@ const navLinks = [
   { href: "/contact", labelKey: "contact" },
 ] as const;
 
+function isAdminRole(role: string | undefined) {
+  return role === "ADMIN" || role === "SUPER_ADMIN";
+}
+
 export function Navbar() {
   const t = useTranslations("nav");
   const pathname = usePathname();
+  const router = useRouter();
   const { lenis } = useLenis();
+  const { user, isAuthenticated, logout, isLoggingOut } = useAuthSession();
 
   const [isScrolled, setIsScrolled] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const dashboardHref = useMemo(
+    () => (isAdminRole(user?.role) ? "/admin" : "/dashboard"),
+    [user?.role]
+  );
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await logout();
+      toast.success(t("logout_success"));
+      setIsDrawerOpen(false);
+      router.replace("/");
+    } catch {
+      toast.error(t("logout_error"));
+    }
+  }, [logout, router, t]);
 
   // Track scroll position via Lenis for background change
   const handleScroll = useCallback(() => {
@@ -114,15 +143,54 @@ export function Navbar() {
           {/* Desktop right actions */}
           <div className="hidden items-center gap-2 lg:flex">
             <LanguageSwitcher isScrolled={isScrolled} />
-            <Link
-              href="/login"
-              className={cn(
-                "font-display px-3 py-2 text-sm font-medium transition-colors duration-300",
-                "text-primary-foreground hover:text-primary-foreground"
-              )}
-            >
-              {t("login")}
-            </Link>
+            {isAuthenticated ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-primary-foreground transition-colors duration-300 hover:bg-white/10"
+                    )}
+                    aria-label={t("account_menu_aria")}
+                  >
+                    <CircleUserRound className="size-5" />
+                    <span className="sr-only">{t("account_menu_aria")}</span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-48 border-white/10 bg-[#050505] text-white"
+                >
+                  <DropdownMenuItem asChild className="font-sans">
+                    <Link href={dashboardHref}>
+                      <LayoutDashboard className="size-4" />
+                      {t("dashboard")}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="font-sans"
+                    disabled={isLoggingOut}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleLogout();
+                    }}
+                  >
+                    <LogOut className="size-4" />
+                    {isLoggingOut ? t("logout_loading") : t("logout")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Link
+                href="/login"
+                className={cn(
+                  "font-display px-3 py-2 text-sm font-medium transition-colors duration-300",
+                  "text-primary-foreground hover:text-primary-foreground"
+                )}
+              >
+                {t("login")}
+              </Link>
+            )}
             <Button
               asChild
               className="rounded-full bg-accent px-6 font-display text-sm font-semibold text-accent-foreground hover:bg-accent/90"
@@ -134,15 +202,54 @@ export function Navbar() {
           {/* Mobile right actions */}
           <div className="flex items-center gap-1 lg:hidden">
             <LanguageSwitcher isScrolled={isScrolled} />
-            <Link
-              href="/login"
-              className={cn(
-                "font-display min-h-[44px] inline-flex items-center px-2 text-sm font-medium transition-colors duration-300",
-                "text-primary-foreground/90 hover:text-primary-foreground"
-              )}
-            >
-              {t("login")}
-            </Link>
+            {isAuthenticated ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-primary-foreground/90 transition-colors duration-300 hover:bg-white/10 hover:text-primary-foreground"
+                    )}
+                    aria-label={t("account_menu_aria")}
+                  >
+                    <CircleUserRound className="size-5" />
+                    <span className="sr-only">{t("account_menu_aria")}</span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-48 border-white/10 bg-[#050505] text-white"
+                >
+                  <DropdownMenuItem asChild className="font-sans">
+                    <Link href={dashboardHref}>
+                      <LayoutDashboard className="size-4" />
+                      {t("dashboard")}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="font-sans"
+                    disabled={isLoggingOut}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleLogout();
+                    }}
+                  >
+                    <LogOut className="size-4" />
+                    {isLoggingOut ? t("logout_loading") : t("logout")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Link
+                href="/login"
+                className={cn(
+                  "font-display min-h-[44px] inline-flex items-center px-2 text-sm font-medium transition-colors duration-300",
+                  "text-primary-foreground/90 hover:text-primary-foreground"
+                )}
+              >
+                {t("login")}
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => setIsDrawerOpen(true)}
@@ -164,7 +271,14 @@ export function Navbar() {
       </header>
 
       {/* Mobile drawer */}
-      <MobileDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
+      <MobileDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)}
+        isAuthenticated={isAuthenticated}
+        dashboardHref={dashboardHref}
+        onLogout={handleLogout}
+        isLoggingOut={isLoggingOut}
+      />
     </>
   );
 }
