@@ -3,8 +3,10 @@
 import { useMutation } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Check,
   CheckCircle2,
   ChevronLeft,
+  Copy,
   CreditCard,
   Landmark,
   Loader2,
@@ -112,6 +114,7 @@ export function PaymentMethodModal({
   const [bankPhone, setBankPhone] = useState("");
   const [bankReceiptFile, setBankReceiptFile] = useState<File | null>(null);
   const [bankReceiptError, setBankReceiptError] = useState<string | null>(null);
+  const [copiedFieldKey, setCopiedFieldKey] = useState<string | null>(null);
 
   const modalMotion = isMobile
     ? {
@@ -211,7 +214,7 @@ export function PaymentMethodModal({
 
     const callbackUrl =
       typeof window !== "undefined"
-        ? `${window.location.origin}/${locale}/checkout/payment-return/${onlineProvider.toLowerCase()}`
+        ? `${window.location.origin}/${locale}/payment/confirmation?provider=${onlineProvider.toLowerCase()}`
         : undefined;
 
     initializeMutation.mutate({
@@ -267,6 +270,37 @@ export function PaymentMethodModal({
         email: bankEmail.trim().toLowerCase(),
       },
     });
+  };
+
+  const copyToClipboard = async (value: string, key: string) => {
+    const text = value.trim();
+    if (!text) return;
+
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else if (typeof document !== "undefined") {
+        const input = document.createElement("textarea");
+        input.value = text;
+        input.setAttribute("readonly", "");
+        input.style.position = "absolute";
+        input.style.left = "-9999px";
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        document.body.removeChild(input);
+      } else {
+        throw new Error("Clipboard unavailable");
+      }
+
+      setCopiedFieldKey(key);
+      toast.success("Copied");
+      window.setTimeout(() => {
+        setCopiedFieldKey((current) => (current === key ? null : current));
+      }, 1200);
+    } catch {
+      toast.error("Could not copy");
+    }
   };
 
   return (
@@ -545,15 +579,90 @@ export function PaymentMethodModal({
                                       key={`${account.bank}-${account.accountNumber}`}
                                       className="rounded-xl border border-[#2A2A2A] bg-black px-3 py-3"
                                     >
-                                      <p className="font-sans text-sm font-semibold text-white">
-                                        {account.accountName}
-                                      </p>
-                                      <p className="mt-1 font-sans text-sm text-white/75">
-                                        {account.bank}
-                                      </p>
-                                      <p className="mt-1 font-sans text-base font-semibold tracking-wide text-[#9fd0ff]">
-                                        {account.accountNumber}
-                                      </p>
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="font-sans text-sm font-semibold text-white">
+                                          {account.accountName}
+                                        </p>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            copyToClipboard(
+                                              account.accountName,
+                                              `${account.bank}-${account.accountNumber}-account-name`
+                                            )
+                                          }
+                                          className="inline-flex min-h-8 min-w-8 items-center gap-1 rounded-md border border-[#2A2A2A] px-2 py-1 font-sans text-xs font-semibold text-white/80 transition-colors duration-150 hover:border-[#007eff] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                                        >
+                                          {copiedFieldKey ===
+                                          `${account.bank}-${account.accountNumber}-account-name` ? (
+                                            <>
+                                              <Check className="size-3.5" aria-hidden="true" />
+                                              Copied
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Copy className="size-3.5" aria-hidden="true" />
+                                              Copy
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
+                                      <div className="mt-1 flex items-center justify-between gap-2">
+                                        <p className="font-sans text-sm text-white/75">
+                                          {account.bank}
+                                        </p>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            copyToClipboard(
+                                              account.bank,
+                                              `${account.bank}-${account.accountNumber}-bank`
+                                            )
+                                          }
+                                          className="inline-flex min-h-8 min-w-8 items-center gap-1 rounded-md border border-[#2A2A2A] px-2 py-1 font-sans text-xs font-semibold text-white/80 transition-colors duration-150 hover:border-[#007eff] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                                        >
+                                          {copiedFieldKey ===
+                                          `${account.bank}-${account.accountNumber}-bank` ? (
+                                            <>
+                                              <Check className="size-3.5" aria-hidden="true" />
+                                              Copied
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Copy className="size-3.5" aria-hidden="true" />
+                                              Copy
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
+                                      <div className="mt-1 flex items-center justify-between gap-2">
+                                        <p className="font-sans text-base font-semibold tracking-wide text-[#9fd0ff]">
+                                          {account.accountNumber}
+                                        </p>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            copyToClipboard(
+                                              account.accountNumber,
+                                              `${account.bank}-${account.accountNumber}-number`
+                                            )
+                                          }
+                                          className="inline-flex min-h-8 min-w-8 items-center gap-1 rounded-md border border-[#2A2A2A] px-2 py-1 font-sans text-xs font-semibold text-white/80 transition-colors duration-150 hover:border-[#007eff] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                                        >
+                                          {copiedFieldKey ===
+                                          `${account.bank}-${account.accountNumber}-number` ? (
+                                            <>
+                                              <Check className="size-3.5" aria-hidden="true" />
+                                              Copied
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Copy className="size-3.5" aria-hidden="true" />
+                                              Copy
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
                                     </div>
                                   ))}
                                 </div>

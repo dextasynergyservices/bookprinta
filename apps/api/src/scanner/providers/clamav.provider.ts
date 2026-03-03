@@ -60,7 +60,7 @@ export class ClamavProvider implements ScanProvider {
       });
 
       socket.on("end", () => {
-        const trimmed = response.trim();
+        const trimmed = response.replace(/\0/g, "").trim();
         // ClamAV response format: "stream: OK" or "stream: VirusName FOUND"
         if (trimmed.endsWith("OK")) {
           this.logger.debug(`ClamAV: "${fileName}" is clean`);
@@ -99,7 +99,7 @@ export class ClamavProvider implements ScanProvider {
       });
 
       socket.on("data", (data) => {
-        const response = data.toString().trim();
+        const response = data.toString().replace(/\0/g, "").trim();
         socket.destroy();
         resolve(response === "PONG");
       });

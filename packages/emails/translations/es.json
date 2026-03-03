@@ -20,7 +20,8 @@
     "order_summary": "Resumen del pedido",
     "package": "Paquete",
     "amount_paid": "Monto pagado",
-    "order_number": "Numero de pedido"
+    "order_number": "Numero de pedido",
+    "addons": "Servicios adicionales"
   },
   "signup_link": {
     "subject": "Tu enlace de registro de BookPrinta",
@@ -28,16 +29,20 @@
     "body": "Usa el enlace de abajo para terminar de configurar tu cuenta de BookPrinta. Necesitaras establecer una contrasena y verificar tu correo electronico.",
     "cta": "Completar registro",
     "expires": "Este enlace expira en 24 horas.",
-    "requested": "Tu o alguien solicito un nuevo enlace de registro para tu cuenta de BookPrinta."
+    "requested": "¡Tu pago ha sido recibido! Completa tu cuenta para comenzar.",
+    "order_summary": "Resumen del pedido",
+    "package": "Paquete",
+    "order_number": "Numero de pedido",
+    "amount_paid": "Monto pagado",
+    "addons": "Servicios adicionales"
   },
   "signup_verification": {
     "subject": "Verifica tu correo de BookPrinta",
     "heading": "Verifica tu correo",
-    "body": "Tu contrasena ya fue configurada. Usa este codigo y enlace de verificacion para finalizar tu cuenta.",
+    "body": "Tu contrasena ya fue configurada. Ingresa este codigo de verificacion para finalizar tu cuenta.",
     "code_label": "Codigo de verificacion",
-    "token_label": "Token de verificacion",
     "cta": "Abrir pagina de verificacion",
-    "expires": "Este codigo y token expiran en 15 minutos."
+    "expires": "Este codigo expira en 15 minutos."
   },
   "book_status": {
     "subject": "Actualizacion del libro: {bookTitle}",
@@ -158,8 +163,11 @@
     "subject": "Pago en verificacion - Pedido #{orderNumber}",
     "heading": "Recibimos tu pago",
     "body": "Gracias por tu transferencia bancaria. Nuestro equipo esta verificando tu pago actualmente. Esto normalmente toma menos de 30 minutos durante el horario laboral.",
+    "order_summary": "Resumen del pedido",
+    "package": "Paquete",
     "order_number": "Numero de pedido",
     "amount": "Monto transferido",
+    "addons": "Extras",
     "what_next": "Que sigue?",
     "step_1": "Nuestro equipo verifica tu recibo de transferencia",
     "step_2": "Una vez verificado, recibiras tu enlace de registro por correo",

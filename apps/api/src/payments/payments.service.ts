@@ -1,3 +1,4 @@
+/// <reference types="multer" />
 import { randomBytes } from "node:crypto";
 import type { Locale } from "@bookprinta/emails";
 import {
@@ -34,8 +35,8 @@ import type { PaystackWebhookPayload } from "./services/paystack.service.js";
 import { PaystackService } from "./services/paystack.service.js";
 import { StripeService } from "./services/stripe.service.js";
 
-const FRONTEND_FALLBACK_URL = "https://bookprinta.com";
 const MAX_SIGNUP_TOKEN_HOURS = 24;
+const BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK = "+2348103208297";
 
 type CheckoutAddonMetadata = {
   id?: string | null;
@@ -50,6 +51,7 @@ type CheckoutMetadata = {
   phone?: string;
   packageId?: string;
   packageSlug?: string;
+  packageName?: string;
   tier?: string;
   hasCover?: boolean;
   hasFormatting?: boolean;
@@ -93,6 +95,9 @@ export class PaymentsService {
   private readonly frontendBaseUrl: string;
   private readonly paymentsFromEmail: string;
   private readonly adminEmailRecipients: string[];
+  private readonly infobipBaseUrl: string;
+  private readonly infobipApiKey: string;
+  private readonly infobipWhatsAppFrom: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -104,19 +109,27 @@ export class PaymentsService {
     private readonly signupNotificationsService: SignupNotificationsService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-    this.frontendBaseUrl = (process.env.FRONTEND_URL || FRONTEND_FALLBACK_URL).replace(/\/+$/, "");
+    this.frontendBaseUrl = this.resolveFrontendBaseUrl();
+    this.infobipBaseUrl = this.normalizeBaseUrl(
+      process.env.INFOBIP_BASE_URL ||
+        process.env.INFOBIP_API_BASE_URL ||
+        process.env.INFOBIP_BASEURL ||
+        ""
+    );
+    this.infobipApiKey =
+      process.env.INFOBIP_API_KEY || process.env.INFOBIP_KEY || process.env.INFOBIP_APIKEY || "";
+    this.infobipWhatsAppFrom =
+      process.env.INFOBIP_WHATSAPP_FROM ||
+      process.env.INFOBIP_WHATSAPP_SENDER ||
+      process.env.INFOBIP_WHATSAPP_NUMBER ||
+      "";
     this.paymentsFromEmail =
-      process.env.PAYMENTS_FROM_EMAIL ||
-      process.env.AUTH_FROM_EMAIL ||
-      "BookPrinta <onboarding@resend.dev>";
-    this.adminEmailRecipients = (
-      process.env.PAYMENT_ADMIN_EMAILS ||
-      process.env.CONTACT_ADMIN_EMAIL ||
-      "info@bookprinta.com"
-    )
-      .split(",")
-      .map((email) => email.trim())
-      .filter((email) => email.length > 0);
+      process.env.ADMIN_FROM_EMAIL ||
+      process.env.CONTACT_FROM_EMAIL ||
+      process.env.RESEND_FROM_EMAIL ||
+      process.env.DEFAULT_FROM_EMAIL ||
+      "BookPrinta <info@bookprinta.com>";
+    this.adminEmailRecipients = this.resolveAdminEmailRecipients();
   }
 
   // ────────────────────────────────────────────
@@ -272,6 +285,17 @@ export class PaymentsService {
     if (existing?.processedAt) {
       this.logger.log(`Payment ${reference} already processed — returning cached status`);
       const signupUrl = await this.resolveSignupUrlForReference(reference);
+      let orderDetails: {
+        orderNumber: string;
+        packageName: string;
+        amountPaid: string;
+        addons: string[];
+      } | null = null;
+      try {
+        orderDetails = await this.resolveOrderDetailsForPayment(existing.id);
+      } catch (err) {
+        this.logger.warn(`Failed to resolve order details for payment ${existing.id}: ${err}`);
+      }
       return {
         status: existing.status === PaymentStatus.SUCCESS ? "success" : "failed",
         reference,
@@ -280,6 +304,11 @@ export class PaymentsService {
         verified: existing.status === PaymentStatus.SUCCESS,
         signupUrl,
         awaitingWebhook: false,
+        email: existing.payerEmail ?? null,
+        orderNumber: orderDetails?.orderNumber ?? null,
+        packageName: orderDetails?.packageName ?? null,
+        amountPaid: orderDetails?.amountPaid ?? null,
+        addons: orderDetails?.addons ?? [],
       };
     }
 
@@ -402,6 +431,25 @@ export class PaymentsService {
 
     const signupUrl = await this.resolveSignupUrlForReference(reference);
 
+    // Look up order details for the enriched response
+    const paymentForOrder = await this.prisma.payment.findUnique({
+      where: { providerRef: reference },
+      select: { id: true, payerEmail: true },
+    });
+    let orderDetails: {
+      orderNumber: string;
+      packageName: string;
+      amountPaid: string;
+      addons: string[];
+    } | null = null;
+    try {
+      orderDetails = paymentForOrder
+        ? await this.resolveOrderDetailsForPayment(paymentForOrder.id)
+        : null;
+    } catch (err) {
+      this.logger.warn(`Failed to resolve order details for reference ${reference}: ${err}`);
+    }
+
     return {
       status: providerStatus,
       reference,
@@ -410,6 +458,11 @@ export class PaymentsService {
       verified,
       signupUrl,
       awaitingWebhook: verified && !signupUrl,
+      email: paymentForOrder?.payerEmail ?? null,
+      orderNumber: orderDetails?.orderNumber ?? null,
+      packageName: orderDetails?.packageName ?? null,
+      amountPaid: orderDetails?.amountPaid ?? null,
+      addons: orderDetails?.addons ?? [],
     };
   }
 
@@ -464,9 +517,17 @@ export class PaymentsService {
       `Bank transfer submitted — ${dto.payerName} — ₦${dto.amount} — ref: ${reference}`
     );
 
+    const orderSummary = await this.resolveBankTransferOrderSummary({
+      reference,
+      metadata,
+    });
+
     await this.triggerBankTransferNotifications({
       paymentId: payment.id,
       reference,
+      orderNumber: orderSummary.orderNumber,
+      packageName: orderSummary.packageName,
+      addons: orderSummary.addons,
       payerName: dto.payerName,
       payerEmail: dto.payerEmail,
       payerPhone: dto.payerPhone,
@@ -481,6 +542,55 @@ export class PaymentsService {
       message:
         "Your payment is being verified. You will receive an email once approved. " +
         "This typically takes less than 30 minutes.",
+    };
+  }
+
+  private async resolveBankTransferOrderSummary(params: {
+    reference: string;
+    metadata: Record<string, unknown>;
+  }): Promise<{
+    orderNumber: string;
+    packageName: string;
+    addons: string[];
+  }> {
+    const fallback = {
+      orderNumber: params.reference,
+      packageName: "BookPrinta Package",
+      addons: [] as string[],
+    };
+
+    const checkout = this.extractCheckoutMetadata(params.metadata);
+    if (!checkout) return fallback;
+
+    let packageName =
+      this.asString(checkout.packageName) || this.asString(checkout.tier) || fallback.packageName;
+
+    const namedAddons = (checkout.addons ?? [])
+      .map((addon) => this.asString(addon.name))
+      .filter((name): name is string => Boolean(name));
+
+    if (namedAddons.length > 0 && packageName !== fallback.packageName) {
+      return {
+        orderNumber: params.reference,
+        packageName,
+        addons: namedAddons,
+      };
+    }
+
+    if (packageName === fallback.packageName) {
+      const pkg = await this.resolvePackageFromCheckoutMetadata(checkout);
+      if (pkg?.name) packageName = pkg.name;
+    }
+
+    const addons =
+      namedAddons.length > 0
+        ? namedAddons
+        : await this.resolveAddonNamesFromMetadata(this.prisma, checkout);
+
+    return {
+      orderNumber: params.reference,
+      packageName,
+      addons,
     };
   }
 
@@ -551,6 +661,10 @@ export class PaymentsService {
       locale: Locale;
       signupToken: string | null;
       phone: string | null;
+      orderNumber: string;
+      packageName: string;
+      amountPaid: string;
+      addons: string[];
     } | null = null;
 
     if (!payment.userId || !payment.orderId) {
@@ -563,25 +677,35 @@ export class PaymentsService {
       });
     }
 
+    const now = new Date();
     await this.prisma.payment.update({
       where: { id: payment.id },
       data: {
         status: PaymentStatus.SUCCESS,
-        approvedAt: new Date(),
+        processedAt: now,
+        approvedAt: now,
         approvedBy: params.adminId,
         adminNote: params.adminNote?.trim() || null,
       },
     });
 
     if (signupInfo?.signupToken) {
-      await this.signupNotificationsService.sendRegistrationLink({
+      const delivery = await this.signupNotificationsService.sendRegistrationLink({
         email: signupInfo.email,
         name: signupInfo.name,
         locale: signupInfo.locale,
         token: signupInfo.signupToken,
         phoneNumber: signupInfo.phone,
         fromEmail: this.paymentsFromEmail,
+        orderNumber: signupInfo.orderNumber,
+        packageName: signupInfo.packageName,
+        amountPaid: signupInfo.amountPaid,
+        addons: signupInfo.addons,
       });
+
+      if (!delivery.emailDelivered && !delivery.whatsappDelivered) {
+        this.logger.warn(`Signup link delivery failed for approved bank transfer ${payment.id}`);
+      }
     }
 
     return {
@@ -910,8 +1034,12 @@ export class PaymentsService {
           ? { ...(persistedMetadata ?? {}), ...(metadata ?? {}) }
           : null;
 
-      await this.prisma.payment.update({
-        where: { id: existingPayment.id },
+      // Atomic claim: only update if processedAt is still null.
+      // This prevents a race between the webhook handler and the
+      // verify-polling endpoint both calling createPaymentFromWebhook
+      // concurrently — only the first caller's update will match.
+      const claimed = await this.prisma.payment.updateMany({
+        where: { id: existingPayment.id, processedAt: null },
         data: {
           status: PaymentStatus.SUCCESS,
           processedAt: new Date(),
@@ -922,6 +1050,11 @@ export class PaymentsService {
           metadata: (mergedMetadata ?? undefined) as Prisma.InputJsonValue | undefined,
         },
       });
+
+      if (claimed.count === 0) {
+        this.logger.log(`Payment ${data.providerRef} claimed by another process — skipping`);
+        return;
+      }
 
       const shouldCreateCheckoutEntities =
         existingPayment.type === PaymentType.INITIAL &&
@@ -937,33 +1070,70 @@ export class PaymentsService {
         currency: data.currency,
       });
 
+      if (checkoutResult) {
+        await this.sendOnlinePaymentAdminEmail({
+          orderNumber: checkoutResult.orderNumber,
+          packageName: checkoutResult.packageName,
+          amountPaid: checkoutResult.amountPaid,
+          addons: checkoutResult.addons,
+          payerEmail: checkoutResult.email,
+          provider: data.provider,
+          reference: data.providerRef,
+        });
+      }
+
       if (checkoutResult?.signupToken) {
-        await this.signupNotificationsService.sendRegistrationLink({
+        const delivery = await this.signupNotificationsService.sendRegistrationLink({
           email: checkoutResult.email,
           locale: checkoutResult.locale,
           name: checkoutResult.name,
           token: checkoutResult.signupToken,
           phoneNumber: checkoutResult.phone,
           fromEmail: this.paymentsFromEmail,
+          orderNumber: checkoutResult.orderNumber,
+          packageName: checkoutResult.packageName,
+          amountPaid: checkoutResult.amountPaid,
+          addons: checkoutResult.addons,
         });
+
+        if (!delivery.emailDelivered && !delivery.whatsappDelivered) {
+          this.logger.warn(`Signup link delivery failed for payment ${data.providerRef}`);
+        }
       }
       return;
     }
 
-    const payment = await this.prisma.payment.create({
-      data: {
-        provider: data.provider,
-        type: PaymentType.INITIAL,
-        amount: data.amount,
-        currency: data.currency,
-        status: PaymentStatus.SUCCESS,
-        providerRef: data.providerRef,
-        processedAt: new Date(),
-        payerEmail: data.payerEmail,
-        gatewayResponse: data.gatewayResponse,
-        metadata: metadata ?? undefined,
-      } as Prisma.PaymentUncheckedCreateInput,
-    });
+    // No existing payment record — create one. The unique constraint on
+    // providerRef means if two concurrent callers race here, only one
+    // will succeed; the other will throw a unique constraint error which
+    // we catch and treat as "already processed".
+    let payment: { id: string };
+    try {
+      payment = await this.prisma.payment.create({
+        data: {
+          provider: data.provider,
+          type: PaymentType.INITIAL,
+          amount: data.amount,
+          currency: data.currency,
+          status: PaymentStatus.SUCCESS,
+          providerRef: data.providerRef,
+          processedAt: new Date(),
+          payerEmail: data.payerEmail,
+          gatewayResponse: data.gatewayResponse,
+          metadata: metadata ?? undefined,
+        } as Prisma.PaymentUncheckedCreateInput,
+      });
+    } catch (error) {
+      // Prisma unique constraint violation (P2002) means another process
+      // already created this payment — safe to skip.
+      if (this.isPrismaUniqueViolation(error)) {
+        this.logger.log(
+          `Payment ${data.providerRef} already created by another process — skipping`
+        );
+        return;
+      }
+      throw error;
+    }
 
     const checkoutResult = await this.createCheckoutEntitiesFromMetadata({
       paymentId: payment.id,
@@ -973,15 +1143,35 @@ export class PaymentsService {
       currency: data.currency,
     });
 
+    if (checkoutResult) {
+      await this.sendOnlinePaymentAdminEmail({
+        orderNumber: checkoutResult.orderNumber,
+        packageName: checkoutResult.packageName,
+        amountPaid: checkoutResult.amountPaid,
+        addons: checkoutResult.addons,
+        payerEmail: checkoutResult.email,
+        provider: data.provider,
+        reference: data.providerRef,
+      });
+    }
+
     if (checkoutResult?.signupToken) {
-      await this.signupNotificationsService.sendRegistrationLink({
+      const delivery = await this.signupNotificationsService.sendRegistrationLink({
         email: checkoutResult.email,
         locale: checkoutResult.locale,
         name: checkoutResult.name,
         token: checkoutResult.signupToken,
         phoneNumber: checkoutResult.phone,
         fromEmail: this.paymentsFromEmail,
+        orderNumber: checkoutResult.orderNumber,
+        packageName: checkoutResult.packageName,
+        amountPaid: checkoutResult.amountPaid,
+        addons: checkoutResult.addons,
       });
+
+      if (!delivery.emailDelivered && !delivery.whatsappDelivered) {
+        this.logger.warn(`Signup link delivery failed for payment ${data.providerRef}`);
+      }
     }
   }
 
@@ -1004,6 +1194,10 @@ export class PaymentsService {
     locale: Locale;
     signupToken: string | null;
     phone: string | null;
+    orderNumber: string;
+    packageName: string;
+    amountPaid: string;
+    addons: string[];
   } | null> {
     if (!params.payerEmail) return null;
 
@@ -1097,6 +1291,9 @@ export class PaymentsService {
 
       await this.createOrderAddonsFromMetadata(tx, order.id, checkout);
 
+      // Resolve addon names for confirmation display
+      const addonNames = await this.resolveAddonNamesFromMetadata(tx, checkout);
+
       await tx.book.create({
         data: {
           orderId: order.id,
@@ -1120,6 +1317,10 @@ export class PaymentsService {
         locale: this.resolveLocale(user.preferredLanguage),
         signupToken,
         phone: user.phoneNumber ?? null,
+        orderNumber,
+        packageName: pkg.name,
+        amountPaid: this.formatNaira(params.amount),
+        addons: addonNames,
       };
     });
   }
@@ -1183,6 +1384,35 @@ export class PaymentsService {
         skipDuplicates: true,
       });
     }
+  }
+
+  /**
+   * Resolves addon names from checkout metadata (used for confirmation email/page).
+   */
+  private async resolveAddonNamesFromMetadata(
+    tx: Pick<Prisma.TransactionClient, "addon">,
+    checkout: CheckoutMetadata
+  ): Promise<string[]> {
+    const addonInputs = checkout.addons ?? [];
+    if (addonInputs.length === 0) return [];
+
+    const addonIds = addonInputs
+      .map((addon) => this.asString(addon.id))
+      .filter((value): value is string => Boolean(value));
+    const addonSlugs = addonInputs
+      .map((addon) => this.asString(addon.slug))
+      .filter((value): value is string => Boolean(value));
+
+    if (addonIds.length === 0 && addonSlugs.length === 0) return [];
+
+    const addons = await tx.addon.findMany({
+      where: {
+        OR: [{ id: { in: addonIds } }, { slug: { in: addonSlugs } }],
+      },
+      select: { name: true },
+    });
+
+    return addons.map((a) => a.name).filter(Boolean);
   }
 
   private async resolvePackageFromCheckoutMetadata(checkout: CheckoutMetadata) {
@@ -1257,6 +1487,7 @@ export class PaymentsService {
       phone: this.asString(merged.phone),
       packageId: this.asString(merged.packageId),
       packageSlug: this.asString(merged.packageSlug),
+      packageName: this.asString(merged.packageName),
       tier: this.asString(merged.tier),
       hasCover: this.asBoolean(merged.hasCover),
       hasFormatting: this.asBoolean(merged.hasFormatting),
@@ -1370,6 +1601,9 @@ export class PaymentsService {
   private async triggerBankTransferNotifications(params: {
     paymentId: string;
     reference: string;
+    orderNumber: string;
+    packageName: string;
+    addons: string[];
     payerName: string;
     payerEmail: string;
     payerPhone: string;
@@ -1379,9 +1613,9 @@ export class PaymentsService {
   }): Promise<void> {
     await Promise.allSettled([
       this.createAdminInAppNotifications(params),
+      this.sendBankTransferAdminWhatsApp(params),
       this.sendBankTransferUserEmail(params),
       this.sendBankTransferAdminEmail(params),
-      this.sendAdminWhatsAppNotification(params),
     ]);
   }
 
@@ -1410,11 +1644,73 @@ export class PaymentsService {
     });
   }
 
+  private async sendBankTransferAdminWhatsApp(params: {
+    orderNumber: string;
+    packageName: string;
+    addons: string[];
+    payerName: string;
+    payerEmail: string;
+    payerPhone: string;
+    amount: number;
+    receiptUrl: string;
+  }): Promise<void> {
+    if (!this.infobipBaseUrl || !this.infobipApiKey || !this.infobipWhatsAppFrom) {
+      this.logMissingInfobipConfig("bank transfer admin alert");
+      return;
+    }
+
+    const recipients = await this.resolveBankTransferAdminWhatsAppRecipients();
+    if (recipients.length === 0) {
+      this.logger.warn("No admin phone numbers found for bank transfer WhatsApp notifications");
+      return;
+    }
+
+    const adminPanelUrl = `${this.frontendBaseUrl}/admin/payments`;
+    const addonsLabel = params.addons.length > 0 ? params.addons.join(", ") : "None";
+    const text =
+      "New bank transfer submitted.\n\n" +
+      `Order: ${params.orderNumber}\n` +
+      `Package: ${params.packageName}\n` +
+      `Add-ons: ${addonsLabel}\n` +
+      `Amount: ${this.formatNaira(params.amount)}\n` +
+      `Payer: ${params.payerName}\n` +
+      `Email: ${params.payerEmail}\n` +
+      `Phone: ${params.payerPhone}\n` +
+      `Receipt: ${params.receiptUrl}\n` +
+      `Review: ${adminPanelUrl}`;
+
+    await Promise.allSettled(
+      recipients.map((to) => this.sendInfobipTextMessage(to, text, "bank transfer admin alert"))
+    );
+  }
+
+  private async resolveBankTransferAdminWhatsAppRecipients(): Promise<string[]> {
+    const admins = await this.prisma.user.findMany({
+      where: {
+        role: { in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
+      },
+      select: { phoneNumber: true },
+    });
+
+    const dbRecipients = admins
+      .map((admin) => this.normalizeWhatsAppPhone(admin.phoneNumber ?? ""))
+      .filter((phone) => phone.length > 0);
+
+    if (dbRecipients.length > 0) {
+      return Array.from(new Set(dbRecipients));
+    }
+
+    const fallback = this.normalizeWhatsAppPhone(BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK);
+    return fallback ? [fallback] : [];
+  }
+
   private async sendBankTransferUserEmail(params: {
     payerName: string;
     payerEmail: string;
     amount: number;
-    reference: string;
+    orderNumber: string;
+    packageName: string;
+    addons: string[];
     locale: Locale;
   }): Promise<void> {
     if (!this.resend) {
@@ -1425,7 +1721,9 @@ export class PaymentsService {
     const userEmail = await renderBankTransferUserEmail({
       locale: params.locale,
       userName: params.payerName,
-      orderNumber: params.reference,
+      orderNumber: params.orderNumber,
+      packageName: params.packageName,
+      addons: params.addons,
       amount: this.formatNaira(params.amount),
     });
 
@@ -1448,7 +1746,7 @@ export class PaymentsService {
     payerEmail: string;
     payerPhone: string;
     amount: number;
-    reference: string;
+    orderNumber: string;
     receiptUrl: string;
     locale: Locale;
   }): Promise<void> {
@@ -1464,7 +1762,7 @@ export class PaymentsService {
       payerEmail: params.payerEmail,
       payerPhone: params.payerPhone,
       amount: this.formatNaira(params.amount),
-      orderNumber: params.reference,
+      orderNumber: params.orderNumber,
       receiptUrl: params.receiptUrl,
       adminPanelUrl,
     });
@@ -1483,53 +1781,50 @@ export class PaymentsService {
     }
   }
 
-  private async sendAdminWhatsAppNotification(params: {
-    reference: string;
-    payerName: string;
+  private async sendOnlinePaymentAdminEmail(params: {
+    orderNumber: string;
+    packageName: string;
+    amountPaid: string;
+    addons: string[];
     payerEmail: string;
-    amount: number;
-    receiptUrl: string;
+    provider: PaymentProvider;
+    reference: string;
   }): Promise<void> {
-    const phoneNumberId = process.env.META_WHATSAPP_PHONE_NUMBER_ID;
-    const accessToken = process.env.META_WHATSAPP_TOKEN;
-    const adminWhatsAppNumber =
-      process.env.PAYMENT_ADMIN_WHATSAPP_TO || process.env.ADMIN_WHATSAPP_TO || "";
-
-    if (!phoneNumberId || !accessToken || !adminWhatsAppNumber) {
-      this.logger.warn("Meta WhatsApp config missing — admin WhatsApp notification skipped");
+    if (!this.resend) {
+      this.logger.warn("RESEND_API_KEY not set — online payment admin email skipped");
       return;
     }
 
-    const message =
-      `Bank transfer received\n` +
-      `Ref: ${params.reference}\n` +
-      `Payer: ${params.payerName}\n` +
-      `Email: ${params.payerEmail}\n` +
-      `Amount: ${this.formatNaira(params.amount)}\n` +
-      `Receipt: ${params.receiptUrl}`;
+    const addonsLabel = params.addons.length > 0 ? params.addons.join(", ") : "None";
+    const adminPanelUrl = `${this.frontendBaseUrl}/admin/payments`;
+    const subject = `Online Payment Received - Order #${params.orderNumber}`;
+    const html = `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;">
+        <h2 style="margin:0 0 12px;">New Online Payment Received</h2>
+        <p style="margin:0 0 12px;">A customer completed an online payment successfully.</p>
+        <p style="margin:0;"><strong>Order Number:</strong> ${params.orderNumber}</p>
+        <p style="margin:0;"><strong>Package:</strong> ${params.packageName}</p>
+        <p style="margin:0;"><strong>Amount Paid:</strong> ${params.amountPaid}</p>
+        <p style="margin:0;"><strong>Add-ons:</strong> ${addonsLabel}</p>
+        <p style="margin:0;"><strong>Payer Email:</strong> ${params.payerEmail}</p>
+        <p style="margin:0;"><strong>Provider:</strong> ${params.provider}</p>
+        <p style="margin:0 0 12px;"><strong>Reference:</strong> ${params.reference}</p>
+        <p style="margin:0;">
+          <a href="${adminPanelUrl}" style="color:#007eff;text-decoration:underline;">Review in Admin Panel</a>
+        </p>
+      </div>
+    `;
 
-    try {
-      const response = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to: adminWhatsAppNumber,
-          type: "text",
-          text: { body: message },
-        }),
-      });
+    const sendResult = await this.resend.emails.send({
+      from: this.paymentsFromEmail,
+      to: this.adminEmailRecipients,
+      subject,
+      html,
+    });
 
-      if (!response.ok) {
-        const body = await response.text();
-        this.logger.error(`WhatsApp notification failed (${response.status}): ${body}`);
-      }
-    } catch (error) {
+    if (sendResult.error) {
       this.logger.error(
-        `WhatsApp notification failed: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to send online payment admin email: ${sendResult.error.name} — ${sendResult.error.message}`
       );
     }
   }
@@ -1575,6 +1870,13 @@ export class PaymentsService {
   private asRecord(value: unknown): Record<string, unknown> | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     return value as Record<string, unknown>;
+  }
+
+  private isPrismaUniqueViolation(error: unknown): boolean {
+    if (error && typeof error === "object" && "code" in error) {
+      return (error as { code: string }).code === "P2002";
+    }
+    return false;
   }
 
   private asString(value: unknown): string | undefined {
@@ -1637,6 +1939,103 @@ export class PaymentsService {
     return undefined;
   }
 
+  private normalizeBaseUrl(baseUrl: string): string {
+    const normalized = baseUrl.trim().replace(/\/+$/, "");
+    if (!normalized) return "";
+    if (/^https?:\/\//i.test(normalized)) return normalized;
+    return `https://${normalized}`;
+  }
+
+  private resolveAdminEmailRecipients(): string[] {
+    const sources = [
+      process.env.PAYMENT_ADMIN_EMAILS,
+      process.env.ADMIN_NOTIFICATION_EMAIL,
+      process.env.CONTACT_ADMIN_EMAIL,
+      process.env.ADMIN_FROM_EMAIL,
+      process.env.CONTACT_FROM_EMAIL,
+    ];
+
+    const recipients = sources
+      .filter((value): value is string => Boolean(value && value.trim().length > 0))
+      .flatMap((value) => value.split(","))
+      .map((value) => this.extractEmailAddress(value))
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLowerCase());
+
+    const unique = Array.from(new Set(recipients));
+    return unique.length > 0 ? unique : ["info@bookprinta.com"];
+  }
+
+  private extractEmailAddress(value: string): string | null {
+    const normalized = value.trim();
+    if (!normalized) return null;
+
+    const bracketMatch = normalized.match(/<([^>]+)>/);
+    const candidate = bracketMatch?.[1]?.trim() || normalized;
+    if (!candidate.includes("@")) return null;
+    return candidate;
+  }
+
+  private normalizeWhatsAppPhone(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+
+    if (trimmed.startsWith("+")) {
+      const digits = trimmed.slice(1).replace(/\D/g, "");
+      return digits ? `+${digits}` : "";
+    }
+
+    return trimmed.replace(/\D/g, "");
+  }
+
+  private async sendInfobipTextMessage(to: string, text: string, kind: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.infobipBaseUrl}/whatsapp/1/message/text`, {
+        method: "POST",
+        headers: {
+          Authorization: `App ${this.infobipApiKey}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          from: this.infobipWhatsAppFrom,
+          to,
+          content: { text },
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        this.logger.error(`Infobip ${kind} WhatsApp failed (${response.status}): ${body}`);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Infobip ${kind} WhatsApp failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return false;
+    }
+  }
+
+  private logMissingInfobipConfig(kind: string): void {
+    const missing: string[] = [];
+    if (!this.infobipBaseUrl) missing.push("INFOBIP_BASE_URL");
+    if (!this.infobipApiKey) missing.push("INFOBIP_API_KEY");
+    if (!this.infobipWhatsAppFrom) missing.push("INFOBIP_WHATSAPP_FROM");
+    const details = missing.length > 0 ? ` (${missing.join(", ")})` : "";
+    this.logger.warn(`Infobip WhatsApp config missing${details} — ${kind} skipped`);
+  }
+
+  private resolveFrontendBaseUrl(): string {
+    const raw = process.env.FRONTEND_URL?.trim();
+    if (!raw) {
+      throw new Error("FRONTEND_URL environment variable is required for payment redirect links");
+    }
+    return raw.replace(/\/+$/, "");
+  }
+
   private async resolveSignupUrlForReference(reference: string): Promise<string | null> {
     const payment = await this.prisma.payment.findUnique({
       where: { providerRef: reference },
@@ -1667,6 +2066,47 @@ export class PaymentsService {
 
   private buildSignupFinishUrl(token: string, locale: Locale): string {
     return `${this.frontendBaseUrl}/${locale}/signup/finish?token=${encodeURIComponent(token)}`;
+  }
+
+  private async resolveOrderDetailsForPayment(paymentId: string): Promise<{
+    orderNumber: string;
+    packageName: string;
+    amountPaid: string;
+    addons: string[];
+  } | null> {
+    // Step 1: Get orderId from the payment
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+      select: { orderId: true },
+    });
+
+    if (!payment?.orderId) return null;
+
+    // Step 2: Get order details
+    const order = await this.prisma.order.findUnique({
+      where: { id: payment.orderId },
+      select: {
+        orderNumber: true,
+        totalAmount: true,
+        currency: true,
+        package: { select: { name: true } },
+      },
+    });
+
+    if (!order) return null;
+
+    // Step 3: Get addon names separately (simple, no nested select issues)
+    const orderAddons = await this.prisma.orderAddon.findMany({
+      where: { orderId: payment.orderId },
+      select: { addon: { select: { name: true } } },
+    });
+
+    return {
+      orderNumber: order.orderNumber,
+      packageName: order.package?.name ?? "BookPrinta Package",
+      amountPaid: this.formatNaira(Number(order.totalAmount)),
+      addons: orderAddons.map((oa) => oa.addon.name).filter(Boolean),
+    };
   }
 
   /**

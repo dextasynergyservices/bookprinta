@@ -7,8 +7,7 @@ import {
 import { Injectable, Logger } from "@nestjs/common";
 import { Resend } from "resend";
 
-const FRONTEND_FALLBACK_URL = "https://bookprinta.com";
-const RESEND_DEV_FROM = "BookPrinta <onboarding@resend.dev>";
+const DEFAULT_FROM_EMAIL = "BookPrinta <info@bookprinta.com>";
 
 type DeliveryResult = {
   emailDelivered: boolean;
@@ -31,12 +30,26 @@ export class SignupNotificationsService {
 
   constructor() {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-    this.frontendBaseUrl = (process.env.FRONTEND_URL || FRONTEND_FALLBACK_URL).replace(/\/+$/, "");
-    this.infobipBaseUrl = this.normalizeBaseUrl(process.env.INFOBIP_BASE_URL || "");
-    this.infobipApiKey = process.env.INFOBIP_API_KEY || "";
-    this.infobipWhatsAppFrom = process.env.INFOBIP_WHATSAPP_FROM || "";
+    this.frontendBaseUrl = this.resolveFrontendBaseUrl();
+    this.infobipBaseUrl = this.normalizeBaseUrl(
+      process.env.INFOBIP_BASE_URL ||
+        process.env.INFOBIP_API_BASE_URL ||
+        process.env.INFOBIP_BASEURL ||
+        ""
+    );
+    this.infobipApiKey =
+      process.env.INFOBIP_API_KEY || process.env.INFOBIP_KEY || process.env.INFOBIP_APIKEY || "";
+    this.infobipWhatsAppFrom =
+      process.env.INFOBIP_WHATSAPP_FROM ||
+      process.env.INFOBIP_WHATSAPP_SENDER ||
+      process.env.INFOBIP_WHATSAPP_NUMBER ||
+      "";
     this.fallbackFromEmail =
-      process.env.AUTH_FROM_EMAIL || process.env.PAYMENTS_FROM_EMAIL || RESEND_DEV_FROM;
+      process.env.ADMIN_FROM_EMAIL ||
+      process.env.CONTACT_FROM_EMAIL ||
+      process.env.RESEND_FROM_EMAIL ||
+      process.env.DEFAULT_FROM_EMAIL ||
+      DEFAULT_FROM_EMAIL;
   }
 
   async sendRegistrationLink(
@@ -47,6 +60,10 @@ export class SignupNotificationsService {
       locale: Locale;
       phoneNumber?: string | null;
       fromEmail: string;
+      orderNumber?: string;
+      packageName?: string;
+      amountPaid?: string;
+      addons?: string[];
     },
     options: DeliveryOptions = {}
   ): Promise<DeliveryResult> {
@@ -91,6 +108,10 @@ export class SignupNotificationsService {
     name: string;
     locale: Locale;
     fromEmail: string;
+    orderNumber?: string;
+    packageName?: string;
+    amountPaid?: string;
+    addons?: string[];
   }): Promise<boolean> {
     if (!this.resend) {
       this.logger.warn("RESEND_API_KEY not set — welcome email skipped");
@@ -102,7 +123,11 @@ export class SignupNotificationsService {
       const rendered = await renderWelcomeEmail({
         locale: params.locale,
         userName: params.name,
-        signupUrl: dashboardUrl,
+        dashboardUrl,
+        orderNumber: params.orderNumber,
+        packageName: params.packageName,
+        amountPaid: params.amountPaid,
+        addons: params.addons,
       });
 
       const result = await this.resend.emails.send({
@@ -134,6 +159,10 @@ export class SignupNotificationsService {
     token: string;
     locale: Locale;
     fromEmail: string;
+    orderNumber?: string;
+    packageName?: string;
+    amountPaid?: string;
+    addons?: string[];
   }): Promise<boolean> {
     if (!this.resend) {
       this.logger.warn("RESEND_API_KEY not set — signup link email skipped");
@@ -145,6 +174,10 @@ export class SignupNotificationsService {
       locale: params.locale,
       userName: params.name,
       signupUrl,
+      orderNumber: params.orderNumber,
+      packageName: params.packageName,
+      amountPaid: params.amountPaid,
+      addons: params.addons,
     });
 
     try {
@@ -180,7 +213,7 @@ export class SignupNotificationsService {
     if (!params.phoneNumber?.trim()) return false;
 
     if (!this.infobipBaseUrl || !this.infobipApiKey || !this.infobipWhatsAppFrom) {
-      this.logger.warn("Infobip WhatsApp config missing — signup link WhatsApp skipped");
+      this.logMissingInfobipConfig("signup link");
       return false;
     }
 
@@ -214,12 +247,11 @@ export class SignupNotificationsService {
       return false;
     }
 
-    const verificationUrl = this.buildSignupFinishUrl(params.verificationToken, params.locale);
+    const verificationUrl = this.buildVerificationUrl(params.verificationToken, params.locale);
     const rendered = await renderSignupVerificationEmail({
       locale: params.locale,
       userName: params.name,
       verificationCode: params.verificationCode,
-      verificationToken: params.verificationToken,
       verificationUrl,
     });
 
@@ -257,7 +289,7 @@ export class SignupNotificationsService {
     if (!params.phoneNumber?.trim()) return false;
 
     if (!this.infobipBaseUrl || !this.infobipApiKey || !this.infobipWhatsAppFrom) {
-      this.logger.warn("Infobip WhatsApp config missing — signup verification WhatsApp skipped");
+      this.logMissingInfobipConfig("signup verification");
       return false;
     }
 
@@ -267,7 +299,7 @@ export class SignupNotificationsService {
       return false;
     }
 
-    const verificationUrl = this.buildSignupFinishUrl(params.verificationToken, params.locale);
+    const verificationUrl = this.buildVerificationUrl(params.verificationToken, params.locale);
     const text = this.buildVerificationChallengeWhatsAppMessage({
       locale: params.locale,
       name: params.name,
@@ -320,6 +352,15 @@ export class SignupNotificationsService {
     }
 
     return trimmed.replace(/\D/g, "");
+  }
+
+  private logMissingInfobipConfig(kind: string): void {
+    const missing: string[] = [];
+    if (!this.infobipBaseUrl) missing.push("INFOBIP_BASE_URL");
+    if (!this.infobipApiKey) missing.push("INFOBIP_API_KEY");
+    if (!this.infobipWhatsAppFrom) missing.push("INFOBIP_WHATSAPP_FROM");
+    const details = missing.length > 0 ? ` (${missing.join(", ")})` : "";
+    this.logger.warn(`Infobip WhatsApp config missing${details} — ${kind} WhatsApp skipped`);
   }
 
   private buildRegistrationLinkWhatsAppMessage(params: {
@@ -397,6 +438,10 @@ export class SignupNotificationsService {
     return `${this.frontendBaseUrl}/${locale}/signup/finish?token=${encodeURIComponent(token)}`;
   }
 
+  private buildVerificationUrl(token: string, locale: Locale): string {
+    return `${this.frontendBaseUrl}/${locale}/signup/finish?token=${encodeURIComponent(token)}&step=verify`;
+  }
+
   private buildDashboardUrl(locale: Locale): string {
     return `${this.frontendBaseUrl}/${locale}/dashboard`;
   }
@@ -412,5 +457,15 @@ export class SignupNotificationsService {
     if (!normalized) return "";
     if (/^https?:\/\//i.test(normalized)) return normalized;
     return `https://${normalized}`;
+  }
+
+  private resolveFrontendBaseUrl(): string {
+    const raw = process.env.FRONTEND_URL?.trim();
+    if (!raw) {
+      throw new Error(
+        "FRONTEND_URL environment variable is required for signup notification links"
+      );
+    }
+    return raw.replace(/\/+$/, "");
   }
 }
