@@ -78,6 +78,41 @@ export class VerifyPaymentResponseDto {
     example: true,
   })
   awaitingWebhook?: boolean;
+
+  @ApiPropertyOptional({
+    description: "Payer email address from the payment provider.",
+    example: "author@example.com",
+    nullable: true,
+  })
+  email?: string | null;
+
+  @ApiPropertyOptional({
+    description: "Order number created from this payment.",
+    example: "BP-2026-0001",
+    nullable: true,
+  })
+  orderNumber?: string | null;
+
+  @ApiPropertyOptional({
+    description: "Name of the package purchased.",
+    example: "Glow Up",
+    nullable: true,
+  })
+  packageName?: string | null;
+
+  @ApiPropertyOptional({
+    description: "Formatted amount paid (NGN).",
+    example: "₦150,000",
+    nullable: true,
+  })
+  amountPaid?: string | null;
+
+  @ApiPropertyOptional({
+    description: "List of selected addon names.",
+    example: ["Cover Design", "ISBN Registration"],
+    type: [String],
+  })
+  addons?: string[];
 }
 
 /** Response returned by POST /api/v1/payments/bank-transfer. */

@@ -67,7 +67,11 @@ services:
     volumes:
       - clamav_data:/var/lib/clamav
     healthcheck:
-      test: ["CMD", "clamdcheck"]
+      test:
+        [
+          "CMD-SHELL",
+          "printf 'zPING\\0' | nc -w 2 localhost 3310 | tr -d '\\000' | grep -q '^PONG$'",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3

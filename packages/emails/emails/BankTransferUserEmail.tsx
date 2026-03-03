@@ -9,6 +9,8 @@ interface BankTransferUserEmailProps {
   userName: string;
   orderNumber: string;
   amount: string;
+  packageName?: string;
+  addons?: string[];
 }
 
 export function BankTransferUserEmail({
@@ -16,7 +18,10 @@ export function BankTransferUserEmail({
   userName,
   orderNumber,
   amount,
+  packageName,
+  addons,
 }: BankTransferUserEmailProps) {
+  const hasAddons = Array.isArray(addons) && addons.length > 0;
   return (
     <EmailLayout locale={locale} preview={t(locale, "bank_transfer_user", "heading")}>
       <Text style={greeting}>{t(locale, "common", "greeting", { name: userName })}</Text>
@@ -24,6 +29,13 @@ export function BankTransferUserEmail({
       <Text style={bodyText}>{t(locale, "bank_transfer_user", "body")}</Text>
 
       <Section style={detailsBox}>
+        <Text style={detailsHeading}>{t(locale, "bank_transfer_user", "order_summary")}</Text>
+        {packageName ? (
+          <Text style={detailRow}>
+            <span style={detailLabel}>{t(locale, "bank_transfer_user", "package")}:</span>{" "}
+            {packageName}
+          </Text>
+        ) : null}
         <Text style={detailRow}>
           <span style={detailLabel}>{t(locale, "bank_transfer_user", "order_number")}:</span>{" "}
           {orderNumber}
@@ -31,6 +43,12 @@ export function BankTransferUserEmail({
         <Text style={detailRow}>
           <span style={detailLabel}>{t(locale, "bank_transfer_user", "amount")}:</span> {amount}
         </Text>
+        {hasAddons ? (
+          <Text style={detailRow}>
+            <span style={detailLabel}>{t(locale, "bank_transfer_user", "addons")}:</span>{" "}
+            {addons.join(", ")}
+          </Text>
+        ) : null}
       </Section>
 
       <Text style={subheading}>{t(locale, "bank_transfer_user", "what_next")}</Text>
@@ -50,6 +68,8 @@ BankTransferUserEmail.PreviewProps = {
   userName: "Adaeze",
   orderNumber: "BP-2026-0001",
   amount: "N150,000",
+  packageName: "Glow Up",
+  addons: ["ISBN Registration", "Express Cover Design"],
 };
 
 export default BankTransferUserEmail;
@@ -85,6 +105,15 @@ const detailRow: React.CSSProperties = {
 
 const detailLabel: React.CSSProperties = {
   fontWeight: 600,
+};
+
+const detailsHeading: React.CSSProperties = {
+  fontSize: "14px",
+  fontWeight: 600,
+  color: "#000000",
+  margin: "0 0 8px",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.5px",
 };
 
 const subheading: React.CSSProperties = {

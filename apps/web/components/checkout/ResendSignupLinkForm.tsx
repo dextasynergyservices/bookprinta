@@ -19,7 +19,11 @@ function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-export function ResendSignupLinkForm() {
+type ResendSignupLinkFormProps = {
+  onSuccess?: () => void;
+};
+
+export function ResendSignupLinkForm({ onSuccess }: ResendSignupLinkFormProps) {
   const t = useTranslations("checkout");
   const searchParams = useSearchParams();
   const initialEmail = useMemo(() => searchParams.get("email")?.trim() ?? "", [searchParams]);
@@ -47,6 +51,7 @@ export function ResendSignupLinkForm() {
       }
 
       toast.success(t("payment_confirmation_resend_success"));
+      onSuccess?.();
     } catch {
       toast.error(t("payment_confirmation_resend_error"));
     } finally {

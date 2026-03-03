@@ -9,7 +9,6 @@ interface SignupVerificationEmailProps {
   locale?: Locale;
   userName: string;
   verificationCode: string;
-  verificationToken: string;
   verificationUrl: string;
 }
 
@@ -17,7 +16,6 @@ export function SignupVerificationEmail({
   locale = "en",
   userName,
   verificationCode,
-  verificationToken,
   verificationUrl,
 }: SignupVerificationEmailProps) {
   return (
@@ -29,11 +27,6 @@ export function SignupVerificationEmail({
       <Section style={codeSection}>
         <Text style={labelText}>{t(locale, "signup_verification", "code_label")}</Text>
         <Text style={codeText}>{verificationCode}</Text>
-      </Section>
-
-      <Section style={tokenSection}>
-        <Text style={labelText}>{t(locale, "signup_verification", "token_label")}</Text>
-        <Text style={tokenText}>{verificationToken}</Text>
       </Section>
 
       <Section style={ctaSection}>
@@ -49,8 +42,7 @@ SignupVerificationEmail.PreviewProps = {
   locale: "en" as Locale,
   userName: "Adaeze",
   verificationCode: "493821",
-  verificationToken: "xyz789token123",
-  verificationUrl: "https://bookprinta.com/signup/finish?token=xyz789token123",
+  verificationUrl: "https://bookprinta.com/signup/finish?token=xyz789token123&step=verify",
 };
 
 export default SignupVerificationEmail;
@@ -77,14 +69,6 @@ const codeSection: React.CSSProperties = {
   margin: "0 0 14px",
 };
 
-const tokenSection: React.CSSProperties = {
-  backgroundColor: "#f9fafb",
-  border: "1px solid #ededed",
-  borderRadius: "10px",
-  padding: "14px 16px",
-  margin: "0 0 14px",
-};
-
 const labelText: React.CSSProperties = {
   fontSize: "12px",
   lineHeight: "18px",
@@ -102,15 +86,6 @@ const codeText: React.CSSProperties = {
   fontWeight: 700,
   letterSpacing: "0.2em",
   fontFamily: "'Poppins', Helvetica, Arial, sans-serif",
-};
-
-const tokenText: React.CSSProperties = {
-  fontSize: "12px",
-  lineHeight: "20px",
-  color: "#374151",
-  margin: "0",
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-  wordBreak: "break-all",
 };
 
 const ctaSection: React.CSSProperties = {

@@ -48,7 +48,7 @@ export function ScrollBook({
     const pageFactor = i / (PAGE_COUNT - 1);
     const pageT = easeOut(clamp((raw - 0.03 - pageFactor * 0.06) / 0.5, 0, 1));
     const angle = lerp(-1, lerp(-25, -100, pageFactor), pageT);
-    return { angle, pageFactor };
+    return { angle, pageFactor, id: `page-${i + 1}` };
   });
 
   // Whole book tilts for drama as it opens
@@ -71,18 +71,18 @@ export function ScrollBook({
 
   // Simulated page content with varying line widths for realism
   const pageLines = [
-    { width: "75%", isBold: true, height: 3 },
-    { width: "100%", isBold: false, height: 2 },
-    { width: "92%", isBold: false, height: 2 },
-    { width: "88%", isBold: false, height: 2 },
-    { width: "100%", isBold: false, height: 2 },
-    { width: "60%", isBold: false, height: 2 },
-    { width: "0%", isBold: false, height: 0 }, // paragraph break
-    { width: "85%", isBold: true, height: 2.5 },
-    { width: "100%", isBold: false, height: 2 },
-    { width: "95%", isBold: false, height: 2 },
-    { width: "78%", isBold: false, height: 2 },
-    { width: "100%", isBold: false, height: 2 },
+    { id: "line-1", width: "75%", isBold: true, height: 3 },
+    { id: "line-2", width: "100%", isBold: false, height: 2 },
+    { id: "line-3", width: "92%", isBold: false, height: 2 },
+    { id: "line-4", width: "88%", isBold: false, height: 2 },
+    { id: "line-5", width: "100%", isBold: false, height: 2 },
+    { id: "line-6", width: "60%", isBold: false, height: 2 },
+    { id: "line-7", width: "0%", isBold: false, height: 0 }, // paragraph break
+    { id: "line-8", width: "85%", isBold: true, height: 2.5 },
+    { id: "line-9", width: "100%", isBold: false, height: 2 },
+    { id: "line-10", width: "95%", isBold: false, height: 2 },
+    { id: "line-11", width: "78%", isBold: false, height: 2 },
+    { id: "line-12", width: "100%", isBold: false, height: 2 },
   ];
 
   return (
@@ -137,12 +137,9 @@ export function ScrollBook({
           }}
         >
           {/* ── Pages sitting in the gutter ── */}
-          {pages.map(({ angle }, i) => (
+          {pages.map(({ angle, id: pageId }, i) => (
             <div
-              key={`book-page-${
-                // biome-ignore lint/suspicious/noArrayIndexKey: Static array
-                i
-              }`}
+              key={pageId}
               style={{
                 position: "absolute",
                 top: "1.5%",
@@ -173,12 +170,9 @@ export function ScrollBook({
                 }}
               >
                 {/* Simulated text lines — clean modern look */}
-                {pageLines.map((line, li) => (
+                {pageLines.map((line) => (
                   <div
-                    key={`line-${i}-${
-                      // biome-ignore lint/suspicious/noArrayIndexKey: Static array
-                      li
-                    }`}
+                    key={`${pageId}-${line.id}`}
                     style={{
                       height: line.height,
                       borderRadius: 1,

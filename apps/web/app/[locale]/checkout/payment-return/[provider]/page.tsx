@@ -17,6 +17,11 @@ type VerifyResponse = {
   verified: boolean;
   signupUrl?: string | null;
   awaitingWebhook?: boolean;
+  email?: string | null;
+  orderNumber?: string | null;
+  packageName?: string | null;
+  amountPaid?: string | null;
+  addons?: string[];
 };
 
 function getApiV1BaseUrl() {
@@ -125,7 +130,16 @@ function PaymentReturnPageContent() {
           const data = (await response.json()) as VerifyResponse;
 
           if (data.signupUrl) {
-            redirectToUrl(data.signupUrl);
+            const params = new URLSearchParams();
+            if (data.email) params.set("email", data.email);
+            if (data.orderNumber) params.set("ref", data.orderNumber);
+            if (data.packageName) params.set("package", data.packageName);
+            if (data.amountPaid) params.set("amount", data.amountPaid);
+            if (data.addons && data.addons.length > 0) {
+              params.set("addons", JSON.stringify(data.addons));
+            }
+            if (data.signupUrl) params.set("signupUrl", data.signupUrl);
+            router.push(`/payment/confirmation?${params.toString()}`);
             return;
           }
 
@@ -162,6 +176,7 @@ function PaymentReturnPageContent() {
     provider,
     providerErrorText,
     reference,
+    router,
     verifyingText,
     waitingEmailText,
     waitingPendingText,
