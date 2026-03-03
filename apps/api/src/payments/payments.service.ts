@@ -130,7 +130,6 @@ export class PaymentsService {
     this.paymentsFromEmail =
       process.env.ADMIN_FROM_EMAIL ||
       process.env.CONTACT_FROM_EMAIL ||
-      process.env.RESEND_FROM_EMAIL ||
       process.env.DEFAULT_FROM_EMAIL ||
       "BookPrinta <info@bookprinta.com>";
     this.adminEmailRecipients = this.resolveAdminEmailRecipients();
