@@ -20,6 +20,7 @@ import { CloudinaryService } from "../cloudinary/index.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import {
   BookStatus,
+  DiscountType,
   OrderStatus,
   PaymentProvider,
   PaymentStatus,
@@ -49,6 +50,7 @@ type CheckoutMetadata = {
   locale?: Locale;
   fullName?: string;
   phone?: string;
+  couponCode?: string;
   packageId?: string;
   packageSlug?: string;
   packageName?: string;
@@ -59,6 +61,8 @@ type CheckoutMetadata = {
   paperColor?: string;
   lamination?: string;
   formattingWordCount?: number;
+  basePrice?: number;
+  addonTotal?: number;
   discountAmount?: number;
   totalPrice?: number;
   addons?: CheckoutAddonMetadata[];
@@ -1264,8 +1268,9 @@ export class PaymentsService {
 
       const orderNumber = await this.generateOrderNumber(tx);
       const totalAmount = this.toCurrency(checkout.totalPrice ?? params.amount);
-      const discountAmount = this.toCurrency(checkout.discountAmount ?? 0);
       const initialAmount = this.toCurrency(params.amount);
+      const appliedCoupon = await this.resolveAppliedCouponForOrder(tx, checkout, initialAmount);
+      const discountAmount = appliedCoupon?.discountAmount ?? 0;
 
       const order = await tx.order.create({
         data: {
@@ -1282,6 +1287,7 @@ export class PaymentsService {
           status: OrderStatus.PAID,
           initialAmount,
           extraAmount: 0,
+          couponId: appliedCoupon?.id ?? null,
           discountAmount,
           totalAmount: Math.max(totalAmount, initialAmount),
           currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
@@ -1484,6 +1490,7 @@ export class PaymentsService {
       locale: this.resolveLocale(this.asString(merged.locale)),
       fullName: this.asString(merged.fullName),
       phone: this.asString(merged.phone),
+      couponCode: this.asString(merged.couponCode),
       packageId: this.asString(merged.packageId),
       packageSlug: this.asString(merged.packageSlug),
       packageName: this.asString(merged.packageName),
@@ -1494,10 +1501,103 @@ export class PaymentsService {
       paperColor: this.asString(merged.paperColor),
       lamination: this.asString(merged.lamination),
       formattingWordCount: this.asInteger(merged.formattingWordCount),
+      basePrice: this.asNumber(merged.basePrice),
+      addonTotal: this.asNumber(merged.addonTotal),
       discountAmount: this.asNumber(merged.discountAmount),
       totalPrice: this.asNumber(merged.totalPrice),
       addons,
     };
+  }
+
+  private async resolveAppliedCouponForOrder(
+    tx: Prisma.TransactionClient,
+    checkout: CheckoutMetadata,
+    amountPaid: number
+  ): Promise<{ id: string; discountAmount: number } | null> {
+    const rawCode = this.asString(checkout.couponCode);
+    if (!rawCode) return null;
+
+    const code = rawCode.trim().toUpperCase();
+    const coupon = await tx.coupon.findUnique({
+      where: { code },
+      select: {
+        id: true,
+        type: true,
+        value: true,
+        usageLimit: true,
+        usageCount: true,
+        expiresAt: true,
+        isActive: true,
+      },
+    });
+
+    if (!coupon) {
+      this.logger.warn(`Coupon "${code}" not found. Skipping coupon application.`);
+      return null;
+    }
+
+    const now = new Date();
+    if (!coupon.isActive) {
+      this.logger.warn(`Coupon "${code}" is inactive. Skipping coupon application.`);
+      return null;
+    }
+    if (coupon.expiresAt && coupon.expiresAt.getTime() <= now.getTime()) {
+      this.logger.warn(`Coupon "${code}" is expired. Skipping coupon application.`);
+      return null;
+    }
+    if (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit) {
+      this.logger.warn(`Coupon "${code}" reached usage limit. Skipping coupon application.`);
+      return null;
+    }
+
+    const subtotal = this.resolveCouponSubtotal(checkout, amountPaid);
+    const discountValue = this.toCurrency(coupon.value);
+    const rawDiscount =
+      coupon.type === DiscountType.PERCENTAGE ? subtotal * (discountValue / 100) : discountValue;
+    const discountAmount = this.toCurrency(Math.min(subtotal, Math.max(0, rawDiscount)));
+
+    if (discountAmount <= 0) {
+      return null;
+    }
+
+    // Atomic claim to avoid over-consuming usage-limited coupons under concurrency.
+    const claimed = await tx.coupon.updateMany({
+      where: {
+        id: coupon.id,
+        isActive: true,
+        ...(coupon.expiresAt ? { expiresAt: { gt: now } } : {}),
+        ...(coupon.usageLimit === null
+          ? {}
+          : {
+              usageCount: { lt: coupon.usageLimit },
+            }),
+      },
+      data: {
+        usageCount: { increment: 1 },
+      },
+    });
+
+    if (claimed.count === 0) {
+      this.logger.warn(`Coupon "${code}" could not be claimed. Skipping coupon application.`);
+      return null;
+    }
+
+    return {
+      id: coupon.id,
+      discountAmount,
+    };
+  }
+
+  private resolveCouponSubtotal(checkout: CheckoutMetadata, amountPaid: number): number {
+    const basePlusAddons = this.toCurrency((checkout.basePrice ?? 0) + (checkout.addonTotal ?? 0));
+    if (basePlusAddons > 0) return basePlusAddons;
+
+    const totalPlusDiscount = this.toCurrency(
+      (checkout.totalPrice ?? 0) + (checkout.discountAmount ?? 0)
+    );
+    if (totalPlusDiscount > 0) return totalPlusDiscount;
+
+    return this.toCurrency(amountPaid);
   }
 
   private async resolveBankTransferReceiptUrl(params: {
@@ -1896,6 +1996,15 @@ export class PaymentsService {
 
   private asNumber(value: unknown): number | undefined {
     if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (
+      value &&
+      typeof value === "object" &&
+      "toNumber" in value &&
+      typeof (value as { toNumber: unknown }).toNumber === "function"
+    ) {
+      const parsed = (value as { toNumber: () => number }).toNumber();
+      if (Number.isFinite(parsed)) return parsed;
+    }
     if (typeof value === "string" && value.trim().length > 0) {
       const parsed = Number(value);
       if (Number.isFinite(parsed)) return parsed;

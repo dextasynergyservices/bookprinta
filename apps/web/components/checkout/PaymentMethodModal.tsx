@@ -24,6 +24,7 @@ import {
   submitBankTransfer,
   usePaymentGateways,
 } from "@/hooks/usePayments";
+import { RateLimitError, toRetryAfterMinutes } from "@/lib/api-error";
 import { useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { PaymentMetadata } from "@/stores/usePricingStore";
@@ -115,6 +116,8 @@ export function PaymentMethodModal({
   const [bankReceiptFile, setBankReceiptFile] = useState<File | null>(null);
   const [bankReceiptError, setBankReceiptError] = useState<string | null>(null);
   const [copiedFieldKey, setCopiedFieldKey] = useState<string | null>(null);
+  const [onlineRateLimitSeconds, setOnlineRateLimitSeconds] = useState(0);
+  const [bankRateLimitSeconds, setBankRateLimitSeconds] = useState(0);
 
   const modalMotion = isMobile
     ? {
@@ -146,6 +149,7 @@ export function PaymentMethodModal({
   const initializeMutation = useMutation({
     mutationFn: initializePayment,
     onSuccess: (response) => {
+      setOnlineRateLimitSeconds(0);
       if (!response.authorizationUrl) {
         toast.error(t("payment_modal_online_error"));
         return;
@@ -153,6 +157,15 @@ export function PaymentMethodModal({
       window.location.assign(response.authorizationUrl);
     },
     onError: (error) => {
+      if (error instanceof RateLimitError) {
+        const retryAfterSeconds = Math.max(1, error.retryAfterSeconds);
+        setOnlineRateLimitSeconds(retryAfterSeconds);
+        toast.error(
+          t("rate_limit_wait_minutes", { minutes: toRetryAfterMinutes(retryAfterSeconds) })
+        );
+        return;
+      }
+
       toast.error(t("payment_modal_online_error"), {
         description: error instanceof Error ? error.message : undefined,
       });
@@ -162,6 +175,7 @@ export function PaymentMethodModal({
   const bankTransferMutation = useMutation({
     mutationFn: submitBankTransfer,
     onSuccess: (response, variables) => {
+      setBankRateLimitSeconds(0);
       toast.success(t("payment_modal_bank_success"), {
         description: response.message,
       });
@@ -170,6 +184,15 @@ export function PaymentMethodModal({
       router.push(`/checkout/confirmation?email=${emailQuery}`);
     },
     onError: (error) => {
+      if (error instanceof RateLimitError) {
+        const retryAfterSeconds = Math.max(1, error.retryAfterSeconds);
+        setBankRateLimitSeconds(retryAfterSeconds);
+        toast.error(
+          t("rate_limit_wait_minutes", { minutes: toRetryAfterMinutes(retryAfterSeconds) })
+        );
+        return;
+      }
+
       toast.error(t("payment_modal_bank_error"), {
         description: error instanceof Error ? error.message : undefined,
       });
@@ -193,9 +216,27 @@ export function PaymentMethodModal({
     setBankPhone("");
     setBankReceiptFile(null);
     setBankReceiptError(null);
+    setOnlineRateLimitSeconds(0);
+    setBankRateLimitSeconds(0);
     resetInitializeMutation();
     resetBankTransferMutation();
   }, [open, resetBankTransferMutation, resetInitializeMutation]);
+
+  useEffect(() => {
+    if (onlineRateLimitSeconds <= 0) return;
+    const timer = window.setTimeout(() => {
+      setOnlineRateLimitSeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [onlineRateLimitSeconds]);
+
+  useEffect(() => {
+    if (bankRateLimitSeconds <= 0) return;
+    const timer = window.setTimeout(() => {
+      setBankRateLimitSeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [bankRateLimitSeconds]);
 
   const isOnlineFormComplete =
     onlineProvider !== null &&
@@ -208,9 +249,11 @@ export function PaymentMethodModal({
     isValidEmail(bankEmail.trim()) &&
     bankPhone.trim().length >= 7 &&
     bankReceiptFile !== null;
+  const isOnlineRateLimited = onlineRateLimitSeconds > 0;
+  const isBankRateLimited = bankRateLimitSeconds > 0;
 
   const submitOnlinePayment = () => {
-    if (!isOnlineFormComplete || !onlineProvider) return;
+    if (!isOnlineFormComplete || !onlineProvider || isOnlineRateLimited) return;
 
     const callbackUrl =
       typeof window !== "undefined"
@@ -252,7 +295,7 @@ export function PaymentMethodModal({
   };
 
   const submitBankPayment = () => {
-    if (!isBankFormComplete || !bankReceiptFile) return;
+    if (!isBankFormComplete || !bankReceiptFile || isBankRateLimited) return;
 
     bankTransferMutation.mutate({
       payerName: bankFullName.trim(),
@@ -271,6 +314,23 @@ export function PaymentMethodModal({
       },
     });
   };
+
+  const onlineSubmitDisabled =
+    !isOnlineFormComplete || initializeMutation.isPending || isOnlineRateLimited;
+  const bankSubmitDisabled =
+    !isBankFormComplete || bankTransferMutation.isPending || isBankRateLimited;
+
+  const onlineButtonText = initializeMutation.isPending
+    ? t("payment_modal_loading")
+    : isOnlineRateLimited
+      ? t("rate_limit_wait_seconds", { seconds: onlineRateLimitSeconds })
+      : t("payment_modal_pay_now");
+
+  const bankButtonText = bankTransferMutation.isPending
+    ? t("payment_modal_loading")
+    : isBankRateLimited
+      ? t("rate_limit_wait_seconds", { seconds: bankRateLimitSeconds })
+      : t("payment_modal_bank_send_receipt");
 
   const copyToClipboard = async (value: string, key: string) => {
     const text = value.trim();
@@ -521,10 +581,10 @@ export function PaymentMethodModal({
                         <button
                           type="button"
                           onClick={submitOnlinePayment}
-                          disabled={!isOnlineFormComplete || initializeMutation.isPending}
+                          disabled={onlineSubmitDisabled}
                           className={cn(
                             "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full px-5 font-sans text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
-                            !isOnlineFormComplete || initializeMutation.isPending
+                            onlineSubmitDisabled
                               ? "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/45"
                               : "bg-[#007eff] text-white hover:brightness-110"
                           )}
@@ -532,15 +592,22 @@ export function PaymentMethodModal({
                           {initializeMutation.isPending ? (
                             <>
                               <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
-                              {t("payment_modal_loading")}
+                              {onlineButtonText}
                             </>
                           ) : (
                             <>
                               <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
-                              {t("payment_modal_pay_now")}
+                              {onlineButtonText}
                             </>
                           )}
                         </button>
+                        {isOnlineRateLimited ? (
+                          <p className="font-sans text-xs text-[#ff6b6b]">
+                            {t("rate_limit_wait_minutes", {
+                              minutes: toRetryAfterMinutes(onlineRateLimitSeconds),
+                            })}
+                          </p>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -744,10 +811,10 @@ export function PaymentMethodModal({
                                 <button
                                   type="button"
                                   onClick={submitBankPayment}
-                                  disabled={!isBankFormComplete || bankTransferMutation.isPending}
+                                  disabled={bankSubmitDisabled}
                                   className={cn(
                                     "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full px-5 font-sans text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
-                                    !isBankFormComplete || bankTransferMutation.isPending
+                                    bankSubmitDisabled
                                       ? "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/45"
                                       : "bg-[#007eff] text-white hover:brightness-110"
                                   )}
@@ -758,15 +825,22 @@ export function PaymentMethodModal({
                                         className="mr-2 size-4 animate-spin"
                                         aria-hidden="true"
                                       />
-                                      {t("payment_modal_loading")}
+                                      {bankButtonText}
                                     </>
                                   ) : (
                                     <>
                                       <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
-                                      {t("payment_modal_bank_send_receipt")}
+                                      {bankButtonText}
                                     </>
                                   )}
                                 </button>
+                                {isBankRateLimited ? (
+                                  <p className="font-sans text-xs text-[#ff6b6b]">
+                                    {t("rate_limit_wait_minutes", {
+                                      minutes: toRetryAfterMinutes(bankRateLimitSeconds),
+                                    })}
+                                  </p>
+                                ) : null}
                               </div>
                             )}
                           </>
