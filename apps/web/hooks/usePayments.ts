@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { throwApiError } from "@/lib/api-error";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -65,14 +66,42 @@ export interface AdminBankTransferDecisionResponse {
   message: string;
 }
 
+export type CouponValidationErrorCode =
+  | "INVALID_CODE"
+  | "CODE_EXPIRED"
+  | "CODE_INACTIVE"
+  | "CODE_MAXED_OUT";
+
+export interface ValidateCouponInput {
+  code: string;
+  amount: number;
+}
+
+export interface ValidateCouponResponse {
+  id: string;
+  code: string;
+  discountType: "percentage" | "fixed";
+  discountValue: number;
+  maxUses: number | null;
+  currentUses: number;
+  expiresAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+  discountAmount: number;
+}
+
+export class CouponValidationError extends Error {
+  code: CouponValidationErrorCode;
+
+  constructor(code: CouponValidationErrorCode, message: string) {
+    super(message);
+    this.name = "CouponValidationError";
+    this.code = code;
+  }
+}
+
 async function parseError(response: Response) {
-  const fallback = "Request failed";
-  const data = await response.json().catch(() => null);
-  const message =
-    (typeof data?.message === "string" && data.message) ||
-    (Array.isArray(data?.message) && data.message.join(", ")) ||
-    fallback;
-  throw new Error(message);
+  await throwApiError(response, "Request failed");
 }
 
 export async function fetchPaymentGateways() {
@@ -97,6 +126,38 @@ export async function initializePayment(payload: InitializePaymentInput) {
   }
 
   return (await response.json()) as InitializePaymentResponse;
+}
+
+export async function validateCouponCode(payload: ValidateCouponInput) {
+  const response = await fetch(`${API_V1_BASE_URL}/coupons/validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    if (response.status === 429) {
+      await parseError(response);
+    }
+
+    const data = await response.json().catch(() => null);
+    const code =
+      typeof data?.code === "string" &&
+      (data.code === "INVALID_CODE" ||
+        data.code === "CODE_EXPIRED" ||
+        data.code === "CODE_INACTIVE" ||
+        data.code === "CODE_MAXED_OUT")
+        ? (data.code as CouponValidationErrorCode)
+        : "INVALID_CODE";
+    const message =
+      (typeof data?.message === "string" && data.message) ||
+      (Array.isArray(data?.message) && data.message.join(", ")) ||
+      "Invalid code";
+
+    throw new CouponValidationError(code, message);
+  }
+
+  return (await response.json()) as ValidateCouponResponse;
 }
 
 export async function submitBankTransfer(payload: BankTransferInput) {

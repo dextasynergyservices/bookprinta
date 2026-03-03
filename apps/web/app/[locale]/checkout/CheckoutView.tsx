@@ -1,7 +1,8 @@
 "use client";
 
+import { useMutation } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Loader2, ShieldCheck, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
@@ -9,6 +10,8 @@ import { AddonCard } from "@/components/checkout/AddonCard";
 import { PaymentMethodModal } from "@/components/checkout/PaymentMethodModal";
 import { type Addon, useAddons } from "@/hooks/useAddons";
 import { usePackages } from "@/hooks/usePackages";
+import { CouponValidationError, validateCouponCode } from "@/hooks/usePayments";
+import { RateLimitError, toRetryAfterMinutes } from "@/lib/api-error";
 import { useRouter } from "@/lib/i18n/navigation";
 import {
   type AddonType,
@@ -103,6 +106,11 @@ export function CheckoutView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [couponMessage, setCouponMessage] = useState<{
+    tone: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [couponRateLimitSeconds, setCouponRateLimitSeconds] = useState(0);
 
   const packageSlug = searchParams.get("package");
   const categorySlug = searchParams.get("category");
@@ -118,11 +126,16 @@ export function CheckoutView() {
     paperColor,
     lamination,
     selectedAddons,
+    couponCode,
+    discountAmount,
+    applyCoupon,
+    clearCoupon,
     setSelectedPackage,
     setSelectedAddons,
     toggleSelectedAddon,
     toPaymentMetadata,
   } = usePricingStore();
+  const [couponInput, setCouponInput] = useState(couponCode ?? "");
 
   const packageBasePrice = usePricingStore(selectBasePrice);
   const addonTotal = usePricingStore(selectAddonTotal);
@@ -162,6 +175,89 @@ export function CheckoutView() {
   const openPaymentModal = () => setIsPaymentModalOpen(true);
 
   const visibleAddons = checkoutAddons;
+
+  const couponMutation = useMutation({
+    mutationFn: validateCouponCode,
+    onSuccess: (response) => {
+      setCouponRateLimitSeconds(0);
+      applyCoupon(response.code, response.discountAmount);
+      setCouponInput(response.code);
+      setCouponMessage({
+        tone: "success",
+        text: t("coupon_success_applied", { amount: formatPrice(response.discountAmount) }),
+      });
+    },
+    onError: (error) => {
+      if (error instanceof RateLimitError) {
+        const retryAfterSeconds = Math.max(1, error.retryAfterSeconds);
+        setCouponRateLimitSeconds(retryAfterSeconds);
+        setCouponMessage(null);
+        return;
+      }
+
+      if (error instanceof CouponValidationError) {
+        const key =
+          error.code === "CODE_EXPIRED"
+            ? "coupon_error_expired"
+            : error.code === "CODE_MAXED_OUT"
+              ? "coupon_error_maxed_out"
+              : error.code === "CODE_INACTIVE"
+                ? "coupon_error_invalid"
+                : "coupon_error_invalid";
+        setCouponMessage({ tone: "error", text: t(key) });
+        return;
+      }
+
+      setCouponMessage({
+        tone: "error",
+        text: t("coupon_error_invalid"),
+      });
+    },
+  });
+
+  const handleApplyCoupon = () => {
+    if (couponRateLimitSeconds > 0) {
+      setCouponMessage(null);
+      return;
+    }
+
+    const code = couponInput.trim();
+    if (!code) {
+      setCouponMessage({ tone: "error", text: t("coupon_error_invalid") });
+      return;
+    }
+
+    couponMutation.mutate({
+      code,
+      amount: packageBasePrice + addonTotal,
+    });
+  };
+
+  const handleRemoveCoupon = () => {
+    clearCoupon();
+    setCouponInput("");
+    setCouponMessage(null);
+    couponMutation.reset();
+  };
+
+  useEffect(() => {
+    if (couponRateLimitSeconds <= 0) return;
+
+    const timer = window.setTimeout(() => {
+      setCouponRateLimitSeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [couponRateLimitSeconds]);
+
+  const isCouponRateLimited = couponRateLimitSeconds > 0;
+  const couponApplyDisabled =
+    couponMutation.isPending || isCouponRateLimited || couponInput.trim().length === 0;
+  const couponApplyLabel = couponMutation.isPending
+    ? t("coupon_apply_loading")
+    : isCouponRateLimited
+      ? t("rate_limit_wait_seconds", { seconds: couponRateLimitSeconds })
+      : t("coupon_apply_button");
 
   useEffect(() => {
     if (!selectedPackage) return;
@@ -378,12 +474,86 @@ export function CheckoutView() {
                   <AnimatedAmount value={addonTotal} />
                 </div>
 
+                {discountAmount > 0 ? (
+                  <>
+                    <p className="mt-4 font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                      {t("coupon_discount_label")}
+                    </p>
+                    <p className="mt-2 font-sans text-lg font-semibold text-[#007eff]">
+                      -{formatPrice(discountAmount)}
+                    </p>
+                  </>
+                ) : null}
+
                 <p className="mt-4 font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
                   {t("order_total")}
                 </p>
                 <p className="mt-2 font-sans text-2xl font-semibold text-white">
                   {formatPrice(orderTotal)}
                 </p>
+
+                <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-black px-4 py-3">
+                  <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                    {t("coupon_label")}
+                  </p>
+
+                  {couponCode && discountAmount > 0 ? (
+                    <div className="mt-3 flex items-center justify-between rounded-xl border border-[#007eff]/40 bg-[#007eff]/10 px-3 py-2">
+                      <p className="font-sans text-xs text-[#9fd0ff]">
+                        {t("coupon_applied_code", { code: couponCode })}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleRemoveCoupon}
+                        aria-label={t("coupon_remove_aria")}
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#007eff]/40 bg-black/30 text-[#a7d4ff] transition-colors duration-150 hover:border-[#007eff] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                      >
+                        <X className="size-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={couponInput}
+                      onChange={(event) => {
+                        setCouponInput(event.target.value);
+                        if (couponMessage?.tone === "error") setCouponMessage(null);
+                      }}
+                      placeholder={t("coupon_input_placeholder")}
+                      aria-label={t("coupon_input_placeholder")}
+                      className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-[#0b0b0b] px-3 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyCoupon}
+                      disabled={couponApplyDisabled}
+                      className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-[#007eff] px-4 font-sans text-xs font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                    >
+                      {couponApplyLabel}
+                    </button>
+                  </div>
+
+                  {couponMessage ? (
+                    <p
+                      className={
+                        couponMessage.tone === "success"
+                          ? "mt-2 font-sans text-xs text-emerald-300"
+                          : "mt-2 font-sans text-xs text-[#ff6b6b]"
+                      }
+                    >
+                      {couponMessage.text}
+                    </p>
+                  ) : null}
+                  {isCouponRateLimited ? (
+                    <p className="mt-2 font-sans text-xs text-[#ff6b6b]">
+                      {t("rate_limit_wait_minutes", {
+                        minutes: toRetryAfterMinutes(couponRateLimitSeconds),
+                      })}
+                    </p>
+                  ) : null}
+                </div>
 
                 <div className="mt-5 rounded-2xl border border-[#2A2A2A] bg-black px-4 py-3">
                   <p className="font-sans text-xs text-white/55">
@@ -438,6 +608,79 @@ export function CheckoutView() {
                       {formatPrice(addonTotal)}
                     </span>
                   </div>
+                  {discountAmount > 0 ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-sans text-sm text-white/65">
+                        {t("coupon_discount_label")}
+                      </span>
+                      <span className="font-sans text-sm font-semibold text-[#007eff]">
+                        -{formatPrice(discountAmount)}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-[#0a0a0a] px-4 py-3">
+                  <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                    {t("coupon_label")}
+                  </p>
+
+                  {couponCode && discountAmount > 0 ? (
+                    <div className="mt-3 flex items-center justify-between rounded-xl border border-[#007eff]/40 bg-[#007eff]/10 px-3 py-2">
+                      <p className="font-sans text-xs text-[#9fd0ff]">
+                        {t("coupon_applied_code", { code: couponCode })}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleRemoveCoupon}
+                        aria-label={t("coupon_remove_aria")}
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#007eff]/40 bg-black/30 text-[#a7d4ff] transition-colors duration-150 hover:border-[#007eff] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                      >
+                        <X className="size-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={couponInput}
+                      onChange={(event) => {
+                        setCouponInput(event.target.value);
+                        if (couponMessage?.tone === "error") setCouponMessage(null);
+                      }}
+                      placeholder={t("coupon_input_placeholder")}
+                      aria-label={t("coupon_input_placeholder")}
+                      className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-3 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyCoupon}
+                      disabled={couponApplyDisabled}
+                      className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-[#007eff] px-4 font-sans text-xs font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                    >
+                      {couponApplyLabel}
+                    </button>
+                  </div>
+
+                  {couponMessage ? (
+                    <p
+                      className={
+                        couponMessage.tone === "success"
+                          ? "mt-2 font-sans text-xs text-emerald-300"
+                          : "mt-2 font-sans text-xs text-[#ff6b6b]"
+                      }
+                    >
+                      {couponMessage.text}
+                    </p>
+                  ) : null}
+                  {isCouponRateLimited ? (
+                    <p className="mt-2 font-sans text-xs text-[#ff6b6b]">
+                      {t("rate_limit_wait_minutes", {
+                        minutes: toRetryAfterMinutes(couponRateLimitSeconds),
+                      })}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-[#0a0a0a] px-4 py-3">

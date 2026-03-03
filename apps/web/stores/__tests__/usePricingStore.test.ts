@@ -169,6 +169,40 @@ describe("usePricingStore pricing", () => {
     ]);
   });
 
+  it("serializes coupon fields into payment metadata", () => {
+    const store = usePricingStore.getState();
+    store.setSelectedPackage(PACKAGE_WITHOUT_ISBN);
+    store.setHasCoverDesign(true);
+    store.setHasFormatting(true);
+    store.setSelectedAddons([EXPRESS_ADDON]);
+    store.applyCoupon("SAVE5", 5_000);
+
+    const metadata = store.toPaymentMetadata();
+
+    expect(metadata.couponCode).toBe("SAVE5");
+    expect(metadata.discountAmount).toBe(5_000);
+    expect(metadata.basePrice).toBe(100_000);
+    expect(metadata.addonTotal).toBe(5_000);
+    expect(metadata.totalPrice).toBe(100_000);
+  });
+
+  it("clearCoupon removes coupon and restores total", () => {
+    const store = usePricingStore.getState();
+    store.setSelectedPackage(PACKAGE_WITHOUT_ISBN);
+    store.setHasCoverDesign(true);
+    store.setHasFormatting(true);
+    store.setSelectedAddons([EXPRESS_ADDON]);
+    store.applyCoupon("SAVE5", 5_000);
+
+    expect(store.getTotalPrice()).toBe(100_000);
+
+    store.clearCoupon();
+
+    expect(store.couponCode).toBeNull();
+    expect(store.discountAmount).toBe(0);
+    expect(store.getTotalPrice()).toBe(105_000);
+  });
+
   it("uses formatting wordCount × pricePerWord for selected formatting addon", () => {
     const store = usePricingStore.getState();
     store.setSelectedPackage(PACKAGE_WITHOUT_ISBN);

@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post, Res, UseGuards } from "@n
 import { ApiBody, ApiCookieAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
 import type { Response } from "express";
+import { getNormalizedEmailTracker } from "../rate-limit/tracker.utils.js";
 import { AuthService } from "./auth.service.js";
 import { CurrentUser } from "./decorators/index.js";
 import {
@@ -17,6 +18,11 @@ import {
 import { JwtAuthGuard, JwtRefreshGuard } from "./guards/index.js";
 import type { JwtPayload } from "./interfaces/index.js";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "./interfaces/index.js";
+
+const RESEND_SIGNUP_LINK_THROTTLE = {
+  short: { limit: 3, ttl: 3_600_000, getTracker: getNormalizedEmailTracker },
+  long: { limit: 3, ttl: 3_600_000, getTracker: getNormalizedEmailTracker },
+};
 
 /**
  * Auth Controller — All authentication endpoints.
@@ -255,10 +261,7 @@ export class AuthController {
   // ==========================================
   @Post("resend-signup-link")
   @HttpCode(HttpStatus.OK)
-  @Throttle({
-    short: { limit: 3, ttl: 3_600_000 },
-    long: { limit: 3, ttl: 3_600_000 },
-  })
+  @Throttle(RESEND_SIGNUP_LINK_THROTTLE)
   @ApiOperation({
     summary: "Resend signup link",
     description:
@@ -267,6 +270,7 @@ export class AuthController {
   })
   @ApiBody({ type: ResendSignupLinkDto })
   @ApiResponse({ status: 200, description: "Link sent (if email exists)" })
+  @ApiResponse({ status: 429, description: "Too many resend attempts for this email" })
   async resendSignupLink(@Body() dto: ResendSignupLinkDto) {
     return this.authService.resendSignupLink(dto);
   }

@@ -3,8 +3,9 @@
 import { Loader2, Send } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { RateLimitError, throwApiError, toRetryAfterMinutes } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 
 function getApiV1BaseUrl() {
@@ -30,9 +31,20 @@ export function ResendSignupLinkForm({ onSuccess }: ResendSignupLinkFormProps) {
 
   const [email, setEmail] = useState(initialEmail);
   const [isPending, setIsPending] = useState(false);
+  const [rateLimitSeconds, setRateLimitSeconds] = useState(0);
 
   const normalizedEmail = email.trim().toLowerCase();
-  const canSubmit = !isPending && isValidEmail(normalizedEmail);
+  const canSubmit = !isPending && rateLimitSeconds === 0 && isValidEmail(normalizedEmail);
+
+  useEffect(() => {
+    if (rateLimitSeconds <= 0) return;
+
+    const timer = window.setTimeout(() => {
+      setRateLimitSeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [rateLimitSeconds]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -47,12 +59,24 @@ export function ResendSignupLinkForm({ onSuccess }: ResendSignupLinkFormProps) {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to resend signup link");
+        await throwApiError(response, t("payment_confirmation_resend_error"));
       }
 
+      setRateLimitSeconds(0);
       toast.success(t("payment_confirmation_resend_success"));
       onSuccess?.();
-    } catch {
+    } catch (error) {
+      if (error instanceof RateLimitError) {
+        const retryAfterSeconds = Math.max(1, error.retryAfterSeconds);
+        setRateLimitSeconds(retryAfterSeconds);
+        toast.error(
+          t("rate_limit_wait_minutes", {
+            minutes: toRetryAfterMinutes(retryAfterSeconds),
+          })
+        );
+        return;
+      }
+
       toast.error(t("payment_confirmation_resend_error"));
     } finally {
       setIsPending(false);
@@ -93,6 +117,8 @@ export function ResendSignupLinkForm({ onSuccess }: ResendSignupLinkFormProps) {
               <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
               {t("payment_confirmation_resend_sending")}
             </>
+          ) : rateLimitSeconds > 0 ? (
+            t("rate_limit_wait_seconds", { seconds: rateLimitSeconds })
           ) : (
             <>
               <Send className="mr-2 size-4" aria-hidden="true" />
@@ -100,6 +126,14 @@ export function ResendSignupLinkForm({ onSuccess }: ResendSignupLinkFormProps) {
             </>
           )}
         </button>
+
+        {rateLimitSeconds > 0 ? (
+          <p className="font-sans text-xs text-[#ff6b6b]">
+            {t("rate_limit_wait_minutes", {
+              minutes: toRetryAfterMinutes(rateLimitSeconds),
+            })}
+          </p>
+        ) : null}
       </form>
     </div>
   );
