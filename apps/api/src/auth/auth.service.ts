@@ -4,8 +4,6 @@ import { renderPasswordResetEmail } from "@bookprinta/emails/render";
 import {
   BadRequestException,
   ConflictException,
-  HttpException,
-  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -18,7 +16,6 @@ import { Resend } from "resend";
 import type { UserRole } from "../generated/prisma/enums.js";
 import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { RedisService } from "../redis/redis.service.js";
 import type {
   FinishSignupDto,
   ForgotPasswordDto,
@@ -31,33 +28,6 @@ import type {
   VerifyEmailLinkDto,
 } from "./dto/index.js";
 import type { JwtPayload, TokenPair } from "./interfaces/index.js";
-
-const LOGIN_RATE_LIMIT = {
-  keyPrefix: "ratelimit:auth:login:",
-  windowSeconds: 60,
-  maxRequests: 10,
-};
-
-const FORGOT_PASSWORD_RATE_LIMIT = {
-  keyPrefix: "ratelimit:auth:forgot-password:",
-  windowSeconds: 3600,
-  maxRequests: 3,
-};
-
-const RESET_PASSWORD_RATE_LIMIT = {
-  keyPrefix: "ratelimit:auth:reset-password:",
-  windowSeconds: 60,
-  maxRequests: 10,
-};
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
-    ),
-  ]);
-}
 
 /**
  * Auth Service — Core authentication and authorization logic.
@@ -86,8 +56,7 @@ export class AuthService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly signupNotificationsService: SignupNotificationsService,
-    private readonly redisService: RedisService
+    private readonly signupNotificationsService: SignupNotificationsService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.JWT_SECRET = process.env.JWT_SECRET || "fallback-dev-secret-change-me";
@@ -381,8 +350,7 @@ export class AuthService {
    * Authenticate user with email/phone and password.
    * Returns token pair + user info on success.
    */
-  async login(dto: LoginDto, ip = "unknown"): Promise<{ user: SafeUser; tokens: TokenPair }> {
-    await this.checkLoginRateLimit(ip);
+  async login(dto: LoginDto): Promise<{ user: SafeUser; tokens: TokenPair }> {
     const isHuman = await this.verifyRecaptcha(dto.recaptchaToken);
     if (!isHuman) {
       throw new BadRequestException({
@@ -508,7 +476,6 @@ export class AuthService {
     }
 
     const normalizedEmail = dto.email.trim().toLowerCase();
-    await this.checkForgotPasswordRateLimit(normalizedEmail);
 
     const user = await this.prisma.user.findFirst({
       where: {
@@ -566,11 +533,7 @@ export class AuthService {
   /**
    * Validate reset token before showing reset-password form.
    */
-  async validateResetPasswordToken(
-    dto: ValidateResetPasswordTokenDto,
-    ip = "unknown"
-  ): Promise<{ valid: true }> {
-    await this.checkResetPasswordRateLimit(ip);
+  async validateResetPasswordToken(dto: ValidateResetPasswordTokenDto): Promise<{ valid: true }> {
     await this.getValidResetTokenUser(dto.token);
     return { valid: true };
   }
@@ -578,8 +541,7 @@ export class AuthService {
   /**
    * Reset password using the token from the reset email.
    */
-  async resetPassword(dto: ResetPasswordDto, ip = "unknown"): Promise<{ message: string }> {
-    await this.checkResetPasswordRateLimit(ip);
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
     const user = await this.getValidResetTokenUser(dto.token);
 
     const hashedPassword = await bcrypt.hash(dto.newPassword, this.SALT_ROUNDS);
@@ -945,133 +907,6 @@ export class AuthService {
     return [...new Set([trimmed, normalizedWithPlus, normalizedDigits, withPlusDigits])].filter(
       Boolean
     );
-  }
-
-  /**
-   * Redis-backed login limiter (10 req/min per IP).
-   * Degrades gracefully if Redis is unavailable.
-   */
-  private async checkLoginRateLimit(ip: string): Promise<void> {
-    const redis = this.redisService.getClient();
-    if (!redis) {
-      this.logger.warn("Redis unavailable — skipping login rate limit check");
-      return;
-    }
-
-    const key = `${LOGIN_RATE_LIMIT.keyPrefix}${ip}`;
-
-    try {
-      const current = await withTimeout(redis.incr(key), 3000, "Redis login rate limit");
-
-      if (current === 1) {
-        redis.expire(key, LOGIN_RATE_LIMIT.windowSeconds).catch(() => {});
-      }
-
-      if (current > LOGIN_RATE_LIMIT.maxRequests) {
-        const ttl = await withTimeout(redis.ttl(key), 3000, "Redis login rate limit ttl");
-        const retryAfterSeconds = ttl > 0 ? ttl : LOGIN_RATE_LIMIT.windowSeconds;
-        throw new HttpException(
-          {
-            message: "Too many login attempts. Please wait a few minutes.",
-            errorCode: "AUTH_LOGIN_RATE_LIMIT",
-            retryAfterSeconds,
-          },
-          HttpStatus.TOO_MANY_REQUESTS
-        );
-      }
-    } catch (error) {
-      if (error instanceof HttpException && error.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
-        throw error;
-      }
-
-      this.logger.warn(`Login rate limit check failed, allowing request: ${String(error)}`);
-    }
-  }
-
-  /**
-   * Redis-backed forgot-password limiter (3 req/hour per email).
-   * Degrades gracefully if Redis is unavailable.
-   */
-  private async checkForgotPasswordRateLimit(email: string): Promise<void> {
-    const redis = this.redisService.getClient();
-    if (!redis) {
-      this.logger.warn("Redis unavailable — skipping forgot-password rate limit check");
-      return;
-    }
-
-    const key = `${FORGOT_PASSWORD_RATE_LIMIT.keyPrefix}${email}`;
-
-    try {
-      const current = await withTimeout(redis.incr(key), 3000, "Redis forgot-password rate limit");
-
-      if (current === 1) {
-        redis.expire(key, FORGOT_PASSWORD_RATE_LIMIT.windowSeconds).catch(() => {});
-      }
-
-      if (current > FORGOT_PASSWORD_RATE_LIMIT.maxRequests) {
-        const ttl = await withTimeout(redis.ttl(key), 3000, "Redis forgot-password rate limit ttl");
-        const retryAfterSeconds = ttl > 0 ? ttl : FORGOT_PASSWORD_RATE_LIMIT.windowSeconds;
-        throw new HttpException(
-          {
-            message: "Too many password reset requests. Please wait before trying again.",
-            errorCode: "AUTH_FORGOT_PASSWORD_RATE_LIMIT",
-            retryAfterSeconds,
-          },
-          HttpStatus.TOO_MANY_REQUESTS
-        );
-      }
-    } catch (error) {
-      if (error instanceof HttpException && error.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
-        throw error;
-      }
-
-      this.logger.warn(
-        `Forgot-password rate limit check failed, allowing request: ${String(error)}`
-      );
-    }
-  }
-
-  /**
-   * Redis-backed reset-password limiter (10 req/min per IP).
-   * Degrades gracefully if Redis is unavailable.
-   */
-  private async checkResetPasswordRateLimit(ip: string): Promise<void> {
-    const redis = this.redisService.getClient();
-    if (!redis) {
-      this.logger.warn("Redis unavailable — skipping reset-password rate limit check");
-      return;
-    }
-
-    const key = `${RESET_PASSWORD_RATE_LIMIT.keyPrefix}${ip}`;
-
-    try {
-      const current = await withTimeout(redis.incr(key), 3000, "Redis reset-password rate limit");
-
-      if (current === 1) {
-        redis.expire(key, RESET_PASSWORD_RATE_LIMIT.windowSeconds).catch(() => {});
-      }
-
-      if (current > RESET_PASSWORD_RATE_LIMIT.maxRequests) {
-        const ttl = await withTimeout(redis.ttl(key), 3000, "Redis reset-password rate limit ttl");
-        const retryAfterSeconds = ttl > 0 ? ttl : RESET_PASSWORD_RATE_LIMIT.windowSeconds;
-        throw new HttpException(
-          {
-            message: "Too many reset attempts. Please wait a minute and try again.",
-            errorCode: "AUTH_RESET_PASSWORD_RATE_LIMIT",
-            retryAfterSeconds,
-          },
-          HttpStatus.TOO_MANY_REQUESTS
-        );
-      }
-    } catch (error) {
-      if (error instanceof HttpException && error.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
-        throw error;
-      }
-
-      this.logger.warn(
-        `Reset-password rate limit check failed, allowing request: ${String(error)}`
-      );
-    }
   }
 
   private async getValidResetTokenUser(token: string): Promise<{ id: string }> {

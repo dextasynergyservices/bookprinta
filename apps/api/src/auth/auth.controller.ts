@@ -6,13 +6,12 @@ import {
   HttpStatus,
   Post,
   Query,
-  Req,
   Res,
   UseGuards,
 } from "@nestjs/common";
 import { ApiBody, ApiCookieAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
-import type { Request, Response } from "express";
+import type { Response } from "express";
 import { getNormalizedEmailTracker } from "../rate-limit/tracker.utils.js";
 import { AuthService } from "./auth.service.js";
 import { CurrentUser } from "./decorators/index.js";
@@ -34,6 +33,11 @@ import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "./interfaces/index.js
 const RESEND_SIGNUP_LINK_THROTTLE = {
   short: { limit: 3, ttl: 3_600_000, getTracker: getNormalizedEmailTracker },
   long: { limit: 3, ttl: 3_600_000, getTracker: getNormalizedEmailTracker },
+};
+
+const AUTH_WRITE_THROTTLE = {
+  short: { limit: 10, ttl: 60_000 },
+  long: { limit: 10, ttl: 60_000 },
 };
 
 /**
@@ -184,10 +188,7 @@ export class AuthController {
   // POST /auth/login
   // ==========================================
   @Post("login")
-  @Throttle({
-    short: { limit: 10, ttl: 60_000 },
-    long: { limit: 100, ttl: 3_600_000 },
-  })
+  @Throttle(AUTH_WRITE_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Login with email/phone & password",
@@ -209,14 +210,10 @@ export class AuthController {
   })
   @ApiResponse({
     status: 429,
-    description: "Too many login attempts. Response includes retryAfterSeconds.",
+    description: "Too many attempts. Response includes retryAfter.",
   })
-  async login(
-    @Body() dto: LoginDto,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response
-  ) {
-    const result = await this.authService.login(dto, this.getClientIp(req));
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.login(dto);
 
     // Set tokens in HttpOnly cookies
     this.setTokenCookies(
@@ -282,6 +279,7 @@ export class AuthController {
   // POST /auth/forgot-password
   // ==========================================
   @Post("forgot-password")
+  @Throttle(AUTH_WRITE_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Request password reset",
@@ -298,8 +296,7 @@ export class AuthController {
   })
   @ApiResponse({
     status: 429,
-    description:
-      "Too many password reset requests. Response includes errorCode=AUTH_FORGOT_PASSWORD_RATE_LIMIT and retryAfterSeconds.",
+    description: "Too many attempts. Response includes retryAfter.",
   })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
@@ -309,10 +306,7 @@ export class AuthController {
   // GET /auth/reset-password
   // ==========================================
   @Get("reset-password")
-  @Throttle({
-    short: { limit: 10, ttl: 60_000 },
-    long: { limit: 100, ttl: 3_600_000 },
-  })
+  @Throttle(AUTH_WRITE_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Validate password reset token",
@@ -322,24 +316,17 @@ export class AuthController {
   @ApiResponse({ status: 400, description: "Invalid or expired reset token" })
   @ApiResponse({
     status: 429,
-    description:
-      "Too many reset attempts. Response includes errorCode=AUTH_RESET_PASSWORD_RATE_LIMIT and retryAfterSeconds.",
+    description: "Too many attempts. Response includes retryAfter.",
   })
-  async validateResetPasswordToken(
-    @Query() dto: ValidateResetPasswordTokenDto,
-    @Req() req: Request
-  ) {
-    return this.authService.validateResetPasswordToken(dto, this.getClientIp(req));
+  async validateResetPasswordToken(@Query() dto: ValidateResetPasswordTokenDto) {
+    return this.authService.validateResetPasswordToken(dto);
   }
 
   // ==========================================
   // POST /auth/reset-password
   // ==========================================
   @Post("reset-password")
-  @Throttle({
-    short: { limit: 10, ttl: 60_000 },
-    long: { limit: 100, ttl: 3_600_000 },
-  })
+  @Throttle(AUTH_WRITE_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Reset password with token",
@@ -352,11 +339,10 @@ export class AuthController {
   @ApiResponse({ status: 400, description: "Invalid or expired reset token" })
   @ApiResponse({
     status: 429,
-    description:
-      "Too many reset attempts. Response includes errorCode=AUTH_RESET_PASSWORD_RATE_LIMIT and retryAfterSeconds.",
+    description: "Too many attempts. Response includes retryAfter.",
   })
-  async resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request) {
-    return this.authService.resetPassword(dto, this.getClientIp(req));
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 
   // ==========================================
@@ -376,24 +362,6 @@ export class AuthController {
   @ApiResponse({ status: 429, description: "Too many resend attempts for this email" })
   async resendSignupLink(@Body() dto: ResendSignupLinkDto) {
     return this.authService.resendSignupLink(dto);
-  }
-
-  // ==========================================
-  // PRIVATE: Request metadata helpers
-  // ==========================================
-
-  private getClientIp(req: Request): string {
-    const forwardedFor = req.headers["x-forwarded-for"];
-
-    if (typeof forwardedFor === "string" && forwardedFor.trim().length > 0) {
-      return forwardedFor.split(",")[0]?.trim() || "unknown";
-    }
-
-    if (Array.isArray(forwardedFor) && forwardedFor.length > 0) {
-      return forwardedFor[0] || "unknown";
-    }
-
-    return req.ip || req.socket?.remoteAddress || "unknown";
   }
 
   // ==========================================
