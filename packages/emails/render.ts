@@ -9,6 +9,7 @@ import { BankTransferAdminEmail } from "./emails/BankTransferAdminEmail.tsx";
 import { BankTransferUserEmail } from "./emails/BankTransferUserEmail.tsx";
 import { ContactAdminEmail } from "./emails/ContactAdminEmail.tsx";
 import { ContactConfirmationEmail } from "./emails/ContactConfirmationEmail.tsx";
+import { PasswordResetEmail } from "./emails/PasswordResetEmail.tsx";
 import { SignupLinkEmail } from "./emails/SignupLinkEmail.tsx";
 import { SignupVerificationEmail } from "./emails/SignupVerificationEmail.tsx";
 import { WelcomeEmail } from "./emails/WelcomeEmail.tsx";
@@ -85,6 +86,12 @@ export interface RenderWelcomeProps {
   addons?: string[];
 }
 
+export interface RenderPasswordResetProps {
+  locale?: Locale;
+  userName: string;
+  resetUrl: string;
+}
+
 // ── Render helpers ───────────────────────────────────────────────────────────
 
 export async function renderContactAdminEmail(
@@ -159,5 +166,16 @@ export async function renderWelcomeEmail(
   return {
     html,
     subject: getEmailSubject("welcome", locale),
+  };
+}
+
+export async function renderPasswordResetEmail(
+  props: RenderPasswordResetProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(PasswordResetEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("password_reset", locale),
   };
 }
