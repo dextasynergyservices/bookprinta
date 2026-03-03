@@ -13,6 +13,7 @@ import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { type FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { VerificationCodeInput } from "@/components/shared/VerificationCodeInput";
+import { RateLimitError, throwApiError, toRetryAfterMinutes } from "@/lib/api-error";
 import { Link, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
@@ -327,15 +328,24 @@ function SignupFinishPageContent() {
       });
 
       if (!response.ok) {
-        const message = await extractError(response, t("signup_finish_resend_error"));
-        setErrorMessage(message);
-        return;
+        await throwApiError(response, t("signup_finish_resend_error"));
       }
 
       setStatusMessage(t("signup_finish_resend_success"));
       setResendCooldown(RESEND_COOLDOWN_SECONDS);
-    } catch {
-      setErrorMessage(t("signup_finish_resend_error"));
+    } catch (error) {
+      if (error instanceof RateLimitError) {
+        const retryAfterSeconds = Math.max(1, error.retryAfterSeconds);
+        setResendCooldown((current) => Math.max(current, retryAfterSeconds));
+        setErrorMessage(
+          checkoutT("rate_limit_wait_minutes", {
+            minutes: toRetryAfterMinutes(retryAfterSeconds),
+          })
+        );
+        return;
+      }
+
+      setErrorMessage(error instanceof Error ? error.message : t("signup_finish_resend_error"));
     } finally {
       setIsResending(false);
     }

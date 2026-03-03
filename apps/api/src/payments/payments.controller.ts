@@ -24,7 +24,7 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
-import { SkipThrottle } from "@nestjs/throttler";
+import { SkipThrottle, Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
 import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
@@ -40,6 +40,11 @@ import {
   VerifyPaymentResponseDto,
 } from "./dto/payment-response.dto.js";
 import { PaymentsService } from "./payments.service.js";
+
+const PAYMENT_WRITE_THROTTLE = {
+  short: { limit: 10, ttl: 60_000 },
+  long: { limit: 10, ttl: 60_000 },
+};
 
 // ──────────────────────────────────────────────
 // Payments Controller
@@ -93,6 +98,7 @@ export class PaymentsController {
    */
   @Post("initialize")
   @HttpCode(HttpStatus.OK)
+  @Throttle(PAYMENT_WRITE_THROTTLE)
   @ApiOperation({
     summary: "Initialize payment session",
     description:
@@ -107,6 +113,7 @@ export class PaymentsController {
   })
   @ApiResponse({ status: 400, description: "Invalid request body or unsupported provider" })
   @ApiResponse({ status: 404, description: "Payment gateway not configured" })
+  @ApiResponse({ status: 429, description: "Too many payment initialization attempts" })
   @ApiResponse({ status: 503, description: "Payment provider unavailable (API keys missing)" })
   async initialize(@Body() dto: InitializePaymentDto) {
     return this.paymentsService.initialize(dto);
@@ -141,6 +148,7 @@ export class PaymentsController {
    */
   @Post("bank-transfer")
   @HttpCode(HttpStatus.CREATED)
+  @Throttle(PAYMENT_WRITE_THROTTLE)
   @UseInterceptors(
     FileInterceptor("receipt", {
       limits: { fileSize: MAX_FILE_SIZE_BYTES },
@@ -184,6 +192,7 @@ export class PaymentsController {
     type: BankTransferResponseDto,
   })
   @ApiResponse({ status: 400, description: "Validation error" })
+  @ApiResponse({ status: 429, description: "Too many bank transfer submissions" })
   @ApiResponse({ status: 503, description: "Bank transfer gateway disabled" })
   async submitBankTransfer(
     @Body() body: Record<string, unknown>,

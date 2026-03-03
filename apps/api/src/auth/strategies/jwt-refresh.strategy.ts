@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
+import * as bcrypt from "bcrypt";
 import type { Request } from "express";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { PrismaService } from "../../prisma/prisma.service.js";
@@ -9,7 +10,7 @@ import type { JwtPayload } from "../interfaces/index.js";
  * JWT Refresh Token Strategy
  *
  * Extracts refresh token from HttpOnly cookie "refresh_token".
- * Validates against the stored refresh token in the database
+ * Validates against the stored refresh token hash in the database
  * to support refresh token rotation.
  */
 @Injectable()
@@ -53,7 +54,24 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, "jwt-refresh"
       },
     });
 
-    if (!user || user.refreshToken !== refreshToken) {
+    if (!user || !user.refreshToken) {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    // Primary: hashed token comparison.
+    // Fallback: support legacy plaintext tokens until they rotate naturally.
+    const matchesLegacyToken = user.refreshToken === refreshToken;
+    let matchesHashedToken = false;
+
+    if (!matchesLegacyToken) {
+      try {
+        matchesHashedToken = await bcrypt.compare(refreshToken, user.refreshToken);
+      } catch {
+        matchesHashedToken = false;
+      }
+    }
+
+    if (!matchesLegacyToken && !matchesHashedToken) {
       throw new UnauthorizedException("Invalid refresh token");
     }
 

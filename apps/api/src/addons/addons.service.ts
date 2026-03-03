@@ -98,10 +98,34 @@ export class AddonsService {
       slug: addon.slug,
       description: addon.description,
       pricingType: addon.pricingType as "fixed" | "per_word",
-      price: isPerWord ? null : Number(addon.price),
-      pricePerWord: isPerWord && addon.pricePerWord != null ? Number(addon.pricePerWord) : null,
+      price: isPerWord ? null : this.toNumber(addon.price),
+      pricePerWord:
+        isPerWord && addon.pricePerWord != null ? this.toNumber(addon.pricePerWord) : null,
       sortOrder: addon.sortOrder,
       isActive: addon.isActive,
     };
+  }
+
+  /**
+   * Convert Prisma Decimal-like values to plain numbers.
+   */
+  private toNumber(value: unknown): number {
+    if (typeof value === "number") return value;
+
+    if (
+      value &&
+      typeof value === "object" &&
+      "toNumber" in value &&
+      typeof (value as { toNumber: unknown }).toNumber === "function"
+    ) {
+      return (value as { toNumber: () => number }).toNumber();
+    }
+
+    const asNumber = Number(value);
+    if (!Number.isNaN(asNumber)) {
+      return asNumber;
+    }
+
+    throw new TypeError("Failed to serialize decimal value to number");
   }
 }

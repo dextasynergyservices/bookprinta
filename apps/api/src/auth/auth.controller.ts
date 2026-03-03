@@ -1,7 +1,18 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Res, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Query,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiBody, ApiCookieAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
 import type { Response } from "express";
+import { getNormalizedEmailTracker } from "../rate-limit/tracker.utils.js";
 import { AuthService } from "./auth.service.js";
 import { CurrentUser } from "./decorators/index.js";
 import {
@@ -11,12 +22,23 @@ import {
   ResendSignupLinkDto,
   ResetPasswordDto,
   SignupContextDto,
+  ValidateResetPasswordTokenDto,
   VerifyEmailDto,
   VerifyEmailLinkDto,
 } from "./dto/index.js";
 import { JwtAuthGuard, JwtRefreshGuard } from "./guards/index.js";
 import type { JwtPayload } from "./interfaces/index.js";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "./interfaces/index.js";
+
+const RESEND_SIGNUP_LINK_THROTTLE = {
+  short: { limit: 3, ttl: 3_600_000, getTracker: getNormalizedEmailTracker },
+  long: { limit: 3, ttl: 3_600_000, getTracker: getNormalizedEmailTracker },
+};
+
+const AUTH_WRITE_THROTTLE = {
+  short: { limit: 10, ttl: 60_000 },
+  long: { limit: 10, ttl: 60_000 },
+};
 
 /**
  * Auth Controller — All authentication endpoints.
@@ -26,12 +48,14 @@ import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "./interfaces/index.js
  * Differentiated expiry for admins (1h refresh) vs users (7d refresh).
  *
  * Endpoints:
+ * - GET /auth/me                — Return current authenticated user payload
  * - POST /auth/signup/finish     — Complete signup (set password) via unique link
  * - POST /auth/verify-email      — Verify 6-digit email code
  * - POST /auth/login             — Login → JWT in HttpOnly cookie
  * - POST /auth/logout            — Invalidate refresh token, clear cookies
  * - POST /auth/refresh           — Silent token refresh (rotation)
  * - POST /auth/forgot-password   — Send password reset email
+ * - GET /auth/reset-password     — Validate reset password token
  * - POST /auth/reset-password    — Reset password with token
  * - POST /auth/resend-signup-link — Resend signup link (rate limited: 3/hour)
  */
@@ -39,6 +63,28 @@ import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "./interfaces/index.js
 @Controller("auth")
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  // ==========================================
+  // GET /auth/me
+  // ==========================================
+  @Get("me")
+  @UseGuards(JwtAuthGuard)
+  @ApiCookieAuth("access_token")
+  @ApiOperation({
+    summary: "Get current authenticated user",
+    description: "Returns user identity from the validated access_token cookie.",
+  })
+  @ApiResponse({ status: 200, description: "Current user returned" })
+  @ApiResponse({ status: 401, description: "Not authenticated" })
+  getMe(@CurrentUser() user: JwtPayload) {
+    return {
+      user: {
+        id: user.sub,
+        email: user.email,
+        role: user.role,
+      },
+    };
+  }
 
   // ==========================================
   // POST /auth/signup/context
@@ -142,16 +188,30 @@ export class AuthController {
   // POST /auth/login
   // ==========================================
   @Post("login")
+  @Throttle(AUTH_WRITE_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: "Login with email & password",
+    summary: "Login with email/phone & password",
     description:
-      "Authenticate user. Returns user info and sets JWT tokens in HttpOnly cookies. " +
+      "Authenticate user by email or phone number. Returns user info and sets JWT tokens in HttpOnly cookies. " +
       "Access token: 15min. Refresh token: 7d (users) / 1h (admins).",
   })
   @ApiBody({ type: LoginDto })
   @ApiResponse({ status: 200, description: "Login successful, tokens set in cookies" })
-  @ApiResponse({ status: 401, description: "Invalid credentials or email not verified" })
+  @ApiResponse({
+    status: 400,
+    description:
+      "reCAPTCHA verification failed. Response includes errorCode=AUTH_RECAPTCHA_FAILED.",
+  })
+  @ApiResponse({
+    status: 401,
+    description:
+      "Invalid credentials or unverified account. Unverified response includes errorCode=AUTH_UNVERIFIED_ACCOUNT.",
+  })
+  @ApiResponse({
+    status: 429,
+    description: "Too many attempts. Response includes retryAfter.",
+  })
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(dto);
 
@@ -219,6 +279,7 @@ export class AuthController {
   // POST /auth/forgot-password
   // ==========================================
   @Post("forgot-password")
+  @Throttle(AUTH_WRITE_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Request password reset",
@@ -228,14 +289,44 @@ export class AuthController {
   })
   @ApiBody({ type: ForgotPasswordDto })
   @ApiResponse({ status: 200, description: "Reset link sent (if email exists)" })
+  @ApiResponse({
+    status: 400,
+    description:
+      "reCAPTCHA verification failed. Response includes errorCode=AUTH_RECAPTCHA_FAILED.",
+  })
+  @ApiResponse({
+    status: 429,
+    description: "Too many attempts. Response includes retryAfter.",
+  })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
+  }
+
+  // ==========================================
+  // GET /auth/reset-password
+  // ==========================================
+  @Get("reset-password")
+  @Throttle(AUTH_WRITE_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Validate password reset token",
+    description: "Validates a reset token before rendering reset form. Returns 200 if valid.",
+  })
+  @ApiResponse({ status: 200, description: "Reset token is valid" })
+  @ApiResponse({ status: 400, description: "Invalid or expired reset token" })
+  @ApiResponse({
+    status: 429,
+    description: "Too many attempts. Response includes retryAfter.",
+  })
+  async validateResetPasswordToken(@Query() dto: ValidateResetPasswordTokenDto) {
+    return this.authService.validateResetPasswordToken(dto);
   }
 
   // ==========================================
   // POST /auth/reset-password
   // ==========================================
   @Post("reset-password")
+  @Throttle(AUTH_WRITE_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Reset password with token",
@@ -245,7 +336,11 @@ export class AuthController {
   })
   @ApiBody({ type: ResetPasswordDto })
   @ApiResponse({ status: 200, description: "Password reset successfully" })
-  @ApiResponse({ status: 404, description: "Invalid or expired reset token" })
+  @ApiResponse({ status: 400, description: "Invalid or expired reset token" })
+  @ApiResponse({
+    status: 429,
+    description: "Too many attempts. Response includes retryAfter.",
+  })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
   }
@@ -255,10 +350,7 @@ export class AuthController {
   // ==========================================
   @Post("resend-signup-link")
   @HttpCode(HttpStatus.OK)
-  @Throttle({
-    short: { limit: 3, ttl: 3_600_000 },
-    long: { limit: 3, ttl: 3_600_000 },
-  })
+  @Throttle(RESEND_SIGNUP_LINK_THROTTLE)
   @ApiOperation({
     summary: "Resend signup link",
     description:
@@ -267,6 +359,7 @@ export class AuthController {
   })
   @ApiBody({ type: ResendSignupLinkDto })
   @ApiResponse({ status: 200, description: "Link sent (if email exists)" })
+  @ApiResponse({ status: 429, description: "Too many resend attempts for this email" })
   async resendSignupLink(@Body() dto: ResendSignupLinkDto) {
     return this.authService.resendSignupLink(dto);
   }

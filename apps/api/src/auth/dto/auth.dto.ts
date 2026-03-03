@@ -39,31 +39,42 @@ export const VerifyEmailLinkSchema = z.object({
 });
 
 export const LoginSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
+  identifier: z
+    .string()
+    .min(1, "Email or phone number is required")
+    .refine(
+      (value) => {
+        const trimmed = value.trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const digits = trimmed.replace(/\D/g, "");
+        const looksLikePhone = digits.length >= 7 && digits.length <= 15;
+        return emailRegex.test(trimmed) || looksLikePhone;
+      },
+      { message: "Enter a valid email address or phone number" }
+    ),
+  password: z
+    .string()
+    .min(1, "Password is required")
+    .min(8, "Password must be at least 8 characters"),
+  recaptchaToken: z.string().min(1, "reCAPTCHA verification failed"),
 });
 
 export const ForgotPasswordSchema = z.object({
   email: z.string().email("Invalid email address"),
+  recaptchaToken: z.string().min(1, "reCAPTCHA verification failed"),
 });
 
-export const ResetPasswordSchema = z
-  .object({
-    token: z.string().min(1, "Token is required"),
-    password: z
-      .string()
-      .min(8, "Password must be at least 8 characters")
-      .max(128, "Password must be at most 128 characters")
-      .regex(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/,
-        "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character"
-      ),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
-  });
+export const ValidateResetPasswordTokenSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+});
+
+export const ResetPasswordSchema = z.object({
+  token: z.string().min(1, "Token is required"),
+  newPassword: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must be at most 128 characters"),
+});
 
 export const ResendSignupLinkSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -87,6 +98,8 @@ export class VerifyEmailLinkDto extends createZodDto(VerifyEmailLinkSchema) {}
 export class LoginDto extends createZodDto(LoginSchema) {}
 
 export class ForgotPasswordDto extends createZodDto(ForgotPasswordSchema) {}
+
+export class ValidateResetPasswordTokenDto extends createZodDto(ValidateResetPasswordTokenSchema) {}
 
 export class ResetPasswordDto extends createZodDto(ResetPasswordSchema) {}
 
