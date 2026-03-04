@@ -114,7 +114,7 @@ export function MobileDrawer({
         {/* Bottom CTAs */}
         <div className="mt-auto border-t border-white/10 px-6 py-6">
           <Link
-            href="/contact"
+            href="/quote"
             onClick={onClose}
             className="font-display mb-4 block w-full rounded-full bg-accent py-4 text-center text-base font-semibold text-accent-foreground transition-opacity hover:opacity-90"
           >
