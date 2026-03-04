@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!apps/api/scripts"]
+    "includes": ["**", "!apps/api/scripts", "!playwright-report", "!test-results"]
   },
   "overrides": [
     {

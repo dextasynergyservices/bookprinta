@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { usePathname, useRouter } from "@/lib/i18n/navigation";
+import { cn } from "@/lib/utils";
 
 const locales = [
   { code: "en", label: "English" },
@@ -19,9 +20,15 @@ const locales = [
 
 interface LanguageSwitcherProps {
   isScrolled?: boolean;
+  compact?: boolean;
+  className?: string;
 }
 
-export function LanguageSwitcher({ isScrolled = true }: LanguageSwitcherProps) {
+export function LanguageSwitcher({
+  isScrolled = true,
+  compact = false,
+  className,
+}: LanguageSwitcherProps) {
   const t = useTranslations("language_switcher");
   const locale = useLocale();
   const router = useRouter();
@@ -37,11 +44,14 @@ export function LanguageSwitcher({ isScrolled = true }: LanguageSwitcherProps) {
         <Button
           variant="ghost"
           size="icon"
-          className={`size-10 shrink-0 transition-colors duration-300 ${
+          className={cn(
+            compact ? "size-9 min-h-9 min-w-9" : "size-10",
+            "shrink-0 transition-colors duration-300",
             isScrolled
               ? "text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10"
-              : "text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10"
-          }`}
+              : "text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10",
+            className
+          )}
           aria-label={t("label")}
         >
           <GlobeIcon className="size-5" />
