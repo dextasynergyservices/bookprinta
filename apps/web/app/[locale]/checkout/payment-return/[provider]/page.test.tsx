@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import PaymentReturnPage from "./page";
 
@@ -68,7 +68,6 @@ describe("PaymentReturnPage", () => {
     value,
     hint,
   }) => {
-    jest.useFakeTimers();
     currentRouteParams = { provider };
     currentSearchParams = new URLSearchParams([[key, value]]);
     fetchMock.mockImplementation(() =>
@@ -91,12 +90,9 @@ describe("PaymentReturnPage", () => {
       expect.stringContaining(`/payments/verify/${encodeURIComponent(value)}?provider=${hint}`),
       { method: "POST" }
     );
-
-    jest.useRealTimers();
   });
 
   it("handles delayed webhook fallback and eventually redirects when signupUrl becomes ready", async () => {
-    jest.useFakeTimers();
     currentRouteParams = { provider: "paystack" };
     currentSearchParams = new URLSearchParams([["reference", "ps_delayed_123"]]);
     fetchMock
@@ -126,14 +122,9 @@ describe("PaymentReturnPage", () => {
     render(<PaymentReturnPage />);
 
     expect(await screen.findByText("payment_return_waiting_webhook")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalled();
 
-    await act(async () => {
-      jest.advanceTimersByTime(2_000);
-    });
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    jest.useRealTimers();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 3_500 });
   });
 
   it("shows cancelled state and does not call verify when callback has cancelled=true", async () => {

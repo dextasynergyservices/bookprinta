@@ -114,7 +114,7 @@ export function CtaSection() {
           </Link>
 
           <Link
-            href="/contact"
+            href="/quote"
             className={cn(
               "inline-flex min-h-[44px] items-center gap-1.5",
               "font-display text-sm font-medium tracking-wide text-primary-foreground/60",

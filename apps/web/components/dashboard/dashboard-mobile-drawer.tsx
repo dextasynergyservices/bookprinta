@@ -92,7 +92,7 @@ export function DashboardMobileDrawer({ isOpen, onClose }: DashboardMobileDrawer
             type="button"
             aria-label={tDashboard("header_close_menu_aria")}
             onClick={onClose}
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            className="absolute inset-0 z-0 bg-black/60 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -109,7 +109,7 @@ export function DashboardMobileDrawer({ isOpen, onClose }: DashboardMobileDrawer
             exit={{ x: "-100%" }}
             transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
             data-lenis-prevent
-            className="absolute inset-y-0 left-0 w-[86vw] max-w-80 border-r border-[#2A2A2A] shadow-[0_20px_60px_rgba(0,0,0,0.65)]"
+            className="pointer-events-auto absolute inset-y-0 left-0 z-10 w-[86vw] max-w-80 border-r border-[#2A2A2A] shadow-[0_20px_60px_rgba(0,0,0,0.65)]"
             onClick={(event) => event.stopPropagation()}
           >
             <div ref={panelRef} className="relative h-full">

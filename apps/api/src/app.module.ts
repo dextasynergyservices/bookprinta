@@ -16,6 +16,7 @@ import { NotificationsModule } from "./notifications/notifications.module.js";
 import { PackagesModule } from "./packages/packages.module.js";
 import { PaymentsModule } from "./payments/payments.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
+import { QuotesModule } from "./quotes/quotes.module.js";
 import { AppThrottlerGuard } from "./rate-limit/app-throttler.guard.js";
 import { RedisThrottlerStorage } from "./rate-limit/redis-throttler.storage.js";
 import { RedisModule } from "./redis/redis.module.js";
@@ -74,6 +75,9 @@ import { ScannerModule } from "./scanner/scanner.module.js";
 
     // Public contact form submissions
     ContactModule,
+
+    // Public custom quote wizard endpoints (Path B)
+    QuotesModule,
 
     // Coupon validation + admin coupon management
     CouponsModule,

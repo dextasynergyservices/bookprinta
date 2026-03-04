@@ -86,7 +86,7 @@ export function PricingCTA() {
 
         <div className="pricing-cta-btn flex justify-start md:shrink-0 md:justify-end">
           <Link
-            href="/contact?subject=quote"
+            href="/quote"
             className="group relative inline-flex items-center justify-center overflow-hidden rounded-full bg-primary px-10 py-4 font-display text-sm font-bold tracking-wide text-primary-foreground transition-shadow duration-300 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-primary/20 md:px-12 md:py-5"
           >
             <span className="relative z-10">{t("cta_button")}</span>

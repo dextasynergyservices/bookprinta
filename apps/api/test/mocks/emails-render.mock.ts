@@ -30,3 +30,9 @@ export const renderContactAdminEmail = async (): Promise<RenderedEmail> =>
 
 export const renderContactConfirmEmail = async (): Promise<RenderedEmail> =>
   buildRenderedEmail("Contact confirm");
+
+export const renderQuoteReceivedEmail = async (): Promise<RenderedEmail> =>
+  buildRenderedEmail("Quote received");
+
+export const renderQuoteAdminNotificationEmail = async (): Promise<RenderedEmail> =>
+  buildRenderedEmail("Quote admin");
