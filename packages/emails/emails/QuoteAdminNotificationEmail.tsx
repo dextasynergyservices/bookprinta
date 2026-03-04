@@ -1,4 +1,4 @@
-import { Img, Link, Section, Text } from "@react-email/components";
+import { Link, Section, Text } from "@react-email/components";
 import { EmailButton } from "../components/EmailButton.tsx";
 import { EmailHeading } from "../components/EmailHeading.tsx";
 import { BRAND, EmailLayout } from "../components/EmailLayout.tsx";
@@ -10,22 +10,51 @@ interface QuoteAdminNotificationEmailProps {
   referenceNumber: string;
   fullName: string;
   email: string;
-  phone?: string;
-  organization?: string;
-  bookTitle?: string;
-  genre?: string;
-  estimatedPages?: string;
-  bookSize?: string;
-  quantity?: string;
+  phone: string;
+  workingTitle: string;
+  estimatedWordCount: number;
+  bookSize: string;
+  quantity: number;
   coverType?: string;
+  hasSpecialReqs: boolean;
   specialRequirements?: string[];
-  neededBy?: string;
-  event?: string;
-  budgetRange?: string;
-  additionalDetails?: string;
-  imageUrl?: string;
-  manuscriptUrl?: string;
+  specialRequirementsOther?: string | null;
+  estimatedPriceLow?: number | null;
+  estimatedPriceHigh?: number | null;
   adminPanelUrl: string;
+}
+
+const SPECIAL_REQUIREMENT_KEYS: Record<string, string> = {
+  hardback: "special_req_hardback",
+  embossing: "special_req_embossing",
+  gold_foil: "special_req_gold_foil",
+  special_size: "special_req_special_size",
+  full_color_interior: "special_req_full_color_interior",
+  special_paper: "special_req_special_paper",
+  other: "special_req_other",
+};
+
+function humanizeRequirement(value: string): string {
+  return value
+    .trim()
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getSpecialRequirementLabel(locale: Locale, value: string): string {
+  const key = SPECIAL_REQUIREMENT_KEYS[value];
+  if (!key) return humanizeRequirement(value);
+
+  const translated = t(locale, "quote_admin", key);
+  return translated === key ? humanizeRequirement(value) : translated;
+}
+
+function formatNaira(value: number): string {
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    maximumFractionDigits: 0,
+  }).format(Math.round(value));
 }
 
 export function QuoteAdminNotificationEmail({
@@ -34,27 +63,27 @@ export function QuoteAdminNotificationEmail({
   fullName,
   email,
   phone,
-  organization,
-  bookTitle,
-  genre,
-  estimatedPages,
+  workingTitle,
+  estimatedWordCount,
   bookSize,
   quantity,
-  coverType,
-  specialRequirements,
-  neededBy,
-  event,
-  budgetRange,
-  additionalDetails,
-  imageUrl,
-  manuscriptUrl,
+  coverType = "paperback",
+  hasSpecialReqs,
+  specialRequirements = [],
+  specialRequirementsOther,
+  estimatedPriceLow,
+  estimatedPriceHigh,
   adminPanelUrl,
 }: QuoteAdminNotificationEmailProps) {
-  const hasBookInfo = bookTitle || genre || estimatedPages;
-  const hasSpecs =
-    bookSize || quantity || coverType || (specialRequirements && specialRequirements.length > 0);
-  const hasTimeline = neededBy || event || budgetRange;
-  const hasAttachments = imageUrl || manuscriptUrl;
+  const estimateVisible =
+    !hasSpecialReqs && estimatedPriceLow != null && estimatedPriceHigh != null;
+  const estimateRange = estimateVisible
+    ? `${formatNaira(estimatedPriceLow)} - ${formatNaira(estimatedPriceHigh)}`
+    : null;
+  const selectedSpecialRequirements = hasSpecialReqs
+    ? specialRequirements.map((item) => getSpecialRequirementLabel(locale, item))
+    : [];
+  const normalizedOther = specialRequirementsOther?.trim();
 
   return (
     <EmailLayout locale={locale} preview={t(locale, "quote_admin", "heading")}>
@@ -67,7 +96,6 @@ export function QuoteAdminNotificationEmail({
         <Text style={refValue}>{referenceNumber}</Text>
       </Section>
 
-      {/* Contact Information */}
       <Section style={detailsBox}>
         <Text style={sectionTitle}>{t(locale, "quote_admin", "contact_info")}</Text>
         <Text style={detailRow}>
@@ -79,128 +107,63 @@ export function QuoteAdminNotificationEmail({
             {email}
           </Link>
         </Text>
-        {phone && (
-          <Text style={detailRow}>
-            <span style={detailLabel}>{t(locale, "quote_admin", "phone")}:</span> {phone}
-          </Text>
+        <Text style={detailRow}>
+          <span style={detailLabel}>{t(locale, "quote_admin", "phone")}:</span> {phone}
+        </Text>
+      </Section>
+
+      <Section style={detailsBox}>
+        <Text style={sectionTitle}>{t(locale, "quote_admin", "manuscript_info")}</Text>
+        <Text style={detailRow}>
+          <span style={detailLabel}>{t(locale, "quote_admin", "working_title")}:</span>{" "}
+          {workingTitle}
+        </Text>
+        <Text style={detailRow}>
+          <span style={detailLabel}>{t(locale, "quote_admin", "estimated_word_count")}:</span>{" "}
+          {estimatedWordCount.toLocaleString("en-NG")}
+        </Text>
+      </Section>
+
+      <Section style={detailsBox}>
+        <Text style={sectionTitle}>{t(locale, "quote_admin", "print_info")}</Text>
+        <Text style={detailRow}>
+          <span style={detailLabel}>{t(locale, "quote_admin", "book_size")}:</span> {bookSize}
+        </Text>
+        <Text style={detailRow}>
+          <span style={detailLabel}>{t(locale, "quote_admin", "quantity")}:</span>{" "}
+          {quantity.toLocaleString("en-NG")}
+        </Text>
+        <Text style={detailRow}>
+          <span style={detailLabel}>{t(locale, "quote_admin", "cover_type")}:</span>{" "}
+          {coverType === "paperback" ? t(locale, "quote_admin", "cover_type_paperback") : coverType}
+        </Text>
+      </Section>
+
+      <Section style={detailsBox}>
+        <Text style={sectionTitle}>{t(locale, "quote_admin", "special_requirements")}</Text>
+        {hasSpecialReqs && selectedSpecialRequirements.length > 0 ? (
+          selectedSpecialRequirements.map((requirement) => (
+            <Text key={requirement} style={listItem}>
+              {requirement}
+            </Text>
+          ))
+        ) : (
+          <Text style={detailRow}>{t(locale, "quote_admin", "special_requirements_none")}</Text>
         )}
-        {organization && (
+        {normalizedOther && (
           <Text style={detailRow}>
-            <span style={detailLabel}>{t(locale, "quote_admin", "organization")}:</span>{" "}
-            {organization}
+            <span style={detailLabel}>{t(locale, "quote_admin", "other_details")}:</span>{" "}
+            {normalizedOther}
           </Text>
         )}
       </Section>
 
-      {/* Book Information */}
-      {hasBookInfo && (
-        <Section style={detailsBox}>
-          <Text style={sectionTitle}>{t(locale, "quote_admin", "book_info")}</Text>
-          {bookTitle && (
-            <Text style={detailRow}>
-              <span style={detailLabel}>{t(locale, "quote_admin", "book_title")}:</span> {bookTitle}
-            </Text>
-          )}
-          {genre && (
-            <Text style={detailRow}>
-              <span style={detailLabel}>{t(locale, "quote_admin", "genre")}:</span> {genre}
-            </Text>
-          )}
-          {estimatedPages && (
-            <Text style={detailRow}>
-              <span style={detailLabel}>{t(locale, "quote_admin", "estimated_pages")}:</span>{" "}
-              {estimatedPages}
-            </Text>
-          )}
-        </Section>
-      )}
-
-      {/* Specifications */}
-      {hasSpecs && (
-        <Section style={detailsBox}>
-          <Text style={sectionTitle}>{t(locale, "quote_admin", "specifications")}</Text>
-          {bookSize && (
-            <Text style={detailRow}>
-              <span style={detailLabel}>{t(locale, "quote_admin", "book_size")}:</span> {bookSize}
-            </Text>
-          )}
-          {quantity && (
-            <Text style={detailRow}>
-              <span style={detailLabel}>{t(locale, "quote_admin", "quantity")}:</span> {quantity}
-            </Text>
-          )}
-          {coverType && (
-            <Text style={detailRow}>
-              <span style={detailLabel}>{t(locale, "quote_admin", "cover_type")}:</span> {coverType}
-            </Text>
-          )}
-          {specialRequirements && specialRequirements.length > 0 && (
-            <>
-              <Text style={detailLabel}>{t(locale, "quote_admin", "special_requirements")}:</Text>
-              {specialRequirements.map((req) => (
-                <Text key={req} style={listItem}>
-                  {req}
-                </Text>
-              ))}
-            </>
-          )}
-        </Section>
-      )}
-
-      {/* Timeline & Budget */}
-      {hasTimeline && (
-        <Section style={detailsBox}>
-          <Text style={sectionTitle}>{t(locale, "quote_admin", "timeline_info")}</Text>
-          {neededBy && (
-            <Text style={detailRow}>
-              <span style={detailLabel}>{t(locale, "quote_admin", "needed_by")}:</span> {neededBy}
-            </Text>
-          )}
-          {event && (
-            <Text style={detailRow}>
-              <span style={detailLabel}>{t(locale, "quote_admin", "event")}:</span> {event}
-            </Text>
-          )}
-          {budgetRange && (
-            <Text style={detailRow}>
-              <span style={detailLabel}>{t(locale, "quote_admin", "budget_range")}:</span>{" "}
-              {budgetRange}
-            </Text>
-          )}
-        </Section>
-      )}
-
-      {/* Additional Details */}
-      {additionalDetails && (
-        <Section style={detailsBox}>
-          <Text style={sectionTitle}>{t(locale, "quote_admin", "additional_details")}</Text>
-          <Text style={detailRow}>{additionalDetails}</Text>
-        </Section>
-      )}
-
-      {/* Attachments */}
-      <Section style={detailsBox}>
-        <Text style={sectionTitle}>{t(locale, "quote_admin", "attachments")}</Text>
-        {hasAttachments ? (
-          <>
-            {imageUrl && (
-              <>
-                <Img src={imageUrl} alt="Uploaded image" width="100%" style={attachmentImage} />
-                <Link href={imageUrl} style={attachmentLink}>
-                  {t(locale, "quote_admin", "view_image")}
-                </Link>
-              </>
-            )}
-            {manuscriptUrl && (
-              <Text style={detailRow}>
-                <Link href={manuscriptUrl} style={attachmentLink}>
-                  {t(locale, "quote_admin", "view_manuscript")}
-                </Link>
-              </Text>
-            )}
-          </>
+      <Section style={pricingBox}>
+        <Text style={sectionTitle}>{t(locale, "quote_admin", "pricing")}</Text>
+        {estimateRange ? (
+          <Text style={estimateValue}>{estimateRange}</Text>
         ) : (
-          <Text style={mutedText}>{t(locale, "quote_admin", "no_attachments")}</Text>
+          <Text style={warningText}>{t(locale, "quote_admin", "custom_pricing_note")}</Text>
         )}
       </Section>
 
@@ -213,30 +176,21 @@ export function QuoteAdminNotificationEmail({
 
 QuoteAdminNotificationEmail.PreviewProps = {
   locale: "en" as Locale,
-  referenceNumber: "CQ-2026-0042",
+  referenceNumber: "cmc7f4w3w0001zt8f2j9q4a5x",
   fullName: "Adaeze Okafor",
   email: "adaeze@example.com",
-  phone: "+234 801 234 5678",
-  organization: "Nkem Publishers",
-  bookTitle: "The Art of Lagos Living",
-  genre: "Non-Fiction / Lifestyle",
-  estimatedPages: "280",
-  bookSize: "Custom size (6x9 inches)",
-  quantity: "200+ copies",
-  coverType: "Hardback",
-  specialRequirements: [
-    "Full-color interior (not just cover)",
-    "Premium finishes (foil, embossing, etc.)",
-    "Photography-heavy layout",
-  ],
-  neededBy: "March 15, 2026",
-  event: "Lagos Book Festival 2026",
-  budgetRange: "N500k-N1M",
-  additionalDetails:
-    "This is a coffee-table style book with over 100 photographs. We need premium paper stock and a custom dust jacket.",
-  imageUrl: "https://placehold.co/600x400/ededed/2A2A2A?text=Book+Cover+Reference",
-  manuscriptUrl: "https://example.com/manuscript.docx",
-  adminPanelUrl: "https://bookprinta.com/admin/quotes/CQ-2026-0042",
+  phone: "+2348012345678",
+  workingTitle: "The Art of Lagos Living",
+  estimatedWordCount: 48000,
+  bookSize: "A5",
+  quantity: 200,
+  coverType: "paperback",
+  hasSpecialReqs: false,
+  specialRequirements: [],
+  specialRequirementsOther: null,
+  estimatedPriceLow: 340000,
+  estimatedPriceHigh: 350000,
+  adminPanelUrl: "https://bookprinta.com/admin/quotes/cmc7f4w3w0001zt8f2j9q4a5x",
 };
 
 export default QuoteAdminNotificationEmail;
@@ -260,7 +214,7 @@ const refBox: React.CSSProperties = {
   borderRadius: "8px",
   padding: "16px 20px",
   margin: "0 0 24px",
-  textAlign: "center" as const,
+  textAlign: "center",
   border: "1px solid #f59e0b",
 };
 
@@ -270,7 +224,7 @@ const refLabel: React.CSSProperties = {
   fontWeight: 600,
   color: "#92400e",
   margin: "0 0 4px",
-  textTransform: "uppercase" as const,
+  textTransform: "uppercase",
   letterSpacing: "0.5px",
 };
 
@@ -290,13 +244,21 @@ const detailsBox: React.CSSProperties = {
   border: `1px solid ${BRAND.muted}`,
 };
 
+const pricingBox: React.CSSProperties = {
+  backgroundColor: "#fff7ed",
+  borderRadius: "8px",
+  padding: "16px 20px",
+  margin: "0 0 16px",
+  border: "1px solid #fdba74",
+};
+
 const sectionTitle: React.CSSProperties = {
   fontFamily: BRAND.fontSans,
   fontSize: "13px",
   fontWeight: 600,
   color: BRAND.black,
   margin: "0 0 12px",
-  textTransform: "uppercase" as const,
+  textTransform: "uppercase",
   letterSpacing: "0.5px",
 };
 
@@ -315,22 +277,25 @@ const listItem: React.CSSProperties = {
   fontSize: "14px",
   lineHeight: "22px",
   color: BRAND.darkGray,
-  margin: "0 0 2px",
+  margin: "0 0 4px",
   paddingLeft: "12px",
 };
 
-const attachmentImage: React.CSSProperties = {
-  borderRadius: "6px",
-  marginBottom: "8px",
-  maxHeight: "200px",
-  objectFit: "cover" as const,
+const estimateValue: React.CSSProperties = {
+  fontSize: "20px",
+  lineHeight: "28px",
+  fontWeight: 700,
+  color: BRAND.accent,
+  margin: "0",
+  fontFamily: BRAND.fontDisplay,
 };
 
-const attachmentLink: React.CSSProperties = {
-  fontFamily: BRAND.fontSans,
+const warningText: React.CSSProperties = {
   fontSize: "13px",
-  color: BRAND.accent,
-  textDecoration: "underline",
+  lineHeight: "20px",
+  color: "#b45309",
+  margin: "0",
+  fontWeight: 600,
 };
 
 const linkStyle: React.CSSProperties = {
@@ -338,15 +303,7 @@ const linkStyle: React.CSSProperties = {
   textDecoration: "underline",
 };
 
-const mutedText: React.CSSProperties = {
-  fontSize: "13px",
-  lineHeight: "20px",
-  color: BRAND.mutedText,
-  margin: "0",
-  fontStyle: "italic",
-};
-
 const ctaSection: React.CSSProperties = {
-  textAlign: "center" as const,
+  textAlign: "center",
   margin: "24px 0",
 };

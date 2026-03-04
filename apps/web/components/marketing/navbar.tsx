@@ -195,7 +195,7 @@ export function Navbar() {
               asChild
               className="rounded-full bg-accent px-6 font-display text-sm font-semibold text-accent-foreground hover:bg-accent/90"
             >
-              <Link href="/contact">{t("get_quote")} &gt;</Link>
+              <Link href="/quote">{t("get_quote")} &gt;</Link>
             </Button>
           </div>
 

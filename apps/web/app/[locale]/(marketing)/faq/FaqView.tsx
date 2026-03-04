@@ -112,7 +112,7 @@ const FAQ_GROUPS: {
       {
         qKey: "q8",
         aKey: "a8",
-        relatedLinks: [{ labelKey: "link_contact", href: "/contact" }],
+        relatedLinks: [{ labelKey: "link_contact", href: "/quote" }],
       },
     ],
   },
