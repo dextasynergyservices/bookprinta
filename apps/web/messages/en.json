@@ -502,6 +502,8 @@
     "header_notifications_unread_count": "{count} unread notifications",
     "header_open_menu_aria": "Open sidebar menu",
     "header_close_menu_aria": "Close sidebar menu",
+    "sidebar_collapse_aria": "Collapse sidebar",
+    "sidebar_expand_aria": "Expand sidebar",
     "header_profile_link_aria": "Go to profile",
     "header_logout_action_aria": "Log out of your account",
     "header_guest": "Author",

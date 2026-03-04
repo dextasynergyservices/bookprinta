@@ -1,6 +1,16 @@
 "use client";
 
-import { BookOpenText, Cog, Lock, MessageSquareText, Package, UserRound } from "lucide-react";
+import {
+  BookOpenText,
+  ChevronLeft,
+  ChevronRight,
+  Cog,
+  LayoutDashboard,
+  Lock,
+  MessageSquareText,
+  Package,
+  UserRound,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useHasAnyPrintedBook } from "@/hooks/use-dashboard-shell-data";
@@ -9,7 +19,7 @@ import { cn } from "@/lib/utils";
 
 type SidebarItem = {
   href: string;
-  labelKey: "my_books" | "orders" | "profile" | "settings" | "reviews";
+  labelKey: "title" | "my_books" | "orders" | "profile" | "settings" | "reviews";
   icon: React.ComponentType<{ className?: string }>;
   matchMode: "exact" | "prefix";
 };
@@ -17,9 +27,12 @@ type SidebarItem = {
 type DashboardSidebarProps = {
   className?: string;
   onNavigate?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 };
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
+  { href: "/dashboard", labelKey: "title", icon: LayoutDashboard, matchMode: "exact" },
   { href: "/dashboard/books", labelKey: "my_books", icon: BookOpenText, matchMode: "prefix" },
   { href: "/dashboard/orders", labelKey: "orders", icon: Package, matchMode: "prefix" },
   { href: "/dashboard/profile", labelKey: "profile", icon: UserRound, matchMode: "prefix" },
@@ -40,7 +53,12 @@ function isItemActive(pathname: string, item: SidebarItem) {
   return pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
-export function DashboardSidebar({ className, onNavigate }: DashboardSidebarProps) {
+export function DashboardSidebar({
+  className,
+  onNavigate,
+  isCollapsed = false,
+  onToggleCollapse,
+}: DashboardSidebarProps) {
   const tDashboard = useTranslations("dashboard");
   const pathname = usePathname();
   const {
@@ -54,6 +72,11 @@ export function DashboardSidebar({ className, onNavigate }: DashboardSidebarProp
     : isReviewEligibilityError || isReviewEligibilityFallback
       ? tDashboard("reviews_eligibility_unavailable")
       : tDashboard("reviews_disabled_tooltip");
+  const canCollapseDesktop = !onNavigate && typeof onToggleCollapse === "function";
+  const collapseAriaLabel = isCollapsed
+    ? tDashboard("sidebar_expand_aria")
+    : tDashboard("sidebar_collapse_aria");
+  const CollapseIcon = isCollapsed ? ChevronRight : ChevronLeft;
 
   return (
     <div
@@ -62,24 +85,61 @@ export function DashboardSidebar({ className, onNavigate }: DashboardSidebarProp
         className
       )}
     >
-      <div className="border-b border-[#2A2A2A] px-5 py-6">
-        <p className="font-display text-xl font-semibold tracking-tight text-white">
-          {tDashboard("title")}
-        </p>
+      <div className={cn("border-b border-[#2A2A2A] py-6", isCollapsed ? "px-3" : "px-5")}>
+        <div
+          className={cn(
+            "flex items-center gap-2",
+            isCollapsed ? "justify-center" : "justify-between"
+          )}
+        >
+          {isCollapsed ? (
+            <span className="sr-only">{tDashboard("title")}</span>
+          ) : (
+            <p className="font-display min-w-0 truncate text-xl font-semibold tracking-tight text-white">
+              {tDashboard("title")}
+            </p>
+          )}
+
+          {canCollapseDesktop ? (
+            <button
+              type="button"
+              aria-pressed={isCollapsed}
+              aria-label={collapseAriaLabel}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleCollapse?.();
+              }}
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#111111] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#1a1a1a] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+            >
+              <CollapseIcon className="size-4" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <TooltipProvider delayDuration={120}>
-        <nav aria-label={tDashboard("sidebar_navigation_aria")} className="px-3 py-4">
+        <nav
+          aria-label={tDashboard("sidebar_navigation_aria")}
+          className={cn("px-3 py-4", isCollapsed ? "px-2" : "px-3")}
+        >
           <ul className="space-y-1">
             {SIDEBAR_ITEMS.map((item) => {
               const isActive = isItemActive(pathname, item);
               const isReviewsItem = item.labelKey === "reviews";
               const isReviewsLocked = isReviewsItem && !hasAnyPrintedBook;
               const Icon = item.icon;
+              const itemLabel = tDashboard(item.labelKey);
+              const tooltipLabel = isReviewsLocked
+                ? `${itemLabel} - ${reviewsLockedTooltip}`
+                : isCollapsed
+                  ? itemLabel
+                  : null;
 
               const link = (
                 <Link
                   href={item.href}
+                  aria-label={itemLabel}
                   aria-current={isActive ? "page" : undefined}
                   aria-disabled={isReviewsLocked || undefined}
                   onClick={(event) => {
@@ -91,7 +151,8 @@ export function DashboardSidebar({ className, onNavigate }: DashboardSidebarProp
                     onNavigate?.();
                   }}
                   className={cn(
-                    "font-sans flex min-h-11 items-center gap-3 border-l-2 px-3 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2",
+                    "font-sans flex min-h-11 items-center gap-3 border-l-2 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2",
+                    isCollapsed ? "justify-center px-2" : "px-3",
                     isReviewsLocked
                       ? "cursor-not-allowed border-l-transparent bg-[#2A2A2A] text-[#919191] hover:bg-[#2A2A2A] hover:text-[#919191]"
                       : isActive
@@ -100,8 +161,8 @@ export function DashboardSidebar({ className, onNavigate }: DashboardSidebarProp
                   )}
                 >
                   <Icon className="size-4 shrink-0" aria-hidden="true" />
-                  <span>{tDashboard(item.labelKey)}</span>
-                  {isReviewsLocked ? (
+                  <span className={cn(isCollapsed ? "sr-only" : "truncate")}>{itemLabel}</span>
+                  {isReviewsLocked && !isCollapsed ? (
                     <Lock className="ml-auto size-4 shrink-0 text-[#919191]" aria-hidden="true" />
                   ) : null}
                 </Link>
@@ -109,11 +170,11 @@ export function DashboardSidebar({ className, onNavigate }: DashboardSidebarProp
 
               return (
                 <li key={item.href}>
-                  {isReviewsLocked ? (
+                  {tooltipLabel ? (
                     <Tooltip>
                       <TooltipTrigger asChild>{link}</TooltipTrigger>
                       <TooltipContent side="right" sideOffset={8}>
-                        {reviewsLockedTooltip}
+                        {tooltipLabel}
                       </TooltipContent>
                     </Tooltip>
                   ) : (

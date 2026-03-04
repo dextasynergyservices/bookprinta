@@ -502,6 +502,8 @@
     "header_notifications_unread_count": "{count} notifications non lues",
     "header_open_menu_aria": "Ouvrir le menu latéral",
     "header_close_menu_aria": "Fermer le menu latéral",
+    "sidebar_collapse_aria": "Réduire le panneau latéral",
+    "sidebar_expand_aria": "Développer le panneau latéral",
     "header_profile_link_aria": "Aller au profil",
     "header_logout_action_aria": "Se déconnecter de votre compte",
     "header_guest": "Auteur",

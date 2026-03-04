@@ -502,6 +502,8 @@
     "header_notifications_unread_count": "{count} notificaciones sin leer",
     "header_open_menu_aria": "Abrir menú lateral",
     "header_close_menu_aria": "Cerrar menú lateral",
+    "sidebar_collapse_aria": "Contraer menú lateral",
+    "sidebar_expand_aria": "Expandir menú lateral",
     "header_profile_link_aria": "Ir al perfil",
     "header_logout_action_aria": "Cerrar sesión de tu cuenta",
     "header_guest": "Autor",
