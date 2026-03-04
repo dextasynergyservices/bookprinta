@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import Image from "next/image";
@@ -17,6 +18,8 @@ const RATE_LIMIT_FALLBACK_SECONDS = 180;
 
 type LoginResponse = {
   user?: {
+    id?: string;
+    email?: string;
     role?: string;
   };
 };
@@ -77,6 +80,7 @@ function LoginPageInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const { executeRecaptcha } = useGoogleReCaptcha();
 
   const [identifier, setIdentifier] = useState("");
@@ -191,8 +195,18 @@ function LoginPageInner() {
       if (response.ok) {
         const payload = (await response.json().catch(() => null)) as LoginResponse | null;
         const role = payload?.user?.role;
+        const nextPath = searchParams.get("next");
+        const safeNextPath =
+          nextPath?.startsWith("/") && !nextPath.startsWith("//") ? nextPath : null;
+
+        if (payload?.user) {
+          queryClient.setQueryData(["auth", "session"], payload.user);
+        } else {
+          queryClient.invalidateQueries({ queryKey: ["auth", "session"] });
+        }
+
         toast.success(t("login_success_toast"));
-        router.replace(isAdminRole(role) ? "/admin" : "/dashboard");
+        router.replace(isAdminRole(role) ? "/admin" : safeNextPath || "/dashboard");
         return;
       }
 
