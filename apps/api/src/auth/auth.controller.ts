@@ -45,6 +45,7 @@ const AUTH_WRITE_THROTTLE = {
  *
  * JWT stored in HttpOnly cookies (NEVER localStorage).
  * Refresh token rotation on every /refresh call.
+ * Refresh rotation preserves absolute session expiry (no infinite sliding sessions).
  * Differentiated expiry for admins (1h refresh) vs users (7d refresh).
  *
  * Endpoints:
@@ -262,6 +263,7 @@ export class AuthController {
     description:
       "Refreshes the access token using the refresh token cookie. " +
       "Implements refresh token rotation: old token is invalidated, new pair issued. " +
+      "Refresh rotation preserves the original refresh-session expiry window. " +
       "If refresh token is expired/invalid, returns 401 → redirect to login.",
   })
   @ApiResponse({ status: 200, description: "New token pair set in cookies" })
