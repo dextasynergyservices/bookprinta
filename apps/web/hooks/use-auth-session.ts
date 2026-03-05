@@ -13,6 +13,7 @@ type AuthSessionResponse = {
 };
 
 const AUTH_SESSION_QUERY_KEY = ["auth", "session"] as const;
+const SESSION_HEALTHCHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -90,6 +91,8 @@ export function useAuthSession() {
     queryFn: fetchAuthSession,
     retry: false,
     staleTime: 30_000,
+    refetchInterval: SESSION_HEALTHCHECK_INTERVAL_MS,
+    refetchIntervalInBackground: true,
   });
 
   const logoutMutation = useMutation({
