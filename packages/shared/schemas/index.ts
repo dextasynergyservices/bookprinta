@@ -4,3 +4,4 @@ export * from "./coupon.schema.ts";
 export * from "./package.schema.ts";
 export * from "./payment.schema.ts";
 export * from "./quote.schema.ts";
+export * from "./resource.schema.ts";
