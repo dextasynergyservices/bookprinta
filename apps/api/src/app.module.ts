@@ -13,6 +13,7 @@ import { FilesModule } from "./files/files.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
 import { LoggerModule } from "./logger/logger.module.js";
+import { MarketingModule } from "./marketing/marketing.module.js";
 import { NotificationsModule } from "./notifications/notifications.module.js";
 import { OrdersModule } from "./orders/orders.module.js";
 import { PackagesModule } from "./packages/packages.module.js";
@@ -23,6 +24,7 @@ import { AppThrottlerGuard } from "./rate-limit/app-throttler.guard.js";
 import { RedisThrottlerStorage } from "./rate-limit/redis-throttler.storage.js";
 import { RedisModule } from "./redis/redis.module.js";
 import { RedisService } from "./redis/redis.service.js";
+import { ResourcesModule } from "./resources/resources.module.js";
 import { ReviewsModule } from "./reviews/reviews.module.js";
 import { ScannerModule } from "./scanner/scanner.module.js";
 
@@ -78,8 +80,14 @@ import { ScannerModule } from "./scanner/scanner.module.js";
     // Public contact form submissions
     ContactModule,
 
+    // Public marketing data endpoints (e.g. About page counters)
+    MarketingModule,
+
     // Public custom quote wizard endpoints (Path B)
     QuotesModule,
+
+    // Public resources/blog endpoints (listing, categories, article detail)
+    ResourcesModule,
 
     // Coupon validation + admin coupon management
     CouponsModule,

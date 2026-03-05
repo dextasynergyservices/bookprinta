@@ -1,0 +1,16 @@
+export {
+  AdminCreateResourceCategoryDto,
+  AdminCreateResourceDto,
+  AdminDeleteResourceCategoryResponseDto,
+  AdminDeleteResourceResponseDto,
+  AdminResourceCategoryResponseDto,
+  AdminResourceDetailDto,
+  AdminResourcesListQueryDto,
+  AdminResourcesListResponseDto,
+  AdminUpdateResourceCategoryDto,
+  AdminUpdateResourceDto,
+  PublicResourceCategoriesResponseDto,
+  PublicResourceDetailResponseDto,
+  PublicResourcesListQueryDto,
+  PublicResourcesListResponseDto,
+} from "./resources.dto.js";
