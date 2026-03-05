@@ -220,6 +220,7 @@ export const OrderInvoiceArchiveResponseSchema = z.object({
   orderId: z.string().cuid(),
   orderNumber: z.string(),
   invoiceNumber: z.string(),
+  brandingVersion: z.number().int().positive().optional(),
   fileName: z.string(),
   archivedUrl: z.string().url(),
   generatedAt: z.string().datetime(),

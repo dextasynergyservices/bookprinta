@@ -11,6 +11,7 @@ type InvoicePaymentHistoryItem = {
 
 type RenderOrderInvoiceTemplateInput = {
   locale: string;
+  logoSrc: string | null;
   invoiceNumber: string;
   issuedAt: string;
   orderNumber: string;
@@ -135,6 +136,18 @@ export function renderOrderInvoiceHtml(input: RenderOrderInvoiceTemplateInput): 
         letter-spacing: -0.02em;
         color: #007eff;
       }
+      .brand-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .brand-logo {
+        width: 164px;
+        max-width: 100%;
+        height: auto;
+        object-fit: contain;
+        display: block;
+      }
       .brand-meta {
         margin: 6px 0 0;
         font-size: 12px;
@@ -227,7 +240,9 @@ export function renderOrderInvoiceHtml(input: RenderOrderInvoiceTemplateInput): 
     <article class="sheet">
       <header class="header">
         <div>
-          <h1 class="brand-title">BookPrinta</h1>
+          <div class="brand-row">
+            ${input.logoSrc ? `<img src="${escapeHtml(input.logoSrc)}" alt="BookPrinta logo" class="brand-logo" />` : `<h1 class="brand-title">BookPrinta</h1>`}
+          </div>
           <p class="brand-meta">
             ${escapeHtml(input.legalName)}<br />
             ${escapeHtml(input.legalAddress)}<br />

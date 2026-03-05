@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { extname, resolve } from "node:path";
 import type {
   BookStatus,
   OrderDetailResponse,
@@ -61,6 +63,8 @@ type FallbackInvoicePdfInput = {
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
+  private invoiceLogoSrcCache: string | null | undefined;
+  private static readonly INVOICE_BRANDING_VERSION = 2;
 
   private static readonly ORDER_TRACKING_ENTITY_TYPE = "ORDER_TRACKING";
   private static readonly ORDER_TRACKING_ACTION = "ORDER_STATUS_REACHED";
@@ -423,7 +427,7 @@ export class OrdersService {
   ): Promise<OrderInvoiceArchiveResponse> {
     const order = await this.getOrderForInvoiceOrThrow(userId, orderId);
     const existingArchive = await this.readLatestInvoiceArchive(order.id);
-    if (existingArchive) {
+    if (existingArchive && !this.shouldRefreshInvoiceArchive(existingArchive)) {
       return existingArchive;
     }
 
@@ -438,7 +442,7 @@ export class OrdersService {
     const order = await this.getOrderForInvoiceOrThrow(userId, orderId);
     const existingArchive = await this.readLatestInvoiceArchive(order.id);
 
-    if (existingArchive) {
+    if (existingArchive && !this.shouldRefreshInvoiceArchive(existingArchive)) {
       try {
         const arrayBuffer = await this.fetchArchivedInvoiceArrayBuffer(
           existingArchive.archivedUrl,
@@ -511,6 +515,7 @@ export class OrdersService {
 
     const invoiceHtml = renderOrderInvoiceHtml({
       locale,
+      logoSrc: await this.resolveInvoiceLogoSrc(),
       invoiceNumber,
       issuedAt: this.formatDateTime(issuedAt, locale),
       orderNumber: row.orderNumber,
@@ -594,6 +599,7 @@ export class OrdersService {
       orderId: row.id,
       orderNumber: row.orderNumber,
       invoiceNumber,
+      brandingVersion: OrdersService.INVOICE_BRANDING_VERSION,
       fileName,
       archivedUrl: archiveResult.secure_url,
       generatedAt: new Date().toISOString(),
@@ -776,6 +782,58 @@ export class OrdersService {
 
   private async delay(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private shouldRefreshInvoiceArchive(archive: OrderInvoiceArchiveResponse): boolean {
+    return archive.brandingVersion !== OrdersService.INVOICE_BRANDING_VERSION;
+  }
+
+  private async resolveInvoiceLogoSrc(): Promise<string | null> {
+    if (this.invoiceLogoSrcCache !== undefined) {
+      return this.invoiceLogoSrcCache;
+    }
+
+    const fromDataUrl = process.env.BOOKPRINTA_INVOICE_LOGO_DATA_URL?.trim();
+    if (fromDataUrl) {
+      this.invoiceLogoSrcCache = fromDataUrl;
+      return this.invoiceLogoSrcCache;
+    }
+
+    const fromUrl = process.env.BOOKPRINTA_INVOICE_LOGO_URL?.trim();
+    if (fromUrl) {
+      this.invoiceLogoSrcCache = fromUrl;
+      return this.invoiceLogoSrcCache;
+    }
+
+    const candidates = [
+      resolve(process.cwd(), "../web/public/logo-blue.png"),
+      resolve(process.cwd(), "apps/web/public/logo-blue.png"),
+      resolve(process.cwd(), "public/logo-blue.png"),
+      resolve(process.cwd(), "../web/public/logo-main-black.png"),
+      resolve(process.cwd(), "apps/web/public/logo-main-black.png"),
+      resolve(process.cwd(), "public/logo-main-black.png"),
+    ];
+
+    for (const candidate of candidates) {
+      try {
+        const bytes = await readFile(candidate);
+        const ext = extname(candidate).toLowerCase();
+        const mime =
+          ext === ".svg"
+            ? "image/svg+xml"
+            : ext === ".jpg" || ext === ".jpeg"
+              ? "image/jpeg"
+              : "image/png";
+        this.invoiceLogoSrcCache = `data:${mime};base64,${bytes.toString("base64")}`;
+        return this.invoiceLogoSrcCache;
+      } catch {}
+    }
+
+    this.logger.warn(
+      "Invoice logo file not found. Set BOOKPRINTA_INVOICE_LOGO_URL or BOOKPRINTA_INVOICE_LOGO_DATA_URL to configure branding."
+    );
+    this.invoiceLogoSrcCache = null;
+    return null;
   }
 
   private buildGotenbergAuthHeaders(): Record<string, string> {
@@ -1077,6 +1135,7 @@ export class OrdersService {
     const orderNumber = this.toStringValue(details.orderNumber);
     const invoiceNumber = this.toStringValue(details.invoiceNumber);
     const fileName = this.toStringValue(details.fileName);
+    const brandingVersion = this.toNumberOrNull(details.brandingVersion);
     const generatedAt = this.toIsoDateTime(details.generatedAt);
     const issuedAt = this.toIsoDateTime(details.issuedAt);
     const packageAmount = this.toNumberOrNull(financialBreakdown.packageAmount);
@@ -1110,6 +1169,9 @@ export class OrdersService {
       orderId,
       orderNumber,
       invoiceNumber,
+      ...(brandingVersion !== null && Number.isInteger(brandingVersion) && brandingVersion > 0
+        ? { brandingVersion }
+        : {}),
       fileName,
       archivedUrl,
       generatedAt,
