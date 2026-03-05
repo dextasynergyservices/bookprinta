@@ -36,6 +36,7 @@ import type { JwtPayload, TokenPair } from "./interfaces/index.js";
  * - "Pay First, Signup Later" flow (finish signup via unique link)
  * - JWT access/refresh tokens with HttpOnly cookies
  * - Refresh token rotation (new pair on each refresh)
+ * - Absolute refresh-session window (refresh rotation does not extend initial expiry)
  * - Differentiated token expiry: 15min access, 7d refresh (users) / 1h refresh (admins)
  * - Password hashing via bcrypt
  * - Email verification via 6-digit code
@@ -453,9 +454,30 @@ export class AuthService {
    * 2. Invalidate old refresh token
    * 3. Issue new access + refresh token pair
    * 4. Store new refresh token in database
+   *
+   * Important: refresh preserves the original refresh-session expiry window.
+   * It rotates the token value, but does not extend session lifetime forever.
    */
   async refresh(userId: string, email: string, role: UserRole): Promise<TokenPair> {
-    return this.generateTokenPair(userId, email, role);
+    const session = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { refreshTokenExp: true },
+    });
+
+    if (!session?.refreshTokenExp) {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    const refreshTokenExpiresAt = new Date(session.refreshTokenExp);
+    const remainingMs = refreshTokenExpiresAt.getTime() - Date.now();
+
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+      throw new UnauthorizedException("Refresh token expired");
+    }
+
+    return this.generateTokenPair(userId, email, role, {
+      refreshTokenExpiresAt,
+    });
   }
 
   // ==========================================
@@ -683,21 +705,44 @@ export class AuthService {
    * - Access token: 15min
    * - Refresh token (USER): 7 days
    * - Refresh token (ADMIN/SUPER_ADMIN): 1 hour
+   *
+   * Session rule:
+   * - During refresh rotation, reuse the existing refresh expiry (absolute cap)
+   *   instead of sliding it forward on every refresh.
    */
   private async generateTokenPair(
     userId: string,
     email: string,
-    role: UserRole
+    role: UserRole,
+    options: {
+      refreshTokenExpiresAt?: Date;
+    } = {}
   ): Promise<TokenPair> {
     const payload: JwtPayload = { sub: userId, email, role };
 
-    // Determine refresh token expiry based on role
-    // CLAUDE.md: 15min access, 7d refresh (users), 1h refresh (admins)
-    const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
     const accessExpiryMs = this.parseExpiryToMs(this.ACCESS_TOKEN_EXPIRY);
-    const refreshExpiryMs = isAdmin
-      ? this.parseExpiryToMs(this.REFRESH_TOKEN_EXPIRY_ADMIN)
-      : this.parseExpiryToMs(this.REFRESH_TOKEN_EXPIRY_USER);
+    let refreshTokenExp: Date;
+
+    if (options.refreshTokenExpiresAt) {
+      refreshTokenExp = new Date(options.refreshTokenExpiresAt);
+
+      if (!Number.isFinite(refreshTokenExp.getTime()) || refreshTokenExp <= new Date()) {
+        throw new UnauthorizedException("Refresh token expired");
+      }
+    } else {
+      // Determine refresh token expiry based on role
+      // CLAUDE.md: 15min access, 7d refresh (users), 1h refresh (admins)
+      const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
+      const refreshExpiryMsByRole = isAdmin
+        ? this.parseExpiryToMs(this.REFRESH_TOKEN_EXPIRY_ADMIN)
+        : this.parseExpiryToMs(this.REFRESH_TOKEN_EXPIRY_USER);
+      refreshTokenExp = new Date(Date.now() + refreshExpiryMsByRole);
+    }
+
+    const refreshExpiryMs = refreshTokenExp.getTime() - Date.now();
+    if (!Number.isFinite(refreshExpiryMs) || refreshExpiryMs <= 0) {
+      throw new UnauthorizedException("Refresh token expired");
+    }
 
     // Sign access token (expiresIn as seconds — jsonwebtoken v9 requires number)
     const accessToken = jwt.sign(payload, this.JWT_SECRET, {
@@ -706,12 +751,9 @@ export class AuthService {
 
     // Sign refresh token
     const refreshToken = jwt.sign(payload, this.JWT_SECRET, {
-      expiresIn: Math.floor(refreshExpiryMs / 1000),
+      expiresIn: Math.max(1, Math.floor(refreshExpiryMs / 1000)),
     });
     const hashedRefreshToken = await bcrypt.hash(refreshToken, this.SALT_ROUNDS);
-
-    // Calculate refresh token expiry date for database storage
-    const refreshTokenExp = new Date(Date.now() + refreshExpiryMs);
 
     // Store hashed refresh token in database (rotation: replaces old token)
     await this.prisma.user.update({
