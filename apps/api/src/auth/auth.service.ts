@@ -54,6 +54,8 @@ export class AuthService {
   private readonly REFRESH_TOKEN_EXPIRY_ADMIN: string;
   private readonly frontendBaseUrl: string;
   private readonly fromEmail: string;
+  private readonly cookieSameSite: CookieOptions["sameSite"];
+  private readonly cookieDomain: string | undefined;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -66,6 +68,8 @@ export class AuthService {
     this.REFRESH_TOKEN_EXPIRY_ADMIN = process.env.JWT_REFRESH_EXPIRY_ADMIN || "1h";
     this.frontendBaseUrl = this.resolveFrontendBaseUrl();
     this.fromEmail = this.resolveFromEmail();
+    this.cookieSameSite = this.resolveCookieSameSite();
+    this.cookieDomain = this.resolveCookieDomain();
   }
 
   // ==========================================
@@ -775,10 +779,12 @@ export class AuthService {
    * Get HttpOnly cookie options for access token.
    */
   getAccessTokenCookieOptions(): CookieOptions {
+    const secure = process.env.NODE_ENV === "production";
     return {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax" as const,
+      secure,
+      sameSite: this.cookieSameSite,
+      domain: this.cookieDomain,
       path: "/",
       maxAge: 15 * 60 * 1000, // 15 minutes in ms
     };
@@ -794,10 +800,12 @@ export class AuthService {
       ? 60 * 60 * 1000 // 1 hour for admins
       : 7 * 24 * 60 * 60 * 1000; // 7 days for users
 
+    const secure = process.env.NODE_ENV === "production";
     return {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax" as const,
+      secure,
+      sameSite: this.cookieSameSite,
+      domain: this.cookieDomain,
       path: "/api/v1/auth", // Only sent to auth endpoints (e.g. /refresh)
       maxAge,
     };
@@ -807,10 +815,12 @@ export class AuthService {
    * Get cleared cookie options (for logout).
    */
   getClearedCookieOptions(): CookieOptions {
+    const secure = process.env.NODE_ENV === "production";
     return {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax" as const,
+      secure,
+      sameSite: this.cookieSameSite,
+      domain: this.cookieDomain,
       path: "/",
       maxAge: 0,
     };
@@ -1017,6 +1027,21 @@ export class AuthService {
     return normalized.length > 0 ? normalized : "BookPrinta <info@bookprinta.com>";
   }
 
+  private resolveCookieSameSite(): CookieOptions["sameSite"] {
+    const configured = process.env.AUTH_COOKIE_SAME_SITE?.trim().toLowerCase();
+    if (configured === "strict" || configured === "lax" || configured === "none") {
+      return configured;
+    }
+
+    return process.env.NODE_ENV === "production" ? "none" : "lax";
+  }
+
+  private resolveCookieDomain(): string | undefined {
+    const configured = process.env.AUTH_COOKIE_DOMAIN?.trim();
+    if (!configured) return undefined;
+    return configured;
+  }
+
   /**
    * Validate reCAPTCHA token with Google's API.
    * Skips verification in development or when secret key is missing.
@@ -1117,6 +1142,7 @@ interface CookieOptions {
   httpOnly: boolean;
   secure: boolean;
   sameSite: "lax" | "strict" | "none";
+  domain?: string;
   path: string;
   maxAge: number;
 }
