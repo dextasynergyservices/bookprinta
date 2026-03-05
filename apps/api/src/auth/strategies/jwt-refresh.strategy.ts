@@ -76,6 +76,13 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, "jwt-refresh"
     }
 
     if (user.refreshTokenExp && user.refreshTokenExp < new Date()) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          refreshToken: null,
+          refreshTokenExp: null,
+        },
+      });
       throw new UnauthorizedException("Refresh token expired");
     }
 

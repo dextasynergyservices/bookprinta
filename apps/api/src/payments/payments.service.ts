@@ -1299,13 +1299,42 @@ export class PaymentsService {
       // Resolve addon names for confirmation display
       const addonNames = await this.resolveAddonNamesFromMetadata(tx, checkout);
 
-      await tx.book.create({
+      const book = await tx.book.create({
         data: {
           orderId: order.id,
           userId: user.id,
           status: BookStatus.PAYMENT_RECEIVED,
           pageSize: checkout.bookSize ?? "A5",
         },
+      });
+
+      await tx.auditLog.createMany({
+        data: [
+          {
+            userId: user.id,
+            action: "ORDER_STATUS_REACHED",
+            entityType: "ORDER_TRACKING",
+            entityId: order.id,
+            details: {
+              source: "order",
+              status: OrderStatus.PAID,
+              reachedAt: order.createdAt.toISOString(),
+              label: "Paid",
+            },
+          },
+          {
+            userId: user.id,
+            action: "ORDER_STATUS_REACHED",
+            entityType: "ORDER_TRACKING",
+            entityId: order.id,
+            details: {
+              source: "book",
+              status: BookStatus.PAYMENT_RECEIVED,
+              reachedAt: book.createdAt.toISOString(),
+              label: "Payment Received",
+            },
+          },
+        ],
       });
 
       await tx.payment.update({
