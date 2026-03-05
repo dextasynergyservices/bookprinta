@@ -86,6 +86,7 @@ async function bootstrap() {
     .addTag("Reviews", "Book review system")
     .addTag("Showcase", "Author showcase & categories")
     .addTag("Resources", "Blog & resource articles")
+    .addTag("Marketing", "Public marketing pages and aggregate counters")
     .addTag("Admin", "Admin panel operations")
     .addTag("Health", "Service health checks")
     .build();
