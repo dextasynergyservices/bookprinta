@@ -37,13 +37,17 @@ describe("OrdersService", () => {
     }).compile();
 
     service = module.get<OrdersService>(OrdersService);
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     global.fetch = fetchMock as unknown as typeof fetch;
     mockPrismaService.auditLog.findMany.mockResolvedValue([]);
     mockPrismaService.auditLog.findFirst.mockResolvedValue(null);
     mockPrismaService.auditLog.create.mockResolvedValue({
       id: "audit_1",
     });
+    delete process.env.GOTENBERG_URL;
+    delete process.env.GOTENBERG_BACKUP_URL;
+    delete process.env.GOTENBERG_USERNAME;
+    delete process.env.GOTENBERG_PASSWORD;
   });
 
   describe("findUserOrders", () => {
@@ -250,6 +254,7 @@ describe("OrdersService", () => {
 
       expect(result.invoiceNumber).toContain("INV-20260301-BP20260001");
       expect(result.archivedUrl).toContain("invoice-bp-2026-0001.pdf");
+      expect(result.renderEngine).toBe("gotenberg");
       expect(mockCloudinaryService.upload).toHaveBeenCalledTimes(1);
       expect(mockPrismaService.auditLog.create).toHaveBeenCalledTimes(1);
     });
@@ -307,13 +312,375 @@ describe("OrdersService", () => {
         secure_url: "https://cdn.example.com/bookprinta/invoices/invoice-bp-2026-0009.pdf",
       });
 
-      await service.getUserOrderInvoiceArchive("user_1", "cm1111111111111111111111111");
+      const result = await service.getUserOrderInvoiceArchive(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
 
       expect(fetchMock).not.toHaveBeenCalled();
       expect(mockCloudinaryService.upload).toHaveBeenCalledTimes(1);
       const uploadedBuffer = mockCloudinaryService.upload.mock.calls[0]?.[0] as Buffer;
       expect(Buffer.isBuffer(uploadedBuffer)).toBe(true);
       expect(uploadedBuffer.length).toBeGreaterThan(200);
+      expect(result.renderEngine).toBe("fallback");
+    });
+
+    it("retries invoice conversion without auth when Gotenberg returns 401", async () => {
+      process.env.GOTENBERG_URL = "http://gotenberg.local";
+      process.env.GOTENBERG_USERNAME = "local-user";
+      process.env.GOTENBERG_PASSWORD = "local-pass";
+
+      mockPrismaService.order.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderNumber: "BP-2026-0011",
+        orderType: "STANDARD",
+        status: "PAID",
+        createdAt: new Date("2026-03-01T08:00:00.000Z"),
+        updatedAt: new Date("2026-03-02T09:00:00.000Z"),
+        copies: 100,
+        bookSize: "A5",
+        paperColor: "white",
+        lamination: "gloss",
+        initialAmount: { toNumber: () => 120000 } as unknown,
+        extraAmount: { toNumber: () => 0 } as unknown,
+        discountAmount: { toNumber: () => 0 } as unknown,
+        totalAmount: { toNumber: () => 120000 } as unknown,
+        refundAmount: { toNumber: () => 0 } as unknown,
+        currency: "NGN",
+        trackingNumber: null,
+        shippingProvider: null,
+        package: {
+          id: "pkg_1",
+          name: "Legacy",
+          slug: "legacy",
+        },
+        book: null,
+        payments: [
+          {
+            id: "pay_11",
+            provider: "PAYSTACK",
+            status: "SUCCESS",
+            type: "INITIAL",
+            amount: { toNumber: () => 120000 } as unknown,
+            currency: "NGN",
+            providerRef: "PSK_REF_11",
+            createdAt: new Date("2026-03-01T08:10:00.000Z"),
+          },
+        ],
+        addons: [],
+        user: {
+          id: "user_1",
+          email: "author@example.com",
+          firstName: "Ada",
+          lastName: "Author",
+        },
+      });
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 401,
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          arrayBuffer: jest.fn().mockResolvedValue(new Uint8Array([37, 80, 68, 70]).buffer),
+        } as unknown as Response);
+
+      mockCloudinaryService.upload.mockResolvedValueOnce({
+        secure_url: "https://cdn.example.com/bookprinta/invoices/invoice-bp-2026-0011.pdf",
+      });
+
+      const result = await service.getUserOrderInvoiceArchive(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+        headers: expect.objectContaining({ Authorization: expect.stringContaining("Basic ") }),
+      });
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        headers: {},
+      });
+      expect(result.renderEngine).toBe("gotenberg");
+    });
+
+    it("retries primary Gotenberg 3 times then switches to backup URL", async () => {
+      process.env.GOTENBERG_URL = "http://gotenberg-primary.local";
+      process.env.GOTENBERG_BACKUP_URL = "http://gotenberg-backup.local";
+
+      mockPrismaService.order.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderNumber: "BP-2026-0012",
+        orderType: "STANDARD",
+        status: "PAID",
+        createdAt: new Date("2026-03-01T08:00:00.000Z"),
+        updatedAt: new Date("2026-03-02T09:00:00.000Z"),
+        copies: 100,
+        bookSize: "A5",
+        paperColor: "white",
+        lamination: "gloss",
+        initialAmount: { toNumber: () => 120000 } as unknown,
+        extraAmount: { toNumber: () => 0 } as unknown,
+        discountAmount: { toNumber: () => 0 } as unknown,
+        totalAmount: { toNumber: () => 120000 } as unknown,
+        refundAmount: { toNumber: () => 0 } as unknown,
+        currency: "NGN",
+        trackingNumber: null,
+        shippingProvider: null,
+        package: {
+          id: "pkg_1",
+          name: "Legacy",
+          slug: "legacy",
+        },
+        book: null,
+        payments: [
+          {
+            id: "pay_12",
+            provider: "PAYSTACK",
+            status: "SUCCESS",
+            type: "INITIAL",
+            amount: { toNumber: () => 120000 } as unknown,
+            currency: "NGN",
+            providerRef: "PSK_REF_12",
+            createdAt: new Date("2026-03-01T08:10:00.000Z"),
+          },
+        ],
+        addons: [],
+        user: {
+          id: "user_1",
+          email: "author@example.com",
+          firstName: "Ada",
+          lastName: "Author",
+        },
+      });
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          text: jest.fn().mockResolvedValue("primary-failure-1"),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          text: jest.fn().mockResolvedValue("primary-failure-2"),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          text: jest.fn().mockResolvedValue("primary-failure-3"),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          arrayBuffer: jest.fn().mockResolvedValue(new Uint8Array([37, 80, 68, 70]).buffer),
+        } as unknown as Response);
+
+      mockCloudinaryService.upload.mockResolvedValueOnce({
+        secure_url: "https://cdn.example.com/bookprinta/invoices/invoice-bp-2026-0012.pdf",
+      });
+
+      const result = await service.getUserOrderInvoiceArchive(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain("gotenberg-primary.local");
+      expect(String(fetchMock.mock.calls[1]?.[0])).toContain("gotenberg-primary.local");
+      expect(String(fetchMock.mock.calls[2]?.[0])).toContain("gotenberg-primary.local");
+      expect(String(fetchMock.mock.calls[3]?.[0])).toContain("gotenberg-backup.local");
+      expect(result.renderEngine).toBe("gotenberg");
+    });
+
+    it("falls back after 3 failed attempts when only primary Gotenberg is configured", async () => {
+      process.env.GOTENBERG_URL = "http://gotenberg-primary.local";
+
+      mockPrismaService.order.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderNumber: "BP-2026-0013",
+        orderType: "STANDARD",
+        status: "PAID",
+        createdAt: new Date("2026-03-01T08:00:00.000Z"),
+        updatedAt: new Date("2026-03-02T09:00:00.000Z"),
+        copies: 100,
+        bookSize: "A5",
+        paperColor: "white",
+        lamination: "gloss",
+        initialAmount: { toNumber: () => 120000 } as unknown,
+        extraAmount: { toNumber: () => 0 } as unknown,
+        discountAmount: { toNumber: () => 0 } as unknown,
+        totalAmount: { toNumber: () => 120000 } as unknown,
+        refundAmount: { toNumber: () => 0 } as unknown,
+        currency: "NGN",
+        trackingNumber: null,
+        shippingProvider: null,
+        package: {
+          id: "pkg_1",
+          name: "Legacy",
+          slug: "legacy",
+        },
+        book: null,
+        payments: [
+          {
+            id: "pay_13",
+            provider: "PAYSTACK",
+            status: "SUCCESS",
+            type: "INITIAL",
+            amount: { toNumber: () => 120000 } as unknown,
+            currency: "NGN",
+            providerRef: "PSK_REF_13",
+            createdAt: new Date("2026-03-01T08:10:00.000Z"),
+          },
+        ],
+        addons: [],
+        user: {
+          id: "user_1",
+          email: "author@example.com",
+          firstName: "Ada",
+          lastName: "Author",
+        },
+      });
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          text: jest.fn().mockResolvedValue("primary-failure-1"),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          text: jest.fn().mockResolvedValue("primary-failure-2"),
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          text: jest.fn().mockResolvedValue("primary-failure-3"),
+        } as unknown as Response);
+
+      mockCloudinaryService.upload.mockResolvedValueOnce({
+        secure_url: "https://cdn.example.com/bookprinta/invoices/invoice-bp-2026-0013.pdf",
+      });
+
+      const result = await service.getUserOrderInvoiceArchive(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(mockCloudinaryService.upload).toHaveBeenCalledTimes(1);
+      expect(result.renderEngine).toBe("fallback");
+    });
+
+    it("refreshes fallback archives once Gotenberg conversion succeeds", async () => {
+      process.env.GOTENBERG_URL = "http://gotenberg.local";
+
+      mockPrismaService.auditLog.findFirst.mockResolvedValue({
+        id: "audit_prev",
+        createdAt: new Date("2026-03-05T08:00:00.000Z"),
+        details: {
+          orderId: "cm1111111111111111111111111",
+          orderNumber: "BP-2026-0010",
+          invoiceNumber: "INV-20260301-BP20260010",
+          brandingVersion: 2,
+          renderEngine: "fallback",
+          fileName: "bookprinta-invoice-INV-20260301-BP20260010.pdf",
+          archivedUrl: "https://cdn.example.com/bookprinta/invoices/invoice-bp-2026-0010.pdf",
+          generatedAt: "2026-03-05T08:00:00.000Z",
+          issuedAt: "2026-03-05T08:00:00.000Z",
+          paymentReference: null,
+          legal: {
+            legalName: "BookPrinta Publishing Ltd",
+            address: "Lagos, Nigeria",
+            supportEmail: "support@bookprinta.com",
+            supportPhone: "+2348103208297",
+            taxId: null,
+          },
+          financialBreakdown: {
+            packageAmount: 120000,
+            addonsSubtotal: 0,
+            discountAmount: 0,
+            taxAmount: 0,
+            shippingFee: 0,
+            grandTotal: 120000,
+            currency: "NGN",
+          },
+          paymentProof: {
+            provider: null,
+            status: null,
+            reference: null,
+            paidAt: null,
+            history: [],
+          },
+        },
+      });
+
+      mockPrismaService.order.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderNumber: "BP-2026-0010",
+        orderType: "STANDARD",
+        status: "PAID",
+        createdAt: new Date("2026-03-01T08:00:00.000Z"),
+        updatedAt: new Date("2026-03-02T09:00:00.000Z"),
+        copies: 100,
+        bookSize: "A5",
+        paperColor: "white",
+        lamination: "gloss",
+        initialAmount: { toNumber: () => 120000 } as unknown,
+        extraAmount: { toNumber: () => 0 } as unknown,
+        discountAmount: { toNumber: () => 0 } as unknown,
+        totalAmount: { toNumber: () => 120000 } as unknown,
+        refundAmount: { toNumber: () => 0 } as unknown,
+        currency: "NGN",
+        trackingNumber: null,
+        shippingProvider: null,
+        package: {
+          id: "pkg_1",
+          name: "Legacy",
+          slug: "legacy",
+        },
+        book: null,
+        payments: [
+          {
+            id: "pay_10",
+            provider: "PAYSTACK",
+            status: "SUCCESS",
+            type: "INITIAL",
+            amount: { toNumber: () => 120000 } as unknown,
+            currency: "NGN",
+            providerRef: "PSK_REF_10",
+            createdAt: new Date("2026-03-01T08:10:00.000Z"),
+          },
+        ],
+        addons: [],
+        user: {
+          id: "user_1",
+          email: "author@example.com",
+          firstName: "Ada",
+          lastName: "Author",
+        },
+      });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: jest.fn().mockResolvedValue(new Uint8Array([37, 80, 68, 70]).buffer),
+      } as unknown as Response);
+
+      mockCloudinaryService.upload.mockResolvedValueOnce({
+        secure_url:
+          "https://cdn.example.com/bookprinta/invoices/invoice-bp-2026-0010-refreshed.pdf",
+      });
+
+      const result = await service.getUserOrderInvoiceArchive(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(mockCloudinaryService.upload).toHaveBeenCalledTimes(1);
+      expect(result.renderEngine).toBe("gotenberg");
+      expect(result.archivedUrl).toContain("invoice-bp-2026-0010-refreshed.pdf");
     });
   });
 });

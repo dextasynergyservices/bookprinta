@@ -213,6 +213,9 @@ export const OrderInvoicePaymentProofSchema = z.object({
 });
 export type OrderInvoicePaymentProof = z.infer<typeof OrderInvoicePaymentProofSchema>;
 
+export const OrderInvoiceRenderEngineSchema = z.enum(["gotenberg", "fallback"]);
+export type OrderInvoiceRenderEngine = z.infer<typeof OrderInvoiceRenderEngineSchema>;
+
 /**
  * GET /api/v1/orders/:id/invoice/archive
  */
@@ -221,6 +224,7 @@ export const OrderInvoiceArchiveResponseSchema = z.object({
   orderNumber: z.string(),
   invoiceNumber: z.string(),
   brandingVersion: z.number().int().positive().optional(),
+  renderEngine: OrderInvoiceRenderEngineSchema.optional(),
   fileName: z.string(),
   archivedUrl: z.string().url(),
   generatedAt: z.string().datetime(),
