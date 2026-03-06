@@ -9,6 +9,7 @@ let currentBookId: string | null = null;
 
 const TRANSLATIONS: Record<string, string> = {
   my_books: "My Books",
+  book_progress_title: "My Books",
   book_progress_subtitle: "Track your book from payment to delivery.",
   book_progress_aria: "Book production progress tracker",
   book_progress_loading_title: "Loading book progress...",
