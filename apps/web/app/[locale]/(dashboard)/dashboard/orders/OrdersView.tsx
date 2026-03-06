@@ -56,8 +56,6 @@ const TABLE_SKELETON_ROW_KEYS = Array.from(
   { length: SKELETON_TABLE_ROW_COUNT },
   (_unused, index) => `orders-table-row-skeleton-${index + 1}`
 );
-const ORDERS_TABLE_SCROLL_SUPPRESS_CLASS =
-  "[&_[data-slot=table-container]]:overflow-visible [&_[data-slot=table-container]]:[-ms-overflow-style:none] [&_[data-slot=table-container]]:[scrollbar-width:none] [&_[data-slot=table-container]::-webkit-scrollbar]:hidden";
 
 const LOCALE_FORMAT_TAGS: Record<string, string> = {
   en: "en-NG",
@@ -130,7 +128,7 @@ function getDesktopHeaderClass(columnId: string): string {
   if (columnId === "status") return "min-w-[8.5rem]";
   if (columnId === "date") return "min-w-[8rem]";
   if (columnId === "total") return "min-w-[8rem] text-right";
-  if (columnId === "actions") return "min-w-[8.5rem] text-right";
+  if (columnId === "actions") return "min-w-[12rem] text-right";
   return "";
 }
 
@@ -219,7 +217,7 @@ function OrdersDesktopTable({
         cell: ({ row }) => (
           <Link
             href={`/dashboard/orders/${row.original.id}`}
-            className="font-sans inline-flex min-h-10 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-3 py-2 text-[11px] font-semibold tracking-[0.02em] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 lg:min-h-11 lg:px-4 lg:text-xs"
+            className="font-sans inline-flex min-h-10 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-4 py-2 text-[11px] font-semibold whitespace-nowrap tracking-[0.02em] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 lg:min-h-11 lg:text-xs"
           >
             {tDashboard("orders_action_track")}
           </Link>
@@ -237,10 +235,10 @@ function OrdersDesktopTable({
 
   return (
     <DashboardTableViewport
-      className={cn("touch-pan-x", ORDERS_TABLE_SCROLL_SUPPRESS_CLASS)}
-      minWidthClassName="md:min-w-[780px] lg:min-w-[960px]"
+      className="touch-pan-x"
+      minWidthClassName="md:min-w-[920px] lg:min-w-[1040px]"
     >
-      <Table className="min-w-full border-collapse">
+      <Table className="min-w-[920px] border-collapse lg:min-w-[1040px]">
         <TableHeader className="border-b border-[#2A2A2A] bg-[#0A0A0A]">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id} className="border-b border-[#2A2A2A]">
@@ -457,11 +455,8 @@ function OrdersMobileSkeleton() {
 
 function OrdersTableSkeleton() {
   return (
-    <DashboardTableViewport
-      className={ORDERS_TABLE_SCROLL_SUPPRESS_CLASS}
-      minWidthClassName="md:min-w-[900px]"
-    >
-      <Table className="min-w-full border-collapse">
+    <DashboardTableViewport minWidthClassName="md:min-w-[920px] lg:min-w-[1040px]">
+      <Table className="min-w-[920px] border-collapse lg:min-w-[1040px]">
         <TableHeader className="border-b border-[#2A2A2A] bg-[#0A0A0A]">
           <tr className="border-b border-[#2A2A2A]">
             {TABLE_SKELETON_COLUMN_KEYS.map((columnKey) => (

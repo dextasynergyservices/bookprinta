@@ -201,7 +201,7 @@ function BookMetadataPanel({
           <dt className="font-sans text-[11px] font-semibold tracking-[0.08em] text-[#8f8f8f] uppercase">
             {tDashboard("book_progress_meta_book_id")}
           </dt>
-          <dd className="font-sans mt-1 text-sm text-[#d9d9d9]">{bookId}</dd>
+          <dd className="font-sans mt-1 text-sm leading-snug break-all text-[#d9d9d9]">{bookId}</dd>
         </div>
         <div className="rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-3">
           <dt className="font-sans text-[11px] font-semibold tracking-[0.08em] text-[#8f8f8f] uppercase">
