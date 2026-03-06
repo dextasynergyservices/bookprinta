@@ -60,6 +60,13 @@ type FallbackInvoicePdfInput = {
   complianceNote: string;
 };
 
+type InvoicePdfRenderEngine = "gotenberg" | "fallback";
+
+type InvoicePdfRenderResult = {
+  buffer: Buffer;
+  renderEngine: InvoicePdfRenderEngine;
+};
+
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
@@ -558,7 +565,7 @@ export class OrdersService {
       complianceNote,
     });
 
-    const pdfBuffer = await this.renderInvoicePdf(invoiceHtml, {
+    const renderedInvoicePdf = await this.renderInvoicePdf(invoiceHtml, {
       invoiceNumber,
       issuedAt: this.formatDateTime(issuedAt, locale),
       orderNumber: row.orderNumber,
@@ -586,6 +593,7 @@ export class OrdersService {
       termsNotice,
       complianceNote,
     });
+    const pdfBuffer = renderedInvoicePdf.buffer;
     const archiveResult = await this.cloudinary.upload(pdfBuffer, {
       folder: "bookprinta/invoices",
       resource_type: "raw",
@@ -600,6 +608,7 @@ export class OrdersService {
       orderNumber: row.orderNumber,
       invoiceNumber,
       brandingVersion: OrdersService.INVOICE_BRANDING_VERSION,
+      renderEngine: renderedInvoicePdf.renderEngine,
       fileName,
       archivedUrl: archiveResult.secure_url,
       generatedAt: new Date().toISOString(),
@@ -683,64 +692,93 @@ export class OrdersService {
   private async renderInvoicePdf(
     html: string,
     fallbackInput: FallbackInvoicePdfInput
-  ): Promise<Buffer> {
-    const gotenbergBaseUrl = (process.env.GOTENBERG_URL ?? "").replace(/\/+$/, "");
-    if (!gotenbergBaseUrl) {
-      this.logger.warn("Gotenberg is not configured, using fallback invoice PDF renderer");
-      return this.renderFallbackInvoicePdf(fallbackInput);
+  ): Promise<InvoicePdfRenderResult> {
+    const gotenbergBaseUrls = this.buildGotenbergBaseUrls();
+    if (gotenbergBaseUrls.length === 0) {
+      this.logger.warn("Gotenberg is not configured. Using plain invoice fallback renderer.");
+      return {
+        buffer: this.renderFallbackInvoicePdf(fallbackInput),
+        renderEngine: "fallback",
+      };
     }
 
-    const maxAttempts = 1;
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const form = new FormData();
-      form.append("files", new Blob([html], { type: "text/html;charset=utf-8" }), "index.html");
-      form.append("paperWidth", "8.27");
-      form.append("paperHeight", "11.69");
-      form.append("marginTop", "0.4");
-      form.append("marginBottom", "0.4");
-      form.append("marginLeft", "0.35");
-      form.append("marginRight", "0.35");
-      form.append("printBackground", "true");
+    const headerVariants = this.buildGotenbergHeaderVariants();
+    const maxAttemptsPerEndpoint = 3;
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8_000);
+    for (const gotenbergBaseUrl of gotenbergBaseUrls) {
+      for (const headers of headerVariants) {
+        const hasAuthHeader = typeof headers.Authorization === "string";
 
-      let response: Response | null = null;
-      try {
-        response = await fetch(`${gotenbergBaseUrl}/forms/chromium/convert/html`, {
-          method: "POST",
-          body: form,
-          signal: controller.signal,
-          headers: this.buildGotenbergAuthHeaders(),
-        });
-      } catch (error) {
-        this.logger.error(`Gotenberg request failed on attempt ${attempt}`, error);
-      } finally {
-        clearTimeout(timeout);
-      }
+        for (let attempt = 1; attempt <= maxAttemptsPerEndpoint; attempt += 1) {
+          const form = new FormData();
+          form.append("files", new Blob([html], { type: "text/html;charset=utf-8" }), "index.html");
+          form.append("paperWidth", "8.27");
+          form.append("paperHeight", "11.69");
+          form.append("marginTop", "0.4");
+          form.append("marginBottom", "0.4");
+          form.append("marginLeft", "0.35");
+          form.append("marginRight", "0.35");
+          form.append("printBackground", "true");
 
-      if (response?.ok) {
-        const pdfArrayBuffer = await response.arrayBuffer();
-        return Buffer.from(pdfArrayBuffer);
-      }
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 8_000);
 
-      if (response) {
-        const bodySnippet = await response
-          .text()
-          .then((value) => value.slice(0, 400))
-          .catch(() => "");
-        this.logger.error(
-          `Gotenberg returned ${response.status} on attempt ${attempt} while generating invoice PDF. ${bodySnippet}`
-        );
-      }
+          let response: Response | null = null;
+          try {
+            response = await fetch(`${gotenbergBaseUrl}/forms/chromium/convert/html`, {
+              method: "POST",
+              body: form,
+              signal: controller.signal,
+              headers,
+            });
+          } catch (error) {
+            this.logger.error(
+              `Gotenberg request failed on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${gotenbergBaseUrl}`,
+              error
+            );
+          } finally {
+            clearTimeout(timeout);
+          }
 
-      if (attempt < maxAttempts) {
-        await this.delay(400 * attempt);
+          if (response?.ok) {
+            const pdfArrayBuffer = await response.arrayBuffer();
+            return {
+              buffer: Buffer.from(pdfArrayBuffer),
+              renderEngine: "gotenberg",
+            };
+          }
+
+          if (response && hasAuthHeader && (response.status === 401 || response.status === 403)) {
+            this.logger.warn(
+              `Gotenberg rejected configured basic auth via ${gotenbergBaseUrl}; retrying without auth headers.`
+            );
+            break;
+          }
+
+          if (response) {
+            const bodySnippet = await response
+              .text()
+              .then((value) => value.slice(0, 400))
+              .catch(() => "");
+            this.logger.error(
+              `Gotenberg returned ${response.status} on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${gotenbergBaseUrl} while generating invoice PDF. ${bodySnippet}`
+            );
+          }
+
+          if (attempt < maxAttemptsPerEndpoint) {
+            await this.delay(400 * attempt);
+          }
+        }
       }
     }
 
-    this.logger.warn("Falling back to internal invoice PDF renderer after Gotenberg failures");
-    return this.renderFallbackInvoicePdf(fallbackInput);
+    this.logger.warn(
+      "Falling back to internal invoice PDF renderer after primary/backup Gotenberg retries failed."
+    );
+    return {
+      buffer: this.renderFallbackInvoicePdf(fallbackInput),
+      renderEngine: "fallback",
+    };
   }
 
   private async fetchArchivedInvoiceArrayBuffer(
@@ -785,7 +823,16 @@ export class OrdersService {
   }
 
   private shouldRefreshInvoiceArchive(archive: OrderInvoiceArchiveResponse): boolean {
-    return archive.brandingVersion !== OrdersService.INVOICE_BRANDING_VERSION;
+    if (archive.brandingVersion !== OrdersService.INVOICE_BRANDING_VERSION) {
+      return true;
+    }
+
+    const gotenbergConfigured = this.buildGotenbergBaseUrls().length > 0;
+    if (!gotenbergConfigured) {
+      return false;
+    }
+
+    return archive.renderEngine !== "gotenberg";
   }
 
   private async resolveInvoiceLogoSrc(): Promise<string | null> {
@@ -848,6 +895,25 @@ export class OrdersService {
     return {
       Authorization: `Basic ${token}`,
     };
+  }
+
+  private buildGotenbergBaseUrls(): string[] {
+    const primary = (process.env.GOTENBERG_URL ?? "").trim().replace(/\/+$/, "");
+    const backup = (process.env.GOTENBERG_BACKUP_URL ?? "").trim().replace(/\/+$/, "");
+
+    return [primary, backup].filter(
+      (url, index, all) => Boolean(url) && all.indexOf(url) === index
+    );
+  }
+
+  private buildGotenbergHeaderVariants(): Array<Record<string, string>> {
+    const authHeaders = this.buildGotenbergAuthHeaders();
+    if (Object.keys(authHeaders).length === 0) {
+      return [{}];
+    }
+
+    // Local Gotenberg typically runs without auth; retrying without headers prevents false fallbacks.
+    return [authHeaders, {}];
   }
 
   private renderFallbackInvoicePdf(input: FallbackInvoicePdfInput): Buffer {
@@ -1136,6 +1202,7 @@ export class OrdersService {
     const invoiceNumber = this.toStringValue(details.invoiceNumber);
     const fileName = this.toStringValue(details.fileName);
     const brandingVersion = this.toNumberOrNull(details.brandingVersion);
+    const renderEngine = this.toInvoiceRenderEngine(details.renderEngine);
     const generatedAt = this.toIsoDateTime(details.generatedAt);
     const issuedAt = this.toIsoDateTime(details.issuedAt);
     const packageAmount = this.toNumberOrNull(financialBreakdown.packageAmount);
@@ -1172,6 +1239,7 @@ export class OrdersService {
       ...(brandingVersion !== null && Number.isInteger(brandingVersion) && brandingVersion > 0
         ? { brandingVersion }
         : {}),
+      ...(renderEngine ? { renderEngine } : {}),
       fileName,
       archivedUrl,
       generatedAt,
@@ -1343,6 +1411,16 @@ export class OrdersService {
     if (source === "order") return "order";
     if (source === "book") return "book";
     if (source === "system") return "system";
+    return null;
+  }
+
+  private toInvoiceRenderEngine(
+    value: unknown
+  ): OrderInvoiceArchiveResponse["renderEngine"] | null {
+    const engine = this.toStringValue(value)?.toLowerCase();
+    if (!engine) return null;
+    if (engine === "gotenberg") return "gotenberg";
+    if (engine === "fallback") return "fallback";
     return null;
   }
 
