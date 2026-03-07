@@ -54,6 +54,11 @@ function createService() {
     assertBillingGateAccess: jest.fn(),
   };
 
+  const notificationsService = {
+    createOrderStatusNotification: jest.fn(),
+    notifyAdminsBankTransferReceived: jest.fn(),
+  };
+
   const service = new PaymentsService(
     prisma as never,
     paystackService as never,
@@ -62,10 +67,11 @@ function createService() {
     {} as never,
     {} as never,
     { sendRegistrationLink: jest.fn() } as never,
+    notificationsService as never,
     rollout as never
   );
 
-  return { service, prisma, paystackService, rollout };
+  return { service, prisma, paystackService, rollout, notificationsService };
 }
 
 describe("PaymentsService billing gate", () => {

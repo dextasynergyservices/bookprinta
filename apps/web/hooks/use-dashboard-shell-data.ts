@@ -1,4 +1,43 @@
-import { useQuery } from "@tanstack/react-query";
+"use client";
+
+import type {
+  CreateReviewBodyInput,
+  CreateReviewResponse,
+  MyReviewsResponse,
+  NotificationMarkAllReadResponse,
+  NotificationMarkReadResponse,
+  NotificationsListResponse,
+  NotificationUnreadCountResponse,
+} from "@bookprinta/shared";
+import {
+  keepPreviousData,
+  type QueryKey,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  coerceNotificationsPage,
+  coerceNotificationsPageSize,
+  createEmptyNotificationsListResponse,
+  DEFAULT_NOTIFICATIONS_PAGE,
+  DEFAULT_NOTIFICATIONS_PAGE_SIZE,
+  hasPersistentNotificationBanner,
+  markAllNotificationsReadInListResponse,
+  markNotificationReadInListResponse,
+  normalizeNotificationMarkAllReadPayload,
+  normalizeNotificationMarkReadPayload,
+  normalizeNotificationsListPayload,
+  normalizeNotificationUnreadCountPayload,
+  replaceNotificationInListResponse,
+} from "@/lib/api/notifications-contract";
+import {
+  appendReviewToState,
+  createEmptyReviewState,
+  normalizeCreateReviewPayload,
+  normalizeMyReviewsPayload,
+} from "@/lib/api/reviews-contract";
+import { throwApiError } from "@/lib/api-error";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -9,12 +48,18 @@ function getApiV1BaseUrl() {
 }
 
 const API_V1_BASE_URL = getApiV1BaseUrl();
+const NOTIFICATIONS_POLL_INTERVAL_MS = 30_000;
+const DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE = 50;
 
-export const DASHBOARD_UNREAD_COUNT_QUERY_KEY = [
-  "dashboard",
-  "notifications",
-  "unread-count",
-] as const;
+export const dashboardNotificationsQueryKeys = {
+  all: ["dashboard", "notifications"] as const,
+  unreadCount: () => ["dashboard", "notifications", "unread-count"] as const,
+  lists: () => ["dashboard", "notifications", "list"] as const,
+  list: (page: number, pageSize: number) =>
+    ["dashboard", "notifications", "list", page, pageSize] as const,
+};
+
+export const DASHBOARD_UNREAD_COUNT_QUERY_KEY = dashboardNotificationsQueryKeys.unreadCount();
 export const DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY = [
   "dashboard",
   "reviews",
@@ -25,116 +70,48 @@ type QueryDataWithFallback<TData> = TData & {
   isFallback: boolean;
 };
 
-/**
- * Frontend contract for GET /api/v1/notifications/unread-count.
- */
-export type NotificationUnreadCountContract = {
-  unreadCount: number;
+type ReviewStateQueryData = QueryDataWithFallback<MyReviewsResponse>;
+
+type NotificationReadMutationInput = {
+  notificationId: string;
 };
 
-/**
- * Frontend contract for reviews sidebar eligibility.
- * Source endpoint: GET /api/v1/reviews/my
- */
+type NotificationReadMutationContext = {
+  unreadCountSnapshot: QueryDataWithFallback<NotificationUnreadCountResponse> | undefined;
+  listSnapshots: Array<[QueryKey, NotificationsListResponse | undefined]>;
+  targetState: "missing" | "read" | "unread";
+};
+
+type NotificationMarkAllReadMutationContext = {
+  unreadCountSnapshot: QueryDataWithFallback<NotificationUnreadCountResponse> | undefined;
+  listSnapshots: Array<[QueryKey, NotificationsListResponse | undefined]>;
+};
+
 export type ReviewEligibilityContract = {
   hasAnyPrintedBook: boolean;
 };
 
-function toRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
+function isAbortError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("name" in error)) {
+    return false;
   }
 
-  return value as Record<string, unknown>;
+  return String((error as { name?: unknown }).name)
+    .toLowerCase()
+    .includes("abort");
 }
 
-function toInt(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(0, Math.trunc(value));
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed)) return Math.max(0, parsed);
-  }
-
-  return null;
-}
-
-function toBoolean(value: unknown): boolean | null {
-  if (typeof value === "boolean") return value;
-  return null;
-}
-
-function resolveUnreadCount(payload: unknown): number {
-  const root = toRecord(payload);
-  const data = toRecord(root?.data);
-
-  const candidates = [
-    toInt(root?.unreadCount),
-    toInt(root?.count),
-    toInt(data?.unreadCount),
-    toInt(data?.count),
-  ];
-
-  return candidates.find((candidate): candidate is number => candidate !== null) ?? 0;
-}
-
-function resolveHasAnyPrintedBook(payload: unknown): boolean {
-  const root = toRecord(payload);
-  const data = toRecord(root?.data);
-
-  const booleanCandidates = [
-    toBoolean(root?.hasAnyPrintedBook),
-    toBoolean(data?.hasAnyPrintedBook),
-  ];
-
-  const explicitBoolean = booleanCandidates.find(
-    (candidate): candidate is boolean => candidate !== null
-  );
-  if (typeof explicitBoolean === "boolean") {
-    return explicitBoolean;
-  }
-
-  const possibleArrays: unknown[] = [
-    root?.printedBooks,
-    root?.pendingBooks,
-    root?.reviews,
-    root?.items,
-    data?.printedBooks,
-    data?.pendingBooks,
-    data?.reviews,
-    data?.items,
-    payload,
-    root?.data,
-  ];
-
-  for (const list of possibleArrays) {
-    if (Array.isArray(list) && list.length > 0) {
-      return true;
-    }
-  }
-
-  const countCandidates = [
-    toInt(root?.printedCount),
-    toInt(root?.pendingCount),
-    toInt(root?.reviewableCount),
-    toInt(data?.printedCount),
-    toInt(data?.pendingCount),
-    toInt(data?.reviewableCount),
-  ];
-
-  return countCandidates.some((count) => typeof count === "number" && count > 0);
-}
-
-async function fetchNotificationUnreadCount(): Promise<
-  QueryDataWithFallback<NotificationUnreadCountContract>
-> {
+async function fetchNotificationUnreadCount({
+  signal,
+}: {
+  signal?: AbortSignal;
+} = {}): Promise<QueryDataWithFallback<NotificationUnreadCountResponse>> {
   try {
     const response = await fetch(`${API_V1_BASE_URL}/notifications/unread-count`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",
+      signal,
     });
 
     if (!response.ok) {
@@ -144,10 +121,14 @@ async function fetchNotificationUnreadCount(): Promise<
     const payload = (await response.json().catch(() => null)) as unknown;
 
     return {
-      unreadCount: resolveUnreadCount(payload),
+      ...normalizeNotificationUnreadCountPayload(payload),
       isFallback: false,
     };
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
     return {
       unreadCount: 0,
       isFallback: true,
@@ -155,30 +136,243 @@ async function fetchNotificationUnreadCount(): Promise<
   }
 }
 
-async function fetchReviewEligibility(): Promise<QueryDataWithFallback<ReviewEligibilityContract>> {
+type FetchNotificationsPageParams = {
+  page?: number;
+  pageSize?: number;
+  signal?: AbortSignal;
+};
+
+export async function fetchNotificationsPage({
+  page: requestedPage,
+  pageSize: requestedPageSize,
+  signal,
+}: FetchNotificationsPageParams = {}): Promise<NotificationsListResponse> {
+  const page = coerceNotificationsPage(requestedPage);
+  const pageSize = coerceNotificationsPageSize(requestedPageSize);
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(pageSize),
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_V1_BASE_URL}/notifications?${params.toString()}`, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
+    throw new Error("Unable to load notifications right now");
+  }
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to load notifications");
+  }
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  return normalizeNotificationsListPayload(payload, {
+    requestedPage: page,
+    requestedPageSize: pageSize,
+  });
+}
+
+async function markNotificationReadRequest({
+  notificationId,
+}: NotificationReadMutationInput): Promise<NotificationMarkReadResponse> {
+  const response = await fetch(`${API_V1_BASE_URL}/notifications/${notificationId}/read`, {
+    method: "PATCH",
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to mark this notification as read");
+  }
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  return normalizeNotificationMarkReadPayload(payload);
+}
+
+async function markAllNotificationsReadRequest(): Promise<NotificationMarkAllReadResponse> {
+  const response = await fetch(`${API_V1_BASE_URL}/notifications/read-all`, {
+    method: "PATCH",
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to mark all notifications as read");
+  }
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  return normalizeNotificationMarkAllReadPayload(payload);
+}
+
+async function fetchReviewState({
+  signal,
+}: {
+  signal?: AbortSignal;
+} = {}): Promise<ReviewStateQueryData> {
   try {
     const response = await fetch(`${API_V1_BASE_URL}/reviews/my`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",
+      signal,
     });
 
     if (!response.ok) {
-      throw new Error(`Review eligibility endpoint failed with status ${response.status}`);
+      throw new Error(`Review state endpoint failed with status ${response.status}`);
     }
 
     const payload = (await response.json().catch(() => null)) as unknown;
 
     return {
-      hasAnyPrintedBook: resolveHasAnyPrintedBook(payload),
+      ...normalizeMyReviewsPayload(payload),
       isFallback: false,
     };
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
     return {
-      hasAnyPrintedBook: false,
+      ...createEmptyReviewState(),
       isFallback: true,
     };
   }
+}
+
+async function createReviewRequest(input: CreateReviewBodyInput): Promise<CreateReviewResponse> {
+  const response = await fetch(`${API_V1_BASE_URL}/reviews`, {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to submit your review");
+  }
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  return normalizeCreateReviewPayload(payload);
+}
+
+function getNotificationsListSnapshots(
+  queryClient: ReturnType<typeof useQueryClient>
+): Array<[QueryKey, NotificationsListResponse | undefined]> {
+  return queryClient.getQueriesData<NotificationsListResponse>({
+    queryKey: dashboardNotificationsQueryKeys.lists(),
+  });
+}
+
+function restoreNotificationCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  context: NotificationReadMutationContext | NotificationMarkAllReadMutationContext | undefined
+) {
+  if (!context) return;
+
+  queryClient.setQueryData(DASHBOARD_UNREAD_COUNT_QUERY_KEY, context.unreadCountSnapshot);
+
+  for (const [queryKey, snapshot] of context.listSnapshots) {
+    queryClient.setQueryData(queryKey, snapshot);
+  }
+}
+
+function findNotificationStateInSnapshots(
+  snapshots: Array<[QueryKey, NotificationsListResponse | undefined]>,
+  notificationId: string
+): NotificationReadMutationContext["targetState"] {
+  for (const [, response] of snapshots) {
+    const item = response?.items.find((notification) => notification.id === notificationId);
+
+    if (!item) {
+      continue;
+    }
+
+    return item.isRead ? "read" : "unread";
+  }
+
+  return "missing";
+}
+
+function updateUnreadCountCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  updater: (
+    current: QueryDataWithFallback<NotificationUnreadCountResponse>
+  ) => QueryDataWithFallback<NotificationUnreadCountResponse>
+) {
+  queryClient.setQueryData<QueryDataWithFallback<NotificationUnreadCountResponse>>(
+    DASHBOARD_UNREAD_COUNT_QUERY_KEY,
+    (current) => updater(current ?? { unreadCount: 0, isFallback: true })
+  );
+}
+
+function optimisticallyMarkNotificationReadInCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  notificationId: string
+) {
+  queryClient.setQueriesData<NotificationsListResponse>(
+    {
+      queryKey: dashboardNotificationsQueryKeys.lists(),
+    },
+    (current) => {
+      if (!current) {
+        return current;
+      }
+
+      return markNotificationReadInListResponse(current, notificationId);
+    }
+  );
+}
+
+function replaceNotificationAcrossCachedLists(
+  queryClient: ReturnType<typeof useQueryClient>,
+  result: NotificationMarkReadResponse
+) {
+  let didReplace = false;
+
+  for (const [queryKey, response] of getNotificationsListSnapshots(queryClient)) {
+    if (!response) {
+      continue;
+    }
+
+    const next = replaceNotificationInListResponse(response, result.notification);
+    if (next === response) {
+      continue;
+    }
+
+    didReplace = true;
+    queryClient.setQueryData(queryKey, next);
+  }
+
+  return didReplace;
+}
+
+function optimisticallyMarkAllNotificationsReadInCache(
+  queryClient: ReturnType<typeof useQueryClient>
+) {
+  queryClient.setQueriesData<NotificationsListResponse>(
+    {
+      queryKey: dashboardNotificationsQueryKeys.lists(),
+    },
+    (current) => {
+      if (!current) {
+        return current;
+      }
+
+      return markAllNotificationsReadInListResponse(current);
+    }
+  );
 }
 
 export function useNotificationUnreadCount() {
@@ -188,11 +382,12 @@ export function useNotificationUnreadCount() {
       sentryName: "fetchNotificationUnreadCount",
       sentryEndpoint: "/api/v1/notifications/unread-count",
     },
-    queryFn: fetchNotificationUnreadCount,
+    queryFn: ({ signal }) => fetchNotificationUnreadCount({ signal }),
     staleTime: 0,
     gcTime: 1000 * 60 * 10,
     retry: 1,
-    refetchInterval: 45_000,
+    refetchInterval: NOTIFICATIONS_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
     refetchOnMount: "always",
   });
@@ -207,14 +402,204 @@ export function useNotificationUnreadCount() {
   };
 }
 
-export function useReviewEligibility() {
+type UseNotificationsListParams = {
+  page?: number;
+  pageSize?: number;
+  isOpen?: boolean;
+};
+
+export function useNotificationsList({
+  page,
+  pageSize,
+  isOpen = false,
+}: UseNotificationsListParams = {}) {
+  const resolvedPage = coerceNotificationsPage(page ?? DEFAULT_NOTIFICATIONS_PAGE);
+  const resolvedPageSize = coerceNotificationsPageSize(pageSize ?? DEFAULT_NOTIFICATIONS_PAGE_SIZE);
+
+  const query = useQuery({
+    queryKey: dashboardNotificationsQueryKeys.list(resolvedPage, resolvedPageSize),
+    meta: {
+      sentryName: "fetchNotificationsList",
+      sentryEndpoint: "/api/v1/notifications",
+    },
+    queryFn: ({ signal }) =>
+      fetchNotificationsPage({
+        page: resolvedPage,
+        pageSize: resolvedPageSize,
+        signal,
+      }),
+    placeholderData: keepPreviousData,
+    staleTime: 0,
+    gcTime: 1000 * 60 * 10,
+    retry: 1,
+    enabled: isOpen,
+    refetchInterval: isOpen ? NOTIFICATIONS_POLL_INTERVAL_MS : false,
+    refetchIntervalInBackground: isOpen,
+    refetchOnWindowFocus: isOpen,
+    refetchOnMount: isOpen ? "always" : false,
+  });
+
+  const data = query.data ?? createEmptyNotificationsListResponse(resolvedPage, resolvedPageSize);
+  const isInitialLoading = query.isPending && !query.data;
+  const isRefreshing = query.isFetching && !isInitialLoading;
+
+  return {
+    ...query,
+    data,
+    items: data.items,
+    pagination: data.pagination,
+    page: resolvedPage,
+    pageSize: resolvedPageSize,
+    isInitialLoading,
+    isRefreshing,
+    hasUnreadItems: data.items.some((item) => !item.isRead),
+    hasProductionDelayBanner: hasPersistentNotificationBanner(data.items, "production_delay"),
+  };
+}
+
+export function useNotifications(params: UseNotificationsListParams = {}) {
+  return useNotificationsList(params);
+}
+
+export function useNotificationBannerState() {
+  const query = useQuery({
+    queryKey: dashboardNotificationsQueryKeys.list(1, DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE),
+    meta: {
+      sentryName: "fetchNotificationBannerState",
+      sentryEndpoint: "/api/v1/notifications",
+    },
+    queryFn: ({ signal }) =>
+      fetchNotificationsPage({
+        page: 1,
+        pageSize: DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE,
+        signal,
+      }),
+    staleTime: 0,
+    gcTime: 1000 * 60 * 10,
+    retry: 1,
+    refetchInterval: NOTIFICATIONS_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
+  });
+
+  const data =
+    query.data ?? createEmptyNotificationsListResponse(1, DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE);
+
+  return {
+    ...query,
+    data,
+    items: data.items,
+    hasProductionDelayBanner: hasPersistentNotificationBanner(data.items, "production_delay"),
+  };
+}
+
+export function useMarkNotificationRead() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: markNotificationReadRequest,
+    meta: {
+      sentryName: "markNotificationRead",
+      sentryEndpoint: "/api/v1/notifications/:id/read",
+    },
+    onMutate: async ({ notificationId }) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: DASHBOARD_UNREAD_COUNT_QUERY_KEY, exact: true }),
+        queryClient.cancelQueries({ queryKey: dashboardNotificationsQueryKeys.lists() }),
+      ]);
+
+      const unreadCountSnapshot = queryClient.getQueryData<
+        QueryDataWithFallback<NotificationUnreadCountResponse>
+      >(DASHBOARD_UNREAD_COUNT_QUERY_KEY);
+      const listSnapshots = getNotificationsListSnapshots(queryClient);
+      const targetState = findNotificationStateInSnapshots(listSnapshots, notificationId);
+
+      if (targetState === "unread") {
+        optimisticallyMarkNotificationReadInCache(queryClient, notificationId);
+        updateUnreadCountCache(queryClient, (current) => ({
+          ...current,
+          unreadCount: Math.max(0, current.unreadCount - 1),
+        }));
+      }
+
+      return {
+        unreadCountSnapshot,
+        listSnapshots,
+        targetState,
+      };
+    },
+    onError: (_error, _variables, context) => {
+      restoreNotificationCaches(queryClient, context);
+    },
+    onSuccess: (result, _variables, context) => {
+      const didReplace = replaceNotificationAcrossCachedLists(queryClient, result);
+
+      if (context?.targetState === "missing" && !didReplace) {
+        void queryClient.invalidateQueries({
+          queryKey: DASHBOARD_UNREAD_COUNT_QUERY_KEY,
+          exact: true,
+        });
+      }
+    },
+  });
+
+  return {
+    ...mutation,
+    markAsRead: mutation.mutateAsync,
+  };
+}
+
+export function useMarkAllNotificationsRead() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: markAllNotificationsReadRequest,
+    meta: {
+      sentryName: "markAllNotificationsRead",
+      sentryEndpoint: "/api/v1/notifications/read-all",
+    },
+    onMutate: async () => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: DASHBOARD_UNREAD_COUNT_QUERY_KEY, exact: true }),
+        queryClient.cancelQueries({ queryKey: dashboardNotificationsQueryKeys.lists() }),
+      ]);
+
+      const unreadCountSnapshot = queryClient.getQueryData<
+        QueryDataWithFallback<NotificationUnreadCountResponse>
+      >(DASHBOARD_UNREAD_COUNT_QUERY_KEY);
+      const listSnapshots = getNotificationsListSnapshots(queryClient);
+
+      updateUnreadCountCache(queryClient, (current) => ({
+        ...current,
+        unreadCount: 0,
+      }));
+      optimisticallyMarkAllNotificationsReadInCache(queryClient);
+
+      return {
+        unreadCountSnapshot,
+        listSnapshots,
+      };
+    },
+    onError: (_error, _variables, context) => {
+      restoreNotificationCaches(queryClient, context);
+    },
+  });
+
+  return {
+    ...mutation,
+    markAllAsRead: mutation.mutateAsync,
+  };
+}
+
+export function useReviewState() {
   const query = useQuery({
     queryKey: DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY,
     meta: {
-      sentryName: "fetchReviewEligibility",
+      sentryName: "fetchReviewState",
       sentryEndpoint: "/api/v1/reviews/my",
     },
-    queryFn: fetchReviewEligibility,
+    queryFn: ({ signal }) => fetchReviewState({ signal }),
     staleTime: 0,
     gcTime: 1000 * 60 * 10,
     retry: 1,
@@ -222,10 +607,62 @@ export function useReviewEligibility() {
     refetchOnMount: "always",
   });
 
+  const data = query.data ?? {
+    ...createEmptyReviewState(),
+    isFallback: true,
+  };
+
   return {
     ...query,
-    hasAnyPrintedBook: query.data?.hasAnyPrintedBook ?? false,
-    isFallback: query.data?.isFallback ?? true,
+    hasAnyPrintedBook: data.hasAnyPrintedBook,
+    reviewedBooks: data.reviewedBooks,
+    pendingBooks: data.pendingBooks,
+    isFallback: data.isFallback,
+  };
+}
+
+export function useCreateReview() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: createReviewRequest,
+    meta: {
+      sentryName: "createReview",
+      sentryEndpoint: "/api/v1/reviews",
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<ReviewStateQueryData>(
+        DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY,
+        (current) => ({
+          ...appendReviewToState(
+            current
+              ? {
+                  hasAnyPrintedBook: current.hasAnyPrintedBook,
+                  reviewedBooks: current.reviewedBooks,
+                  pendingBooks: current.pendingBooks,
+                }
+              : createEmptyReviewState(),
+            result.review
+          ),
+          isFallback: false,
+        })
+      );
+    },
+  });
+
+  return {
+    ...mutation,
+    submitReview: mutation.mutateAsync,
+  };
+}
+
+export function useReviewEligibility() {
+  const query = useReviewState();
+
+  return {
+    ...query,
+    hasAnyPrintedBook: query.hasAnyPrintedBook,
+    isFallback: query.isFallback,
   };
 }
 

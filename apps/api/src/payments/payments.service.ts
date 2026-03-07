@@ -27,6 +27,7 @@ import {
   PaymentType,
   UserRole,
 } from "../generated/prisma/client.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
@@ -113,6 +114,7 @@ export class PaymentsService {
     private readonly scanner: ScannerService,
     private readonly cloudinary: CloudinaryService,
     private readonly signupNotificationsService: SignupNotificationsService,
+    private readonly notificationsService: NotificationsService,
     private readonly rollout: RolloutService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -1454,6 +1456,18 @@ export class PaymentsService {
         },
       });
 
+      await this.notificationsService.createOrderStatusNotification(
+        {
+          userId: user.id,
+          orderId: order.id,
+          orderNumber,
+          status: OrderStatus.PAID,
+          source: "order",
+          bookId: book.id,
+        },
+        tx
+      );
+
       return {
         email: user.email,
         name: user.firstName,
@@ -1849,36 +1863,16 @@ export class PaymentsService {
     locale: Locale;
   }): Promise<void> {
     await Promise.allSettled([
-      this.createAdminInAppNotifications(params),
+      this.notificationsService.notifyAdminsBankTransferReceived({
+        reference: params.reference,
+        orderNumber: params.orderNumber,
+        payerName: params.payerName,
+        amountLabel: this.formatNaira(params.amount),
+      }),
       this.sendBankTransferAdminWhatsApp(params),
       this.sendBankTransferUserEmail(params),
       this.sendBankTransferAdminEmail(params),
     ]);
-  }
-
-  private async createAdminInAppNotifications(params: {
-    reference: string;
-    payerName: string;
-    amount: number;
-  }): Promise<void> {
-    const admins = await this.prisma.user.findMany({
-      where: {
-        role: { in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
-      },
-      select: { id: true },
-    });
-
-    if (admins.length === 0) return;
-
-    const amountLabel = this.formatNaira(params.amount);
-    await this.prisma.notification.createMany({
-      data: admins.map((admin) => ({
-        userId: admin.id,
-        title: "Bank Transfer Received",
-        message: `${params.payerName} submitted ${amountLabel}. Ref: ${params.reference}`,
-        type: "BANK_TRANSFER_RECEIVED",
-      })),
-    });
   }
 
   private async sendBankTransferAdminWhatsApp(params: {
