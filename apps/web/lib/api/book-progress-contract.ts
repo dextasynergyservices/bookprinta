@@ -1,9 +1,17 @@
 import {
   BOOK_PROGRESS_STAGES,
+  type BookProcessingJobStatus,
+  type BookProcessingState,
+  type BookProcessingStep,
+  type BookProcessingTrigger,
   type BookProgressNormalizedResponse,
   type BookProgressSource,
   type BookProgressStage,
   type BookProgressTimelineStep,
+  type BookRolloutAccess,
+  type BookRolloutBlockedFeature,
+  type BookRolloutEnvironment,
+  type BookRolloutState,
 } from "@/types/book-progress";
 
 /**
@@ -113,6 +121,158 @@ function toIsoDatetime(value: unknown): string | null {
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function toBooleanValue(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+
+  return null;
+}
+
+function normalizeRolloutAccess(value: unknown): BookRolloutAccess | null {
+  const normalized = normalizeStatus(value);
+  if (normalized === "ENABLED") return "enabled";
+  if (normalized === "GRANDFATHERED") return "grandfathered";
+  if (normalized === "DISABLED") return "disabled";
+  return null;
+}
+
+function normalizeRolloutEnvironment(value: unknown): BookRolloutEnvironment | null {
+  const raw = toStringValue(value);
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "development") return "development";
+  if (normalized === "test") return "test";
+  if (normalized === "staging") return "staging";
+  if (normalized === "production") return "production";
+  if (normalized === "unknown") return "unknown";
+  return null;
+}
+
+function normalizeBlockedFeature(value: unknown): BookRolloutBlockedFeature | null {
+  const raw = toStringValue(value);
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized === "workspace" ||
+    normalized === "manuscript_pipeline" ||
+    normalized === "billing_gate" ||
+    normalized === "final_pdf"
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
+function createFallbackRolloutState(): BookRolloutState {
+  return {
+    environment: "unknown",
+    allowInFlightAccess: true,
+    isGrandfathered: false,
+    blockedBy: null,
+    workspace: { enabled: true, access: "enabled" },
+    manuscriptPipeline: { enabled: true, access: "enabled" },
+    billingGate: { enabled: true, access: "enabled" },
+    finalPdf: { enabled: true, access: "enabled" },
+  };
+}
+
+function createFallbackProcessingState(): BookProcessingState {
+  return {
+    isActive: false,
+    currentStep: null,
+    jobStatus: null,
+    trigger: null,
+    startedAt: null,
+    attempt: null,
+    maxAttempts: null,
+  };
+}
+
+function normalizeProcessingStep(value: unknown): BookProcessingStep | null {
+  const raw = toStringValue(value);
+  if (
+    raw === "AI_FORMATTING" ||
+    raw === "RENDERING_PREVIEW" ||
+    raw === "COUNTING_PAGES" ||
+    raw === "GENERATING_FINAL_PDF"
+  ) {
+    return raw;
+  }
+
+  return null;
+}
+
+function normalizeProcessingJobStatus(value: unknown): BookProcessingJobStatus | null {
+  const raw = toStringValue(value)?.toLowerCase();
+  return raw === "queued" || raw === "processing" ? raw : null;
+}
+
+function normalizeProcessingTrigger(value: unknown): BookProcessingTrigger | null {
+  const raw = toStringValue(value);
+  return raw === "upload" || raw === "settings_change" || raw === "approval" ? raw : null;
+}
+
+function resolveRolloutFeatureState(value: unknown): BookRolloutState["workspace"] | null {
+  const record = toRecord(value);
+  if (!record) return null;
+
+  const enabled = toBooleanValue(record.enabled);
+  const access = normalizeRolloutAccess(record.access);
+  if (enabled === null || !access) return null;
+
+  return { enabled, access };
+}
+
+function resolveRolloutState(payload: unknown): BookRolloutState {
+  const root = toRecord(payload);
+  const data = toRecord(root?.data);
+  const book = toRecord(root?.book);
+  const rolloutRecord =
+    toRecord(root?.rollout) ?? toRecord(data?.rollout) ?? toRecord(book?.rollout) ?? null;
+  const fallback = createFallbackRolloutState();
+
+  if (!rolloutRecord) return fallback;
+
+  return {
+    environment: normalizeRolloutEnvironment(rolloutRecord.environment) ?? fallback.environment,
+    allowInFlightAccess:
+      toBooleanValue(rolloutRecord.allowInFlightAccess) ?? fallback.allowInFlightAccess,
+    isGrandfathered: toBooleanValue(rolloutRecord.isGrandfathered) ?? fallback.isGrandfathered,
+    blockedBy: normalizeBlockedFeature(rolloutRecord.blockedBy) ?? fallback.blockedBy,
+    workspace: resolveRolloutFeatureState(rolloutRecord.workspace) ?? fallback.workspace,
+    manuscriptPipeline:
+      resolveRolloutFeatureState(rolloutRecord.manuscriptPipeline) ?? fallback.manuscriptPipeline,
+    billingGate: resolveRolloutFeatureState(rolloutRecord.billingGate) ?? fallback.billingGate,
+    finalPdf: resolveRolloutFeatureState(rolloutRecord.finalPdf) ?? fallback.finalPdf,
+  };
+}
+
+function resolveProcessingState(payload: unknown): BookProcessingState {
+  const root = toRecord(payload);
+  const data = toRecord(root?.data);
+  const book = toRecord(root?.book);
+  const processingRecord =
+    toRecord(root?.processing) ?? toRecord(data?.processing) ?? toRecord(book?.processing) ?? null;
+  const fallback = createFallbackProcessingState();
+
+  if (!processingRecord) return fallback;
+
+  return {
+    isActive: toBooleanValue(processingRecord.isActive) ?? fallback.isActive,
+    currentStep: normalizeProcessingStep(processingRecord.currentStep) ?? fallback.currentStep,
+    jobStatus: normalizeProcessingJobStatus(processingRecord.jobStatus) ?? fallback.jobStatus,
+    trigger: normalizeProcessingTrigger(processingRecord.trigger) ?? fallback.trigger,
+    startedAt: toIsoDatetime(processingRecord.startedAt),
+    attempt: toNumberValue(processingRecord.attempt),
+    maxAttempts: toNumberValue(processingRecord.maxAttempts),
+  };
 }
 
 function resolveSource(payload: unknown): BookProgressSource {
@@ -348,6 +508,8 @@ export function normalizeBookProgressPayload(payload: unknown): BookProgressNorm
   const reachedAtByStage = resolveReachedAtByStage(timelineRows);
   const timeline = createTimeline(currentStageIndex, isRejected, reachedAtByStage, currentStatus);
   const metadata = resolveBookMetadata(payload);
+  const rollout = resolveRolloutState(payload);
+  const processing = resolveProcessingState(payload);
 
   return {
     sourceEndpoint,
@@ -368,5 +530,7 @@ export function normalizeBookProgressPayload(payload: unknown): BookProgressNorm
     previewPdfUrl: metadata.previewPdfUrl,
     finalPdfUrl: metadata.finalPdfUrl,
     updatedAt: metadata.updatedAt,
+    rollout,
+    processing,
   };
 }

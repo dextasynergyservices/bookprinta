@@ -55,6 +55,25 @@ describe("book progress contract alignment", () => {
       id: "cm2222222222222222222222222",
       status: "IN_PRODUCTION",
       rejectionReason: null,
+      rollout: {
+        environment: "staging",
+        allowInFlightAccess: true,
+        isGrandfathered: false,
+        blockedBy: null,
+        workspace: { enabled: true, access: "enabled" },
+        manuscriptPipeline: { enabled: true, access: "enabled" },
+        billingGate: { enabled: true, access: "enabled" },
+        finalPdf: { enabled: true, access: "enabled" },
+      },
+      processing: {
+        isActive: true,
+        currentStep: "COUNTING_PAGES",
+        jobStatus: "processing",
+        trigger: "upload",
+        startedAt: "2026-03-03T12:05:00.000Z",
+        attempt: 1,
+        maxAttempts: 3,
+      },
       timeline: [
         {
           status: "APPROVED",
@@ -75,6 +94,10 @@ describe("book progress contract alignment", () => {
     expect(normalized.bookId).toBe("cm2222222222222222222222222");
     expect(normalized.currentStage).toBe("PRINTING");
     expect(normalized.timeline.find((stage) => stage.stage === "PRINTING")?.state).toBe("current");
+    expect(normalized.rollout.environment).toBe("staging");
+    expect(normalized.rollout.finalPdf.access).toBe("enabled");
+    expect(normalized.processing.currentStep).toBe("COUNTING_PAGES");
+    expect(normalized.processing.jobStatus).toBe("processing");
   });
 
   it("keeps a complete 11-step timeline and safe fallback when status is unknown", () => {
@@ -117,6 +140,20 @@ describe("book progress contract alignment", () => {
     expect(normalized.currentStage).toBe("REVIEW");
     expect(normalized.rejectionReason).toBe("Images are low resolution.");
     expect(normalized.timeline.find((stage) => stage.stage === "REVIEW")?.state).toBe("rejected");
+  });
+
+  it("falls back to enabled rollout state when rollout metadata is absent", () => {
+    const normalized = normalizeBookProgressPayload({
+      id: "cm4444444444444444444444444",
+      status: "AWAITING_UPLOAD",
+      timeline: [],
+    });
+
+    expect(normalized.rollout.environment).toBe("unknown");
+    expect(normalized.rollout.workspace.access).toBe("enabled");
+    expect(normalized.rollout.blockedBy).toBeNull();
+    expect(normalized.processing.isActive).toBe(false);
+    expect(normalized.processing.currentStep).toBeNull();
   });
 });
 

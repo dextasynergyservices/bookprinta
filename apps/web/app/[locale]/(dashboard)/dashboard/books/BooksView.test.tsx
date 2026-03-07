@@ -1,10 +1,16 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { BooksView } from "./BooksView";
 
+const approveBookForProductionMock = jest.fn();
 const useBookProgressMock = jest.fn();
+const useBookPreviewMock = jest.fn();
+const useBookFilesMock = jest.fn();
+const useOrderDetailMock = jest.fn();
 const useOrdersMock = jest.fn();
+const usePaymentGatewaysMock = jest.fn();
+const payExtraPagesMock = jest.fn();
 let currentBookId: string | null = null;
 
 const TRANSLATIONS: Record<string, string> = {
@@ -24,6 +30,7 @@ const TRANSLATIONS: Record<string, string> = {
   book_progress_empty_cta: "Go to Orders",
   book_progress_current_stage: "Current stage: {stage}",
   book_progress_rejection_reason_label: "Rejection reason",
+  book_progress_meta_value_unavailable: "Unavailable",
   book_progress_state_completed: "Completed",
   book_progress_state_current: "Current",
   book_progress_state_upcoming: "Upcoming",
@@ -39,6 +46,152 @@ const TRANSLATIONS: Record<string, string> = {
   book_progress_stage_printed: "Printed",
   book_progress_stage_shipping: "Shipping",
   book_progress_stage_delivered: "Delivered",
+  book_progress_cta_open_workspace: "Open Book Workspace",
+  book_progress_cta_review_preview: "Review Preview",
+  book_progress_cta_review_preview_loading: "Opening Preview...",
+  book_progress_cta_download_final_pdf: "Download Final PDF",
+  book_progress_cta_view_files: "View File Versions",
+  book_progress_cta_hide_files: "Hide File Versions",
+  book_progress_preview_error: "Unable to load preview right now.",
+  book_progress_browser_preview_title: "Browser Preview",
+  book_progress_browser_preview_heading: "Live layout preview",
+  book_progress_browser_preview_subtitle:
+    "Preview your formatted manuscript in the browser and change layout settings before approval.",
+  book_progress_browser_preview_settings_title: "Preview layout controls",
+  book_progress_browser_preview_settings_hint:
+    "Changing size or font automatically reruns AI formatting and server counting.",
+  book_progress_browser_preview_settings_locked: "Layout settings are locked after approval.",
+  book_progress_browser_preview_reprocessing: "Reprocessing layout",
+  book_progress_browser_preview_reprocessing_note:
+    "Approval stays locked until the new browser preview and server count are ready.",
+  book_progress_browser_preview_status_queued: "Queued",
+  book_progress_browser_preview_status_processing: "Processing",
+  book_progress_browser_preview_elapsed: "Elapsed {duration}",
+  book_progress_browser_preview_attempt: "Attempt {attempt} of {maxAttempts}",
+  book_progress_browser_preview_step_saving_settings: "Saving layout settings",
+  book_progress_browser_preview_step_ai_formatting: "Formatting manuscript with AI",
+  book_progress_browser_preview_step_counting_pages: "Counting authoritative pages",
+  book_progress_browser_preview_step_rendering_preview: "Refreshing browser preview",
+  book_progress_browser_preview_step_complete: "Completed",
+  book_progress_browser_preview_step_upcoming: "Waiting",
+  book_progress_browser_preview_saving_settings_message_primary:
+    "Saving your new page and font settings.",
+  book_progress_browser_preview_saving_settings_message_secondary:
+    "Preparing a fresh formatting job with the updated layout rules.",
+  book_progress_browser_preview_ai_formatting_message_primary:
+    "Cleaning and formatting your manuscript with AI.",
+  book_progress_browser_preview_ai_formatting_message_secondary:
+    "Applying your selected trim size and font settings to the manuscript.",
+  book_progress_browser_preview_counting_pages_message_primary:
+    "Rendering the server layout for the billing-authoritative count.",
+  book_progress_browser_preview_counting_pages_message_secondary:
+    "Checking the final page total against your package limit.",
+  book_progress_browser_preview_rendering_preview_message_primary:
+    "Refreshing the latest preview and workspace state.",
+  book_progress_browser_preview_rendering_preview_message_secondary:
+    "Approval will unlock again as soon as the fresh preview is ready.",
+  book_progress_browser_preview_count_pending:
+    "The updated preview is ready. The authoritative server count is still running, so approval remains locked.",
+  book_progress_browser_preview_note:
+    "This browser preview is for review only. Billing uses the server-side count, not this view.",
+  book_progress_browser_preview_latest_count: "Latest authoritative count: {count} pages",
+  book_progress_browser_preview_empty_title: "Preview unlocks after upload",
+  book_progress_browser_preview_empty_body:
+    "Upload and process your manuscript to see the browser preview and adjust layout settings.",
+  book_progress_browser_preview_unavailable:
+    "Preview will appear here once formatted HTML is available.",
+  book_progress_browser_preview_error: "Unable to load browser preview right now.",
+  book_progress_browser_preview_settings_error: "Unable to update preview settings right now.",
+  book_progress_browser_preview_frame_title: "Browser manuscript preview",
+  manuscript_upload_book_size_a4: "A4",
+  manuscript_upload_book_size_a4_desc: "Standard trim with more words per page.",
+  manuscript_upload_book_size_a5: "A5",
+  manuscript_upload_book_size_a5_desc: "Compact trim with fewer words per page.",
+  manuscript_upload_font_size_value: "{size}pt",
+  book_progress_files_title: "Book Files",
+  book_progress_files_heading: "Version history and exports",
+  book_progress_files_description:
+    "Original uploads, formatted outputs, preview PDFs, and final files are listed here when available.",
+  book_progress_files_empty: "No file versions are available for this book yet.",
+  book_progress_files_error: "Unable to load book files right now.",
+  book_progress_files_version: "Version {version}",
+  book_progress_files_uploaded: "Uploaded {date}",
+  book_progress_files_size: "Size {size}",
+  book_progress_files_download: "Download",
+  book_progress_workspace_title: "Book Workspace",
+  book_progress_workspace_badge_processing: "Processing",
+  book_progress_workspace_badge_blocked: "Blocked",
+  book_progress_workspace_badge_payment_pending: "Payment Pending",
+  book_progress_workspace_badge_unlocked: "Unlocked",
+  book_progress_workspace_badge_approved: "Approved",
+  book_progress_workspace_heading_processing: "Formatting and billing validation in progress",
+  book_progress_workspace_heading_blocked: "Extra-page payment required",
+  book_progress_workspace_heading_payment_pending: "Waiting for payment confirmation",
+  book_progress_workspace_heading_unlocked: "Approval is unlocked",
+  book_progress_workspace_heading_approved: "Approved for production",
+  book_progress_workspace_desc_processing:
+    "Your estimated pages are available now. We are still rendering the formatted manuscript on the server to produce the billing-authoritative count.",
+  book_progress_workspace_desc_blocked:
+    "The final formatted manuscript is over your package limit. Approval stays locked until the extra-page balance is paid.",
+  book_progress_workspace_desc_payment_pending:
+    "An extra-page payment has been started. Approval remains locked until the payment webhook confirms the charge.",
+  book_progress_workspace_desc_unlocked:
+    "The authoritative page count is complete and no extra payment is blocking approval. Review the preview and approve when ready.",
+  book_progress_workspace_desc_approved:
+    "This book has been approved. Final PDF generation will continue automatically and the finished file will appear here once ready.",
+  book_progress_workspace_estimated_pages: "Estimated Pages",
+  book_progress_workspace_authoritative_pages: "Authoritative Pages",
+  book_progress_workspace_formatting_delta: "Formatting Delta",
+  book_progress_workspace_overage_pages: "Overage Pages",
+  book_progress_workspace_authoritative_helper: "Used for billing and approval gating.",
+  book_progress_workspace_authoritative_pending: "Server render and count are still running.",
+  book_progress_workspace_delta_pending: "Delta appears after the server count finishes.",
+  book_progress_workspace_delta_helper:
+    "Difference between upload estimate and final formatted count.",
+  book_progress_workspace_overage_pending:
+    "Overage is calculated after the authoritative count returns.",
+  book_progress_workspace_overage_helper: "Pages above your package limit.",
+  book_progress_workspace_overage_clear: "No extra-page charge is required.",
+  book_progress_workspace_value_pending: "Pending",
+  book_progress_billing_gate_title: "Billing Gate",
+  book_progress_billing_gate_processing: "Processing",
+  book_progress_billing_gate_pending:
+    "Server page count is still running. Approval stays locked until billing is resolved.",
+  book_progress_billing_gate_ready:
+    "Your preview is ready. You can approve this book for final PDF generation.",
+  book_progress_billing_gate_payment_required:
+    "This manuscript exceeds your package limit. Extra-page payment is required before approval.",
+  book_progress_billing_gate_payment_pending:
+    "Payment has been started for the extra pages. Approval stays locked until confirmation is received.",
+  book_progress_billing_gate_paid: "Extra-page payment is complete. You can approve the book now.",
+  book_progress_billing_gate_approved: "This book has already been approved for production.",
+  book_progress_billing_gate_page_count: "Authoritative Page Count",
+  book_progress_billing_gate_extra_pages: "Extra Pages",
+  book_progress_billing_gate_extra_amount: "Extra Amount Due",
+  book_progress_billing_gate_pay_cta: "Pay Extra Pages",
+  book_progress_billing_gate_pay_loading: "Opening Payment...",
+  book_progress_billing_gate_approve_cta: "Approve for Production",
+  book_progress_billing_gate_approve_loading: "Approving...",
+  book_progress_billing_gate_success: "Book approved. Final PDF generation has been queued.",
+  book_progress_billing_gate_payment_redirect: "Redirecting to payment...",
+  book_progress_billing_gate_provider_unavailable:
+    "No online payment gateway is available right now.",
+  book_progress_billing_gate_payment_error: "Unable to start extra-page payment right now.",
+  book_progress_rollout_title: "Release Control",
+  book_progress_rollout_heading: "This automated step is not enabled here yet",
+  book_progress_rollout_workspace_disabled:
+    "The manuscript workspace is disabled for this environment. This book stays on the manual fallback path until rollout is enabled.",
+  book_progress_rollout_pipeline_disabled:
+    "Automated manuscript processing is disabled for this environment. This book stays on the manual fallback path until rollout is enabled.",
+  book_progress_rollout_billing_disabled:
+    "Automated extra-page billing is disabled for this environment. Approval stays on the fallback path until rollout is enabled.",
+  book_progress_rollout_final_pdf_disabled:
+    "Automated final PDF generation is disabled for this environment. Approval stays on the fallback path until rollout is enabled.",
+  book_progress_rollout_grandfathered_title: "Release Control",
+  book_progress_rollout_grandfathered_heading: "This book can finish on the current rollout",
+  book_progress_rollout_grandfathered:
+    "This manuscript started before the current rollout limit changed, so it can continue through the automated path without interruption.",
+  book_progress_rollout_environment: "Environment: {environment}",
   loading: "Loading...",
 };
 
@@ -68,10 +221,25 @@ jest.mock("next/navigation", () => ({
 
 jest.mock("@/hooks/useBookProgress", () => ({
   useBookProgress: (...args: unknown[]) => useBookProgressMock(...args),
+  approveBookForProduction: (...args: unknown[]) => approveBookForProductionMock(...args),
+}));
+
+jest.mock("@/hooks/useBookResources", () => ({
+  useBookPreview: (...args: unknown[]) => useBookPreviewMock(...args),
+  useBookFiles: (...args: unknown[]) => useBookFilesMock(...args),
+}));
+
+jest.mock("@/hooks/useOrderDetail", () => ({
+  useOrderDetail: (...args: unknown[]) => useOrderDetailMock(...args),
 }));
 
 jest.mock("@/hooks/useOrders", () => ({
   useOrders: (...args: unknown[]) => useOrdersMock(...args),
+}));
+
+jest.mock("@/hooks/usePayments", () => ({
+  usePaymentGateways: (...args: unknown[]) => usePaymentGatewaysMock(...args),
+  payExtraPages: (...args: unknown[]) => payExtraPagesMock(...args),
 }));
 
 jest.mock("@/components/dashboard/book-progress-tracker", () => ({
@@ -88,6 +256,10 @@ jest.mock("@/components/dashboard/book-progress-tracker", () => ({
       {currentStage}
     </section>
   ),
+}));
+
+jest.mock("@/components/dashboard/manuscript-upload-flow", () => ({
+  ManuscriptUploadFlow: () => <section data-testid="manuscript-upload-flow" />,
 }));
 
 jest.mock("@/lib/i18n/navigation", () => ({
@@ -115,9 +287,72 @@ function setViewportWidth(width: number) {
   window.dispatchEvent(new Event("resize"));
 }
 
+function createRolloutState(overrides: Record<string, unknown> = {}) {
+  return {
+    environment: "staging",
+    allowInFlightAccess: true,
+    isGrandfathered: false,
+    blockedBy: null,
+    workspace: { enabled: true, access: "enabled" },
+    manuscriptPipeline: { enabled: true, access: "enabled" },
+    billingGate: { enabled: true, access: "enabled" },
+    finalPdf: { enabled: true, access: "enabled" },
+    ...overrides,
+  };
+}
+
+function createProcessingState(overrides: Record<string, unknown> = {}) {
+  return {
+    isActive: false,
+    currentStep: null,
+    jobStatus: null,
+    trigger: null,
+    startedAt: null,
+    attempt: null,
+    maxAttempts: null,
+    ...overrides,
+  };
+}
+
+function createBookProgressData(overrides: Record<string, unknown> = {}) {
+  return {
+    sourceEndpoint: "books_detail",
+    bookId: currentBookId,
+    orderId: null,
+    currentStatus: null,
+    rejectionReason: null,
+    currentStage: "PAYMENT_RECEIVED",
+    isRejected: false,
+    timeline: [],
+    pageCount: null,
+    wordCount: null,
+    estimatedPages: null,
+    fontFamily: null,
+    fontSize: null,
+    pageSize: null,
+    currentHtmlUrl: null,
+    previewPdfUrl: null,
+    finalPdfUrl: null,
+    updatedAt: null,
+    rollout: createRolloutState(),
+    processing: createProcessingState(),
+    ...overrides,
+  };
+}
+
 describe("BooksView route integration", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    approveBookForProductionMock.mockResolvedValue({
+      bookId: "cm1111111111111111111111111",
+      bookStatus: "APPROVED",
+      orderStatus: "APPROVED",
+      queuedJob: {
+        queue: "pdf-generation",
+        name: "generate-pdf",
+        jobId: "job_123",
+      },
+    });
     useOrdersMock.mockReturnValue({
       items: [],
       isInitialLoading: false,
@@ -125,16 +360,82 @@ describe("BooksView route integration", () => {
       isFetching: false,
       refetch: jest.fn(),
     });
+    useBookPreviewMock.mockReturnValue({
+      data: undefined,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: jest.fn().mockResolvedValue({
+        data: {
+          bookId: currentBookId ?? "cm1111111111111111111111111",
+          previewPdfUrl: "https://example.com/preview.pdf",
+          status: "PREVIEW_READY",
+          watermarked: true,
+        },
+        error: null,
+      }),
+    });
+    useBookFilesMock.mockImplementation(
+      ({ bookId, enabled }: { bookId?: string | null; enabled?: boolean }) => ({
+        data: {
+          bookId: bookId ?? "",
+          files: enabled
+            ? [
+                {
+                  id: "file_1",
+                  fileType: "PREVIEW_PDF",
+                  url: "https://example.com/preview.pdf",
+                  fileName: "preview.pdf",
+                  fileSize: 120000,
+                  version: 2,
+                  createdAt: "2026-03-02T10:00:00.000Z",
+                },
+              ]
+            : [],
+        },
+        isFetching: false,
+        isError: false,
+        error: null,
+      })
+    );
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: null,
+        extraAmount: null,
+        latestExtraPaymentStatus: null,
+      },
+      status: null,
+      extraAmount: null,
+      latestExtraPaymentStatus: null,
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+    usePaymentGatewaysMock.mockReturnValue({
+      data: [
+        {
+          id: "gateway_1",
+          provider: "PAYSTACK",
+          name: "Paystack",
+          isEnabled: true,
+          isTestMode: false,
+          bankDetails: null,
+          instructions: null,
+          priority: 0,
+        },
+      ],
+      isLoading: false,
+    });
+    payExtraPagesMock.mockResolvedValue({
+      authorizationUrl: "https://example.com/pay",
+      reference: "ref_123",
+      provider: "PAYSTACK",
+    });
   });
 
   it("shows empty state when no bookId query param is provided", () => {
     currentBookId = null;
     useBookProgressMock.mockReturnValue({
-      data: {
-        currentStage: "PAYMENT_RECEIVED",
-        timeline: [],
-        rejectionReason: null,
-      },
+      data: createBookProgressData(),
       isInitialLoading: false,
       isError: false,
       isFetching: false,
@@ -154,11 +455,7 @@ describe("BooksView route integration", () => {
 
     currentBookId = null;
     useBookProgressMock.mockReturnValue({
-      data: {
-        currentStage: "PAYMENT_RECEIVED",
-        timeline: [],
-        rejectionReason: null,
-      },
+      data: createBookProgressData(),
       isInitialLoading: false,
       isError: false,
       isFetching: false,
@@ -189,7 +486,7 @@ describe("BooksView route integration", () => {
       refetch: jest.fn(),
     });
     useBookProgressMock.mockReturnValue({
-      data: {
+      data: createBookProgressData({
         currentStage: "PRINTING",
         timeline: [
           {
@@ -199,8 +496,7 @@ describe("BooksView route integration", () => {
             sourceStatus: "PRINTING",
           },
         ],
-        rejectionReason: null,
-      },
+      }),
       isInitialLoading: false,
       isError: false,
       isFetching: false,
@@ -220,11 +516,7 @@ describe("BooksView route integration", () => {
   it("shows loading skeleton when initial fetch is pending", () => {
     currentBookId = "cm1111111111111111111111111";
     useBookProgressMock.mockReturnValue({
-      data: {
-        currentStage: "PAYMENT_RECEIVED",
-        timeline: [],
-        rejectionReason: null,
-      },
+      data: createBookProgressData(),
       isInitialLoading: true,
       isError: false,
       isFetching: true,
@@ -244,11 +536,7 @@ describe("BooksView route integration", () => {
 
     currentBookId = "cm1111111111111111111111111";
     useBookProgressMock.mockReturnValue({
-      data: {
-        currentStage: "PAYMENT_RECEIVED",
-        timeline: [],
-        rejectionReason: null,
-      },
+      data: createBookProgressData(),
       isInitialLoading: false,
       isError: true,
       isFetching: false,
@@ -270,7 +558,7 @@ describe("BooksView route integration", () => {
   it("renders tracker with translated current stage summary", () => {
     currentBookId = "cm1111111111111111111111111";
     useBookProgressMock.mockReturnValue({
-      data: {
+      data: createBookProgressData({
         currentStage: "PRINTING",
         timeline: [
           {
@@ -280,8 +568,7 @@ describe("BooksView route integration", () => {
             sourceStatus: "PRINTING",
           },
         ],
-        rejectionReason: null,
-      },
+      }),
       isInitialLoading: false,
       isError: false,
       isFetching: false,
@@ -306,7 +593,7 @@ describe("BooksView route integration", () => {
     setViewportWidth(width);
     currentBookId = "cm1111111111111111111111111";
     useBookProgressMock.mockReturnValue({
-      data: {
+      data: createBookProgressData({
         currentStage: "PRINTING",
         timeline: [
           {
@@ -316,8 +603,7 @@ describe("BooksView route integration", () => {
             sourceStatus: "PRINTING",
           },
         ],
-        rejectionReason: null,
-      },
+      }),
       isInitialLoading: false,
       isError: false,
       isFetching: false,
@@ -330,5 +616,549 @@ describe("BooksView route integration", () => {
     expect(screen.getByLabelText("Book production progress tracker")).toBeInTheDocument();
     expect(container.querySelector(".overflow-x-auto")).not.toBeInTheDocument();
     unmount();
+  });
+
+  it("shows billing-gate payment action when extra-page payment is required", () => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "REVIEW",
+        currentStatus: "PREVIEW_READY",
+        timeline: [
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "PREVIEW_READY",
+          },
+        ],
+        rejectionReason: null,
+        estimatedPages: 132,
+        pageCount: 142,
+        wordCount: 41000,
+        previewPdfUrl: "https://example.com/preview.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "PENDING_EXTRA_PAYMENT",
+        extraAmount: 200,
+        latestExtraPaymentStatus: null,
+      },
+      status: "PENDING_EXTRA_PAYMENT",
+      extraAmount: 200,
+      latestExtraPaymentStatus: null,
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    expect(screen.getByText("Book Workspace")).toBeInTheDocument();
+    expect(screen.getByText("Extra-page payment required")).toBeInTheDocument();
+    expect(screen.getByText("Estimated Pages")).toBeInTheDocument();
+    expect(screen.getByText("Authoritative Pages")).toBeInTheDocument();
+    expect(screen.getByText("Formatting Delta")).toBeInTheDocument();
+    expect(screen.getByText("Overage Pages")).toBeInTheDocument();
+    expect(screen.getByText("Billing Gate")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This manuscript exceeds your package limit. Extra-page payment is required before approval."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pay Extra Pages" })).toBeInTheDocument();
+  });
+
+  it("renders the production progress block between manuscript upload and book workspace", () => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "REVIEW",
+        currentStatus: "PREVIEW_READY",
+        timeline: [
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "PREVIEW_READY",
+          },
+        ],
+        estimatedPages: 132,
+        pageCount: 142,
+        wordCount: 41000,
+        previewPdfUrl: "https://example.com/preview.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "PENDING_EXTRA_PAYMENT",
+        extraAmount: 200,
+        latestExtraPaymentStatus: null,
+      },
+      status: "PENDING_EXTRA_PAYMENT",
+      extraAmount: 200,
+      latestExtraPaymentStatus: null,
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    const uploadFlow = screen.getByTestId("manuscript-upload-flow");
+    const progressTracker = screen.getByTestId("book-progress-tracker");
+    const workspaceHeading = screen.getByText("Book Workspace");
+
+    expect(
+      uploadFlow.compareDocumentPosition(progressTracker) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      progressTracker.compareDocumentPosition(workspaceHeading) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("calls the approve endpoint when preview is ready", async () => {
+    const user = userEvent.setup();
+    const refetch = jest.fn();
+    const refetchOrderDetail = jest.fn();
+
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "REVIEW",
+        currentStatus: "PREVIEW_READY",
+        timeline: [
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "PREVIEW_READY",
+          },
+        ],
+        rejectionReason: null,
+        estimatedPages: 124,
+        pageCount: 128,
+        wordCount: 37000,
+        currentHtmlUrl: "https://example.com/current.html",
+        previewPdfUrl: "https://example.com/preview.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch,
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "PREVIEW_READY",
+        extraAmount: 0,
+        latestExtraPaymentStatus: null,
+      },
+      status: "PREVIEW_READY",
+      extraAmount: 0,
+      latestExtraPaymentStatus: null,
+      isInitialLoading: false,
+      refetch: refetchOrderDetail,
+    });
+
+    render(<BooksView />);
+
+    expect(screen.getByText("Approval is unlocked")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approve for Production" }));
+
+    await waitFor(() =>
+      expect(approveBookForProductionMock).toHaveBeenCalledWith({
+        bookId: "cm1111111111111111111111111",
+      })
+    );
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(refetchOrderDetail).toHaveBeenCalledTimes(1));
+    expect(
+      screen.getByText("Book approved. Final PDF generation has been queued.")
+    ).toBeInTheDocument();
+  });
+
+  it("loads preview lazily from the canonical preview endpoint", async () => {
+    const user = userEvent.setup();
+    const previewRefetch = jest.fn().mockResolvedValue({
+      data: {
+        bookId: "cm1111111111111111111111111",
+        previewPdfUrl: "https://example.com/preview-lazy.pdf",
+        status: "PREVIEW_READY",
+        watermarked: true,
+      },
+      error: null,
+    });
+    const windowOpenSpy = jest.spyOn(window, "open").mockImplementation(() => null);
+
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "REVIEW",
+        currentStatus: "PREVIEW_READY",
+        timeline: [
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "PREVIEW_READY",
+          },
+        ],
+        rejectionReason: null,
+        estimatedPages: 124,
+        pageCount: 128,
+        wordCount: 37000,
+        currentHtmlUrl: "https://example.com/current.html",
+        previewPdfUrl: "https://example.com/preview.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useBookPreviewMock.mockReturnValue({
+      data: undefined,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: previewRefetch,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "PREVIEW_READY",
+        extraAmount: 0,
+        latestExtraPaymentStatus: null,
+      },
+      status: "PREVIEW_READY",
+      extraAmount: 0,
+      latestExtraPaymentStatus: null,
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    await user.click(screen.getByRole("button", { name: "Review Preview" }));
+
+    await waitFor(() => expect(previewRefetch).toHaveBeenCalledTimes(1));
+    expect(windowOpenSpy).toHaveBeenCalledWith(
+      "https://example.com/preview-lazy.pdf",
+      "_blank",
+      "noopener,noreferrer"
+    );
+
+    windowOpenSpy.mockRestore();
+  });
+
+  it("keeps approval locked until the order billing state has loaded", () => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "REVIEW",
+        currentStatus: "PREVIEW_READY",
+        timeline: [
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "PREVIEW_READY",
+          },
+        ],
+        rejectionReason: null,
+        estimatedPages: 124,
+        pageCount: 128,
+        wordCount: 37000,
+        previewPdfUrl: "https://example.com/preview.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: null,
+        extraAmount: null,
+        latestExtraPaymentStatus: null,
+      },
+      status: null,
+      extraAmount: null,
+      latestExtraPaymentStatus: null,
+      isInitialLoading: true,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    expect(
+      screen.getByText(
+        "Server page count is still running. Approval stays locked until billing is resolved."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Approve for Production" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Extra Amount Due")).not.toBeInTheDocument();
+  });
+
+  it("shows file history only after the user requests it", async () => {
+    const user = userEvent.setup();
+
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "REVIEW",
+        currentStatus: "PREVIEW_READY",
+        timeline: [
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "PREVIEW_READY",
+          },
+        ],
+        rejectionReason: null,
+        estimatedPages: 132,
+        pageCount: 142,
+        wordCount: 41000,
+        previewPdfUrl: "https://example.com/preview.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+
+    render(<BooksView />);
+
+    expect(screen.queryByText("Version history and exports")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "View File Versions" }));
+
+    expect(screen.getByText("Version history and exports")).toBeInTheDocument();
+    expect(screen.getByText("preview.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide File Versions" })).toBeInTheDocument();
+  });
+
+  it("shows payment-pending state after extra-page payment has started", () => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "REVIEW",
+        currentStatus: "PREVIEW_READY",
+        timeline: [
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "PREVIEW_READY",
+          },
+        ],
+        rejectionReason: null,
+        estimatedPages: 132,
+        pageCount: 142,
+        wordCount: 41000,
+        previewPdfUrl: "https://example.com/preview.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "PENDING_EXTRA_PAYMENT",
+        extraAmount: 200,
+        latestExtraPaymentStatus: "PENDING",
+      },
+      status: "PENDING_EXTRA_PAYMENT",
+      extraAmount: 200,
+      latestExtraPaymentStatus: "PENDING",
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    expect(screen.getByText("Waiting for payment confirmation")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "An extra-page payment has been started. Approval remains locked until the payment webhook confirms the charge."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Payment has been started for the extra pages. Approval stays locked until confirmation is received."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pay Extra Pages" })).toBeInTheDocument();
+  });
+
+  it("shows approved workspace actions when the final PDF is available", () => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "APPROVED",
+        currentStatus: "APPROVED",
+        timeline: [
+          {
+            stage: "APPROVED",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "APPROVED",
+          },
+        ],
+        rejectionReason: null,
+        estimatedPages: 120,
+        pageCount: 128,
+        wordCount: 37000,
+        previewPdfUrl: "https://example.com/preview.pdf",
+        finalPdfUrl: "https://example.com/final.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "APPROVED",
+        extraAmount: 0,
+        latestExtraPaymentStatus: "SUCCESS",
+      },
+      status: "APPROVED",
+      extraAmount: 0,
+      latestExtraPaymentStatus: "SUCCESS",
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    expect(screen.getByText("Approved for production")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download Final PDF" })).toHaveAttribute(
+      "href",
+      "https://example.com/final.pdf"
+    );
+  });
+
+  it("shows rollout fallback when manuscript automation is disabled for a new book", () => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "PAYMENT_RECEIVED",
+        currentStatus: "AWAITING_UPLOAD",
+        pageSize: null,
+        fontSize: null,
+        rollout: createRolloutState({
+          blockedBy: "manuscript_pipeline",
+          manuscriptPipeline: { enabled: false, access: "disabled" },
+        }),
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+
+    render(<BooksView />);
+
+    expect(screen.getByText("This automated step is not enabled here yet")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Automated manuscript processing is disabled for this environment. This book stays on the manual fallback path until rollout is enabled."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("manuscript-upload-flow")).not.toBeInTheDocument();
+  });
+
+  it("shows a grandfathered notice while allowing in-flight books to continue", () => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "REVIEW",
+        currentStatus: "PREVIEW_READY",
+        timeline: [
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "PREVIEW_READY",
+          },
+        ],
+        estimatedPages: 124,
+        pageCount: 128,
+        wordCount: 37000,
+        currentHtmlUrl: "https://example.com/current.html",
+        previewPdfUrl: "https://example.com/preview.pdf",
+        rollout: createRolloutState({
+          isGrandfathered: true,
+          blockedBy: "final_pdf",
+          finalPdf: { enabled: false, access: "grandfathered" },
+        }),
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "PREVIEW_READY",
+        extraAmount: 0,
+        latestExtraPaymentStatus: null,
+      },
+      status: "PREVIEW_READY",
+      extraAmount: 0,
+      latestExtraPaymentStatus: null,
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    expect(screen.getByText("This book can finish on the current rollout")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This manuscript started before the current rollout limit changed, so it can continue through the automated path without interruption."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve for Production" })).toBeInTheDocument();
   });
 });

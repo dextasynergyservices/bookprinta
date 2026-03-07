@@ -58,6 +58,26 @@ export class HealthController {
         status: { type: "string", enum: ["ok", "degraded"], example: "ok" },
         timestamp: { type: "string", example: "2026-02-22T10:30:00.000Z" },
         uptime: { type: "number", example: 3600 },
+        rollout: {
+          type: "object",
+          properties: {
+            environment: {
+              type: "string",
+              enum: ["development", "test", "staging", "production", "unknown"],
+              example: "staging",
+            },
+            allowInFlightAccess: { type: "boolean", example: true },
+            features: {
+              type: "object",
+              properties: {
+                bookWorkspace: { type: "boolean", example: true },
+                manuscriptPipeline: { type: "boolean", example: true },
+                billingGate: { type: "boolean", example: true },
+                finalPdf: { type: "boolean", example: false },
+              },
+            },
+          },
+        },
         services: {
           type: "object",
           properties: {
@@ -80,6 +100,14 @@ export class HealthController {
               properties: {
                 status: { type: "string", example: "ok" },
                 latencyMs: { type: "number", example: 45 },
+              },
+            },
+            gemini: {
+              type: "object",
+              properties: {
+                status: { type: "string", example: "ok" },
+                latencyMs: { type: "number", example: 0 },
+                provider: { type: "string", example: "gemini-1.5-flash" },
               },
             },
             scanner: {

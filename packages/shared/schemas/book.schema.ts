@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BookStatusSchema } from "./order.schema.ts";
+import { BookStatusSchema, OrderStatusSchema } from "./order.schema.ts";
 
 // ==========================================
 // Book Schemas — Source of Truth
@@ -24,6 +24,69 @@ export type BookProgressStage = z.infer<typeof BookProgressStageSchema>;
 export const BookProgressStateSchema = z.enum(["completed", "current", "upcoming", "rejected"]);
 export type BookProgressState = z.infer<typeof BookProgressStateSchema>;
 
+export const RolloutEnvironmentSchema = z.enum([
+  "development",
+  "test",
+  "staging",
+  "production",
+  "unknown",
+]);
+export type RolloutEnvironment = z.infer<typeof RolloutEnvironmentSchema>;
+
+export const RolloutAccessSchema = z.enum(["enabled", "grandfathered", "disabled"]);
+export type RolloutAccess = z.infer<typeof RolloutAccessSchema>;
+
+export const RolloutBlockedFeatureSchema = z.enum([
+  "workspace",
+  "manuscript_pipeline",
+  "billing_gate",
+  "final_pdf",
+]);
+export type RolloutBlockedFeature = z.infer<typeof RolloutBlockedFeatureSchema>;
+
+export const BookRolloutFeatureStateSchema = z.object({
+  enabled: z.boolean(),
+  access: RolloutAccessSchema,
+});
+export type BookRolloutFeatureState = z.infer<typeof BookRolloutFeatureStateSchema>;
+
+export const BookRolloutStateSchema = z.object({
+  environment: RolloutEnvironmentSchema,
+  allowInFlightAccess: z.boolean(),
+  isGrandfathered: z.boolean(),
+  blockedBy: RolloutBlockedFeatureSchema.nullable(),
+  workspace: BookRolloutFeatureStateSchema,
+  manuscriptPipeline: BookRolloutFeatureStateSchema,
+  billingGate: BookRolloutFeatureStateSchema,
+  finalPdf: BookRolloutFeatureStateSchema,
+});
+export type BookRolloutState = z.infer<typeof BookRolloutStateSchema>;
+
+export const BookProcessingTriggerSchema = z.enum(["upload", "settings_change", "approval"]);
+export type BookProcessingTrigger = z.infer<typeof BookProcessingTriggerSchema>;
+
+export const BookProcessingStepSchema = z.enum([
+  "AI_FORMATTING",
+  "RENDERING_PREVIEW",
+  "COUNTING_PAGES",
+  "GENERATING_FINAL_PDF",
+]);
+export type BookProcessingStep = z.infer<typeof BookProcessingStepSchema>;
+
+export const BookProcessingJobStatusSchema = z.enum(["queued", "processing"]);
+export type BookProcessingJobStatus = z.infer<typeof BookProcessingJobStatusSchema>;
+
+export const BookProcessingStateSchema = z.object({
+  isActive: z.boolean(),
+  currentStep: BookProcessingStepSchema.nullable(),
+  jobStatus: BookProcessingJobStatusSchema.nullable(),
+  trigger: BookProcessingTriggerSchema.nullable(),
+  startedAt: z.string().datetime().nullable(),
+  attempt: z.number().int().positive().nullable(),
+  maxAttempts: z.number().int().positive().nullable(),
+});
+export type BookProcessingState = z.infer<typeof BookProcessingStateSchema>;
+
 /**
  * Common path param for /books/:id routes
  */
@@ -31,6 +94,115 @@ export const BookParamsSchema = z.object({
   id: z.string().cuid(),
 });
 export type BookParamsInput = z.infer<typeof BookParamsSchema>;
+
+export const BookPageSizeSchema = z.enum(["A4", "A5"]);
+export type BookPageSize = z.infer<typeof BookPageSizeSchema>;
+
+export const BookFontSizeSchema = z.union([z.literal(11), z.literal(12), z.literal(14)]);
+export type BookFontSize = z.infer<typeof BookFontSizeSchema>;
+
+/**
+ * PATCH /api/v1/books/:id/settings
+ * Stores the user's pre-upload formatting choices.
+ */
+export const UpdateBookSettingsSchema = z.object({
+  pageSize: BookPageSizeSchema,
+  fontSize: BookFontSizeSchema,
+});
+export type UpdateBookSettingsInput = z.infer<typeof UpdateBookSettingsSchema>;
+
+export const BookSettingsResponseSchema = z.object({
+  id: z.string().cuid(),
+  pageSize: BookPageSizeSchema,
+  fontSize: BookFontSizeSchema,
+  wordCount: z.number().int().nullable(),
+  estimatedPages: z.number().int().nullable(),
+  updatedAt: z.string().datetime(),
+});
+export type BookSettingsResponse = z.infer<typeof BookSettingsResponseSchema>;
+
+/**
+ * POST /api/v1/books/:id/upload
+ * Result after malware scan + storage + manuscript metrics extraction.
+ */
+export const BookManuscriptUploadResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  fileId: z.string().cuid(),
+  fileUrl: z.string().url(),
+  fileName: z.string().min(1),
+  fileSize: z.number().int().positive(),
+  mimeType: z.enum([
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ]),
+  pageSize: BookPageSizeSchema,
+  fontSize: BookFontSizeSchema,
+  wordCount: z.number().int().positive(),
+  estimatedPages: z.number().int().positive(),
+});
+export type BookManuscriptUploadResponse = z.infer<typeof BookManuscriptUploadResponseSchema>;
+
+/**
+ * POST /api/v1/books/:id/approve
+ * Approve manuscript for production after billing gate checks.
+ */
+export const ApproveBookSchema = z.object({
+  gateSnapshot: z.string().min(1).max(255).optional(),
+});
+export type ApproveBookInput = z.infer<typeof ApproveBookSchema>;
+
+export const BookApproveResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  bookStatus: BookStatusSchema,
+  orderStatus: OrderStatusSchema,
+  queuedJob: z.object({
+    queue: z.literal("pdf-generation"),
+    name: z.literal("generate-pdf"),
+    jobId: z.string().nullable(),
+  }),
+});
+export type BookApproveResponse = z.infer<typeof BookApproveResponseSchema>;
+
+export const BookPreviewResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  previewPdfUrl: z.string().url(),
+  status: BookStatusSchema,
+  watermarked: z.boolean(),
+});
+export type BookPreviewResponse = z.infer<typeof BookPreviewResponseSchema>;
+
+export const BookFileTypeSchema = z.enum([
+  "RAW_MANUSCRIPT",
+  "CLEANED_TEXT",
+  "CLEANED_HTML",
+  "FORMATTED_PDF",
+  "PREVIEW_PDF",
+  "FINAL_PDF",
+  "ADMIN_GENERATED_DOCX",
+  "COVER_DESIGN_DRAFT",
+  "COVER_DESIGN_FINAL",
+  "USER_UPLOADED_IMAGE",
+]);
+export type BookFileType = z.infer<typeof BookFileTypeSchema>;
+
+export const BookFileVersionSchema = z.object({
+  id: z.string().cuid(),
+  fileType: BookFileTypeSchema,
+  url: z.string().url(),
+  fileName: z.string().nullable(),
+  fileSize: z.number().int().nullable(),
+  mimeType: z.string().nullable(),
+  version: z.number().int().positive(),
+  createdBy: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type BookFileVersion = z.infer<typeof BookFileVersionSchema>;
+
+export const BookFilesResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  files: z.array(BookFileVersionSchema),
+});
+export type BookFilesResponse = z.infer<typeof BookFilesResponseSchema>;
 
 export const BookTimelineItemSchema = z.object({
   key: z.string(),
@@ -62,6 +234,8 @@ export const BookDetailResponseSchema = z.object({
   finalPdfUrl: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  rollout: BookRolloutStateSchema,
+  processing: BookProcessingStateSchema,
   timeline: z.array(BookTimelineItemSchema),
 });
 export type BookDetailResponse = z.infer<typeof BookDetailResponseSchema>;

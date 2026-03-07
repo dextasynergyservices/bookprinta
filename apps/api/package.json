@@ -53,6 +53,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.3.1",
     "helmet": "^8.1.0",
+    "htmlparser2": "^8.0.2",
     "ioredis": "^5.9.3",
     "jsonwebtoken": "^9.0.3",
     "nestjs-pino": "^4.6.0",

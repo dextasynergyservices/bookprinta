@@ -42,6 +42,13 @@ export interface InitializePaymentResponse {
   provider: string;
 }
 
+export interface ExtraPagesPaymentInput {
+  bookId: string;
+  provider: Extract<OnlinePaymentProvider, "PAYSTACK" | "STRIPE">;
+  extraPages: number;
+  callbackUrl?: string;
+}
+
 export interface BankTransferInput {
   payerName: string;
   payerEmail: string;
@@ -117,6 +124,21 @@ export async function fetchPaymentGateways() {
 export async function initializePayment(payload: InitializePaymentInput) {
   const response = await fetch(`${API_V1_BASE_URL}/payments/initialize`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    await parseError(response);
+  }
+
+  return (await response.json()) as InitializePaymentResponse;
+}
+
+export async function payExtraPages(payload: ExtraPagesPaymentInput) {
+  const response = await fetch(`${API_V1_BASE_URL}/payments/extra-pages`, {
+    method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/redis.service.js";
+import { RolloutService } from "../rollout/rollout.service.js";
 import { ScannerService } from "../scanner/scanner.service.js";
 
 @Injectable()
@@ -10,7 +11,8 @@ export class HealthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
-    private readonly scanner: ScannerService
+    private readonly scanner: ScannerService,
+    private readonly rollout: RolloutService
   ) {}
 
   /**
@@ -131,6 +133,26 @@ export class HealthService {
       results.gotenberg = { status: "not_configured", latencyMs: 0 };
     }
 
+    const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+    const manuscriptPipelineEnabled =
+      this.rollout.getMonitoringSnapshot().features.manuscriptPipeline;
+    results.gemini = manuscriptPipelineEnabled
+      ? geminiApiKey
+        ? {
+            status: "ok",
+            latencyMs: 0,
+            provider: process.env.GEMINI_MODEL?.trim() || "gemini",
+          }
+        : {
+            status: "error",
+            latencyMs: 0,
+            error: "GEMINI_API_KEY is not configured",
+          }
+      : {
+          status: "disabled",
+          latencyMs: 0,
+        };
+
     // Scanner (ClamAV or VirusTotal) — 10s timeout
     const scannerStart = Date.now();
     try {
@@ -152,13 +174,14 @@ export class HealthService {
     }
 
     const allHealthy = Object.values(results).every(
-      (r) => r.status === "ok" || r.status === "not_configured"
+      (r) => r.status === "ok" || r.status === "not_configured" || r.status === "disabled"
     );
 
     return {
       status: allHealthy ? "ok" : "degraded",
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
+      rollout: this.rollout.getMonitoringSnapshot(),
       services: results,
     };
   }

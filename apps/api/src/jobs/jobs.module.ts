@@ -1,6 +1,12 @@
 import { BullModule } from "@nestjs/bullmq";
 import { Logger, Module } from "@nestjs/common";
+import { BooksModule } from "../books/books.module.js";
+import { EngineModule } from "../engine/engine.module.js";
+import { FilesModule } from "../files/files.module.js";
+import { AiFormattingProcessor } from "./ai-formatting.processor.js";
 import { QUEUE_AI_FORMATTING, QUEUE_PAGE_COUNT, QUEUE_PDF_GENERATION } from "./jobs.constants.js";
+import { PageCountProcessor } from "./page-count.processor.js";
+import { PdfGenerationProcessor } from "./pdf-generation.processor.js";
 
 const logger = new Logger("JobsModule");
 
@@ -12,9 +18,7 @@ const logger = new Logger("JobsModule");
  *  - pdf-generation:  Gotenberg HTML → print-ready PDF   (concurrency 1, 3/min)
  *  - page-count:      Gotenberg HTML → page count         (concurrency 1, 3/min)
  *
- * Job processors (Workers) will be added in Phase 5.
- * This module only sets up the queues + connection so other modules can
- * inject Queue instances and add jobs.
+ * AI formatting, authoritative page-count, and final PDF workers are registered here.
  *
  * Connection: BullMQ creates its own dedicated ioredis connections internally
  * (separate subscriber + publisher). We parse REDIS_URL into connection options
@@ -112,7 +116,13 @@ export class JobsModule {
             },
           },
         }),
+
+        // Services used by job processors (Gemini formatting, validation, pipeline chaining)
+        EngineModule,
+        FilesModule,
+        BooksModule,
       ],
+      providers: [AiFormattingProcessor, PageCountProcessor, PdfGenerationProcessor],
       exports: [BullModule],
     };
   }
