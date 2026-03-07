@@ -9,6 +9,7 @@ import { DashboardSidebar } from "./dashboard-sidebar";
 type DashboardMobileDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
+  onOpenReviewDialog?: (target: { bookId: string; bookTitle: string | null }) => void;
 };
 
 function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
@@ -28,7 +29,11 @@ function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
   );
 }
 
-export function DashboardMobileDrawer({ isOpen, onClose }: DashboardMobileDrawerProps) {
+export function DashboardMobileDrawer({
+  isOpen,
+  onClose,
+  onOpenReviewDialog,
+}: DashboardMobileDrawerProps) {
   const tDashboard = useTranslations("dashboard");
   const panelRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -123,7 +128,11 @@ export function DashboardMobileDrawer({ isOpen, onClose }: DashboardMobileDrawer
                 <X className="size-5" aria-hidden="true" />
               </button>
 
-              <DashboardSidebar onNavigate={onClose} className="h-full" />
+              <DashboardSidebar
+                onNavigate={onClose}
+                onOpenReviewDialog={onOpenReviewDialog}
+                className="h-full"
+              />
             </div>
           </motion.aside>
         </div>

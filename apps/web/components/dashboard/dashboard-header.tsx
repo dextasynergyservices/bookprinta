@@ -1,14 +1,12 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { Bell, ChevronDown, CircleUserRound, LogOut, Menu } from "lucide-react";
+import { ChevronDown, CircleUserRound, LogOut, Menu } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { toast } from "sonner";
+import { NotificationBell } from "@/components/dashboard/notification-bell";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { useAuthSession } from "@/hooks/use-auth-session";
-import { useNotificationUnreadCount } from "@/hooks/use-dashboard-shell-data";
-import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { Link, usePathname, useRouter } from "@/lib/i18n/navigation";
 import {
   DropdownMenu,
@@ -57,19 +55,22 @@ function toInitials(value: string, fallback: string) {
 type DashboardHeaderProps = {
   onOpenMobileMenu?: () => void;
   isMobileMenuOpen?: boolean;
+  onOpenReviewDialog?: (target: {
+    bookId: string;
+    bookTitle: string | null;
+  }) => void | Promise<void>;
 };
 
 export function DashboardHeader({
   onOpenMobileMenu,
   isMobileMenuOpen = false,
+  onOpenReviewDialog,
 }: DashboardHeaderProps) {
   const tDashboard = useTranslations("dashboard");
   const tNav = useTranslations("nav");
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, isLoggingOut } = useAuthSession();
-  const { unreadCount, hasUnread, isLoading, isError, isFallback } = useNotificationUnreadCount();
-  const prefersReducedMotion = useReducedMotion();
   const dashboardTitle = tDashboard("title");
 
   const pageTitle = resolveTitle(pathname, dashboardTitle, tDashboard);
@@ -81,12 +82,6 @@ export function DashboardHeader({
     () => toInitials(displayName, tDashboard("header_guest")),
     [displayName, tDashboard]
   );
-  const notificationsSrText = useMemo(() => {
-    if (isLoading) return tDashboard("notifications_loading");
-    if (isError || isFallback) return tDashboard("notifications_unavailable");
-    if (hasUnread) return tDashboard("header_notifications_unread_count", { count: unreadCount });
-    return tDashboard("notifications_empty");
-  }, [hasUnread, isError, isFallback, isLoading, tDashboard, unreadCount]);
 
   const handleLogout = async () => {
     try {
@@ -123,38 +118,7 @@ export function DashboardHeader({
         <div className="ml-2 flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-3">
           <LanguageSwitcher compact />
 
-          <button
-            type="button"
-            aria-label={tDashboard("header_notifications_aria")}
-            className="relative inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#111111] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#1a1a1a] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 sm:min-h-11 sm:min-w-11"
-          >
-            <Bell className="size-5" aria-hidden="true" />
-            {hasUnread ? (
-              <motion.span
-                className="absolute -top-1 -right-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[#007eff] px-1 font-sans text-[10px] leading-none font-semibold text-white"
-                animate={
-                  prefersReducedMotion
-                    ? undefined
-                    : {
-                        scale: [1, 1.12, 1],
-                        opacity: [1, 0.75, 1],
-                      }
-                }
-                transition={
-                  prefersReducedMotion
-                    ? undefined
-                    : {
-                        duration: 1.2,
-                        repeat: Number.POSITIVE_INFINITY,
-                        ease: "easeInOut",
-                      }
-                }
-              >
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </motion.span>
-            ) : null}
-            <span className="sr-only">{notificationsSrText}</span>
-          </button>
+          <NotificationBell onOpenReviewDialog={onOpenReviewDialog} />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

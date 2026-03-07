@@ -582,9 +582,10 @@ model Notification {
   userId    String
   user      User     @relation(fields: [userId], references: [id])
 
-  title     String
-  message   String
-  type      String?  // "BANK_TRANSFER_RECEIVED", "ORDER_STATUS", "SYSTEM", etc.
+  title     String   // Legacy display fallback only. New notifications should render from `data`.
+  message   String   // Legacy display fallback only. New notifications should render from `data`.
+  type      String?  // Notification type discriminator; normalize legacy nulls at the API boundary.
+  data      Json?    // Primary metadata carrier: translation keys, params, actions, entity refs, presentation hints.
   isRead    Boolean  @default(false)
 
   createdAt DateTime @default(now())

@@ -1,10 +1,4 @@
-import { ApiProperty } from "@nestjs/swagger";
+import { NotificationUnreadCountResponseSchema } from "@bookprinta/shared";
+import { createZodDto } from "nestjs-zod";
 
-export class UnreadCountResponseDto {
-  @ApiProperty({
-    description: "Number of unread in-app notifications for the authenticated user",
-    example: 3,
-    minimum: 0,
-  })
-  unreadCount!: number;
-}
+export class UnreadCountResponseDto extends createZodDto(NotificationUnreadCountResponseSchema) {}
