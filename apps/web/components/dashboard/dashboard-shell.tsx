@@ -1,12 +1,18 @@
 "use client";
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
+import { useNotificationBannerState } from "@/hooks/use-dashboard-shell-data";
 import { useLenis } from "@/hooks/use-lenis";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { cn } from "@/lib/utils";
 import { DashboardContentFrame } from "./dashboard-content-frame";
 import { DashboardHeader } from "./dashboard-header";
 import { DashboardMobileDrawer } from "./dashboard-mobile-drawer";
+import { DashboardProductionDelayBanner } from "./dashboard-production-delay-banner";
+import {
+  DashboardReviewRequestDialog,
+  type ReviewRequestDialogTarget,
+} from "./dashboard-review-request-dialog";
 import { DashboardSidebar } from "./dashboard-sidebar";
 
 type DashboardShellProps = {
@@ -18,15 +24,24 @@ const DASHBOARD_SIDEBAR_COLLAPSED_STORAGE_KEY = "dashboard_sidebar_collapsed";
 export function DashboardShell({ children }: DashboardShellProps) {
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
+  const [reviewDialogTarget, setReviewDialogTarget] = useState<ReviewRequestDialogTarget | null>(
+    null
+  );
   const { lenis } = useLenis();
   const prefersReducedMotion = useReducedMotion();
+  const { hasProductionDelayBanner } = useNotificationBannerState();
   const toggleDesktopSidebar = useCallback(() => {
     setIsDesktopSidebarCollapsed((previous) => !previous);
   }, []);
+  const isReviewDialogOpen = reviewDialogTarget !== null;
   const desktopSidebarWidth = useMemo(
     () => (isDesktopSidebarCollapsed ? "6rem" : "18rem"),
     [isDesktopSidebarCollapsed]
   );
+  const handleOpenReviewDialog = useCallback((target: ReviewRequestDialogTarget) => {
+    setReviewDialogTarget(target);
+    setIsMobileDrawerOpen(false);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -45,7 +60,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
   useEffect(() => {
     if (!lenis || prefersReducedMotion) return;
 
-    if (isMobileDrawerOpen) {
+    if (isMobileDrawerOpen || isReviewDialogOpen) {
       lenis.stop();
       return () => {
         lenis.start();
@@ -57,7 +72,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
     return () => {
       lenis.start();
     };
-  }, [isMobileDrawerOpen, lenis, prefersReducedMotion]);
+  }, [isMobileDrawerOpen, isReviewDialogOpen, lenis, prefersReducedMotion]);
 
   return (
     <div
@@ -86,6 +101,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
         <DashboardSidebar
           isCollapsed={isDesktopSidebarCollapsed}
           onToggleCollapse={toggleDesktopSidebar}
+          onOpenReviewDialog={handleOpenReviewDialog}
         />
       </aside>
 
@@ -98,7 +114,10 @@ export function DashboardShell({ children }: DashboardShellProps) {
           <DashboardHeader
             onOpenMobileMenu={() => setIsMobileDrawerOpen(true)}
             isMobileMenuOpen={isMobileDrawerOpen}
+            onOpenReviewDialog={handleOpenReviewDialog}
           />
+
+          {hasProductionDelayBanner ? <DashboardProductionDelayBanner /> : null}
 
           <main
             id="main-content"
@@ -113,6 +132,17 @@ export function DashboardShell({ children }: DashboardShellProps) {
       <DashboardMobileDrawer
         isOpen={isMobileDrawerOpen}
         onClose={() => setIsMobileDrawerOpen(false)}
+        onOpenReviewDialog={handleOpenReviewDialog}
+      />
+
+      <DashboardReviewRequestDialog
+        open={isReviewDialogOpen}
+        target={reviewDialogTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReviewDialogTarget(null);
+          }
+        }}
       />
     </div>
   );
