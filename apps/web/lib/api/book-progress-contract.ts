@@ -1,9 +1,17 @@
 import {
   BOOK_PROGRESS_STAGES,
+  type BookProcessingJobStatus,
+  type BookProcessingState,
+  type BookProcessingStep,
+  type BookProcessingTrigger,
   type BookProgressNormalizedResponse,
   type BookProgressSource,
   type BookProgressStage,
   type BookProgressTimelineStep,
+  type BookRolloutAccess,
+  type BookRolloutBlockedFeature,
+  type BookRolloutEnvironment,
+  type BookRolloutState,
 } from "@/types/book-progress";
 
 /**
@@ -14,17 +22,12 @@ import {
 export const BOOK_PROGRESS_TRACKER_SOURCE_ENDPOINT = "/api/v1/orders/:id/tracking";
 export const BOOK_PROGRESS_TRACKER_TARGET_ENDPOINT = "/api/v1/books/:id";
 
-const BOOK_STATUS_TO_PROGRESS_STAGE: Record<string, BookProgressStage> = {
-  AWAITING_UPLOAD: "PAYMENT_RECEIVED",
-  UPLOADED: "PAYMENT_RECEIVED",
+const PRODUCTION_STATUS_TO_PROGRESS_STAGE: Record<string, BookProgressStage> = {
   PAYMENT_RECEIVED: "PAYMENT_RECEIVED",
-  AI_PROCESSING: "DESIGNING",
   DESIGNING: "DESIGNING",
   DESIGNED: "DESIGNED",
   FORMATTING: "FORMATTING",
   FORMATTED: "FORMATTED",
-  FORMATTING_REVIEW: "REVIEW",
-  PREVIEW_READY: "REVIEW",
   REVIEW: "REVIEW",
   APPROVED: "APPROVED",
   REJECTED: "REVIEW",
@@ -37,22 +40,26 @@ const BOOK_STATUS_TO_PROGRESS_STAGE: Record<string, BookProgressStage> = {
   CANCELLED: "REVIEW",
 };
 
-const ORDER_STATUS_TO_PROGRESS_STAGE: Record<string, BookProgressStage> = {
-  PENDING_PAYMENT: "PAYMENT_RECEIVED",
-  PENDING_PAYMENT_APPROVAL: "PAYMENT_RECEIVED",
-  PAID: "PAYMENT_RECEIVED",
-  PROCESSING: "DESIGNING",
-  AWAITING_UPLOAD: "PAYMENT_RECEIVED",
-  FORMATTING: "FORMATTING",
-  ACTION_REQUIRED: "REVIEW",
-  PREVIEW_READY: "REVIEW",
-  PENDING_EXTRA_PAYMENT: "REVIEW",
-  APPROVED: "APPROVED",
-  IN_PRODUCTION: "PRINTING",
-  COMPLETED: "DELIVERED",
-  CANCELLED: "REVIEW",
-  REFUNDED: "REVIEW",
-};
+function deriveLegacyProductionStatus(status: string | null): string | null {
+  switch (status) {
+    case "PAYMENT_RECEIVED":
+    case "DESIGNING":
+    case "DESIGNED":
+    case "REVIEW":
+    case "REJECTED":
+    case "APPROVED":
+    case "IN_PRODUCTION":
+    case "PRINTING":
+    case "PRINTED":
+    case "SHIPPING":
+    case "DELIVERED":
+    case "COMPLETED":
+    case "CANCELLED":
+      return status;
+    default:
+      return "PAYMENT_RECEIVED";
+  }
+}
 
 type TimelineRow = {
   status: string | null;
@@ -113,6 +120,158 @@ function toIsoDatetime(value: unknown): string | null {
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
+}
+
+function toBooleanValue(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+
+  return null;
+}
+
+function normalizeRolloutAccess(value: unknown): BookRolloutAccess | null {
+  const normalized = normalizeStatus(value);
+  if (normalized === "ENABLED") return "enabled";
+  if (normalized === "GRANDFATHERED") return "grandfathered";
+  if (normalized === "DISABLED") return "disabled";
+  return null;
+}
+
+function normalizeRolloutEnvironment(value: unknown): BookRolloutEnvironment | null {
+  const raw = toStringValue(value);
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "development") return "development";
+  if (normalized === "test") return "test";
+  if (normalized === "staging") return "staging";
+  if (normalized === "production") return "production";
+  if (normalized === "unknown") return "unknown";
+  return null;
+}
+
+function normalizeBlockedFeature(value: unknown): BookRolloutBlockedFeature | null {
+  const raw = toStringValue(value);
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized === "workspace" ||
+    normalized === "manuscript_pipeline" ||
+    normalized === "billing_gate" ||
+    normalized === "final_pdf"
+  ) {
+    return normalized;
+  }
+
+  return null;
+}
+
+function createFallbackRolloutState(): BookRolloutState {
+  return {
+    environment: "unknown",
+    allowInFlightAccess: true,
+    isGrandfathered: false,
+    blockedBy: null,
+    workspace: { enabled: true, access: "enabled" },
+    manuscriptPipeline: { enabled: true, access: "enabled" },
+    billingGate: { enabled: true, access: "enabled" },
+    finalPdf: { enabled: true, access: "enabled" },
+  };
+}
+
+function createFallbackProcessingState(): BookProcessingState {
+  return {
+    isActive: false,
+    currentStep: null,
+    jobStatus: null,
+    trigger: null,
+    startedAt: null,
+    attempt: null,
+    maxAttempts: null,
+  };
+}
+
+function normalizeProcessingStep(value: unknown): BookProcessingStep | null {
+  const raw = toStringValue(value);
+  if (
+    raw === "AI_FORMATTING" ||
+    raw === "RENDERING_PREVIEW" ||
+    raw === "COUNTING_PAGES" ||
+    raw === "GENERATING_FINAL_PDF"
+  ) {
+    return raw;
+  }
+
+  return null;
+}
+
+function normalizeProcessingJobStatus(value: unknown): BookProcessingJobStatus | null {
+  const raw = toStringValue(value)?.toLowerCase();
+  return raw === "queued" || raw === "processing" ? raw : null;
+}
+
+function normalizeProcessingTrigger(value: unknown): BookProcessingTrigger | null {
+  const raw = toStringValue(value);
+  return raw === "upload" || raw === "settings_change" || raw === "approval" ? raw : null;
+}
+
+function resolveRolloutFeatureState(value: unknown): BookRolloutState["workspace"] | null {
+  const record = toRecord(value);
+  if (!record) return null;
+
+  const enabled = toBooleanValue(record.enabled);
+  const access = normalizeRolloutAccess(record.access);
+  if (enabled === null || !access) return null;
+
+  return { enabled, access };
+}
+
+function resolveRolloutState(payload: unknown): BookRolloutState {
+  const root = toRecord(payload);
+  const data = toRecord(root?.data);
+  const book = toRecord(root?.book);
+  const rolloutRecord =
+    toRecord(root?.rollout) ?? toRecord(data?.rollout) ?? toRecord(book?.rollout) ?? null;
+  const fallback = createFallbackRolloutState();
+
+  if (!rolloutRecord) return fallback;
+
+  return {
+    environment: normalizeRolloutEnvironment(rolloutRecord.environment) ?? fallback.environment,
+    allowInFlightAccess:
+      toBooleanValue(rolloutRecord.allowInFlightAccess) ?? fallback.allowInFlightAccess,
+    isGrandfathered: toBooleanValue(rolloutRecord.isGrandfathered) ?? fallback.isGrandfathered,
+    blockedBy: normalizeBlockedFeature(rolloutRecord.blockedBy) ?? fallback.blockedBy,
+    workspace: resolveRolloutFeatureState(rolloutRecord.workspace) ?? fallback.workspace,
+    manuscriptPipeline:
+      resolveRolloutFeatureState(rolloutRecord.manuscriptPipeline) ?? fallback.manuscriptPipeline,
+    billingGate: resolveRolloutFeatureState(rolloutRecord.billingGate) ?? fallback.billingGate,
+    finalPdf: resolveRolloutFeatureState(rolloutRecord.finalPdf) ?? fallback.finalPdf,
+  };
+}
+
+function resolveProcessingState(payload: unknown): BookProcessingState {
+  const root = toRecord(payload);
+  const data = toRecord(root?.data);
+  const book = toRecord(root?.book);
+  const processingRecord =
+    toRecord(root?.processing) ?? toRecord(data?.processing) ?? toRecord(book?.processing) ?? null;
+  const fallback = createFallbackProcessingState();
+
+  if (!processingRecord) return fallback;
+
+  return {
+    isActive: toBooleanValue(processingRecord.isActive) ?? fallback.isActive,
+    currentStep: normalizeProcessingStep(processingRecord.currentStep) ?? fallback.currentStep,
+    jobStatus: normalizeProcessingJobStatus(processingRecord.jobStatus) ?? fallback.jobStatus,
+    trigger: normalizeProcessingTrigger(processingRecord.trigger) ?? fallback.trigger,
+    startedAt: toIsoDatetime(processingRecord.startedAt),
+    attempt: toNumberValue(processingRecord.attempt),
+    maxAttempts: toNumberValue(processingRecord.maxAttempts),
+  };
 }
 
 function resolveSource(payload: unknown): BookProgressSource {
@@ -184,6 +343,21 @@ function resolveCurrentStatus(payload: unknown, timeline: TimelineRow[]): string
   );
 }
 
+function resolveProductionStatus(payload: unknown, currentStatus: string | null): string | null {
+  const root = toRecord(payload);
+  const data = toRecord(root?.data);
+  const book = toRecord(root?.book);
+  const progress = toRecord(root?.progress);
+
+  return (
+    normalizeStatus(root?.productionStatus) ??
+    normalizeStatus(data?.productionStatus) ??
+    normalizeStatus(book?.productionStatus) ??
+    normalizeStatus(progress?.productionStatus) ??
+    deriveLegacyProductionStatus(currentStatus)
+  );
+}
+
 function resolveBookId(payload: unknown): string | null {
   const root = toRecord(payload);
   const data = toRecord(root?.data);
@@ -221,6 +395,19 @@ function resolveRejectionReason(payload: unknown): string | null {
     toStringValue(root?.rejectionReason) ??
     toStringValue(data?.rejectionReason) ??
     toStringValue(book?.rejectionReason) ??
+    null
+  );
+}
+
+function resolveLatestProcessingError(payload: unknown): string | null {
+  const root = toRecord(payload);
+  const data = toRecord(root?.data);
+  const book = toRecord(root?.book);
+
+  return (
+    toStringValue(root?.latestProcessingError) ??
+    toStringValue(data?.latestProcessingError) ??
+    toStringValue(book?.latestProcessingError) ??
     null
   );
 }
@@ -277,9 +464,7 @@ export function mapBackendStatusToProgressStage(
   const normalized = normalizeStatus(status);
   if (!normalized) return null;
 
-  return (
-    BOOK_STATUS_TO_PROGRESS_STAGE[normalized] ?? ORDER_STATUS_TO_PROGRESS_STAGE[normalized] ?? null
-  );
+  return PRODUCTION_STATUS_TO_PROGRESS_STAGE[normalized] ?? null;
 }
 
 function resolveCurrentStageIndex(status: string | null): number {
@@ -340,20 +525,30 @@ export function normalizeBookProgressPayload(payload: unknown): BookProgressNorm
   const sourceEndpoint = resolveSource(payload);
   const timelineRows = resolveTimelineRows(payload);
   const currentStatus = resolveCurrentStatus(payload, timelineRows);
+  const productionStatus = resolveProductionStatus(payload, currentStatus);
   const rejectionReason = resolveRejectionReason(payload);
-  const isRejected = currentStatus === "REJECTED";
+  const isRejected = productionStatus === "REJECTED";
   const currentStageIndex = isRejected
     ? BOOK_PROGRESS_STAGES.indexOf("REVIEW")
-    : resolveCurrentStageIndex(currentStatus);
+    : resolveCurrentStageIndex(productionStatus);
   const reachedAtByStage = resolveReachedAtByStage(timelineRows);
-  const timeline = createTimeline(currentStageIndex, isRejected, reachedAtByStage, currentStatus);
+  const timeline = createTimeline(
+    currentStageIndex,
+    isRejected,
+    reachedAtByStage,
+    productionStatus
+  );
   const metadata = resolveBookMetadata(payload);
+  const rollout = resolveRolloutState(payload);
+  const processing = resolveProcessingState(payload);
 
   return {
     sourceEndpoint,
     bookId: resolveBookId(payload),
     orderId: resolveOrderId(payload),
     currentStatus,
+    productionStatus,
+    latestProcessingError: resolveLatestProcessingError(payload),
     rejectionReason,
     currentStage: timeline[currentStageIndex]?.stage ?? BOOK_PROGRESS_STAGES[0],
     isRejected,
@@ -368,5 +563,7 @@ export function normalizeBookProgressPayload(payload: unknown): BookProgressNorm
     previewPdfUrl: metadata.previewPdfUrl,
     finalPdfUrl: metadata.finalPdfUrl,
     updatedAt: metadata.updatedAt,
+    rollout,
+    processing,
   };
 }

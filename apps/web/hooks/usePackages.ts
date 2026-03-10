@@ -1,59 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
+import {
+  fetchPackageCategories,
+  fetchPackages,
+  PACKAGE_CATEGORIES_QUERY_KEY,
+  PACKAGES_QUERY_KEY,
+  type PackageBase,
+  type PackageCategory,
+} from "@/lib/api/packages";
 
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
-
-// ─── Types matching the new API shape (PackageCategoryResponse) ───
-
-export type PackageCopies = {
-  A4: number;
-  A5: number;
-  A6: number;
-};
-
-export type PackageFeatures = {
-  items: string[];
-  copies: PackageCopies;
-};
-
-export type PackageBase = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  basePrice: number;
-  pageLimit: number;
-  includesISBN: boolean;
-  features: PackageFeatures;
-  isActive: boolean;
-  sortOrder: number;
-};
-
-export type PackageCategory = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  copies: number;
-  isActive: boolean;
-  sortOrder: number;
-  packages: PackageBase[];
-};
-
-type HttpError = Error & { status?: number };
-
-function createHttpError(message: string, status: number): HttpError {
-  const error = new Error(message) as HttpError;
-  error.status = status;
-  return error;
-}
+export type {
+  PackageBase,
+  PackageCategory,
+  PackageCopies,
+  PackageFeatures,
+} from "@/lib/api/packages";
 
 /**
  * Fetch package categories with nested packages from the API.
@@ -63,18 +23,12 @@ function createHttpError(message: string, status: number): HttpError {
  */
 export function usePackageCategories() {
   return useQuery<PackageCategory[]>({
-    queryKey: ["package-categories"],
+    queryKey: PACKAGE_CATEGORIES_QUERY_KEY,
     meta: {
       sentryName: "fetchPackageCategories",
       sentryEndpoint: "/api/v1/package-categories",
     },
-    queryFn: async () => {
-      const res = await fetch(`${API_V1_BASE_URL}/package-categories`);
-      if (!res.ok) {
-        throw createHttpError("Failed to fetch package categories", res.status);
-      }
-      return res.json();
-    },
+    queryFn: () => fetchPackageCategories(),
     staleTime: 1000 * 60 * 10,
   });
 }
@@ -87,18 +41,12 @@ export function usePackageCategories() {
  */
 export function usePackages() {
   return useQuery<(PackageBase & { category: Omit<PackageCategory, "packages"> })[]>({
-    queryKey: ["packages"],
+    queryKey: PACKAGES_QUERY_KEY,
     meta: {
       sentryName: "fetchPackages",
       sentryEndpoint: "/api/v1/packages",
     },
-    queryFn: async () => {
-      const res = await fetch(`${API_V1_BASE_URL}/packages`);
-      if (!res.ok) {
-        throw createHttpError("Failed to fetch packages", res.status);
-      }
-      return res.json();
-    },
+    queryFn: () => fetchPackages(),
     staleTime: 1000 * 60 * 10,
   });
 }

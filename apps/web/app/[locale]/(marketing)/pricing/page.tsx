@@ -7,15 +7,11 @@ import { PricingCTA } from "@/components/marketing/pricing/PricingCTA";
 import { PricingFAQ } from "@/components/marketing/pricing/PricingFAQ";
 import { PricingHero } from "@/components/marketing/pricing/PricingHero";
 import { ScrollProgress } from "@/components/marketing/showcase/ScrollProgress";
-import type { PackageCategory } from "@/hooks/usePackages";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
+import {
+  fetchPackageCategories,
+  PACKAGE_CATEGORIES_QUERY_KEY,
+  type PackageCategory,
+} from "@/lib/api/packages";
 
 export async function generateMetadata({ params: { locale } }: { params: { locale: string } }) {
   const t = await getTranslations({ locale, namespace: "pricing" });
@@ -31,14 +27,8 @@ export default async function PricingPage({ params: { locale } }: { params: { lo
 
   // Prefetch categories with nested packages for SSR hydration
   await queryClient.prefetchQuery({
-    queryKey: ["package-categories"],
-    queryFn: async (): Promise<PackageCategory[]> => {
-      const res = await fetch(`${getApiV1BaseUrl()}/package-categories`, {
-        next: { revalidate: 600 }, // Cache for 10 minutes on server
-      });
-      if (!res.ok) throw new Error("Failed to fetch package categories");
-      return res.json();
-    },
+    queryKey: PACKAGE_CATEGORIES_QUERY_KEY,
+    queryFn: (): Promise<PackageCategory[]> => fetchPackageCategories({ revalidate: 600 }),
   });
 
   return (

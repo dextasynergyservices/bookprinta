@@ -5,6 +5,7 @@ import type { Request } from "express";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import type { JwtPayload } from "../interfaces/index.js";
+import { hashRefreshToken, isHashedRefreshToken } from "../refresh-token.util.js";
 
 /**
  * JWT Refresh Token Strategy
@@ -58,20 +59,24 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, "jwt-refresh"
       throw new UnauthorizedException("Invalid refresh token");
     }
 
-    // Primary: hashed token comparison.
-    // Fallback: support legacy plaintext tokens until they rotate naturally.
-    const matchesLegacyToken = user.refreshToken === refreshToken;
-    let matchesHashedToken = false;
+    const refreshTokenDigest = hashRefreshToken(refreshToken);
+    const matchesDigestToken = isHashedRefreshToken(user.refreshToken)
+      ? user.refreshToken === refreshTokenDigest
+      : false;
 
-    if (!matchesLegacyToken) {
+    // Legacy fallback: support plaintext and bcrypt-stored tokens until they rotate naturally.
+    const matchesLegacyToken = !matchesDigestToken && user.refreshToken === refreshToken;
+    let matchesLegacyHashedToken = false;
+
+    if (!matchesDigestToken && !matchesLegacyToken) {
       try {
-        matchesHashedToken = await bcrypt.compare(refreshToken, user.refreshToken);
+        matchesLegacyHashedToken = await bcrypt.compare(refreshToken, user.refreshToken);
       } catch {
-        matchesHashedToken = false;
+        matchesLegacyHashedToken = false;
       }
     }
 
-    if (!matchesLegacyToken && !matchesHashedToken) {
+    if (!matchesDigestToken && !matchesLegacyToken && !matchesLegacyHashedToken) {
       throw new UnauthorizedException("Invalid refresh token");
     }
 

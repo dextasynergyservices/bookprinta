@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PassportModule } from "@nestjs/passport";
+import { LoggerModule } from "../logger/logger.module.js";
 import { NotificationsModule } from "../notifications/notifications.module.js";
 import { AuthController } from "./auth.controller.js";
 import { AuthService } from "./auth.service.js";
@@ -18,7 +19,7 @@ import { JwtRefreshStrategy, JwtStrategy } from "./strategies/index.js";
  * PrismaService is available globally via PrismaModule (@Global).
  */
 @Module({
-  imports: [PassportModule.register({ defaultStrategy: "jwt" }), NotificationsModule],
+  imports: [PassportModule.register({ defaultStrategy: "jwt" }), NotificationsModule, LoggerModule],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, JwtRefreshStrategy, RolesGuard],
   exports: [AuthService, RolesGuard],

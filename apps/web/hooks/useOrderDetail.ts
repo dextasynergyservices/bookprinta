@@ -68,8 +68,10 @@ function resolveOrderId(orderId: string | null | undefined): string | null {
 type OrderDetailSummary = {
   orderId: string;
   orderNumber: string | null;
+  status: string | null;
   packageName: string | null;
   packageAmount: number | null;
+  extraAmount: number | null;
   totalAmount: number | null;
   currency: string | null;
   latestPaymentStatus: string | null;
@@ -78,6 +80,7 @@ type OrderDetailSummary = {
   latestPaymentAmount: number | null;
   latestPaymentCurrency: string | null;
   latestPaymentCreatedAt: string | null;
+  latestExtraPaymentStatus: string | null;
   trackingNumber: string | null;
   shippingProvider: string | null;
   createdAt: string | null;
@@ -94,8 +97,10 @@ function createFallbackOrderDetail(orderId: string | null): OrderDetailSummary {
   return {
     orderId: orderId ?? "",
     orderNumber: null,
+    status: null,
     packageName: null,
     packageAmount: null,
+    extraAmount: null,
     totalAmount: null,
     currency: null,
     latestPaymentStatus: null,
@@ -104,11 +109,42 @@ function createFallbackOrderDetail(orderId: string | null): OrderDetailSummary {
     latestPaymentAmount: null,
     latestPaymentCurrency: null,
     latestPaymentCreatedAt: null,
+    latestExtraPaymentStatus: null,
     trackingNumber: null,
     shippingProvider: null,
     createdAt: null,
     updatedAt: null,
     addons: [],
+  };
+}
+
+type NormalizedOrderPayment = {
+  id: string;
+  provider: string | null;
+  status: string | null;
+  type: string | null;
+  amount: number | null;
+  currency: string | null;
+  providerRef: string | null;
+  createdAt: string | null;
+};
+
+function normalizeOrderPayment(value: unknown): NormalizedOrderPayment | null {
+  const record = toRecord(value);
+  if (!record) return null;
+
+  const paymentId = toStringValue(record.id);
+  if (!paymentId) return null;
+
+  return {
+    id: paymentId,
+    provider: toStringValue(record.provider),
+    status: toStringValue(record.status),
+    type: toStringValue(record.type),
+    amount: toNumberValue(record.amount),
+    currency: toStringValue(record.currency),
+    providerRef: toStringValue(record.providerRef),
+    createdAt: toIsoDatetime(record.createdAt),
   };
 }
 
@@ -136,8 +172,12 @@ function normalizeOrderDetailPayload(
   const data = toRecord(root?.data);
   const source = data ?? root;
   const packageRecord = toRecord(source?.package);
-  const payments = toArray(source?.payments) ?? [];
-  const latestPayment = toRecord(payments[0]);
+  const payments = (toArray(source?.payments) ?? [])
+    .map((item) => normalizeOrderPayment(item))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const latestPayment = payments[0] ?? null;
+  const latestExtraPagesPayment =
+    payments.find((payment) => payment.type === "EXTRA_PAGES") ?? null;
   const addons = (toArray(source?.addons) ?? [])
     .map((item) => normalizeOrderAddon(item))
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
@@ -145,16 +185,19 @@ function normalizeOrderDetailPayload(
   return {
     orderId: toStringValue(source?.id) ?? toStringValue(source?.orderId) ?? requestedOrderId,
     orderNumber: toStringValue(source?.orderNumber),
+    status: toStringValue(source?.status),
     packageName: toStringValue(source?.packageName) ?? toStringValue(packageRecord?.name),
     packageAmount: toNumberValue(source?.packageAmount) ?? toNumberValue(source?.initialAmount),
+    extraAmount: toNumberValue(source?.extraAmount),
     totalAmount: toNumberValue(source?.totalAmount),
     currency: toStringValue(source?.currency),
-    latestPaymentStatus: toStringValue(latestPayment?.status),
-    latestPaymentProvider: toStringValue(latestPayment?.provider),
-    latestPaymentReference: toStringValue(latestPayment?.providerRef),
-    latestPaymentAmount: toNumberValue(latestPayment?.amount),
-    latestPaymentCurrency: toStringValue(latestPayment?.currency),
-    latestPaymentCreatedAt: toIsoDatetime(latestPayment?.createdAt),
+    latestPaymentStatus: latestPayment?.status ?? null,
+    latestPaymentProvider: latestPayment?.provider ?? null,
+    latestPaymentReference: latestPayment?.providerRef ?? null,
+    latestPaymentAmount: latestPayment?.amount ?? null,
+    latestPaymentCurrency: latestPayment?.currency ?? null,
+    latestPaymentCreatedAt: latestPayment?.createdAt ?? null,
+    latestExtraPaymentStatus: latestExtraPagesPayment?.status ?? null,
     trackingNumber: toStringValue(source?.trackingNumber),
     shippingProvider: toStringValue(source?.shippingProvider),
     createdAt: toIsoDatetime(source?.createdAt),
@@ -240,8 +283,10 @@ export function useOrderDetail({ orderId, enabled = true }: UseOrderDetailParams
     data,
     orderId: data.orderId || resolvedOrderId,
     orderNumber: data.orderNumber,
+    status: data.status,
     packageName: data.packageName,
     packageAmount: data.packageAmount,
+    extraAmount: data.extraAmount,
     totalAmount: data.totalAmount,
     currency: data.currency,
     latestPaymentStatus: data.latestPaymentStatus,
@@ -250,6 +295,7 @@ export function useOrderDetail({ orderId, enabled = true }: UseOrderDetailParams
     latestPaymentAmount: data.latestPaymentAmount,
     latestPaymentCurrency: data.latestPaymentCurrency,
     latestPaymentCreatedAt: data.latestPaymentCreatedAt,
+    latestExtraPaymentStatus: data.latestExtraPaymentStatus,
     trackingNumber: data.trackingNumber,
     shippingProvider: data.shippingProvider,
     createdAt: data.createdAt,

@@ -1,12 +1,14 @@
 /// <reference types="jest" />
 import { AuthController } from "../auth/auth.controller.js";
 import { CouponsController } from "../coupons/coupons.controller.js";
+import { NotificationsController } from "../notifications/notifications.controller.js";
 import { PaymentsController } from "../payments/payments.controller.js";
 import { getIpTracker, getNormalizedEmailTracker } from "./tracker.utils.js";
 
 const LIMIT_META_PREFIX = "THROTTLER:LIMIT";
 const TTL_META_PREFIX = "THROTTLER:TTL";
 const TRACKER_META_PREFIX = "THROTTLER:TRACKER";
+const SKIP_META_PREFIX = "THROTTLER:SKIP";
 
 type MethodTarget = (...args: unknown[]) => unknown;
 
@@ -29,6 +31,10 @@ function getTracker(target: MethodTarget, bucket: "short" | "long") {
   return Reflect.getMetadata(`${TRACKER_META_PREFIX}${bucket}`, target) as
     | ((...args: unknown[]) => unknown)
     | undefined;
+}
+
+function getSkip(target: MethodTarget, bucket: "short" | "long") {
+  return Reflect.getMetadata(`${SKIP_META_PREFIX}${bucket}`, target) as boolean | undefined;
 }
 
 describe("throttle policy metadata", () => {
@@ -70,5 +76,15 @@ describe("throttle policy metadata", () => {
     expect(getLimit(target, "long")).toBe(3);
     expect(getTtl(target, "long")).toBe(3_600_000);
     expect(getTracker(target, "long")).toBe(getIpTracker);
+  });
+
+  it("skips both throttle buckets for notification polling endpoints", () => {
+    const listTarget = methodOf(NotificationsController, "findMyNotifications");
+    const unreadTarget = methodOf(NotificationsController, "getUnreadCount");
+
+    expect(getSkip(listTarget, "short")).toBe(true);
+    expect(getSkip(listTarget, "long")).toBe(true);
+    expect(getSkip(unreadTarget, "short")).toBe(true);
+    expect(getSkip(unreadTarget, "long")).toBe(true);
   });
 });

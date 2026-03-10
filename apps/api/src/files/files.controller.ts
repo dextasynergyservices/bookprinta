@@ -109,7 +109,8 @@ export class FilesController {
     summary: "List all file versions for a book",
     description:
       "Returns all files associated with a book, grouped by type and " +
-      "ordered by version (newest first). Only accessible by the book owner.",
+      "ordered by version (newest first). Only accessible by the book owner. " +
+      "Admin-only artifacts such as FINAL_PDF are excluded from this user endpoint.",
   })
   @ApiParam({ name: "bookId", description: "Book CUID", example: "clx..." })
   @ApiResponse({ status: 200, description: "File list returned" })

@@ -1,5 +1,6 @@
 import { Controller, Get, Header, Param, Patch, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { SkipThrottle } from "@nestjs/throttler";
 import { CurrentUser } from "../auth/decorators/current-user.decorator.js";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard.js";
 import {
@@ -20,6 +21,7 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get()
+  @SkipThrottle({ short: true, long: true })
   @Header("Cache-Control", "private, no-store")
   @Header("Vary", "Cookie")
   @ApiOperation({
@@ -42,6 +44,7 @@ export class NotificationsController {
   }
 
   @Get("unread-count")
+  @SkipThrottle({ short: true, long: true })
   @Header("Cache-Control", "private, no-store")
   @Header("Vary", "Cookie")
   @ApiOperation({

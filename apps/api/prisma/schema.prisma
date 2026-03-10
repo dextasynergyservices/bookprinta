@@ -150,6 +150,7 @@ model User {
   firstName         String
   lastName          String?
   phoneNumber       String?
+  phoneNumberNormalized String?
   role              UserRole       @default(USER)
 
   // Auth: "Pay First, Signup Later" flow
@@ -195,6 +196,7 @@ model User {
   updatedAt         DateTime       @updatedAt
 
   @@index([email])
+  @@index([phoneNumberNormalized])
 }
 
 // ==========================================
@@ -358,6 +360,8 @@ model Book {
   user            User       @relation(fields: [userId], references: [id])
 
   status          BookStatus @default(AWAITING_UPLOAD)
+  productionStatus BookStatus?
+  productionStatusUpdatedAt DateTime?
 
   // Page/word metrics
   pageCount       Int?       // Actual count from server-side rendering

@@ -6,12 +6,20 @@ import {
   HttpStatus,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from "@nestjs/common";
-import { ApiBody, ApiCookieAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBody,
+  ApiCookieAuth,
+  ApiHeader,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import { getNormalizedEmailTracker } from "../rate-limit/tracker.utils.js";
 import { AuthService } from "./auth.service.js";
 import { CurrentUser } from "./decorators/index.js";
@@ -38,6 +46,10 @@ const RESEND_SIGNUP_LINK_THROTTLE = {
 const AUTH_WRITE_THROTTLE = {
   short: { limit: 10, ttl: 60_000 },
   long: { limit: 10, ttl: 60_000 },
+};
+
+type AuthRequest = Request & {
+  id?: string;
 };
 
 /**
@@ -198,6 +210,11 @@ export class AuthController {
       "Access token: 15min. Refresh token: 7d (users) / 1h (admins).",
   })
   @ApiBody({ type: LoginDto })
+  @ApiHeader({
+    name: "x-request-id",
+    required: false,
+    description: "Optional client-generated correlation id used for auth timing instrumentation.",
+  })
   @ApiResponse({ status: 200, description: "Login successful, tokens set in cookies" })
   @ApiResponse({
     status: 400,
@@ -213,8 +230,17 @@ export class AuthController {
     status: 429,
     description: "Too many attempts. Response includes retryAfter.",
   })
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.login(dto);
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: AuthRequest,
+    @Res({ passthrough: true }) res: Response
+  ) {
+    const result = await this.authService.login(dto, {
+      correlationId: this.resolveCorrelationId(req),
+      clientRecaptchaDurationMs: this.parseDurationHeader(
+        req.headers["x-client-recaptcha-duration-ms"]
+      ),
+    });
 
     // Set tokens in HttpOnly cookies
     this.setTokenCookies(
@@ -385,5 +411,26 @@ export class AuthController {
       refreshToken,
       this.authService.getRefreshTokenCookieOptions(role)
     );
+  }
+
+  private resolveCorrelationId(req: AuthRequest): string | null {
+    const headerValue = req.headers["x-request-id"];
+    if (typeof headerValue === "string" && headerValue.trim().length > 0) {
+      return headerValue.trim();
+    }
+
+    return typeof req.id === "string" && req.id.trim().length > 0 ? req.id.trim() : null;
+  }
+
+  private parseDurationHeader(value: string | string[] | undefined): number | null {
+    const candidate = Array.isArray(value) ? value[0] : value;
+    if (!candidate) return null;
+
+    const parsed = Number(candidate);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return null;
+    }
+
+    return Math.round(parsed);
   }
 }

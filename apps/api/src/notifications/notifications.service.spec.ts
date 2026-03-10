@@ -155,6 +155,56 @@ describe("NotificationsService", () => {
         },
       });
     });
+
+    it("falls back safely when legacy notification copy is missing", async () => {
+      mockPrismaService.notification.findMany.mockResolvedValue([
+        {
+          id: "cm3333333333333333333333333",
+          title: null,
+          message: "",
+          type: "UNKNOWN_TYPE",
+          data: { unexpected: true },
+          isRead: false,
+          createdAt: new Date("2026-03-06T11:00:00.000Z"),
+        },
+      ]);
+      mockPrismaService.notification.count.mockResolvedValue(1);
+
+      const result = await service.findUserNotifications("user_1", {
+        page: 1,
+        limit: 50,
+      });
+
+      expect(result).toEqual({
+        items: [
+          {
+            id: "cm3333333333333333333333333",
+            type: "SYSTEM",
+            isRead: false,
+            createdAt: "2026-03-06T11:00:00.000Z",
+            data: {
+              titleKey: "notification_fallback_title",
+              messageKey: "notification_fallback_message",
+              params: {
+                title: "Notification",
+                message: "You have a new notification.",
+              },
+              action: {
+                kind: "none",
+              },
+            },
+          },
+        ],
+        pagination: {
+          page: 1,
+          pageSize: 50,
+          totalItems: 1,
+          totalPages: 1,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        },
+      });
+    });
   });
 
   describe("markNotificationRead", () => {
