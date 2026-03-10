@@ -36,6 +36,53 @@ type FormErrors = {
   password?: string;
 };
 
+type LoginTimingSample = {
+  event: "auth.login.timing.client";
+  correlationId: string;
+  recaptchaDurationMs: number | null;
+  requestDurationMs: number | null;
+  totalDurationMs: number | null;
+  outcome: "success" | "failure";
+  httpStatus: number | null;
+  errorCode: string | null;
+  serverCorrelationId: string | null;
+};
+
+function createCorrelationId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `auth-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function markTiming(name: string) {
+  if (typeof performance === "undefined" || typeof performance.mark !== "function") return;
+  performance.mark(name);
+}
+
+function measureTiming(name: string, startMark: string, endMark: string): number | null {
+  if (
+    typeof performance === "undefined" ||
+    typeof performance.measure !== "function" ||
+    typeof performance.getEntriesByName !== "function"
+  ) {
+    return null;
+  }
+
+  performance.measure(name, startMark, endMark);
+  const entry = performance.getEntriesByName(name).at(-1);
+  performance.clearMarks(startMark);
+  performance.clearMarks(endMark);
+  performance.clearMeasures(name);
+
+  return entry ? Math.round(entry.duration) : null;
+}
+
+function logLoginTiming(sample: LoginTimingSample) {
+  console.info("[auth-timing]", sample);
+}
+
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
 
@@ -175,15 +222,42 @@ function LoginPageInner() {
     if (!validateForm()) return;
 
     setIsSubmitting(true);
+    const correlationId = createCorrelationId();
+    const totalStartMark = `auth-login:${correlationId}:total:start`;
+    const totalEndMark = `auth-login:${correlationId}:total:end`;
+    const recaptchaStartMark = `auth-login:${correlationId}:recaptcha:start`;
+    const recaptchaEndMark = `auth-login:${correlationId}:recaptcha:end`;
+    const requestStartMark = `auth-login:${correlationId}:request:start`;
+    const requestEndMark = `auth-login:${correlationId}:request:end`;
+    markTiming(totalStartMark);
+
+    let recaptchaDurationMs: number | null = null;
+    let requestDurationMs: number | null = null;
+    let totalDurationMs: number | null = null;
+    let serverCorrelationId: string | null = null;
     try {
       let recaptchaToken = "dev-token";
       if (executeRecaptcha) {
+        markTiming(recaptchaStartMark);
         recaptchaToken = await executeRecaptcha("login_form");
+        markTiming(recaptchaEndMark);
+        recaptchaDurationMs = measureTiming(
+          `auth-login:${correlationId}:recaptcha`,
+          recaptchaStartMark,
+          recaptchaEndMark
+        );
       }
 
+      markTiming(requestStartMark);
       const response = await fetch(`${getApiV1BaseUrl()}/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-request-id": correlationId,
+          ...(typeof recaptchaDurationMs === "number"
+            ? { "x-client-recaptcha-duration-ms": String(recaptchaDurationMs) }
+            : {}),
+        },
         credentials: "include",
         body: JSON.stringify({
           identifier: normalizedIdentifier,
@@ -191,6 +265,13 @@ function LoginPageInner() {
           recaptchaToken,
         }),
       });
+      markTiming(requestEndMark);
+      requestDurationMs = measureTiming(
+        `auth-login:${correlationId}:request`,
+        requestStartMark,
+        requestEndMark
+      );
+      serverCorrelationId = response.headers.get("x-request-id");
 
       if (response.ok) {
         const payload = (await response.json().catch(() => null)) as LoginResponse | null;
@@ -206,6 +287,23 @@ function LoginPageInner() {
         }
 
         toast.success(t("login_success_toast"));
+        markTiming(totalEndMark);
+        totalDurationMs = measureTiming(
+          `auth-login:${correlationId}:total`,
+          totalStartMark,
+          totalEndMark
+        );
+        logLoginTiming({
+          event: "auth.login.timing.client",
+          correlationId,
+          recaptchaDurationMs,
+          requestDurationMs,
+          totalDurationMs,
+          outcome: "success",
+          httpStatus: response.status,
+          errorCode: null,
+          serverCorrelationId,
+        });
         router.replace(isAdminRole(role) ? "/admin" : safeNextPath || "/dashboard");
         return;
       }
@@ -216,6 +314,23 @@ function LoginPageInner() {
       if (response.status === 429 || errorCode === "AUTH_LOGIN_RATE_LIMIT") {
         const retrySeconds = resolveRetryAfterSeconds(response, payload);
         setRateLimitSeconds(retrySeconds);
+        markTiming(totalEndMark);
+        totalDurationMs = measureTiming(
+          `auth-login:${correlationId}:total`,
+          totalStartMark,
+          totalEndMark
+        );
+        logLoginTiming({
+          event: "auth.login.timing.client",
+          correlationId,
+          recaptchaDurationMs,
+          requestDurationMs,
+          totalDurationMs,
+          outcome: "failure",
+          httpStatus: response.status,
+          errorCode: errorCode ?? "AUTH_LOGIN_RATE_LIMIT",
+          serverCorrelationId,
+        });
         return;
       }
 
@@ -226,17 +341,93 @@ function LoginPageInner() {
         setIsUnverifiedError(true);
         setResendEmail(payload?.resendEmail?.trim().toLowerCase() || fallbackResendEmail);
         setFormError(t("login_error_unverified"));
+        markTiming(totalEndMark);
+        totalDurationMs = measureTiming(
+          `auth-login:${correlationId}:total`,
+          totalStartMark,
+          totalEndMark
+        );
+        logLoginTiming({
+          event: "auth.login.timing.client",
+          correlationId,
+          recaptchaDurationMs,
+          requestDurationMs,
+          totalDurationMs,
+          outcome: "failure",
+          httpStatus: response.status,
+          errorCode,
+          serverCorrelationId,
+        });
         return;
       }
 
       if (errorCode === "AUTH_RECAPTCHA_FAILED") {
         setFormError(t("login_error_recaptcha"));
+        markTiming(totalEndMark);
+        totalDurationMs = measureTiming(
+          `auth-login:${correlationId}:total`,
+          totalStartMark,
+          totalEndMark
+        );
+        logLoginTiming({
+          event: "auth.login.timing.client",
+          correlationId,
+          recaptchaDurationMs,
+          requestDurationMs,
+          totalDurationMs,
+          outcome: "failure",
+          httpStatus: response.status,
+          errorCode,
+          serverCorrelationId,
+        });
         return;
       }
 
       setFormError(t("login_error_invalid_credentials"));
+      markTiming(totalEndMark);
+      totalDurationMs = measureTiming(
+        `auth-login:${correlationId}:total`,
+        totalStartMark,
+        totalEndMark
+      );
+      logLoginTiming({
+        event: "auth.login.timing.client",
+        correlationId,
+        recaptchaDurationMs,
+        requestDurationMs,
+        totalDurationMs,
+        outcome: "failure",
+        httpStatus: response.status,
+        errorCode: errorCode ?? null,
+        serverCorrelationId,
+      });
     } catch {
       setFormError(t("login_error_generic"));
+      if (requestDurationMs === null) {
+        markTiming(requestEndMark);
+        requestDurationMs = measureTiming(
+          `auth-login:${correlationId}:request`,
+          requestStartMark,
+          requestEndMark
+        );
+      }
+      markTiming(totalEndMark);
+      totalDurationMs = measureTiming(
+        `auth-login:${correlationId}:total`,
+        totalStartMark,
+        totalEndMark
+      );
+      logLoginTiming({
+        event: "auth.login.timing.client",
+        correlationId,
+        recaptchaDurationMs,
+        requestDurationMs,
+        totalDurationMs,
+        outcome: "failure",
+        httpStatus: null,
+        errorCode: "NETWORK_ERROR",
+        serverCorrelationId,
+      });
     } finally {
       setIsSubmitting(false);
     }

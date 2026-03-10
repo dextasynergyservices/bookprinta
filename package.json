@@ -16,6 +16,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:e2e": "playwright test",
+    "test:e2e:book-workspace": "playwright test e2e/tests/book-workspace.smoke.spec.ts --project=mobile-chrome",
     "test:e2e:ui": "playwright test --ui",
     "prepare": "husky"
   },

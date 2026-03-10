@@ -26,7 +26,9 @@
     "db:seed": "bun x prisma db seed",
     "db:seed:gateways": "bun run prisma/seed-payment-gateways.ts",
     "db:seed:quote-settings": "bun run prisma/seed-quote-settings.ts",
-    "db:seed:resources": "bun run prisma/seed-resources.ts"
+    "db:seed:resources": "bun run prisma/seed-resources.ts",
+    "db:seed:showcase": "bun run prisma/seed-showcase.ts",
+    "db:backfill:phone-normalized": "bun run prisma/backfill-phone-number-normalized.ts"
   },
   "prisma": {
     "seed": "bun run prisma/seed.ts"
@@ -53,6 +55,7 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.3.1",
     "helmet": "^8.1.0",
+    "htmlparser2": "^8.0.2",
     "ioredis": "^5.9.3",
     "jsonwebtoken": "^9.0.3",
     "nestjs-pino": "^4.6.0",

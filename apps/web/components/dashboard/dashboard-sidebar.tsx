@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useHasAnyPrintedBook } from "@/hooks/use-dashboard-shell-data";
+import { useReviewState } from "@/hooks/use-dashboard-shell-data";
 import { Link, usePathname } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,7 @@ type DashboardSidebarProps = {
   onNavigate?: () => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  onOpenReviewDialog?: (target: { bookId: string; bookTitle: string | null }) => void;
 };
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
@@ -58,20 +59,34 @@ export function DashboardSidebar({
   onNavigate,
   isCollapsed = false,
   onToggleCollapse,
+  onOpenReviewDialog,
 }: DashboardSidebarProps) {
   const tDashboard = useTranslations("dashboard");
   const pathname = usePathname();
   const {
     hasAnyPrintedBook,
+    pendingBooks,
+    reviewedBooks,
     isLoading: isReviewEligibilityLoading,
     isError: isReviewEligibilityError,
     isFallback: isReviewEligibilityFallback,
-  } = useHasAnyPrintedBook();
+  } = useReviewState();
   const reviewsLockedTooltip = isReviewEligibilityLoading
     ? tDashboard("reviews_eligibility_loading")
     : isReviewEligibilityError || isReviewEligibilityFallback
       ? tDashboard("reviews_eligibility_unavailable")
       : tDashboard("reviews_disabled_tooltip");
+  const firstReviewTarget = pendingBooks[0]
+    ? {
+        bookId: pendingBooks[0].bookId,
+        bookTitle: null,
+      }
+    : reviewedBooks[0]
+      ? {
+          bookId: reviewedBooks[0].bookId,
+          bookTitle: null,
+        }
+      : null;
   const canCollapseDesktop = !onNavigate && typeof onToggleCollapse === "function";
   const collapseAriaLabel = isCollapsed
     ? tDashboard("sidebar_expand_aria")
@@ -146,6 +161,11 @@ export function DashboardSidebar({
                     if (isReviewsLocked) {
                       event.preventDefault();
                       return;
+                    }
+
+                    if (isReviewsItem && firstReviewTarget && onOpenReviewDialog) {
+                      event.preventDefault();
+                      onOpenReviewDialog(firstReviewTarget);
                     }
 
                     onNavigate?.();

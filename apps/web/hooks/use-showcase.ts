@@ -24,7 +24,7 @@ export function useShowcaseCategories() {
       sentryName: "fetchShowcaseCategories",
       sentryEndpoint: "/api/v1/showcase/categories",
     },
-    queryFn: fetchShowcaseCategories,
+    queryFn: () => fetchShowcaseCategories(),
     staleTime: 5 * 60 * 1000,
   });
 }

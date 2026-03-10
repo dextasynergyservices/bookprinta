@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { PinoLogger } from "nestjs-pino";
 import { Resend } from "resend";
 import type { UserRole } from "../generated/prisma/enums.js";
 import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
@@ -28,6 +29,8 @@ import type {
   VerifyEmailLinkDto,
 } from "./dto/index.js";
 import type { JwtPayload, TokenPair } from "./interfaces/index.js";
+import { normalizePhoneNumber } from "./phone-number.util.js";
+import { hashRefreshToken } from "./refresh-token.util.js";
 
 /**
  * Auth Service — Core authentication and authorization logic.
@@ -59,8 +62,10 @@ export class AuthService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly signupNotificationsService: SignupNotificationsService
+    private readonly signupNotificationsService: SignupNotificationsService,
+    private readonly pinoLogger: PinoLogger
   ) {
+    this.pinoLogger.setContext(AuthService.name);
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.JWT_SECRET = process.env.JWT_SECRET || "fallback-dev-secret-change-me";
     this.ACCESS_TOKEN_EXPIRY = process.env.JWT_ACCESS_EXPIRY || "15m";
@@ -355,16 +360,35 @@ export class AuthService {
    * Authenticate user with email/phone and password.
    * Returns token pair + user info on success.
    */
-  async login(dto: LoginDto): Promise<{ user: SafeUser; tokens: TokenPair }> {
-    const isHuman = await this.verifyRecaptcha(dto.recaptchaToken);
-    if (!isHuman) {
-      throw new BadRequestException({
-        message: "reCAPTCHA verification failed. Please try again.",
-        errorCode: "AUTH_RECAPTCHA_FAILED",
-      });
-    }
-
+  async login(
+    dto: LoginDto,
+    context: AuthLoginInstrumentationContext = {}
+  ): Promise<{ user: SafeUser; tokens: TokenPair }> {
+    const loginTiming: AuthLoginTimingLog = {
+      event: "auth.login.timing",
+      correlationId: context.correlationId ?? null,
+      clientRecaptchaDurationMs: context.clientRecaptchaDurationMs ?? null,
+      identifierType: null,
+      userLookupDurationMs: null,
+      passwordCompareDurationMs: null,
+      verifyRecaptchaDurationMs: null,
+      refreshTokenHashDurationMs: null,
+      refreshTokenPersistDurationMs: null,
+      totalDurationMs: null,
+      phoneLookupStrategy: null,
+      phoneMatchCount: null,
+      refreshTokenStorageStrategy: "digest",
+      userFound: false,
+      outcome: "failure",
+      errorCode: null,
+      errorMessage: null,
+    };
+    const loginStartedAt = performance.now();
     const identifier = dto.identifier.trim();
+    loginTiming.identifierType = this.isEmailIdentifier(identifier) ? "email" : "phone";
+    loginTiming.phoneLookupStrategy =
+      loginTiming.identifierType === "phone" ? "normalized_exact" : null;
+
     let user: {
       id: string;
       email: string;
@@ -375,55 +399,94 @@ export class AuthService {
       isVerified: boolean;
     } | null = null;
 
-    if (this.isEmailIdentifier(identifier)) {
-      user = await this.findUserForEmailLogin(identifier);
-
-      if (!user || !user.password) {
-        throw new UnauthorizedException({
-          message: "Invalid email or password",
-          errorCode: "AUTH_INVALID_CREDENTIALS",
+    try {
+      const recaptchaStartedAt = performance.now();
+      const isHuman = await this.verifyRecaptcha(dto.recaptchaToken);
+      loginTiming.verifyRecaptchaDurationMs = this.roundDuration(
+        performance.now() - recaptchaStartedAt
+      );
+      if (!isHuman) {
+        throw new BadRequestException({
+          message: "reCAPTCHA verification failed. Please try again.",
+          errorCode: "AUTH_RECAPTCHA_FAILED",
         });
       }
 
-      const isPasswordValid = await bcrypt.compare(dto.password, user.password);
-      if (!isPasswordValid) {
-        throw new UnauthorizedException({
-          message: "Invalid email or password",
-          errorCode: "AUTH_INVALID_CREDENTIALS",
-        });
-      }
-    } else {
-      user = await this.findUserForPhoneLogin(identifier, dto.password);
-      if (!user) {
-        throw new UnauthorizedException({
-          message: "Invalid email or password",
-          errorCode: "AUTH_INVALID_CREDENTIALS",
-        });
-      }
-    }
+      if (loginTiming.identifierType === "email") {
+        const userLookupStartedAt = performance.now();
+        user = await this.findUserForEmailLogin(identifier);
+        loginTiming.userLookupDurationMs = this.roundDuration(
+          performance.now() - userLookupStartedAt
+        );
+        loginTiming.userFound = Boolean(user?.password);
 
-    // Check if email is verified
-    if (!user.isVerified) {
-      throw new UnauthorizedException({
-        message: "Please complete your account setup. Check your email for the signup link.",
-        errorCode: "AUTH_UNVERIFIED_ACCOUNT",
-        resendEmail: user.email,
+        if (!user || !user.password) {
+          throw new UnauthorizedException({
+            message: "Invalid email or password",
+            errorCode: "AUTH_INVALID_CREDENTIALS",
+          });
+        }
+
+        const passwordCompareStartedAt = performance.now();
+        const isPasswordValid = await bcrypt.compare(dto.password, user.password);
+        loginTiming.passwordCompareDurationMs = this.roundDuration(
+          performance.now() - passwordCompareStartedAt
+        );
+        if (!isPasswordValid) {
+          throw new UnauthorizedException({
+            message: "Invalid email or password",
+            errorCode: "AUTH_INVALID_CREDENTIALS",
+          });
+        }
+      } else {
+        const phoneLoginResult = await this.findUserForPhoneLogin(identifier, dto.password);
+        user = phoneLoginResult.user;
+        loginTiming.userLookupDurationMs = phoneLoginResult.userLookupDurationMs;
+        loginTiming.passwordCompareDurationMs = phoneLoginResult.passwordCompareDurationMs;
+        loginTiming.phoneMatchCount = phoneLoginResult.phoneMatchCount;
+        loginTiming.userFound = Boolean(user);
+
+        if (!user) {
+          throw new UnauthorizedException({
+            message: "Invalid email or password",
+            errorCode: "AUTH_INVALID_CREDENTIALS",
+          });
+        }
+      }
+
+      // Check if email is verified
+      if (!user.isVerified) {
+        throw new UnauthorizedException({
+          message: "Please complete your account setup. Check your email for the signup link.",
+          errorCode: "AUTH_UNVERIFIED_ACCOUNT",
+          resendEmail: user.email,
+        });
+      }
+
+      // Generate tokens and set refresh token in database
+      const tokens = await this.generateTokenPair(user.id, user.email, user.role, {
+        timing: loginTiming,
       });
+      loginTiming.outcome = "success";
+
+      return {
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+        },
+        tokens,
+      };
+    } catch (error) {
+      loginTiming.errorCode = this.extractAuthErrorCode(error);
+      loginTiming.errorMessage = this.extractAuthErrorMessage(error);
+      throw error;
+    } finally {
+      loginTiming.totalDurationMs = this.roundDuration(performance.now() - loginStartedAt);
+      this.logLoginTiming(loginTiming);
     }
-
-    // Generate tokens and set refresh token in database
-    const tokens = await this.generateTokenPair(user.id, user.email, user.role);
-
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-      },
-      tokens,
-    };
   }
 
   // ==========================================
@@ -720,6 +783,7 @@ export class AuthService {
     role: UserRole,
     options: {
       refreshTokenExpiresAt?: Date;
+      timing?: AuthLoginTimingLog;
     } = {}
   ): Promise<TokenPair> {
     const payload: JwtPayload = { sub: userId, email, role };
@@ -757,9 +821,16 @@ export class AuthService {
     const refreshToken = jwt.sign(payload, this.JWT_SECRET, {
       expiresIn: Math.max(1, Math.floor(refreshExpiryMs / 1000)),
     });
-    const hashedRefreshToken = await bcrypt.hash(refreshToken, this.SALT_ROUNDS);
+    const refreshHashStartedAt = performance.now();
+    const hashedRefreshToken = hashRefreshToken(refreshToken);
+    if (options.timing) {
+      options.timing.refreshTokenHashDurationMs = this.roundDuration(
+        performance.now() - refreshHashStartedAt
+      );
+    }
 
     // Store hashed refresh token in database (rotation: replaces old token)
+    const refreshPersistStartedAt = performance.now();
     await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -767,6 +838,11 @@ export class AuthService {
         refreshTokenExp,
       },
     });
+    if (options.timing) {
+      options.timing.refreshTokenPersistDurationMs = this.roundDuration(
+        performance.now() - refreshPersistStartedAt
+      );
+    }
 
     return { accessToken, refreshToken };
   }
@@ -908,20 +984,37 @@ export class AuthService {
     identifier: string,
     password: string
   ): Promise<{
-    id: string;
-    email: string;
-    role: UserRole;
-    firstName: string;
-    lastName: string | null;
-    password: string | null;
-    isVerified: boolean;
-  } | null> {
-    const phoneCandidates = this.buildPhoneCandidates(identifier);
-    if (phoneCandidates.length === 0) return null;
+    user: {
+      id: string;
+      email: string;
+      role: UserRole;
+      firstName: string;
+      lastName: string | null;
+      password: string | null;
+      isVerified: boolean;
+    } | null;
+    userLookupDurationMs: number;
+    passwordCompareDurationMs: number;
+    phoneMatchCount: number;
+  }> {
+    const userLookupStartedAt = performance.now();
+    const normalizedPhone = normalizePhoneNumber(identifier);
+    const trimmedIdentifier = identifier.trim();
+    if (!normalizedPhone && !trimmedIdentifier) {
+      return {
+        user: null,
+        userLookupDurationMs: this.roundDuration(performance.now() - userLookupStartedAt),
+        passwordCompareDurationMs: 0,
+        phoneMatchCount: 0,
+      };
+    }
 
     const users = await this.prisma.user.findMany({
       where: {
-        OR: phoneCandidates.map((phoneNumber) => ({ phoneNumber })),
+        OR: [
+          ...(normalizedPhone ? [{ phoneNumberNormalized: normalizedPhone }] : []),
+          ...(trimmedIdentifier ? [{ phoneNumber: trimmedIdentifier }] : []),
+        ],
       },
       select: {
         id: true,
@@ -933,32 +1026,62 @@ export class AuthService {
         isVerified: true,
       },
     });
+    const userLookupDurationMs = this.roundDuration(performance.now() - userLookupStartedAt);
 
+    let passwordCompareDurationMs = 0;
     for (const candidate of users) {
       if (!candidate.password) continue;
+      const passwordCompareStartedAt = performance.now();
       const isPasswordValid = await bcrypt.compare(password, candidate.password);
-      if (isPasswordValid) return candidate;
+      passwordCompareDurationMs += performance.now() - passwordCompareStartedAt;
+      if (isPasswordValid) {
+        return {
+          user: candidate,
+          userLookupDurationMs,
+          passwordCompareDurationMs: this.roundDuration(passwordCompareDurationMs),
+          phoneMatchCount: users.length,
+        };
+      }
+    }
+
+    return {
+      user: null,
+      userLookupDurationMs,
+      passwordCompareDurationMs: this.roundDuration(passwordCompareDurationMs),
+      phoneMatchCount: users.length,
+    };
+  }
+
+  private roundDuration(value: number): number {
+    return Math.max(0, Math.round(value));
+  }
+
+  private extractAuthErrorCode(error: unknown): string | null {
+    if (error instanceof BadRequestException || error instanceof UnauthorizedException) {
+      const response = error.getResponse();
+      if (typeof response === "object" && response && "errorCode" in response) {
+        const errorCode = response.errorCode;
+        return typeof errorCode === "string" ? errorCode : null;
+      }
+    }
+
+    return error instanceof Error ? error.name : null;
+  }
+
+  private extractAuthErrorMessage(error: unknown): string | null {
+    if (error instanceof Error) {
+      return error.message;
     }
 
     return null;
   }
 
-  private isEmailIdentifier(value: string): boolean {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  private logLoginTiming(timing: AuthLoginTimingLog) {
+    this.pinoLogger.info(timing, "Auth login timing");
   }
 
-  private buildPhoneCandidates(value: string): string[] {
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-
-    const digits = trimmed.replace(/\D/g, "");
-    const normalizedWithPlus = trimmed.startsWith("+") ? `+${digits}` : "";
-    const normalizedDigits = digits;
-    const withPlusDigits = digits ? `+${digits}` : "";
-
-    return [...new Set([trimmed, normalizedWithPlus, normalizedDigits, withPlusDigits])].filter(
-      Boolean
-    );
+  private isEmailIdentifier(value: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
   }
 
   private async getValidResetTokenUser(token: string): Promise<{ id: string }> {
@@ -1123,6 +1246,33 @@ export class AuthService {
 // ==========================================
 // TYPES
 // ==========================================
+
+type AuthLoginIdentifierType = "email" | "phone";
+
+type AuthLoginInstrumentationContext = {
+  correlationId?: string | null;
+  clientRecaptchaDurationMs?: number | null;
+};
+
+type AuthLoginTimingLog = {
+  event: "auth.login.timing";
+  correlationId: string | null;
+  clientRecaptchaDurationMs: number | null;
+  identifierType: AuthLoginIdentifierType | null;
+  userLookupDurationMs: number | null;
+  passwordCompareDurationMs: number | null;
+  verifyRecaptchaDurationMs: number | null;
+  refreshTokenHashDurationMs: number | null;
+  refreshTokenPersistDurationMs: number | null;
+  totalDurationMs: number | null;
+  phoneLookupStrategy: "normalized_exact" | null;
+  phoneMatchCount: number | null;
+  refreshTokenStorageStrategy: "digest";
+  userFound: boolean;
+  outcome: "success" | "failure";
+  errorCode: string | null;
+  errorMessage: string | null;
+};
 
 /**
  * Safe user object (no password or sensitive fields)

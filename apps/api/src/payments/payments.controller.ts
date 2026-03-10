@@ -310,7 +310,7 @@ export class PaymentsController {
     summary: "Pay for extra pages",
     description:
       "Initiates payment for extra pages when the book exceeds the bundle page limit. " +
-      "Cost is ₦300 per extra page. Requires authentication.",
+      "Cost is ₦10 per extra page. Requires authentication.",
   })
   @ApiResponse({
     status: 200,

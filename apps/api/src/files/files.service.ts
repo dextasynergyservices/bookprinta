@@ -30,6 +30,7 @@ const FILE_TYPE_FOLDERS: Record<string, string> = {
 
 @Injectable()
 export class FilesService {
+  private static readonly USER_HIDDEN_FILE_TYPES: FileType[] = ["FINAL_PDF"];
   private readonly logger = new Logger(FilesService.name);
 
   constructor(
@@ -147,6 +148,78 @@ export class FilesService {
     return fileRecord;
   }
 
+  /**
+   * Persists system-generated assets (preview/final PDFs, cleaned HTML, etc.)
+   * without scanner/user-ownership checks because the bytes are produced by
+   * trusted internal workers after the original upload has already been scanned.
+   */
+  async saveGeneratedFile(params: {
+    bookId: string;
+    fileType: FileType;
+    fileName: string;
+    mimeType: string;
+    content: Buffer | string;
+    publicId: string;
+    createdBy?: string | null;
+  }) {
+    const existing = await this.prisma.file.findFirst({
+      where: {
+        bookId: params.bookId,
+        fileType: params.fileType,
+        fileName: params.fileName,
+      },
+      select: {
+        id: true,
+        bookId: true,
+        fileType: true,
+        url: true,
+        fileName: true,
+        fileSize: true,
+        mimeType: true,
+        version: true,
+        createdBy: true,
+        createdAt: true,
+      },
+    });
+    if (existing) {
+      return existing;
+    }
+
+    const folder = FILE_TYPE_FOLDERS[params.fileType] ?? "bookprinta/uploads";
+    const contentBuffer =
+      typeof params.content === "string" ? Buffer.from(params.content, "utf8") : params.content;
+    const upload = await this.cloudinary.upload(contentBuffer, {
+      ...(params.publicId.includes("/") ? {} : { folder }),
+      resource_type: params.mimeType.startsWith("image/") ? "image" : "raw",
+      type: "upload",
+      public_id: params.publicId,
+      overwrite: true,
+    });
+
+    const latestFile = await this.prisma.file.findFirst({
+      where: {
+        bookId: params.bookId,
+        fileType: params.fileType,
+      },
+      orderBy: { version: "desc" },
+      select: { version: true },
+    });
+    const nextVersion = (latestFile?.version ?? 0) + 1;
+
+    return this.prisma.file.create({
+      data: {
+        bookId: params.bookId,
+        fileType: params.fileType,
+        url: upload.secure_url,
+        fileName: params.fileName,
+        fileSize: contentBuffer.byteLength,
+        mimeType: params.mimeType,
+        version: nextVersion,
+        createdBy: params.createdBy ?? "SYSTEM",
+      },
+    });
+  }
+
   // ──────────────────────────────────────────────
   // File Retrieval
   // ──────────────────────────────────────────────
@@ -154,7 +227,13 @@ export class FilesService {
   /**
    * Lists all files for a book, grouped by type and ordered by version.
    */
-  async getBookFiles(bookId: string, userId: string) {
+  async getBookFiles(
+    bookId: string,
+    userId: string,
+    options?: {
+      includeAdminOnly?: boolean;
+    }
+  ) {
     // Verify book access
     const book = await this.prisma.book.findUnique({
       where: { id: bookId },
@@ -170,7 +249,16 @@ export class FilesService {
     }
 
     return this.prisma.file.findMany({
-      where: { bookId },
+      where: {
+        bookId,
+        ...(options?.includeAdminOnly
+          ? {}
+          : {
+              fileType: {
+                notIn: FilesService.USER_HIDDEN_FILE_TYPES,
+              },
+            }),
+      },
       orderBy: [{ fileType: "asc" }, { version: "desc" }],
     });
   }

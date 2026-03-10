@@ -26,7 +26,9 @@ import { RedisModule } from "./redis/redis.module.js";
 import { RedisService } from "./redis/redis.service.js";
 import { ResourcesModule } from "./resources/resources.module.js";
 import { ReviewsModule } from "./reviews/reviews.module.js";
+import { RolloutModule } from "./rollout/rollout.module.js";
 import { ScannerModule } from "./scanner/scanner.module.js";
+import { ShowcaseModule } from "./showcase/showcase.module.js";
 
 @Module({
   imports: [
@@ -42,8 +44,11 @@ import { ScannerModule } from "./scanner/scanner.module.js";
     // Global Cloudinary signed upload infrastructure
     CloudinaryModule,
 
+    // Environment-driven feature rollout controls for production-safe releases
+    RolloutModule,
+
     // BullMQ job queues backed by Redis (ai-formatting, pdf-generation, page-count)
-    // Processors are added in Phase 5. See CLAUDE.md Section 18.4.
+    // AI formatting + authoritative page-count processors are wired.
     JobsModule.register(),
 
     // Rate limiting — Redis-backed with in-memory fallback (lossy)
@@ -88,6 +93,9 @@ import { ScannerModule } from "./scanner/scanner.module.js";
 
     // Public resources/blog endpoints (listing, categories, article detail)
     ResourcesModule,
+
+    // Public showcase endpoints (homepage featured preview + /showcase page)
+    ShowcaseModule,
 
     // Coupon validation + admin coupon management
     CouponsModule,

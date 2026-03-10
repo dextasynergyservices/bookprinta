@@ -3,7 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { normalizeBookProgressPayload } from "@/lib/api/book-progress-contract";
 import { throwApiError } from "@/lib/api-error";
-import { BOOK_PROGRESS_STAGES, type BookProgressNormalizedResponse } from "@/types/book-progress";
+import {
+  BOOK_PROGRESS_STAGES,
+  type BookProcessingState,
+  type BookProgressNormalizedResponse,
+  type BookRolloutState,
+} from "@/types/book-progress";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -44,6 +49,31 @@ type OrderTrackingNormalizedResponse = BookProgressNormalizedResponse & {
   currentBookStatus: string | null;
 };
 
+function createFallbackRollout(): BookRolloutState {
+  return {
+    environment: "unknown",
+    allowInFlightAccess: true,
+    isGrandfathered: false,
+    blockedBy: null,
+    workspace: { enabled: true, access: "enabled" },
+    manuscriptPipeline: { enabled: true, access: "enabled" },
+    billingGate: { enabled: true, access: "enabled" },
+    finalPdf: { enabled: true, access: "enabled" },
+  };
+}
+
+function createFallbackProcessing(): BookProcessingState {
+  return {
+    isActive: false,
+    currentStep: null,
+    jobStatus: null,
+    trigger: null,
+    startedAt: null,
+    attempt: null,
+    maxAttempts: null,
+  };
+}
+
 function createFallbackOrderTracking(orderId: string | null): OrderTrackingNormalizedResponse {
   return {
     sourceEndpoint: "orders_tracking",
@@ -55,6 +85,8 @@ function createFallbackOrderTracking(orderId: string | null): OrderTrackingNorma
     currentBookStatus: null,
     bookId: null,
     currentStatus: null,
+    productionStatus: "PAYMENT_RECEIVED",
+    latestProcessingError: null,
     rejectionReason: null,
     currentStage: "PAYMENT_RECEIVED",
     isRejected: false,
@@ -74,6 +106,8 @@ function createFallbackOrderTracking(orderId: string | null): OrderTrackingNorma
     previewPdfUrl: null,
     finalPdfUrl: null,
     updatedAt: null,
+    rollout: createFallbackRollout(),
+    processing: createFallbackProcessing(),
   };
 }
 

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { NotificationsModule } from "../notifications/notifications.module.js";
 import { PrismaModule } from "../prisma/prisma.module.js";
+import { RolloutModule } from "../rollout/rollout.module.js";
 import { AdminPaymentsController } from "./admin-payments.controller.js";
 import { PaymentsController } from "./payments.controller.js";
 import { PaymentsService } from "./payments.service.js";
@@ -30,7 +31,7 @@ import { StripeService } from "./services/stripe.service.js";
  *   POST /payments/webhook/stripe    (Stripe signature verified)
  */
 @Module({
-  imports: [PrismaModule, NotificationsModule],
+  imports: [PrismaModule, NotificationsModule, RolloutModule],
   controllers: [PaymentsController, AdminPaymentsController],
   providers: [
     // Provider factory instances (Paystack config | Stripe SDK | PayPal config)

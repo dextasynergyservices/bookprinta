@@ -23,12 +23,12 @@ export interface ShowcaseCategory {
 }
 
 export interface AuthorProfile {
-  bio: string | null;
-  profileImageUrl: string | null;
-  whatsAppNumber: string | null;
-  websiteUrl: string | null;
-  purchaseLinks: PurchaseLink[] | null;
-  socialLinks: SocialLink[] | null;
+  bio?: string;
+  profileImageUrl?: string;
+  whatsAppNumber?: string;
+  websiteUrl?: string;
+  purchaseLinks?: PurchaseLink[];
+  socialLinks?: SocialLink[];
 }
 
 export interface PurchaseLink {
