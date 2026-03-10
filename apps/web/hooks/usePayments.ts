@@ -42,6 +42,21 @@ export interface InitializePaymentResponse {
   provider: string;
 }
 
+export interface VerifyPaymentResponse {
+  status: string;
+  reference: string;
+  amount: number | null;
+  currency: string | null;
+  verified: boolean;
+  signupUrl?: string | null;
+  awaitingWebhook: boolean;
+  email: string | null;
+  orderNumber: string | null;
+  packageName: string | null;
+  amountPaid: string | null;
+  addons: string[];
+}
+
 export interface ExtraPagesPaymentInput {
   bookId: string;
   provider: Extract<OnlinePaymentProvider, "PAYSTACK" | "STRIPE">;
@@ -148,6 +163,29 @@ export async function payExtraPages(payload: ExtraPagesPaymentInput) {
   }
 
   return (await response.json()) as InitializePaymentResponse;
+}
+
+export async function verifyPayment(reference: string, provider?: string | null) {
+  const query = new URLSearchParams();
+  if (provider) {
+    query.set("provider", provider);
+  }
+
+  const response = await fetch(
+    `${API_V1_BASE_URL}/payments/verify/${encodeURIComponent(reference)}${
+      query.size > 0 ? `?${query.toString()}` : ""
+    }`,
+    {
+      method: "POST",
+      credentials: "include",
+    }
+  );
+
+  if (!response.ok) {
+    await parseError(response);
+  }
+
+  return (await response.json()) as VerifyPaymentResponse;
 }
 
 export async function validateCouponCode(payload: ValidateCouponInput) {

@@ -207,9 +207,9 @@ export class PdfGenerationProcessor extends WorkerHost {
       where: { id: payload.jobRecordId },
       data: {
         attempts: attempt,
-        status: isFinalAttempt ? "FAILED" : "PROCESSING",
+        status: isFinalAttempt ? "FAILED" : "QUEUED",
         error,
-        ...(isFinalAttempt ? { finishedAt: new Date() } : {}),
+        ...(isFinalAttempt ? { finishedAt: new Date() } : { startedAt: null }),
       },
     });
 

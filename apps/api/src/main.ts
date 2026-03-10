@@ -2,11 +2,15 @@ import "./instrument.js";
 import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
+import type { NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 import { cleanupOpenApiDoc, ZodValidationPipe } from "nestjs-zod";
 import { AppModule } from "./app.module.js";
+import { RuntimeTelemetryService } from "./health/runtime-telemetry.service.js";
 import { SentryExceptionFilter } from "./sentry/sentry-exception.filter.js";
+
+const bootstrapStartedAt = Date.now();
 
 async function bootstrap() {
   // Buffer early logs so nothing is lost before Pino is initialised
@@ -17,6 +21,36 @@ async function bootstrap() {
   // Swap NestJS's default ConsoleLogger for Pino (structured logging)
   const logger = app.get(Logger);
   app.useLogger(logger);
+  const runtimeTelemetry = app.get(RuntimeTelemetryService);
+  runtimeTelemetry.markBootstrapStarted(bootstrapStartedAt);
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const requestStartedAt = Date.now();
+
+    res.once("finish", () => {
+      const firstRequest = runtimeTelemetry.recordFirstRequest({
+        method: req.method,
+        path: req.originalUrl || req.url,
+        statusCode: res.statusCode,
+        durationMs: Date.now() - requestStartedAt,
+        completedAtMs: Date.now(),
+      });
+
+      if (!firstRequest) return;
+
+      const sinceBootText =
+        firstRequest.msSinceBootstrapCompleted === null
+          ? "bootstrap completion time unavailable"
+          : `${firstRequest.msSinceBootstrapCompleted}ms after bootstrap`;
+
+      logger.log(
+        `First request completed: ${firstRequest.method} ${firstRequest.path} -> ${firstRequest.statusCode} in ${firstRequest.durationMs}ms (${sinceBootText})`,
+        "Bootstrap"
+      );
+    });
+
+    next();
+  });
 
   // Global exception filter: report 5xx errors to Sentry
   const httpAdapterHost = app.get(HttpAdapterHost);
@@ -105,7 +139,10 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
+  const runtimeSnapshot = runtimeTelemetry.markBootstrapCompleted(Date.now());
+  const startupDurationMs = runtimeSnapshot.startupDurationMs ?? 0;
   logger.log(`Application running on port ${port}`, "Bootstrap");
+  logger.log(`Startup completed in ${startupDurationMs}ms`, "Bootstrap");
   logger.log(`Swagger docs available at http://localhost:${port}/api/docs`, "Bootstrap");
 }
 bootstrap();

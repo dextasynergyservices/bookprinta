@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Module } from "@nestjs/common";
 import { LoggerModule as PinoLoggerModule } from "nestjs-pino";
 
@@ -20,6 +21,17 @@ import { LoggerModule as PinoLoggerModule } from "nestjs-pino";
   imports: [
     PinoLoggerModule.forRoot({
       pinoHttp: {
+        genReqId: (req, res) => {
+          const headerValue = req.headers["x-request-id"];
+          const requestId =
+            typeof headerValue === "string" && headerValue.trim().length > 0
+              ? headerValue.trim()
+              : randomUUID();
+
+          res.setHeader("x-request-id", requestId);
+          return requestId;
+        },
+
         // Log level: configurable via env, sensible defaults per environment
         level: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
 
@@ -37,6 +49,7 @@ import { LoggerModule as PinoLoggerModule } from "nestjs-pino";
         // Custom serializers — keep request/response logs lean
         serializers: {
           req: (req: Record<string, unknown>) => ({
+            id: req.id,
             method: req.method,
             url: req.url,
             // Include query params when present
@@ -48,6 +61,10 @@ import { LoggerModule as PinoLoggerModule } from "nestjs-pino";
             statusCode: res.statusCode,
           }),
         },
+
+        customProps: (req) => ({
+          requestId: typeof req.id === "string" ? req.id : undefined,
+        }),
 
         // Development: coloured, pretty-printed output
         // Production:  raw JSON (no transport — writes to stdout directly)
@@ -67,5 +84,6 @@ import { LoggerModule as PinoLoggerModule } from "nestjs-pino";
       },
     }),
   ],
+  exports: [PinoLoggerModule],
 })
 export class LoggerModule {}

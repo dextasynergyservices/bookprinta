@@ -16,6 +16,7 @@ const txJobUpdate = jest.fn();
 
 const mockPrismaService = {
   job: {
+    update: jest.fn(),
     updateMany: jest.fn(),
   },
   book: {
@@ -26,6 +27,7 @@ const mockPrismaService = {
   order: {
     findUnique: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   file: {
     findFirst: jest.fn(),
@@ -90,7 +92,9 @@ describe("AiFormattingProcessor", () => {
   });
 
   it("processes FORMAT_MANUSCRIPT job and persists success result", async () => {
-    mockPrismaService.book.findUnique.mockResolvedValue({ status: "AI_PROCESSING" });
+    mockPrismaService.book.findUnique
+      .mockResolvedValueOnce({ status: "AI_PROCESSING" })
+      .mockResolvedValueOnce({ pageSize: "A5", fontSize: 12 });
     mockPrismaService.order.findUnique.mockResolvedValue({ status: "FORMATTING" });
     mockManuscriptAnalysisService.extractText.mockResolvedValue("Chapter 1 Hello world.");
     mockGeminiFormattingService.formatManuscript.mockResolvedValue({
@@ -98,10 +102,11 @@ describe("AiFormattingProcessor", () => {
       inputWordCount: 3,
       outputWordCount: 3,
       chunkCount: 1,
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-flash",
     });
     mockHtmlValidationService.validateFormattedHtml.mockResolvedValue({ outputWordCount: 3 });
     mockPrismaService.file.findFirst
+      .mockResolvedValueOnce({ id: "cmraw1" })
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ version: 2 });
     mockCloudinaryService.upload.mockResolvedValue({
@@ -209,6 +214,67 @@ describe("AiFormattingProcessor", () => {
       where: { id: "cmbook2" },
       data: { status: "FORMATTING_REVIEW" },
     });
+    expect(mockPrismaService.order.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "cmorder2",
+        status: {
+          notIn: ["IN_PRODUCTION", "COMPLETED", "CANCELLED", "REFUNDED"],
+        },
+      },
+      data: { status: "ACTION_REQUIRED" },
+    });
+  });
+
+  it("ignores stale AI results when the manuscript settings changed before completion", async () => {
+    mockPrismaService.book.findUnique
+      .mockResolvedValueOnce({ status: "AI_PROCESSING" })
+      .mockResolvedValueOnce({ pageSize: "A4", fontSize: 11 });
+    mockPrismaService.order.findUnique.mockResolvedValue({ status: "FORMATTING" });
+    mockManuscriptAnalysisService.extractText.mockResolvedValue("Chapter 1 Hello world.");
+    mockGeminiFormattingService.formatManuscript.mockResolvedValue({
+      html: "<!doctype html><html><body><h1>Chapter 1</h1><p>Hello world.</p></body></html>",
+      inputWordCount: 3,
+      outputWordCount: 3,
+      chunkCount: 1,
+      model: "gemini-2.5-flash-lite",
+    });
+    mockHtmlValidationService.validateFormattedHtml.mockResolvedValue({ outputWordCount: 3 });
+    mockPrismaService.file.findFirst.mockResolvedValue({ id: "cmraw-new" });
+
+    const job = {
+      id: "bulljob-stale-ai",
+      name: JOB_NAMES.FORMAT_MANUSCRIPT,
+      data: {
+        jobRecordId: "cmjob-stale-ai",
+        bookId: "cmbook-stale-ai",
+        orderId: "cmorder-stale-ai",
+        trigger: "settings_change",
+        rawManuscriptFileId: "cmraw-old",
+        rawManuscriptUrl: "https://cdn.example.com/books/raw-old.docx",
+        rawManuscriptName: "raw-old.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        pageSize: "A5",
+        fontSize: 12,
+      },
+      attemptsMade: 0,
+      opts: { attempts: 3 },
+    } as unknown as Job;
+
+    const result = await processor.process(job);
+
+    expect(result.ignoredAsSuperseded).toBe(true);
+    expect(mockCloudinaryService.upload).not.toHaveBeenCalled();
+    expect(mockBooksPipelineService.enqueuePageCountFromAiSuccess).not.toHaveBeenCalled();
+    expect(mockPrismaService.job.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "cmjob-stale-ai" },
+        data: expect.objectContaining({
+          status: "COMPLETED",
+          result: expect.objectContaining({ ignoredAsSuperseded: true }),
+        }),
+      })
+    );
+    expect(txBookUpdate).not.toHaveBeenCalled();
   });
 
   it("keeps the job retryable on non-final Gemini failures", async () => {
@@ -242,9 +308,10 @@ describe("AiFormattingProcessor", () => {
       expect.objectContaining({
         where: { id: "cmjob3" },
         data: expect.objectContaining({
-          status: "PROCESSING",
+          status: "QUEUED",
           attempts: 1,
           error: "Gemini timeout",
+          startedAt: null,
         }),
       })
     );

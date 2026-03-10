@@ -524,6 +524,9 @@ export function ManuscriptUploadFlow({
           <p className="font-sans text-sm text-[#d2d2d2]">
             {tDashboard("manuscript_upload_estimated_pages_label")}
           </p>
+          <p className="font-sans mx-auto max-w-xs text-xs text-[#9f9f9f]">
+            {tDashboard("manuscript_upload_estimated_pages_helper")}
+          </p>
           {formattedWordCount ? (
             <p className="font-sans text-xs text-[#9f9f9f]">
               {tDashboard("manuscript_upload_word_count_label", { count: formattedWordCount })}

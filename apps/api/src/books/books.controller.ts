@@ -7,6 +7,9 @@ import {
   Param,
   Patch,
   Post,
+  Req,
+  ServiceUnavailableException,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -18,9 +21,11 @@ import {
   ApiConsumes,
   ApiOperation,
   ApiParam,
+  ApiProduces,
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
+import type { Request } from "express";
 import { CurrentUser, JwtAuthGuard } from "../auth/index.js";
 import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
 import { BooksService } from "./books.service.js";
@@ -32,6 +37,7 @@ import {
   BookManuscriptUploadResponseDto,
   BookParamsDto,
   BookPreviewResponseDto,
+  BookReprocessResponseDto,
   BookSettingsResponseDto,
   UpdateBookSettingsDto,
 } from "./dto/book.dto.js";
@@ -142,6 +148,38 @@ export class BooksController {
   }
 
   /**
+   * POST /api/v1/books/:id/reprocess
+   * Requeue automated manuscript processing when the previous run is stale.
+   */
+  @Post(":id/reprocess")
+  @ApiOperation({
+    summary: "Retry manuscript processing",
+    description:
+      "Queues a fresh automated manuscript formatting run from the latest uploaded manuscript " +
+      "when the previous processing run is stale or recoverable.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Book CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Manuscript processing requeued successfully",
+    type: BookReprocessResponseDto,
+  })
+  @ApiResponse({ status: 400, description: "Missing manuscript or book no longer retryable" })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 404, description: "Book not found" })
+  @ApiResponse({ status: 409, description: "Processing is still actively running" })
+  async reprocessBook(
+    @CurrentUser("sub") userId: string,
+    @Param() params: BookParamsDto
+  ): Promise<BookReprocessResponseDto> {
+    return this.booksService.reprocessUserBook(userId, params.id);
+  }
+
+  /**
    * POST /api/v1/books/:id/approve
    * Approve book for final PDF generation after billing gate checks.
    */
@@ -200,9 +238,64 @@ export class BooksController {
   @ApiResponse({ status: 404, description: "Book not found or preview PDF not available yet" })
   async getBookPreview(
     @CurrentUser("sub") userId: string,
-    @Param() params: BookParamsDto
+    @Param() params: BookParamsDto,
+    @Req() request: Request
   ): Promise<BookPreviewResponseDto> {
-    return this.booksService.getUserBookPreview(userId, params.id);
+    return this.booksService.getUserBookPreview(
+      userId,
+      params.id,
+      this.buildPreviewStreamUrl(request, params.id)
+    );
+  }
+
+  /**
+   * GET /api/v1/books/:id/preview/file
+   * Streams the current watermarked preview PDF inline for the authenticated user.
+   */
+  @Get(":id/preview/file")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Open watermarked preview PDF inline",
+    description:
+      "Streams the current watermarked preview PDF inline for the authenticated user " +
+      "so the browser opens it as a PDF instead of downloading a generic raw file.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Book CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiProduces("application/pdf")
+  @ApiResponse({ status: 200, description: "Preview PDF streamed successfully" })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 404, description: "Book not found or preview PDF not available yet" })
+  @ApiResponse({ status: 503, description: "Preview PDF is temporarily unavailable" })
+  async streamBookPreview(
+    @CurrentUser("sub") userId: string,
+    @Param() params: BookParamsDto
+  ): Promise<StreamableFile> {
+    const preview = await this.booksService.getUserBookPreviewFileSource(userId, params.id);
+
+    let upstreamResponse: Awaited<ReturnType<typeof fetch>>;
+    try {
+      upstreamResponse = await fetch(preview.sourceUrl);
+    } catch {
+      throw new ServiceUnavailableException("Preview PDF is temporarily unavailable.");
+    }
+
+    if (!upstreamResponse.ok) {
+      throw new ServiceUnavailableException("Preview PDF is temporarily unavailable.");
+    }
+
+    const buffer = Buffer.from(await upstreamResponse.arrayBuffer());
+    const safeFileName = this.normalizePdfFileName(preview.fileName);
+
+    return new StreamableFile(buffer, {
+      type: "application/pdf",
+      disposition: `inline; filename="${safeFileName}"`,
+      length: buffer.byteLength,
+    });
   }
 
   /**
@@ -215,7 +308,7 @@ export class BooksController {
   @ApiOperation({
     summary: "List book file versions",
     description:
-      "Returns all file versions associated with a book, including manuscript, cleaned HTML, preview PDFs, and final PDFs.",
+      "Returns user-visible file versions associated with a book, including manuscript, cleaned HTML, and preview PDFs. Final PDFs remain admin-only.",
   })
   @ApiParam({
     name: "id",
@@ -266,5 +359,31 @@ export class BooksController {
     @Param() params: BookParamsDto
   ): Promise<BookDetailResponseDto> {
     return this.booksService.findUserBookById(userId, params.id);
+  }
+
+  private buildPreviewStreamUrl(request: Request, bookId: string): string {
+    const forwardedProtoHeader = request.headers["x-forwarded-proto"];
+    const forwardedHostHeader = request.headers["x-forwarded-host"];
+    const protocol =
+      typeof forwardedProtoHeader === "string" && forwardedProtoHeader.trim().length > 0
+        ? forwardedProtoHeader.split(",")[0]?.trim() || request.protocol
+        : request.protocol;
+    const host =
+      (typeof forwardedHostHeader === "string" && forwardedHostHeader.trim().length > 0
+        ? forwardedHostHeader
+        : request.get("host")) ?? "localhost:3001";
+
+    return `${protocol}://${host}/api/v1/books/${encodeURIComponent(bookId)}/preview/file`;
+  }
+
+  private normalizePdfFileName(fileName: string): string {
+    const trimmed = fileName.trim().replace(/"/g, "");
+    if (trimmed.length === 0) {
+      return "book-preview.pdf";
+    }
+    if (trimmed.toLowerCase().endsWith(".pdf")) {
+      return trimmed;
+    }
+    return `${trimmed}.pdf`;
   }
 }

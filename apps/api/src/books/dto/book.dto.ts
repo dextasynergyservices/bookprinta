@@ -1,4 +1,5 @@
 import {
+  AdminBookProductionStatusResponseSchema,
   ApproveBookSchema,
   BookApproveResponseSchema,
   BookDetailResponseSchema,
@@ -6,8 +7,10 @@ import {
   BookManuscriptUploadResponseSchema,
   BookParamsSchema,
   BookPreviewResponseSchema,
+  BookReprocessResponseSchema,
   BookRolloutStateSchema,
   BookSettingsResponseSchema,
+  UpdateAdminBookProductionStatusSchema,
   UpdateBookSettingsSchema,
 } from "@bookprinta/shared";
 import { createZodDto } from "nestjs-zod";
@@ -24,11 +27,21 @@ export class BookRolloutStateDto extends createZodDto(BookRolloutStateSchema) {}
 /** Body for PATCH /api/v1/books/:id/settings */
 export class UpdateBookSettingsDto extends createZodDto(UpdateBookSettingsSchema) {}
 
+/** Body for PATCH /api/v1/admin/books/:id/status */
+export class UpdateAdminBookProductionStatusDto extends createZodDto(
+  UpdateAdminBookProductionStatusSchema
+) {}
+
 /** Body for POST /api/v1/books/:id/approve */
 export class ApproveBookDto extends createZodDto(ApproveBookSchema) {}
 
 /** Response for PATCH /api/v1/books/:id/settings */
 export class BookSettingsResponseDto extends createZodDto(BookSettingsResponseSchema) {}
+
+/** Response for PATCH /api/v1/admin/books/:id/status */
+export class AdminBookProductionStatusResponseDto extends createZodDto(
+  AdminBookProductionStatusResponseSchema
+) {}
 
 /** Response for POST /api/v1/books/:id/upload */
 export class BookManuscriptUploadResponseDto extends createZodDto(
@@ -37,6 +50,9 @@ export class BookManuscriptUploadResponseDto extends createZodDto(
 
 /** Response for POST /api/v1/books/:id/approve */
 export class BookApproveResponseDto extends createZodDto(BookApproveResponseSchema) {}
+
+/** Response for POST /api/v1/books/:id/reprocess */
+export class BookReprocessResponseDto extends createZodDto(BookReprocessResponseSchema) {}
 
 /** Response for GET /api/v1/books/:id/preview */
 export class BookPreviewResponseDto extends createZodDto(BookPreviewResponseSchema) {}

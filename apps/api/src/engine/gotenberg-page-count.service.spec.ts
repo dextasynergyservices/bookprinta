@@ -61,4 +61,34 @@ describe("GotenbergPageCountService", () => {
       })
     ).rejects.toThrow(ServiceUnavailableException);
   });
+
+  it("injects deterministic chapter page-break styles into the rendered HTML payload", async () => {
+    process.env.GOTENBERG_URL = "http://gotenberg.local";
+    const fakePdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n", "latin1");
+
+    global.fetch = jest.fn().mockImplementation(async (_input, init) => {
+      const form = init?.body as FormData;
+      const file = form.get("files");
+      expect(file).toBeDefined();
+      const html = await (file as Blob).text();
+
+      expect(html).toContain(".book-major-heading");
+      expect(html).toContain("break-before: page");
+      expect(html).toContain("section.book-section + section.book-section");
+
+      return {
+        ok: true,
+        arrayBuffer: async () =>
+          fakePdf.buffer.slice(fakePdf.byteOffset, fakePdf.byteOffset + fakePdf.byteLength),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    await service.renderPdf({
+      html: '<html><body><section class="book-section"><h1 class="book-major-heading">Chapter One</h1><p>Hello</p></section></body></html>',
+      pageSize: "A5",
+      fontSize: 12,
+    });
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
 });

@@ -36,6 +36,17 @@ export interface ApproveBookResponse {
   };
 }
 
+export interface ReprocessBookResponse {
+  bookId: string;
+  bookStatus: string;
+  orderStatus: string;
+  queuedJob: {
+    queue: "ai-formatting";
+    name: "format-manuscript";
+    jobId: string | null;
+  };
+}
+
 function createFallbackRollout(): BookRolloutState {
   return {
     environment: "unknown",
@@ -67,6 +78,8 @@ function createFallbackBookProgress(bookId: string | null): BookProgressNormaliz
     bookId,
     orderId: null,
     currentStatus: null,
+    productionStatus: "PAYMENT_RECEIVED",
+    latestProcessingError: null,
     rejectionReason: null,
     currentStage: "PAYMENT_RECEIVED",
     isRejected: false,
@@ -163,6 +176,19 @@ export async function approveBookForProduction({
   return (await response.json()) as ApproveBookResponse;
 }
 
+export async function reprocessBookManuscript(bookId: string): Promise<ReprocessBookResponse> {
+  const response = await fetch(`${API_V1_BASE_URL}/books/${encodeURIComponent(bookId)}/reprocess`, {
+    method: "POST",
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to retry manuscript processing right now");
+  }
+
+  return (await response.json()) as ReprocessBookResponse;
+}
+
 type UseBookProgressParams = {
   bookId?: string | null;
   enabled?: boolean;
@@ -207,6 +233,8 @@ export function useBookProgress({ bookId, enabled = true }: UseBookProgressParam
     bookId: data.bookId ?? resolvedBookId,
     orderId: data.orderId,
     currentStatus: data.currentStatus,
+    productionStatus: data.productionStatus,
+    latestProcessingError: data.latestProcessingError,
     currentStage: data.currentStage,
     rejectionReason: data.rejectionReason,
     timeline: data.timeline,

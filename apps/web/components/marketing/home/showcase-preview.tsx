@@ -4,26 +4,16 @@ import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { ShowcaseCard } from "@/components/marketing/showcase/ShowcaseCard";
-import { ShowcaseCardSkeleton } from "@/components/marketing/showcase/ShowcaseCardSkeleton";
-import { useShowcase } from "@/hooks/use-showcase";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { ShowcaseEntry } from "@/types/showcase";
 
-const PREVIEW_LIMIT = 4;
+interface ShowcasePreviewProps {
+  entries: ShowcaseEntry[];
+}
 
-export function ShowcasePreview() {
+export function ShowcasePreview({ entries }: ShowcasePreviewProps) {
   const t = useTranslations("home");
-
-  const { data, isLoading, isError } = useShowcase({
-    q: "",
-    category: "",
-    sort: "date_desc",
-    year: "",
-  });
-
-  const allItems = data?.pages.flatMap((page) => page.items) ?? [];
-  const previewItems = allItems.slice(0, PREVIEW_LIMIT);
 
   // No-op for homepage — no author modal needed
   const handleContactAuthor = (_entry: ShowcaseEntry) => {};
@@ -52,19 +42,7 @@ export function ShowcasePreview() {
 
         {/* Book cards grid — matches the showcase page layout */}
         <div>
-          {isLoading ? (
-            <ul
-              className="grid grid-cols-1 gap-px sm:grid-cols-2 lg:grid-cols-4"
-              aria-busy="true"
-              aria-label={t("showcase_title")}
-            >
-              {["sk-a", "sk-b", "sk-c", "sk-d"].map((id) => (
-                <li key={id} className="list-none">
-                  <ShowcaseCardSkeleton />
-                </li>
-              ))}
-            </ul>
-          ) : isError || previewItems.length === 0 ? (
+          {entries.length === 0 ? (
             /* Fallback — show placeholder if API fails or no data */
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <p className="font-serif text-sm text-muted-foreground">{t("showcase_subtitle")}</p>
@@ -74,7 +52,7 @@ export function ShowcasePreview() {
               className="grid grid-cols-1 gap-px sm:grid-cols-2 lg:grid-cols-4"
               aria-label={t("showcase_title")}
             >
-              {previewItems.map((entry, index) => (
+              {entries.map((entry, index) => (
                 <li key={entry.id} className="list-none">
                   <ShowcaseCard entry={entry} onContactAuthor={handleContactAuthor} index={index} />
                 </li>

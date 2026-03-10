@@ -302,6 +302,8 @@ describe("BooksService", () => {
         id: "cm1111111111111111111111111",
         orderId: "cm2222222222222222222222222",
         status: "PRINTING",
+        productionStatus: "PRINTING",
+        productionStatusUpdatedAt: new Date("2026-03-03T10:00:00.000Z"),
         rejectionReason: null,
         rejectedAt: null,
         pageCount: 220,
@@ -333,6 +335,7 @@ describe("BooksService", () => {
 
       expect(result.id).toBe("cm1111111111111111111111111");
       expect(result.status).toBe("PRINTING");
+      expect(result.productionStatus).toBe("PRINTING");
       expect(result.rejectionReason).toBeNull();
       expect(result.timeline.find((entry) => entry.stage === "PRINTING")?.state).toBe("current");
       expect(result.timeline.find((entry) => entry.stage === "PAYMENT_RECEIVED")?.state).toBe(
@@ -349,6 +352,105 @@ describe("BooksService", () => {
         attempt: null,
         maxAttempts: null,
       });
+    });
+
+    it("hides elapsed timing for stale active processing jobs", async () => {
+      const nowSpy = jest
+        .spyOn(Date, "now")
+        .mockReturnValue(new Date("2026-03-07T12:00:00.000Z").getTime());
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "FORMATTING",
+        rejectionReason: null,
+        rejectedAt: null,
+        pageCount: null,
+        wordCount: 18_534,
+        estimatedPages: 73,
+        fontFamily: "Miller Text",
+        fontSize: 12,
+        pageSize: "A5",
+        currentHtmlUrl: null,
+        previewPdfUrl: null,
+        finalPdfUrl: null,
+        order: {
+          status: "FORMATTING",
+        },
+        jobs: [
+          {
+            type: "AI_CLEANING",
+            status: "PROCESSING",
+            attempts: 1,
+            maxRetries: 3,
+            payload: { trigger: "upload" },
+            result: { progressStep: "AI_FORMATTING" },
+            createdAt: new Date("2026-03-07T08:30:00.000Z"),
+            startedAt: new Date("2026-03-07T08:35:00.000Z"),
+          },
+        ],
+        createdAt: new Date("2026-03-07T08:00:00.000Z"),
+        updatedAt: new Date("2026-03-07T08:35:00.000Z"),
+      });
+
+      try {
+        const result = await service.findUserBookById("user_1", "cm1111111111111111111111111");
+
+        expect(result.processing).toEqual({
+          isActive: true,
+          currentStep: "AI_FORMATTING",
+          jobStatus: "processing",
+          trigger: "upload",
+          startedAt: null,
+          attempt: null,
+          maxAttempts: null,
+        });
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+
+    it("hides elapsed timing for stale fallback processing state", async () => {
+      const nowSpy = jest
+        .spyOn(Date, "now")
+        .mockReturnValue(new Date("2026-03-07T12:00:00.000Z").getTime());
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "FORMATTING",
+        rejectionReason: null,
+        rejectedAt: null,
+        pageCount: null,
+        wordCount: 18_534,
+        estimatedPages: 73,
+        fontFamily: "Miller Text",
+        fontSize: 12,
+        pageSize: "A5",
+        currentHtmlUrl: null,
+        previewPdfUrl: null,
+        finalPdfUrl: null,
+        order: {
+          status: "FORMATTING",
+        },
+        jobs: [],
+        createdAt: new Date("2026-03-07T08:00:00.000Z"),
+        updatedAt: new Date("2026-03-07T08:35:00.000Z"),
+      });
+
+      try {
+        const result = await service.findUserBookById("user_1", "cm1111111111111111111111111");
+
+        expect(result.processing).toEqual({
+          isActive: true,
+          currentStep: "AI_FORMATTING",
+          jobStatus: "processing",
+          trigger: null,
+          startedAt: null,
+          attempt: null,
+          maxAttempts: null,
+        });
+      } finally {
+        nowSpy.mockRestore();
+      }
     });
 
     it("renders review stage as rejected with reason when status is REJECTED", async () => {
@@ -378,9 +480,148 @@ describe("BooksService", () => {
       const result = await service.findUserBookById("user_1", "cm1111111111111111111111111");
 
       expect(result.status).toBe("REJECTED");
+      expect(result.productionStatus).toBe("PAYMENT_RECEIVED");
       expect(result.rejectionReason).toBe("Low-resolution manuscript images.");
-      expect(result.timeline.find((entry) => entry.stage === "REVIEW")?.state).toBe("rejected");
+      expect(result.timeline.find((entry) => entry.stage === "PAYMENT_RECEIVED")?.state).toBe(
+        "current"
+      );
+      expect(result.timeline.find((entry) => entry.stage === "REVIEW")?.state).toBe("upcoming");
       expect(result.timeline.find((entry) => entry.stage === "APPROVED")?.state).toBe("upcoming");
+    });
+
+    it("does not present FORMATTING_REVIEW as an active processing state after AI failure", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "FORMATTING_REVIEW",
+        rejectionReason: null,
+        rejectedAt: null,
+        pageCount: null,
+        wordCount: 18_534,
+        estimatedPages: 73,
+        fontFamily: "Miller Text",
+        fontSize: 11,
+        pageSize: "A5",
+        currentHtmlUrl: null,
+        previewPdfUrl: null,
+        finalPdfUrl: null,
+        order: {
+          status: "FORMATTING",
+        },
+        jobs: [],
+        createdAt: new Date("2026-03-09T09:00:00.000Z"),
+        updatedAt: new Date("2026-03-09T09:04:36.820Z"),
+      });
+
+      const result = await service.findUserBookById("user_1", "cm1111111111111111111111111");
+
+      expect(result.processing).toEqual({
+        isActive: false,
+        currentStep: null,
+        jobStatus: null,
+        trigger: null,
+        startedAt: null,
+        attempt: null,
+        maxAttempts: null,
+      });
+    });
+
+    it("never exposes final PDF URLs on the user book detail endpoint", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "APPROVED",
+        productionStatus: "PAYMENT_RECEIVED",
+        productionStatusUpdatedAt: new Date("2026-03-03T10:00:00.000Z"),
+        rejectionReason: null,
+        rejectedAt: null,
+        pageCount: 220,
+        wordCount: 65_000,
+        estimatedPages: 210,
+        fontFamily: "Miller Text",
+        fontSize: 12,
+        pageSize: "A5",
+        currentHtmlUrl: "https://cdn.example.com/books/1/current.html",
+        previewPdfUrl: "https://cdn.example.com/books/1/preview.pdf",
+        finalPdfUrl: "https://cdn.example.com/books/1/final.pdf",
+        order: {
+          status: "APPROVED",
+        },
+        jobs: [],
+        createdAt: new Date("2026-03-01T08:00:00.000Z"),
+        updatedAt: new Date("2026-03-03T10:00:00.000Z"),
+      });
+
+      const result = await service.findUserBookById("user_1", "cm1111111111111111111111111");
+
+      expect(result.finalPdfUrl).toBeNull();
+    });
+
+    it("returns the latest user-facing manuscript processing failure message", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "FORMATTING_REVIEW",
+        productionStatus: null,
+        productionStatusUpdatedAt: null,
+        rejectionReason: null,
+        rejectedAt: null,
+        pageCount: null,
+        wordCount: 18_534,
+        estimatedPages: 73,
+        fontFamily: "Miller Text",
+        fontSize: 11,
+        pageSize: "A5",
+        currentHtmlUrl: null,
+        previewPdfUrl: null,
+        finalPdfUrl: null,
+        order: {
+          status: "ACTION_REQUIRED",
+        },
+        jobs: [
+          {
+            type: "AI_CLEANING",
+            status: "FAILED",
+            attempts: 0,
+            maxRetries: 3,
+            error: "Cleared by local development queue reset.",
+            payload: { trigger: "upload" },
+            result: { progressStep: "AI_FORMATTING" },
+            createdAt: new Date("2026-03-09T09:05:00.000Z"),
+            startedAt: null,
+          },
+          {
+            type: "AI_CLEANING",
+            status: "FAILED",
+            attempts: 3,
+            maxRetries: 3,
+            error: 'Gemini request failed (429): {"error":{"message":"Rate limit exceeded"}}',
+            payload: { trigger: "upload" },
+            result: { progressStep: "AI_FORMATTING" },
+            createdAt: new Date("2026-03-09T09:04:00.000Z"),
+            startedAt: new Date("2026-03-09T09:04:05.000Z"),
+          },
+          {
+            type: "PAGE_COUNT",
+            status: "FAILED",
+            attempts: 1,
+            maxRetries: 3,
+            error: "Gotenberg timeout",
+            payload: { trigger: "upload" },
+            result: { progressStep: "COUNTING_PAGES" },
+            createdAt: new Date("2026-03-08T09:04:00.000Z"),
+            startedAt: new Date("2026-03-08T09:04:05.000Z"),
+          },
+        ],
+        createdAt: new Date("2026-03-09T09:00:00.000Z"),
+        updatedAt: new Date("2026-03-09T09:04:36.820Z"),
+      });
+
+      const result = await service.findUserBookById("user_1", "cm1111111111111111111111111");
+
+      expect(result.latestProcessingError).toBe(
+        'Gemini request failed (429): {"error":{"message":"Rate limit exceeded"}}'
+      );
     });
 
     it("throws NotFoundException when book does not belong to user", async () => {
@@ -446,7 +687,9 @@ describe("BooksService", () => {
 
       expect(txBookUpdate).toHaveBeenCalledWith({
         where: { id: "cm1111111111111111111111111" },
-        data: { status: "APPROVED" },
+        data: {
+          status: "APPROVED",
+        },
       });
       expect(txOrderUpdate).toHaveBeenCalledWith({
         where: { id: "cm2222222222222222222222222" },
@@ -494,19 +737,108 @@ describe("BooksService", () => {
     });
   });
 
+  describe("reprocessUserBook", () => {
+    it("requeues stale manuscript processing from the uploaded manuscript", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "FORMATTING",
+        pageSize: "A5",
+        fontSize: 12,
+      });
+      mockBooksPipelineService.enqueueFormatManuscript.mockResolvedValue({
+        queued: true,
+        reason: "QUEUED",
+        jobRecordId: "job_retry_1",
+        queueJobId: "format:cm1111111111111111111111111:retry",
+      });
+
+      const result = await service.reprocessUserBook("user_1", "cm1111111111111111111111111");
+
+      expect(mockBooksPipelineService.enqueueFormatManuscript).toHaveBeenCalledWith({
+        bookId: "cm1111111111111111111111111",
+        trigger: "upload",
+      });
+      expect(result).toEqual({
+        bookId: "cm1111111111111111111111111",
+        bookStatus: "AI_PROCESSING",
+        orderStatus: "FORMATTING",
+        queuedJob: {
+          queue: "ai-formatting",
+          name: "format-manuscript",
+          jobId: "format:cm1111111111111111111111111:retry",
+        },
+      });
+    });
+
+    it("rejects retry when no manuscript has been uploaded yet", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "FORMATTING",
+        pageSize: "A5",
+        fontSize: 12,
+      });
+      mockBooksPipelineService.enqueueFormatManuscript.mockResolvedValue({
+        queued: false,
+        reason: "NO_MANUSCRIPT",
+        jobRecordId: null,
+        queueJobId: null,
+      });
+
+      await expect(
+        service.reprocessUserBook("user_1", "cm1111111111111111111111111")
+      ).rejects.toThrow("Upload a manuscript before retrying automated processing.");
+    });
+
+    it("blocks retry when an active processing run still exists", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "FORMATTING",
+        pageSize: "A5",
+        fontSize: 12,
+      });
+      mockBooksPipelineService.enqueueFormatManuscript.mockResolvedValue({
+        queued: false,
+        reason: "ALREADY_ACTIVE",
+        jobRecordId: null,
+        queueJobId: "format:cm1111111111111111111111111:retry",
+      });
+
+      await expect(
+        service.reprocessUserBook("user_1", "cm1111111111111111111111111")
+      ).rejects.toThrow(
+        "Manuscript processing is still active. Please wait a little longer before retrying."
+      );
+    });
+  });
+
   describe("getUserBookPreview", () => {
-    it("returns the current watermarked preview URL", async () => {
+    it("returns the current watermarked preview route URL", async () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cm1111111111111111111111111",
         status: "PREVIEW_READY",
         previewPdfUrl: "https://cdn.example.com/books/1/preview.pdf",
+        files: [
+          {
+            url: "https://cdn.example.com/books/1/preview.pdf",
+            fileName: "preview-v1.pdf",
+            mimeType: "application/pdf",
+          },
+        ],
       });
 
-      const result = await service.getUserBookPreview("user_1", "cm1111111111111111111111111");
+      const result = await service.getUserBookPreview(
+        "user_1",
+        "cm1111111111111111111111111",
+        "http://localhost:3001/api/v1/books/cm1111111111111111111111111/preview/file"
+      );
 
       expect(result).toEqual({
         bookId: "cm1111111111111111111111111",
-        previewPdfUrl: "https://cdn.example.com/books/1/preview.pdf",
+        previewPdfUrl:
+          "http://localhost:3001/api/v1/books/cm1111111111111111111111111/preview/file",
         status: "PREVIEW_READY",
         watermarked: true,
       });
@@ -517,10 +849,15 @@ describe("BooksService", () => {
         id: "cm1111111111111111111111111",
         status: "FORMATTING_REVIEW",
         previewPdfUrl: null,
+        files: [],
       });
 
       await expect(
-        service.getUserBookPreview("user_1", "cm1111111111111111111111111")
+        service.getUserBookPreview(
+          "user_1",
+          "cm1111111111111111111111111",
+          "http://localhost:3001/api/v1/books/cm1111111111111111111111111/preview/file"
+        )
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -529,16 +866,21 @@ describe("BooksService", () => {
         id: "cm1111111111111111111111111",
         status: "FORMATTING",
         previewPdfUrl: "https://cdn.example.com/books/1/preview.pdf",
+        files: [],
       });
 
       await expect(
-        service.getUserBookPreview("user_1", "cm1111111111111111111111111")
+        service.getUserBookPreview(
+          "user_1",
+          "cm1111111111111111111111111",
+          "http://localhost:3001/api/v1/books/cm1111111111111111111111111/preview/file"
+        )
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe("getUserBookFiles", () => {
-    it("returns file lineage with API-safe nullables", async () => {
+    it("returns file lineage with API-safe nullables and excludes FINAL_PDF", async () => {
       mockFilesService.getBookFiles.mockResolvedValue([
         {
           id: "cmfile1",
@@ -561,6 +903,17 @@ describe("BooksService", () => {
           version: 2,
           createdBy: null,
           createdAt: new Date("2026-03-07T10:15:00.000Z"),
+        },
+        {
+          id: "cmfile3",
+          fileType: "FINAL_PDF",
+          url: "https://cdn.example.com/books/1/final.pdf",
+          fileName: "final.pdf",
+          fileSize: 8192,
+          mimeType: "application/pdf",
+          version: 1,
+          createdBy: "SYSTEM",
+          createdAt: new Date("2026-03-07T10:20:00.000Z"),
         },
       ]);
 
@@ -596,6 +949,41 @@ describe("BooksService", () => {
             createdAt: "2026-03-07T10:15:00.000Z",
           },
         ],
+      });
+    });
+  });
+
+  describe("updateAdminBookProductionStatus", () => {
+    it("updates the admin-controlled production tracker without changing manuscript status", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+      });
+      mockPrismaService.book.update.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        productionStatus: "PRINTING",
+        productionStatusUpdatedAt: new Date("2026-03-10T12:00:00.000Z"),
+      });
+
+      const result = await service.updateAdminBookProductionStatus("cm1111111111111111111111111", {
+        productionStatus: "PRINTING",
+      });
+
+      expect(mockPrismaService.book.update).toHaveBeenCalledWith({
+        where: { id: "cm1111111111111111111111111" },
+        data: {
+          productionStatus: "PRINTING",
+          productionStatusUpdatedAt: expect.any(Date),
+        },
+        select: {
+          id: true,
+          productionStatus: true,
+          productionStatusUpdatedAt: true,
+        },
+      });
+      expect(result).toEqual({
+        bookId: "cm1111111111111111111111111",
+        productionStatus: "PRINTING",
+        updatedAt: "2026-03-10T12:00:00.000Z",
       });
     });
   });

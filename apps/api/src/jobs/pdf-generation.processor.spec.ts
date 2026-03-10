@@ -59,7 +59,7 @@ describe("PdfGenerationProcessor", () => {
     global.fetch = originalFetch;
   });
 
-  it("generates FINAL_PDF and advances production statuses", async () => {
+  it("generates FINAL_PDF and advances manuscript/order status without touching admin production status", async () => {
     mockGotenbergPageCountService.renderPdf.mockResolvedValue({
       pdfBuffer: Buffer.from("%PDF-final%", "latin1"),
       renderedPdfSha256: "f".repeat(64),
@@ -174,9 +174,10 @@ describe("PdfGenerationProcessor", () => {
       expect.objectContaining({
         where: { id: "cmpdfjob3" },
         data: expect.objectContaining({
-          status: "PROCESSING",
+          status: "QUEUED",
           attempts: 1,
           error: "Gotenberg final render failed",
+          startedAt: null,
         }),
       })
     );

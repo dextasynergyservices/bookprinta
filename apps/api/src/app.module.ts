@@ -28,6 +28,7 @@ import { ResourcesModule } from "./resources/resources.module.js";
 import { ReviewsModule } from "./reviews/reviews.module.js";
 import { RolloutModule } from "./rollout/rollout.module.js";
 import { ScannerModule } from "./scanner/scanner.module.js";
+import { ShowcaseModule } from "./showcase/showcase.module.js";
 
 @Module({
   imports: [
@@ -92,6 +93,9 @@ import { ScannerModule } from "./scanner/scanner.module.js";
 
     // Public resources/blog endpoints (listing, categories, article detail)
     ResourcesModule,
+
+    // Public showcase endpoints (homepage featured preview + /showcase page)
+    ShowcaseModule,
 
     // Coupon validation + admin coupon management
     CouponsModule,

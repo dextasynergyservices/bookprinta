@@ -9,6 +9,7 @@ import {
   QUEUE_PDF_GENERATION,
 } from "../jobs/jobs.constants.js";
 import { RolloutModule } from "../rollout/rollout.module.js";
+import { AdminBooksController } from "./admin-books.controller.js";
 import { BooksController } from "./books.controller.js";
 import { BooksService } from "./books.service.js";
 import { BooksPipelineService } from "./books-pipeline.service.js";
@@ -29,7 +30,7 @@ import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
     FilesModule,
     RolloutModule,
   ],
-  controllers: [BooksController],
+  controllers: [BooksController, AdminBooksController],
   providers: [BooksService, BooksPipelineService, ManuscriptAnalysisService],
   exports: [BooksService, BooksPipelineService, ManuscriptAnalysisService],
 })

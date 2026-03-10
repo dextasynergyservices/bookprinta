@@ -392,12 +392,13 @@ export class NotificationsService {
   private serializeNotification(row: NotificationRow): NotificationItem {
     const type = this.normalizeNotificationType(row.type);
     const data = this.normalizeNotificationData(row, type);
+    const createdAt = this.toIsoTimestamp(row.createdAt);
 
     return {
       id: row.id,
       type,
       isRead: row.isRead,
-      createdAt: row.createdAt.toISOString(),
+      createdAt,
       data,
     };
   }
@@ -428,17 +429,41 @@ export class NotificationsService {
   }
 
   private buildLegacyData(row: NotificationRow): NotificationData {
+    const title = this.coerceLegacyCopy(row.title, "Notification");
+    const message = this.coerceLegacyCopy(row.message, "You have a new notification.");
+
     return {
       titleKey: LEGACY_NOTIFICATION_TITLE_KEY,
       messageKey: LEGACY_NOTIFICATION_MESSAGE_KEY,
       params: {
-        title: row.title,
-        message: row.message,
+        title,
+        message,
       },
       action: {
         kind: "none",
       },
     };
+  }
+
+  private coerceLegacyCopy(value: unknown, fallback: string): string {
+    if (typeof value === "string") {
+      const normalized = value.trim();
+      if (normalized.length > 0) return normalized;
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+
+    return fallback;
+  }
+
+  private toIsoTimestamp(value: unknown): string {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString();
+    }
+
+    return new Date(0).toISOString();
   }
 
   private async persistNotifications(

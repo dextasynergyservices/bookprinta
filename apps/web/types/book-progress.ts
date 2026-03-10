@@ -78,6 +78,8 @@ export interface BookProgressNormalizedResponse {
   bookId: string | null;
   orderId: string | null;
   currentStatus: BookStatus | (string & {}) | null;
+  productionStatus: BookStatus | (string & {}) | null;
+  latestProcessingError: string | null;
   rejectionReason: string | null;
   currentStage: BookProgressStage;
   isRejected: boolean;

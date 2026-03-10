@@ -25,6 +25,21 @@ type CountPagesPayload = {
 };
 
 type CountPagesResult = {
+  pageCount: number | null;
+  overagePages: number | null;
+  extraAmount: number | null;
+  gateStatus: "CLEAR" | "PAYMENT_REQUIRED" | null;
+  renderedPdfSha256: string | null;
+  previewPdfFileId: string | null;
+  previewPdfUrl: string | null;
+  pageLimit: number | null;
+  sourceAiJobRecordId: string | null;
+  trigger: OrchestrationTrigger;
+  progressStep?: "COUNTING_PAGES" | "RENDERING_PREVIEW";
+  ignoredAsSuperseded?: boolean;
+};
+
+type CompletedCountPagesResult = CountPagesResult & {
   pageCount: number;
   overagePages: number;
   extraAmount: number;
@@ -33,9 +48,7 @@ type CountPagesResult = {
   previewPdfFileId: string;
   previewPdfUrl: string;
   pageLimit: number;
-  sourceAiJobRecordId: string | null;
-  trigger: OrchestrationTrigger;
-  progressStep?: "COUNTING_PAGES" | "RENDERING_PREVIEW";
+  ignoredAsSuperseded?: false;
 };
 
 const COST_PER_EXTRA_PAGE = 10;
@@ -70,6 +83,29 @@ export class PageCountProcessor extends WorkerHost {
     await this.markAttemptProcessing(payload, attempt);
 
     try {
+      const stillCurrentBeforeRender = await this.isCurrentPageCountRequest(payload);
+      if (!stillCurrentBeforeRender) {
+        const result: CountPagesResult = {
+          pageCount: null,
+          overagePages: null,
+          extraAmount: null,
+          gateStatus: null,
+          renderedPdfSha256: null,
+          previewPdfFileId: null,
+          previewPdfUrl: null,
+          pageLimit: payload.bundlePageLimit,
+          sourceAiJobRecordId: payload.sourceAiJobRecordId ?? null,
+          trigger: payload.trigger,
+          progressStep: "COUNTING_PAGES",
+          ignoredAsSuperseded: true,
+        };
+        await this.markAttemptSuperseded(payload, result);
+        this.logger.warn(
+          `Skipped stale page-count run for book ${payload.bookId} (job=${payload.jobRecordId}) because manuscript/settings changed.`
+        );
+        return result;
+      }
+
       await this.markProgressStep(payload.jobRecordId, "COUNTING_PAGES");
       const cleanedHtml = await this.fetchCleanedHtml(payload.cleanedHtmlUrl);
       const countResult = await this.gotenbergPageCount.countPages({
@@ -97,7 +133,7 @@ export class PageCountProcessor extends WorkerHost {
       const extraAmount = overagePages * COST_PER_EXTRA_PAGE;
       const gateStatus = overagePages > 0 ? "PAYMENT_REQUIRED" : "CLEAR";
 
-      const result: CountPagesResult = {
+      const result: CompletedCountPagesResult = {
         pageCount: countResult.pageCount,
         overagePages,
         extraAmount,
@@ -110,6 +146,21 @@ export class PageCountProcessor extends WorkerHost {
         trigger: payload.trigger,
         progressStep: "RENDERING_PREVIEW",
       };
+
+      const stillCurrentBeforeCommit = await this.isCurrentPageCountRequest(payload);
+      if (!stillCurrentBeforeCommit) {
+        await this.markAttemptSuperseded(payload, {
+          ...result,
+          ignoredAsSuperseded: true,
+        });
+        this.logger.warn(
+          `Discarded stale authoritative count for book ${payload.bookId} (job=${payload.jobRecordId}) because manuscript/settings changed before commit.`
+        );
+        return {
+          ...result,
+          ignoredAsSuperseded: true,
+        };
+      }
 
       await this.markAttemptCompleted(payload, result);
 
@@ -231,7 +282,7 @@ export class PageCountProcessor extends WorkerHost {
 
   private async markAttemptCompleted(
     payload: CountPagesPayload,
-    result: CountPagesResult
+    result: CompletedCountPagesResult
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await tx.book.update({
@@ -263,6 +314,21 @@ export class PageCountProcessor extends WorkerHost {
     });
   }
 
+  private async markAttemptSuperseded(
+    payload: CountPagesPayload,
+    result: CountPagesResult
+  ): Promise<void> {
+    await this.prisma.job.update({
+      where: { id: payload.jobRecordId },
+      data: {
+        status: "COMPLETED",
+        result,
+        error: null,
+        finishedAt: new Date(),
+      },
+    });
+  }
+
   private async markAttemptFailed(params: {
     payload: CountPagesPayload;
     attempt: number;
@@ -274,9 +340,9 @@ export class PageCountProcessor extends WorkerHost {
       where: { id: payload.jobRecordId },
       data: {
         attempts: attempt,
-        status: isFinalAttempt ? "FAILED" : "PROCESSING",
+        status: isFinalAttempt ? "FAILED" : "QUEUED",
         error,
-        ...(isFinalAttempt ? { finishedAt: new Date() } : {}),
+        ...(isFinalAttempt ? { finishedAt: new Date() } : { startedAt: null }),
       },
     });
 
@@ -302,5 +368,40 @@ export class PageCountProcessor extends WorkerHost {
       return error.message;
     }
     return String(error);
+  }
+
+  private async isCurrentPageCountRequest(payload: CountPagesPayload): Promise<boolean> {
+    const [book, latestCleanedHtml] = await Promise.all([
+      this.prisma.book.findUnique({
+        where: { id: payload.bookId },
+        select: {
+          pageSize: true,
+          fontSize: true,
+          currentHtmlUrl: true,
+        },
+      }),
+      this.prisma.file.findFirst({
+        where: {
+          bookId: payload.bookId,
+          fileType: "CLEANED_HTML",
+        },
+        orderBy: { version: "desc" },
+        select: {
+          id: true,
+          url: true,
+        },
+      }),
+    ]);
+
+    const htmlMatchesCurrentBook = book?.currentHtmlUrl === payload.cleanedHtmlUrl;
+    const htmlMatchesLatestFile =
+      latestCleanedHtml?.id === payload.cleanedHtmlFileId &&
+      latestCleanedHtml?.url === payload.cleanedHtmlUrl;
+
+    return (
+      book?.pageSize === payload.pageSize &&
+      book?.fontSize === payload.fontSize &&
+      (htmlMatchesCurrentBook || htmlMatchesLatestFile)
+    );
   }
 }

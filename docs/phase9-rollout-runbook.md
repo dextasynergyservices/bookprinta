@@ -45,6 +45,11 @@ When `FEATURE_MANUSCRIPT_ALLOW_IN_FLIGHT=true`, these books remain eligible even
 Use `GET /api/v1/health/status` as the operational dashboard source. It now exposes:
 - dependency status: database, redis, gotenberg, gemini, scanner
 - rollout snapshot: environment, in-flight policy, enabled features
+- BullMQ queue visibility:
+  - `aiFormatting`, `pageCount`, `pdfGeneration`
+  - per-queue counts: `waiting`, `active`, `delayed`, `failed`, `completed`, `prioritized`, `waitingChildren`
+  - queue connection source: `env` or `localhost_fallback`
+  - persisted pipeline job summary, including stale queued/processing DB jobs
 
 Track these release signals:
 - manuscript upload success/error rate
@@ -61,6 +66,26 @@ Supplement with:
 - Sentry for exceptions and worker failures
 - Pino logs for queue/job correlation
 - Playwright smoke suite for browser-level regression checks
+- Auth/homepage rollout checklist in [phase6-auth-homepage-qa-rollout.md](c:/Users/DEXTA-BUILD/Documents/bookprinta/docs/phase6-auth-homepage-qa-rollout.md)
+
+## Keep-Warm Guidance
+- Preferred external monitor target: `GET /api/v1/health/ping`
+- Do not point keep-alive monitors at `GET /api/v1/health/status`; that route intentionally checks downstream services and is heavier
+- `GET /api/v1/health` remains as a backward-compatible alias, but new monitors should use `/health/ping`
+- External keep-alive (UptimeRobot/UptimeBoot) is a temporary mitigation for Render free-tier cold starts
+- The real production fix is a non-sleeping Render plan (Starter or better)
+
+## Local Dev Recovery
+For local-only recovery of a stuck BullMQ pipeline, use:
+- `POST /api/v1/health/dev/queues/reset`
+
+Rules:
+- allowed only in `development` and `test`
+- refuses to run if any BullMQ queue still has active jobs
+- clears non-active BullMQ jobs from `ai-formatting`, `page-count`, and `pdf-generation`
+- marks persisted pipeline `Job` rows in `QUEUED` / `PROCESSING` as `FAILED` so a fresh retry can be queued cleanly
+
+Do not use this as a production recovery path. In production, investigate queue depth, worker liveness, Redis health, Gemini latency, and Gotenberg latency first.
 
 ## Rollback
 If production degrades:

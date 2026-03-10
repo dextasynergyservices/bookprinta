@@ -4,6 +4,7 @@ import { BooksModule } from "../books/books.module.js";
 import { EngineModule } from "../engine/engine.module.js";
 import { FilesModule } from "../files/files.module.js";
 import { AiFormattingProcessor } from "./ai-formatting.processor.js";
+import { resolveBullMqConnection } from "./bullmq-connection.js";
 import { QUEUE_AI_FORMATTING, QUEUE_PAGE_COUNT, QUEUE_PDF_GENERATION } from "./jobs.constants.js";
 import { PageCountProcessor } from "./page-count.processor.js";
 import { PdfGenerationProcessor } from "./pdf-generation.processor.js";
@@ -138,33 +139,19 @@ export class JobsModule {
    * config. The server boots but jobs will fail at dispatch time.
    */
   private static parseRedisConnection() {
-    const redisUrl = process.env.REDIS_URL;
-
-    if (!redisUrl) {
+    const resolved = resolveBullMqConnection();
+    if (!resolved.configured) {
       logger.warn(
         "REDIS_URL not set — BullMQ queues will not be functional. " +
           "Set REDIS_URL to enable background job processing."
       );
-
-      return {
-        host: "localhost",
-        port: 6379,
-        maxRetriesPerRequest: null,
-        lazyConnect: true,
-      };
+      return resolved.connection;
     }
 
-    const url = new URL(redisUrl);
+    logger.log(
+      `BullMQ connecting to Redis at ${resolved.connection.host}:${resolved.connection.port}`
+    );
 
-    logger.log(`BullMQ connecting to Redis at ${url.hostname}:${url.port || 6379}`);
-
-    return {
-      host: url.hostname,
-      port: Number(url.port) || 6379,
-      username: url.username || undefined,
-      password: url.password || undefined,
-      tls: url.protocol === "rediss:" ? {} : undefined,
-      maxRetriesPerRequest: null, // Required by BullMQ workers
-    };
+    return resolved.connection;
   }
 }

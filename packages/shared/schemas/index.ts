@@ -9,3 +9,4 @@ export * from "./payment.schema.ts";
 export * from "./quote.schema.ts";
 export * from "./resource.schema.ts";
 export * from "./review.schema.ts";
+export * from "./showcase.schema.ts";

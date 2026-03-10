@@ -122,6 +122,26 @@ export const BookSettingsResponseSchema = z.object({
 export type BookSettingsResponse = z.infer<typeof BookSettingsResponseSchema>;
 
 /**
+ * PATCH /api/v1/admin/books/:id/status
+ * Updates the admin-controlled production tracker status.
+ */
+export const UpdateAdminBookProductionStatusSchema = z.object({
+  productionStatus: BookProgressStageSchema,
+});
+export type UpdateAdminBookProductionStatusInput = z.infer<
+  typeof UpdateAdminBookProductionStatusSchema
+>;
+
+export const AdminBookProductionStatusResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  productionStatus: BookProgressStageSchema,
+  updatedAt: z.string().datetime(),
+});
+export type AdminBookProductionStatusResponse = z.infer<
+  typeof AdminBookProductionStatusResponseSchema
+>;
+
+/**
  * POST /api/v1/books/:id/upload
  * Result after malware scan + storage + manuscript metrics extraction.
  */
@@ -162,6 +182,18 @@ export const BookApproveResponseSchema = z.object({
   }),
 });
 export type BookApproveResponse = z.infer<typeof BookApproveResponseSchema>;
+
+export const BookReprocessResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  bookStatus: BookStatusSchema,
+  orderStatus: OrderStatusSchema,
+  queuedJob: z.object({
+    queue: z.literal("ai-formatting"),
+    name: z.literal("format-manuscript"),
+    jobId: z.string().nullable(),
+  }),
+});
+export type BookReprocessResponse = z.infer<typeof BookReprocessResponseSchema>;
 
 export const BookPreviewResponseSchema = z.object({
   bookId: z.string().cuid(),
@@ -221,6 +253,8 @@ export const BookDetailResponseSchema = z.object({
   id: z.string().cuid(),
   orderId: z.string().cuid(),
   status: BookStatusSchema,
+  productionStatus: BookStatusSchema,
+  latestProcessingError: z.string().nullable(),
   rejectionReason: z.string().nullable(),
   rejectedAt: z.string().datetime().nullable(),
   pageCount: z.number().int().nullable(),

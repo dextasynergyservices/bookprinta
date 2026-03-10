@@ -30,6 +30,7 @@ const FILE_TYPE_FOLDERS: Record<string, string> = {
 
 @Injectable()
 export class FilesService {
+  private static readonly USER_HIDDEN_FILE_TYPES: FileType[] = ["FINAL_PDF"];
   private readonly logger = new Logger(FilesService.name);
 
   constructor(
@@ -226,7 +227,13 @@ export class FilesService {
   /**
    * Lists all files for a book, grouped by type and ordered by version.
    */
-  async getBookFiles(bookId: string, userId: string) {
+  async getBookFiles(
+    bookId: string,
+    userId: string,
+    options?: {
+      includeAdminOnly?: boolean;
+    }
+  ) {
     // Verify book access
     const book = await this.prisma.book.findUnique({
       where: { id: bookId },
@@ -242,7 +249,16 @@ export class FilesService {
     }
 
     return this.prisma.file.findMany({
-      where: { bookId },
+      where: {
+        bookId,
+        ...(options?.includeAdminOnly
+          ? {}
+          : {
+              fileType: {
+                notIn: FilesService.USER_HIDDEN_FILE_TYPES,
+              },
+            }),
+      },
       orderBy: [{ fileType: "asc" }, { version: "desc" }],
     });
   }

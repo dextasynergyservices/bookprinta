@@ -3,6 +3,8 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/redis.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { ScannerService } from "../scanner/scanner.service.js";
+import { QueueAdminService } from "./queue-admin.service.js";
+import { RuntimeTelemetryService } from "./runtime-telemetry.service.js";
 
 @Injectable()
 export class HealthService {
@@ -12,7 +14,9 @@ export class HealthService {
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
     private readonly scanner: ScannerService,
-    private readonly rollout: RolloutService
+    private readonly rollout: RolloutService,
+    private readonly queueAdmin: QueueAdminService,
+    private readonly runtimeTelemetry: RuntimeTelemetryService
   ) {}
 
   /**
@@ -26,7 +30,7 @@ export class HealthService {
    * The DB/Redis pings run concurrently and have short timeouts so this endpoint
    * still responds in < 2 seconds even if a dependency is slow.
    */
-  async check() {
+  async ping() {
     // Fire DB + Redis pings concurrently — don't block on either
     const warmups = [
       this.prisma.$queryRawUnsafe("SELECT 1").catch((err: unknown) => {
@@ -53,7 +57,12 @@ export class HealthService {
       status: "ok",
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
+      runtime: this.runtimeTelemetry.getSnapshot(),
     };
+  }
+
+  async check() {
+    return this.ping();
   }
 
   /**
@@ -173,16 +182,25 @@ export class HealthService {
       this.logger.warn("Scanner health check failed", error);
     }
 
-    const allHealthy = Object.values(results).every(
-      (r) => r.status === "ok" || r.status === "not_configured" || r.status === "disabled"
-    );
+    const queues = await this.queueAdmin.collectSummary();
+
+    const allHealthy =
+      Object.values(results).every(
+        (r) => r.status === "ok" || r.status === "not_configured" || r.status === "disabled"
+      ) && queues.status === "ok";
 
     return {
       status: allHealthy ? "ok" : "degraded",
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
+      runtime: this.runtimeTelemetry.getSnapshot(),
       rollout: this.rollout.getMonitoringSnapshot(),
       services: results,
+      queues,
     };
+  }
+
+  async resetDevelopmentQueues() {
+    return this.queueAdmin.resetDevelopmentQueues();
   }
 }

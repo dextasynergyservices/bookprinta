@@ -22,17 +22,12 @@ import {
 export const BOOK_PROGRESS_TRACKER_SOURCE_ENDPOINT = "/api/v1/orders/:id/tracking";
 export const BOOK_PROGRESS_TRACKER_TARGET_ENDPOINT = "/api/v1/books/:id";
 
-const BOOK_STATUS_TO_PROGRESS_STAGE: Record<string, BookProgressStage> = {
-  AWAITING_UPLOAD: "PAYMENT_RECEIVED",
-  UPLOADED: "PAYMENT_RECEIVED",
+const PRODUCTION_STATUS_TO_PROGRESS_STAGE: Record<string, BookProgressStage> = {
   PAYMENT_RECEIVED: "PAYMENT_RECEIVED",
-  AI_PROCESSING: "DESIGNING",
   DESIGNING: "DESIGNING",
   DESIGNED: "DESIGNED",
   FORMATTING: "FORMATTING",
   FORMATTED: "FORMATTED",
-  FORMATTING_REVIEW: "REVIEW",
-  PREVIEW_READY: "REVIEW",
   REVIEW: "REVIEW",
   APPROVED: "APPROVED",
   REJECTED: "REVIEW",
@@ -45,22 +40,26 @@ const BOOK_STATUS_TO_PROGRESS_STAGE: Record<string, BookProgressStage> = {
   CANCELLED: "REVIEW",
 };
 
-const ORDER_STATUS_TO_PROGRESS_STAGE: Record<string, BookProgressStage> = {
-  PENDING_PAYMENT: "PAYMENT_RECEIVED",
-  PENDING_PAYMENT_APPROVAL: "PAYMENT_RECEIVED",
-  PAID: "PAYMENT_RECEIVED",
-  PROCESSING: "DESIGNING",
-  AWAITING_UPLOAD: "PAYMENT_RECEIVED",
-  FORMATTING: "FORMATTING",
-  ACTION_REQUIRED: "REVIEW",
-  PREVIEW_READY: "REVIEW",
-  PENDING_EXTRA_PAYMENT: "REVIEW",
-  APPROVED: "APPROVED",
-  IN_PRODUCTION: "PRINTING",
-  COMPLETED: "DELIVERED",
-  CANCELLED: "REVIEW",
-  REFUNDED: "REVIEW",
-};
+function deriveLegacyProductionStatus(status: string | null): string | null {
+  switch (status) {
+    case "PAYMENT_RECEIVED":
+    case "DESIGNING":
+    case "DESIGNED":
+    case "REVIEW":
+    case "REJECTED":
+    case "APPROVED":
+    case "IN_PRODUCTION":
+    case "PRINTING":
+    case "PRINTED":
+    case "SHIPPING":
+    case "DELIVERED":
+    case "COMPLETED":
+    case "CANCELLED":
+      return status;
+    default:
+      return "PAYMENT_RECEIVED";
+  }
+}
 
 type TimelineRow = {
   status: string | null;
@@ -344,6 +343,21 @@ function resolveCurrentStatus(payload: unknown, timeline: TimelineRow[]): string
   );
 }
 
+function resolveProductionStatus(payload: unknown, currentStatus: string | null): string | null {
+  const root = toRecord(payload);
+  const data = toRecord(root?.data);
+  const book = toRecord(root?.book);
+  const progress = toRecord(root?.progress);
+
+  return (
+    normalizeStatus(root?.productionStatus) ??
+    normalizeStatus(data?.productionStatus) ??
+    normalizeStatus(book?.productionStatus) ??
+    normalizeStatus(progress?.productionStatus) ??
+    deriveLegacyProductionStatus(currentStatus)
+  );
+}
+
 function resolveBookId(payload: unknown): string | null {
   const root = toRecord(payload);
   const data = toRecord(root?.data);
@@ -381,6 +395,19 @@ function resolveRejectionReason(payload: unknown): string | null {
     toStringValue(root?.rejectionReason) ??
     toStringValue(data?.rejectionReason) ??
     toStringValue(book?.rejectionReason) ??
+    null
+  );
+}
+
+function resolveLatestProcessingError(payload: unknown): string | null {
+  const root = toRecord(payload);
+  const data = toRecord(root?.data);
+  const book = toRecord(root?.book);
+
+  return (
+    toStringValue(root?.latestProcessingError) ??
+    toStringValue(data?.latestProcessingError) ??
+    toStringValue(book?.latestProcessingError) ??
     null
   );
 }
@@ -437,9 +464,7 @@ export function mapBackendStatusToProgressStage(
   const normalized = normalizeStatus(status);
   if (!normalized) return null;
 
-  return (
-    BOOK_STATUS_TO_PROGRESS_STAGE[normalized] ?? ORDER_STATUS_TO_PROGRESS_STAGE[normalized] ?? null
-  );
+  return PRODUCTION_STATUS_TO_PROGRESS_STAGE[normalized] ?? null;
 }
 
 function resolveCurrentStageIndex(status: string | null): number {
@@ -500,13 +525,19 @@ export function normalizeBookProgressPayload(payload: unknown): BookProgressNorm
   const sourceEndpoint = resolveSource(payload);
   const timelineRows = resolveTimelineRows(payload);
   const currentStatus = resolveCurrentStatus(payload, timelineRows);
+  const productionStatus = resolveProductionStatus(payload, currentStatus);
   const rejectionReason = resolveRejectionReason(payload);
-  const isRejected = currentStatus === "REJECTED";
+  const isRejected = productionStatus === "REJECTED";
   const currentStageIndex = isRejected
     ? BOOK_PROGRESS_STAGES.indexOf("REVIEW")
-    : resolveCurrentStageIndex(currentStatus);
+    : resolveCurrentStageIndex(productionStatus);
   const reachedAtByStage = resolveReachedAtByStage(timelineRows);
-  const timeline = createTimeline(currentStageIndex, isRejected, reachedAtByStage, currentStatus);
+  const timeline = createTimeline(
+    currentStageIndex,
+    isRejected,
+    reachedAtByStage,
+    productionStatus
+  );
   const metadata = resolveBookMetadata(payload);
   const rollout = resolveRolloutState(payload);
   const processing = resolveProcessingState(payload);
@@ -516,6 +547,8 @@ export function normalizeBookProgressPayload(payload: unknown): BookProgressNorm
     bookId: resolveBookId(payload),
     orderId: resolveOrderId(payload),
     currentStatus,
+    productionStatus,
+    latestProcessingError: resolveLatestProcessingError(payload),
     rejectionReason,
     currentStage: timeline[currentStageIndex]?.stage ?? BOOK_PROGRESS_STAGES[0],
     isRejected,

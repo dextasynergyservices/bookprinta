@@ -1,4 +1,5 @@
 import type {
+  AdminBookProductionStatusResponse,
   ApproveBookInput,
   BookApproveResponse,
   BookDetailResponse,
@@ -9,8 +10,10 @@ import type {
   BookProcessingStep,
   BookProcessingTrigger,
   BookProgressStage,
+  BookReprocessResponse,
   BookSettingsResponse,
   BookStatus,
+  UpdateAdminBookProductionStatusInput,
   UpdateBookSettingsInput,
 } from "@bookprinta/shared";
 import {
@@ -28,12 +31,14 @@ import { RolloutService } from "../rollout/rollout.service.js";
 import { BooksPipelineService } from "./books-pipeline.service.js";
 import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
 
-const BOOK_DETAIL_JOB_STATUSES: JobStatus[] = ["QUEUED", "PROCESSING"];
+const BOOK_DETAIL_JOB_STATUSES: JobStatus[] = ["QUEUED", "PROCESSING", "FAILED"];
 
 const BOOK_DETAIL_SELECT = {
   id: true,
   orderId: true,
   status: true,
+  productionStatus: true,
+  productionStatusUpdatedAt: true,
   rejectionReason: true,
   rejectedAt: true,
   pageCount: true,
@@ -63,6 +68,7 @@ const BOOK_DETAIL_SELECT = {
       status: true,
       attempts: true,
       maxRetries: true,
+      error: true,
       payload: true,
       result: true,
       createdAt: true,
@@ -75,9 +81,23 @@ const BOOK_DETAIL_SELECT = {
 
 type BookDetailRow = Prisma.BookGetPayload<{ select: typeof BOOK_DETAIL_SELECT }>;
 
+type UserPreviewAsset = {
+  bookId: string;
+  status: BookStatus;
+  sourceUrl: string;
+  fileName: string;
+  mimeType: string;
+};
+
 @Injectable()
 export class BooksService {
   private static readonly EXTRA_PAGE_PRICE_NGN = 10;
+  private static readonly ACTIVE_JOB_STALE_AFTER_MS = 15 * 60 * 1000;
+  private static readonly FALLBACK_PROCESSING_STALE_AFTER_MS = 15 * 60 * 1000;
+  private static readonly NON_USER_FACING_PROCESSING_ERRORS = [
+    "cleared by local development queue reset.",
+    "marked stale and superseded by a fresh reprocess request.",
+  ] as const;
   private static readonly SETTINGS_LOCKED_BOOK_STATUSES = new Set([
     "APPROVED",
     "IN_PRODUCTION",
@@ -316,6 +336,11 @@ export class BooksService {
       id: row.id,
       orderId: row.orderId,
       status: row.status,
+      productionStatus: this.resolveProductionStatus({
+        productionStatus: row.productionStatus,
+        manuscriptStatus: row.status,
+      }),
+      latestProcessingError: this.resolveLatestProcessingError(row.jobs),
       rejectionReason: row.rejectionReason ?? null,
       rejectedAt: row.rejectedAt?.toISOString() ?? null,
       pageCount: row.pageCount,
@@ -326,13 +351,12 @@ export class BooksService {
       pageSize: row.pageSize ?? null,
       currentHtmlUrl: row.currentHtmlUrl ?? null,
       previewPdfUrl: row.previewPdfUrl ?? null,
-      finalPdfUrl: row.finalPdfUrl ?? null,
+      finalPdfUrl: null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       rollout,
       processing: this.resolveProcessingState({
         bookStatus: row.status,
-        orderStatus: row.order.status,
         currentHtmlUrl: row.currentHtmlUrl ?? null,
         pageCount: row.pageCount,
         finalPdfUrl: row.finalPdfUrl ?? null,
@@ -340,48 +364,41 @@ export class BooksService {
         jobs: row.jobs,
       }),
       timeline: this.buildProgressTimeline({
-        currentStatus: row.status,
+        currentStatus: this.resolveProductionStatus({
+          productionStatus: row.productionStatus,
+          manuscriptStatus: row.status,
+        }),
         createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
+        updatedAt: row.productionStatusUpdatedAt ?? row.createdAt,
       }),
     };
   }
 
-  async getUserBookPreview(userId: string, bookId: string): Promise<BookPreviewResponse> {
-    const row = await this.prisma.book.findFirst({
-      where: {
-        id: bookId,
-        userId,
-      },
-      select: {
-        id: true,
-        status: true,
-        previewPdfUrl: true,
-      },
-    });
-
-    if (!row) {
-      throw new NotFoundException(`Book "${bookId}" not found`);
-    }
-
-    if (!row.previewPdfUrl || !BooksService.PREVIEW_AVAILABLE_BOOK_STATUSES.has(row.status)) {
-      throw new NotFoundException("Preview PDF is not available yet.");
-    }
-
+  async getUserBookPreview(
+    userId: string,
+    bookId: string,
+    previewPdfUrl: string
+  ): Promise<BookPreviewResponse> {
+    const asset = await this.getUserPreviewAsset(userId, bookId);
     return {
-      bookId: row.id,
-      previewPdfUrl: row.previewPdfUrl,
-      status: row.status,
+      bookId: asset.bookId,
+      previewPdfUrl,
+      status: asset.status,
       watermarked: true,
     };
   }
 
+  async getUserBookPreviewFileSource(userId: string, bookId: string): Promise<UserPreviewAsset> {
+    return this.getUserPreviewAsset(userId, bookId);
+  }
+
   async getUserBookFiles(userId: string, bookId: string): Promise<BookFilesResponse> {
     const files = await this.filesService.getBookFiles(bookId, userId);
+    const visibleFiles = files.filter((file) => file.fileType !== "FINAL_PDF");
 
     return {
       bookId,
-      files: files.map((file) => ({
+      files: visibleFiles.map((file) => ({
         id: file.id,
         fileType: file.fileType,
         url: file.url,
@@ -392,6 +409,40 @@ export class BooksService {
         createdBy: file.createdBy ?? null,
         createdAt: file.createdAt.toISOString(),
       })),
+    };
+  }
+
+  async updateAdminBookProductionStatus(
+    bookId: string,
+    input: UpdateAdminBookProductionStatusInput
+  ): Promise<AdminBookProductionStatusResponse> {
+    const book = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: { id: true },
+    });
+
+    if (!book) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    const updatedAt = new Date();
+    const updated = await this.prisma.book.update({
+      where: { id: bookId },
+      data: {
+        productionStatus: input.productionStatus,
+        productionStatusUpdatedAt: updatedAt,
+      },
+      select: {
+        id: true,
+        productionStatus: true,
+        productionStatusUpdatedAt: true,
+      },
+    });
+
+    return {
+      bookId: updated.id,
+      productionStatus: input.productionStatus,
+      updatedAt: (updated.productionStatusUpdatedAt ?? updatedAt).toISOString(),
     };
   }
 
@@ -469,7 +520,9 @@ export class BooksService {
     await this.prisma.$transaction(async (tx) => {
       await tx.book.update({
         where: { id: book.id },
-        data: { status: "APPROVED" },
+        data: {
+          status: "APPROVED",
+        },
       });
 
       await tx.order.update({
@@ -495,8 +548,166 @@ export class BooksService {
     };
   }
 
+  async reprocessUserBook(userId: string, bookId: string): Promise<BookReprocessResponse> {
+    const book = await this.prisma.book.findFirst({
+      where: { id: bookId, userId },
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        pageSize: true,
+        fontSize: true,
+      },
+    });
+
+    if (!book) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    if (BooksService.SETTINGS_LOCKED_BOOK_STATUSES.has(book.status)) {
+      throw new BadRequestException("Manuscript processing can only be retried before approval.");
+    }
+
+    this.rollout.assertManuscriptPipelineAccess(book);
+
+    const queueResult = await this.booksPipeline.enqueueFormatManuscript({
+      bookId: book.id,
+      trigger: "upload",
+    });
+
+    if (!queueResult.queued) {
+      if (queueResult.reason === "NO_MANUSCRIPT") {
+        throw new BadRequestException("Upload a manuscript before retrying automated processing.");
+      }
+
+      throw new ConflictException(
+        "Manuscript processing is still active. Please wait a little longer before retrying."
+      );
+    }
+
+    return {
+      bookId: book.id,
+      bookStatus: "AI_PROCESSING",
+      orderStatus: "FORMATTING",
+      queuedJob: {
+        queue: "ai-formatting",
+        name: "format-manuscript",
+        jobId: queueResult.queueJobId,
+      },
+    };
+  }
+
   private resolveStageFromStatus(status: BookStatus): BookProgressStage {
     return this.statusToStage[status] ?? "PAYMENT_RECEIVED";
+  }
+
+  private async getUserPreviewAsset(userId: string, bookId: string): Promise<UserPreviewAsset> {
+    const row = await this.prisma.book.findFirst({
+      where: {
+        id: bookId,
+        userId,
+      },
+      select: {
+        id: true,
+        status: true,
+        previewPdfUrl: true,
+        files: {
+          where: {
+            fileType: "PREVIEW_PDF",
+          },
+          orderBy: {
+            version: "desc",
+          },
+          take: 1,
+          select: {
+            url: true,
+            fileName: true,
+            mimeType: true,
+          },
+        },
+      },
+    });
+
+    if (!row) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    if (!row.previewPdfUrl || !BooksService.PREVIEW_AVAILABLE_BOOK_STATUSES.has(row.status)) {
+      throw new NotFoundException("Preview PDF is not available yet.");
+    }
+
+    const previewFile = row.files[0];
+    return {
+      bookId: row.id,
+      status: row.status,
+      sourceUrl: previewFile?.url ?? row.previewPdfUrl,
+      fileName: previewFile?.fileName ?? `book-preview-${row.id}.pdf`,
+      mimeType: previewFile?.mimeType ?? "application/pdf",
+    };
+  }
+
+  private resolveProductionStatus(params: {
+    productionStatus: BookStatus | null;
+    manuscriptStatus: BookStatus;
+  }): BookStatus {
+    return params.productionStatus ?? "PAYMENT_RECEIVED";
+  }
+
+  private resolveLatestProcessingError(
+    jobs: Array<{
+      type: string;
+      status: string;
+      error: string | null;
+    }>
+  ): string | null {
+    const latestFailure = jobs.find((job) => {
+      if (job.status !== "FAILED") {
+        return false;
+      }
+
+      if (job.type !== "AI_CLEANING" && job.type !== "PAGE_COUNT") {
+        return false;
+      }
+
+      if (!job.error) {
+        return false;
+      }
+
+      const normalizedError = job.error.trim().toLowerCase();
+      return !BooksService.NON_USER_FACING_PROCESSING_ERRORS.includes(
+        normalizedError as (typeof BooksService.NON_USER_FACING_PROCESSING_ERRORS)[number]
+      );
+    });
+
+    if (!latestFailure?.error) {
+      return null;
+    }
+
+    const normalized = latestFailure.error.trim();
+    if (normalized.length === 0) {
+      return null;
+    }
+
+    return this.toUserFacingProcessingError(normalized);
+  }
+
+  private toUserFacingProcessingError(error: string): string {
+    const normalizedError = error.trim();
+    const lower = normalizedError.toLowerCase();
+
+    if (lower.includes("resource_exhausted") || lower.includes("quota exceeded")) {
+      return "AI formatting is temporarily unavailable because the current Gemini quota is exhausted. Retry later or switch to a higher-capacity Gemini key.";
+    }
+
+    if (lower.includes("timed out")) {
+      return "AI formatting timed out before the preview was generated. Retry processing to start a fresh run.";
+    }
+
+    if (lower.includes("503") || lower.includes("unavailable") || lower.includes("high demand")) {
+      return "AI formatting is temporarily unavailable because Gemini is under high demand. Retry processing shortly.";
+    }
+
+    return normalizedError;
   }
 
   private buildProgressTimeline(params: {
@@ -585,7 +796,6 @@ export class BooksService {
 
   private resolveProcessingState(params: {
     bookStatus: BookStatus;
-    orderStatus: string | null | undefined;
     currentHtmlUrl: string | null;
     pageCount: number | null;
     finalPdfUrl: string | null;
@@ -601,9 +811,11 @@ export class BooksService {
       startedAt: Date | null;
     }>;
   }): BookProcessingState {
-    const activeJob =
+    const latestActiveJob =
       params.jobs.find((job) => job.status === "PROCESSING") ??
       params.jobs.find((job) => BooksService.ACTIVE_JOB_STATUSES.has(job.status));
+    const activeJob =
+      latestActiveJob && !this.isStaleActiveJob(latestActiveJob) ? latestActiveJob : null;
 
     if (activeJob) {
       const currentStep =
@@ -615,9 +827,21 @@ export class BooksService {
         currentStep,
         jobStatus: activeJob.status === "QUEUED" ? "queued" : "processing",
         trigger: this.resolveProcessingTrigger(activeJob.payload),
-        startedAt: (activeJob.startedAt ?? activeJob.createdAt).toISOString(),
+        startedAt: this.resolveActiveJobStartedAt(activeJob),
         attempt: activeJob.attempts > 0 ? activeJob.attempts : null,
         maxAttempts: activeJob.maxRetries > 0 ? activeJob.maxRetries : null,
+      };
+    }
+
+    if (params.bookStatus === "FORMATTING_REVIEW") {
+      return {
+        isActive: false,
+        currentStep: null,
+        jobStatus: null,
+        trigger: null,
+        startedAt: null,
+        attempt: null,
+        maxAttempts: null,
       };
     }
 
@@ -634,15 +858,78 @@ export class BooksService {
       };
     }
 
+    if (latestActiveJob) {
+      const currentStep = this.resolveProcessingStepFromJob(latestActiveJob) ?? fallbackStep;
+
+      return {
+        isActive: true,
+        currentStep,
+        jobStatus: latestActiveJob.status === "QUEUED" ? "queued" : "processing",
+        trigger: this.resolveProcessingTrigger(latestActiveJob.payload),
+        startedAt: null,
+        attempt: null,
+        maxAttempts: null,
+      };
+    }
+
     return {
       isActive: true,
       currentStep: fallbackStep,
       jobStatus: "processing",
       trigger: null,
-      startedAt: params.updatedAt.toISOString(),
+      startedAt: this.isStaleTimestamp(
+        params.updatedAt,
+        BooksService.FALLBACK_PROCESSING_STALE_AFTER_MS
+      )
+        ? null
+        : params.updatedAt.toISOString(),
       attempt: null,
       maxAttempts: null,
     };
+  }
+
+  private isStaleActiveJob(job: {
+    status: string;
+    createdAt: Date;
+    startedAt: Date | null;
+  }): boolean {
+    if (!BooksService.ACTIVE_JOB_STATUSES.has(job.status)) {
+      return false;
+    }
+
+    const referenceTimestamp =
+      job.status === "PROCESSING" ? (job.startedAt ?? job.createdAt) : job.startedAt;
+
+    if (!referenceTimestamp) {
+      return false;
+    }
+
+    return this.isStaleTimestamp(referenceTimestamp, BooksService.ACTIVE_JOB_STALE_AFTER_MS);
+  }
+
+  private resolveActiveJobStartedAt(job: {
+    status: string;
+    attempts: number;
+    createdAt: Date;
+    startedAt: Date | null;
+  }): string | null {
+    if (this.isStaleActiveJob(job)) {
+      return null;
+    }
+
+    if (job.status === "PROCESSING") {
+      return (job.startedAt ?? job.createdAt).toISOString();
+    }
+
+    if (job.attempts > 0 || !job.startedAt) {
+      return null;
+    }
+
+    return job.startedAt.toISOString();
+  }
+
+  private isStaleTimestamp(value: Date, thresholdMs: number): boolean {
+    return Date.now() - value.getTime() > thresholdMs;
   }
 
   private resolveProcessingStepFromJob(job: {
@@ -669,16 +956,11 @@ export class BooksService {
 
   private resolveProcessingStepFromStatuses(params: {
     bookStatus: BookStatus;
-    orderStatus: string | null | undefined;
     currentHtmlUrl: string | null;
     pageCount: number | null;
     finalPdfUrl: string | null;
   }): BookProcessingStep | null {
-    if (
-      params.bookStatus === "AI_PROCESSING" ||
-      params.bookStatus === "FORMATTING" ||
-      (!params.currentHtmlUrl && params.orderStatus === "FORMATTING")
-    ) {
+    if (params.bookStatus === "AI_PROCESSING" || params.bookStatus === "FORMATTING") {
       return "AI_FORMATTING";
     }
 
@@ -689,11 +971,7 @@ export class BooksService {
       return "COUNTING_PAGES";
     }
 
-    if (
-      params.currentHtmlUrl &&
-      typeof params.pageCount !== "number" &&
-      params.orderStatus === "FORMATTING"
-    ) {
+    if (params.currentHtmlUrl && typeof params.pageCount !== "number") {
       return "COUNTING_PAGES";
     }
 

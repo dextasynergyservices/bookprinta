@@ -38,7 +38,9 @@ const TRANSLATIONS: Record<string, string> = {
   manuscript_upload_choose_file: "Choose File",
   manuscript_upload_progress_label: "Upload progress",
   manuscript_upload_processing_extracting_word_count: "Extracting word count",
-  manuscript_upload_estimated_pages_label: "Estimated pages",
+  manuscript_upload_estimated_pages_label: "Estimated pages before formatting",
+  manuscript_upload_estimated_pages_helper:
+    "Quick guide from word count and your selected trim size and font size.",
   manuscript_upload_word_count_label: "{count} words",
   manuscript_upload_replace_file: "Replace file",
 };
@@ -212,8 +214,13 @@ describe("ManuscriptUploadFlow", () => {
       estimatedPages: 150,
     });
 
-    await waitFor(() => expect(screen.getByText("Estimated pages")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Estimated pages before formatting")).toBeInTheDocument()
+    );
     expect(screen.getByText("150")).toBeInTheDocument();
+    expect(
+      screen.getByText("Quick guide from word count and your selected trim size and font size.")
+    ).toBeInTheDocument();
     expect(screen.getByText("42,000 words")).toBeInTheDocument();
     expect(onUploadSuccess).toHaveBeenCalledTimes(1);
   });

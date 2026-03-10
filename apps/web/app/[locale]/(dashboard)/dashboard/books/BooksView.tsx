@@ -3,12 +3,16 @@
 import { AlertCircle, BookOpen } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BookProgressTracker } from "@/components/dashboard/book-progress-tracker";
 import { ManuscriptPreviewPanel } from "@/components/dashboard/manuscript-preview-panel";
 import { ManuscriptUploadFlow } from "@/components/dashboard/manuscript-upload-flow";
 import { Button } from "@/components/ui/button";
-import { approveBookForProduction, useBookProgress } from "@/hooks/useBookProgress";
+import {
+  approveBookForProduction,
+  reprocessBookManuscript,
+  useBookProgress,
+} from "@/hooks/useBookProgress";
 import { useBookFiles, useBookPreview } from "@/hooks/useBookResources";
 import { useOrderDetail } from "@/hooks/useOrderDetail";
 import { useOrders } from "@/hooks/useOrders";
@@ -17,6 +21,7 @@ import {
   type PaymentGateway,
   payExtraPages,
   usePaymentGateways,
+  verifyPayment,
 } from "@/hooks/usePayments";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -50,9 +55,25 @@ const STATE_LABEL_KEYS: Record<BookProgressTimelineStep["state"], string> = {
 const MOBILE_SKELETON_STAGES = BOOK_PROGRESS_STAGES.slice(0, 6);
 const DESKTOP_SKELETON_STAGES = BOOK_PROGRESS_STAGES;
 const EXTRA_PAGE_RATE_NAIRA = 10;
+const WORKSPACE_APPROVED_BOOK_STATUSES = new Set([
+  "APPROVED",
+  "IN_PRODUCTION",
+  "PRINTING",
+  "PRINTED",
+  "SHIPPING",
+  "DELIVERED",
+  "COMPLETED",
+]);
+const WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES = new Set(["FORMATTING_REVIEW", "REJECTED"]);
 type TranslationValues = Record<string, string | number | Date>;
 type DashboardTranslator = (key: string, values?: TranslationValues) => string;
-type WorkspaceState = "processing" | "blocked" | "payment_pending" | "unlocked" | "approved";
+type WorkspaceState =
+  | "processing"
+  | "blocked"
+  | "payment_pending"
+  | "unlocked"
+  | "approved"
+  | "action_required";
 
 function toSentenceCase(value: string): string {
   if (!value) return value;
@@ -195,8 +216,11 @@ function resolveWorkspaceState(params: {
   const normalizedExtraPaymentStatus = normalizeStatusToken(latestExtraPaymentStatus);
 
   if (forceProcessing) return "processing";
-  if (normalizedOrderStatus === "APPROVED" || normalizedBookStatus === "APPROVED")
+  if (normalizedBookStatus && WORKSPACE_APPROVED_BOOK_STATUSES.has(normalizedBookStatus))
     return "approved";
+  if (normalizedBookStatus && WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES.has(normalizedBookStatus)) {
+    return "action_required";
+  }
   if (typeof pageCount !== "number") return "processing";
   if (isOrderLoading) return "processing";
   if (normalizedOrderStatus === "PENDING_EXTRA_PAYMENT") {
@@ -211,7 +235,7 @@ function resolveWorkspaceState(params: {
 
     return "blocked";
   }
-  if (normalizedOrderStatus === "PREVIEW_READY") return "unlocked";
+  if (normalizedBookStatus === "PREVIEW_READY") return "unlocked";
   return "processing";
 }
 
@@ -222,14 +246,66 @@ function resolveBillingGateState(params: {
   isOrderLoading: boolean;
   latestExtraPaymentStatus: string | null;
   forceProcessing?: boolean;
-}): "processing" | "payment_required" | "ready" | "approved" {
+}): "processing" | "payment_required" | "ready" | "approved" | "action_required" {
   const workspaceState = resolveWorkspaceState(params);
 
   if (workspaceState === "approved") return "approved";
   if (workspaceState === "unlocked") return "ready";
+  if (workspaceState === "action_required") return "action_required";
   if (workspaceState === "blocked" || workspaceState === "payment_pending")
     return "payment_required";
   return "processing";
+}
+
+function resolveFormattingSnapshotLabel(params: {
+  tDashboard: DashboardTranslator;
+  bookStatus: string | null;
+  currentHtmlUrl: string | null;
+  processingActive: boolean;
+  forceProcessing?: boolean;
+}): string {
+  const normalizedBookStatus = normalizeStatusToken(params.bookStatus);
+
+  if (params.forceProcessing || params.processingActive) {
+    return params.tDashboard("book_progress_meta_state_processing");
+  }
+
+  if (normalizedBookStatus && WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES.has(normalizedBookStatus)) {
+    return params.tDashboard("book_progress_meta_state_action_required");
+  }
+
+  if (params.currentHtmlUrl) {
+    return params.tDashboard("book_progress_meta_state_ready");
+  }
+
+  return params.tDashboard("book_progress_meta_state_pending");
+}
+
+function resolveReviewSnapshotLabel(params: {
+  tDashboard: DashboardTranslator;
+  bookStatus: string | null;
+  pageCount: number | null;
+  forceProcessing?: boolean;
+}): string {
+  const normalizedBookStatus = normalizeStatusToken(params.bookStatus);
+
+  if (params.forceProcessing) {
+    return params.tDashboard("book_progress_meta_state_processing");
+  }
+
+  if (normalizedBookStatus && WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES.has(normalizedBookStatus)) {
+    return params.tDashboard("book_progress_meta_state_action_required");
+  }
+
+  if (
+    typeof params.pageCount === "number" ||
+    normalizedBookStatus === "PREVIEW_READY" ||
+    (normalizedBookStatus && WORKSPACE_APPROVED_BOOK_STATUSES.has(normalizedBookStatus))
+  ) {
+    return params.tDashboard("book_progress_meta_state_ready");
+  }
+
+  return params.tDashboard("book_progress_meta_state_pending");
 }
 
 function BookProgressSkeleton({ title, description }: { title: string; description: string }) {
@@ -659,53 +735,63 @@ function BookWorkspacePanel({
   const stateBadgeClassName =
     workspaceState === "blocked"
       ? "border-[#ef4444]/50 bg-[#2a1111] text-[#f3b2b2]"
-      : workspaceState === "payment_pending"
-        ? "border-[#f59e0b]/45 bg-[#2b1b08] text-[#f8d7a0]"
-        : workspaceState === "unlocked"
-          ? "border-[#007eff]/40 bg-[#0d1f34] text-[#d7e8ff]"
-          : workspaceState === "approved"
-            ? "border-[#16a34a]/35 bg-[#0d2015] text-[#c8f1d6]"
-            : "border-[#2A2A2A] bg-[#0A0A0A] text-[#d0d0d0]";
+      : workspaceState === "action_required"
+        ? "border-[#f97316]/45 bg-[#2a1609] text-[#f8caa6]"
+        : workspaceState === "payment_pending"
+          ? "border-[#f59e0b]/45 bg-[#2b1b08] text-[#f8d7a0]"
+          : workspaceState === "unlocked"
+            ? "border-[#007eff]/40 bg-[#0d1f34] text-[#d7e8ff]"
+            : workspaceState === "approved"
+              ? "border-[#16a34a]/35 bg-[#0d2015] text-[#c8f1d6]"
+              : "border-[#2A2A2A] bg-[#0A0A0A] text-[#d0d0d0]";
   const panelClassName =
     workspaceState === "blocked"
       ? "border-[#ef4444]/45 bg-[#160d0d]"
-      : workspaceState === "payment_pending"
-        ? "border-[#f59e0b]/40 bg-[#171106]"
-        : workspaceState === "unlocked"
-          ? "border-[#007eff]/30 bg-[#0b1320]"
-          : workspaceState === "approved"
-            ? "border-[#16a34a]/30 bg-[#0d1610]"
-            : "border-[#2A2A2A] bg-[#111111]";
+      : workspaceState === "action_required"
+        ? "border-[#f97316]/35 bg-[#181007]"
+        : workspaceState === "payment_pending"
+          ? "border-[#f59e0b]/40 bg-[#171106]"
+          : workspaceState === "unlocked"
+            ? "border-[#007eff]/30 bg-[#0b1320]"
+            : workspaceState === "approved"
+              ? "border-[#16a34a]/30 bg-[#0d1610]"
+              : "border-[#2A2A2A] bg-[#111111]";
   const badgeKey =
     workspaceState === "blocked"
       ? "book_progress_workspace_badge_blocked"
-      : workspaceState === "payment_pending"
-        ? "book_progress_workspace_badge_payment_pending"
-        : workspaceState === "unlocked"
-          ? "book_progress_workspace_badge_unlocked"
-          : workspaceState === "approved"
-            ? "book_progress_workspace_badge_approved"
-            : "book_progress_workspace_badge_processing";
+      : workspaceState === "action_required"
+        ? "book_progress_workspace_badge_action_required"
+        : workspaceState === "payment_pending"
+          ? "book_progress_workspace_badge_payment_pending"
+          : workspaceState === "unlocked"
+            ? "book_progress_workspace_badge_unlocked"
+            : workspaceState === "approved"
+              ? "book_progress_workspace_badge_approved"
+              : "book_progress_workspace_badge_processing";
   const headingKey =
     workspaceState === "blocked"
       ? "book_progress_workspace_heading_blocked"
-      : workspaceState === "payment_pending"
-        ? "book_progress_workspace_heading_payment_pending"
-        : workspaceState === "unlocked"
-          ? "book_progress_workspace_heading_unlocked"
-          : workspaceState === "approved"
-            ? "book_progress_workspace_heading_approved"
-            : "book_progress_workspace_heading_processing";
+      : workspaceState === "action_required"
+        ? "book_progress_workspace_heading_action_required"
+        : workspaceState === "payment_pending"
+          ? "book_progress_workspace_heading_payment_pending"
+          : workspaceState === "unlocked"
+            ? "book_progress_workspace_heading_unlocked"
+            : workspaceState === "approved"
+              ? "book_progress_workspace_heading_approved"
+              : "book_progress_workspace_heading_processing";
   const descriptionKey =
     workspaceState === "blocked"
       ? "book_progress_workspace_desc_blocked"
-      : workspaceState === "payment_pending"
-        ? "book_progress_workspace_desc_payment_pending"
-        : workspaceState === "unlocked"
-          ? "book_progress_workspace_desc_unlocked"
-          : workspaceState === "approved"
-            ? "book_progress_workspace_desc_approved"
-            : "book_progress_workspace_desc_processing";
+      : workspaceState === "action_required"
+        ? "book_progress_workspace_desc_action_required"
+        : workspaceState === "payment_pending"
+          ? "book_progress_workspace_desc_payment_pending"
+          : workspaceState === "unlocked"
+            ? "book_progress_workspace_desc_unlocked"
+            : workspaceState === "approved"
+              ? "book_progress_workspace_desc_approved"
+              : "book_progress_workspace_desc_processing";
   const authoritativeValue =
     typeof pageCount === "number"
       ? formatInteger(pageCount, locale)
@@ -752,6 +838,7 @@ function BookWorkspacePanel({
                 ? formatInteger(estimatedPages, locale)
                 : tDashboard("book_progress_meta_value_unavailable")
             }
+            helper={tDashboard("book_progress_workspace_estimated_helper")}
           />
           <BookWorkspaceMetric
             label={tDashboard("book_progress_workspace_authoritative_pages")}
@@ -863,33 +950,39 @@ function BillingGatePanel({
   const descriptionKey =
     gateState === "processing"
       ? "book_progress_billing_gate_pending"
-      : workspaceState === "payment_pending"
-        ? "book_progress_billing_gate_payment_pending"
-        : gateState === "payment_required"
-          ? "book_progress_billing_gate_payment_required"
-          : gateState === "approved"
-            ? "book_progress_billing_gate_approved"
-            : typeof extraAmount === "number" && extraAmount > 0
-              ? "book_progress_billing_gate_paid"
-              : "book_progress_billing_gate_ready";
+      : gateState === "action_required"
+        ? "book_progress_billing_gate_action_required"
+        : workspaceState === "payment_pending"
+          ? "book_progress_billing_gate_payment_pending"
+          : gateState === "payment_required"
+            ? "book_progress_billing_gate_payment_required"
+            : gateState === "approved"
+              ? "book_progress_billing_gate_approved"
+              : typeof extraAmount === "number" && extraAmount > 0
+                ? "book_progress_billing_gate_paid"
+                : "book_progress_billing_gate_ready";
   const containerClassName =
     workspaceState === "blocked"
       ? "border-[#ef4444]/50 bg-[#170d0d]"
-      : workspaceState === "payment_pending"
-        ? "border-[#f59e0b]/45 bg-[#1a1207]"
-        : gateState === "ready" || gateState === "approved"
-          ? "border-[#007eff]/35 bg-[#0b1320]"
-          : "border-[#2A2A2A] bg-[#111111]";
+      : workspaceState === "action_required"
+        ? "border-[#f97316]/40 bg-[#181007]"
+        : workspaceState === "payment_pending"
+          ? "border-[#f59e0b]/45 bg-[#1a1207]"
+          : gateState === "ready" || gateState === "approved"
+            ? "border-[#007eff]/35 bg-[#0b1320]"
+            : "border-[#2A2A2A] bg-[#111111]";
   const statusLabel =
     gateState === "approved"
       ? tDashboard("book_progress_workspace_badge_approved")
-      : workspaceState === "payment_pending"
-        ? tDashboard("book_progress_workspace_badge_payment_pending")
-        : workspaceState === "blocked"
-          ? tDashboard("book_progress_workspace_badge_blocked")
-          : gateState === "ready"
-            ? tDashboard("book_progress_workspace_badge_unlocked")
-            : null;
+      : gateState === "action_required"
+        ? tDashboard("book_progress_workspace_badge_action_required")
+        : workspaceState === "payment_pending"
+          ? tDashboard("book_progress_workspace_badge_payment_pending")
+          : workspaceState === "blocked"
+            ? tDashboard("book_progress_workspace_badge_blocked")
+            : gateState === "ready"
+              ? tDashboard("book_progress_workspace_badge_unlocked")
+              : null;
 
   return (
     <section className={cn("rounded-2xl border p-4 md:p-5", containerClassName)}>
@@ -1011,10 +1104,15 @@ export function BooksView() {
   const [isPayingExtra, setIsPayingExtra] = useState(false);
   const [isApprovingBook, setIsApprovingBook] = useState(false);
   const [isLayoutReprocessing, setIsLayoutReprocessing] = useState(false);
+  const [isRetryingProcessing, setIsRetryingProcessing] = useState(false);
   const [isOpeningPreview, setIsOpeningPreview] = useState(false);
   const [isFileHistoryOpen, setIsFileHistoryOpen] = useState(false);
+  const [previewRetryError, setPreviewRetryError] = useState<string | null>(null);
+  const verifiedPaymentReferenceRef = useRef<string | null>(null);
   const searchParams = useSearchParams();
   const requestedBookId = resolveBookId(searchParams.get("bookId"));
+  const callbackPaymentReference =
+    resolveBookId(searchParams.get("reference")) ?? resolveBookId(searchParams.get("trxref"));
   const shouldResolveFromOrders = requestedBookId === null;
 
   const {
@@ -1045,6 +1143,8 @@ export function BooksView() {
     status: orderStatus,
     extraAmount,
     latestExtraPaymentStatus,
+    latestPaymentProvider,
+    latestPaymentReference,
     isInitialLoading: isOrderDetailInitialLoading,
     refetch: refetchOrderDetail,
   } = useOrderDetail({
@@ -1090,6 +1190,11 @@ export function BooksView() {
   });
   const billingStatus = orderStatus ?? data.currentStatus;
   const extraPagesProvider = resolveExtraPagesProvider(paymentGateways);
+  const pendingExtraPaymentReference =
+    callbackPaymentReference ??
+    (orderStatus === "PENDING_EXTRA_PAYMENT" && latestExtraPaymentStatus === "PENDING"
+      ? latestPaymentReference
+      : null);
   const isPaymentGatewayUnavailable =
     billingStatus === "PENDING_EXTRA_PAYMENT" &&
     !isPaymentGatewaysLoading &&
@@ -1135,21 +1240,88 @@ export function BooksView() {
   useEffect(() => {
     if (!isLayoutReprocessing) return;
 
+    const normalizedBookStatus = normalizeStatusToken(data.currentStatus);
     const layoutReady =
       Boolean(data.currentHtmlUrl) &&
       typeof data.pageCount === "number" &&
-      (orderStatus === "PREVIEW_READY" ||
-        orderStatus === "PENDING_EXTRA_PAYMENT" ||
-        orderStatus === "APPROVED" ||
-        data.currentStatus === "PREVIEW_READY" ||
-        data.currentStatus === "APPROVED");
+      (normalizedBookStatus === "PREVIEW_READY" ||
+        (normalizedBookStatus !== null &&
+          WORKSPACE_APPROVED_BOOK_STATUSES.has(normalizedBookStatus)));
 
-    const layoutFailed = data.currentStatus === "FORMATTING_REVIEW";
+    const layoutFailed =
+      normalizedBookStatus !== null &&
+      WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES.has(normalizedBookStatus);
 
     if (layoutReady || layoutFailed) {
       setIsLayoutReprocessing(false);
     }
-  }, [data.currentHtmlUrl, data.currentStatus, data.pageCount, isLayoutReprocessing, orderStatus]);
+  }, [data.currentHtmlUrl, data.currentStatus, data.pageCount, isLayoutReprocessing]);
+
+  useEffect(() => {
+    if (!pendingExtraPaymentReference || !activeBookId) {
+      return;
+    }
+
+    if (verifiedPaymentReferenceRef.current === pendingExtraPaymentReference) {
+      return;
+    }
+
+    if (orderStatus !== "PENDING_EXTRA_PAYMENT" && latestExtraPaymentStatus !== "PENDING") {
+      return;
+    }
+
+    verifiedPaymentReferenceRef.current = pendingExtraPaymentReference;
+    let cancelled = false;
+
+    const providerHint = normalizeStatusToken(latestPaymentProvider);
+
+    void (async () => {
+      try {
+        const result = await verifyPayment(pendingExtraPaymentReference, providerHint);
+        if (cancelled) return;
+
+        await Promise.allSettled([refetch(), refetchOrderDetail()]);
+        if (cancelled) return;
+
+        if (result.verified) {
+          setActionError(null);
+          setActionSuccess(tDashboard("book_progress_billing_gate_payment_verified"));
+        }
+      } catch (error) {
+        if (cancelled) return;
+
+        verifiedPaymentReferenceRef.current = null;
+        setActionSuccess(null);
+        setActionError(
+          error instanceof Error && error.message.trim().length > 0
+            ? error.message
+            : tDashboard("book_progress_billing_gate_payment_verify_error")
+        );
+      } finally {
+        if (!cancelled && typeof window !== "undefined" && callbackPaymentReference) {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("reference");
+          url.searchParams.delete("trxref");
+          url.searchParams.delete("status");
+          window.history.replaceState({}, "", url.toString());
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeBookId,
+    callbackPaymentReference,
+    latestExtraPaymentStatus,
+    latestPaymentProvider,
+    orderStatus,
+    pendingExtraPaymentReference,
+    refetch,
+    refetchOrderDetail,
+    tDashboard,
+  ]);
 
   async function handlePayExtraPages() {
     if (!activeBookId) return;
@@ -1234,6 +1406,30 @@ export function BooksView() {
       );
     } finally {
       setIsApprovingBook(false);
+    }
+  }
+
+  async function handleRetryProcessing() {
+    if (!activeBookId) return;
+
+    setPreviewRetryError(null);
+    setActionError(null);
+    setActionSuccess(null);
+    setResourceActionError(null);
+    setIsRetryingProcessing(true);
+
+    try {
+      await reprocessBookManuscript(activeBookId);
+      setIsLayoutReprocessing(true);
+      await Promise.allSettled([refetch(), refetchOrderDetail()]);
+    } catch (retryError) {
+      setPreviewRetryError(
+        retryError instanceof Error && retryError.message.trim().length > 0
+          ? retryError.message
+          : tDashboard("book_progress_browser_preview_retry_error")
+      );
+    } finally {
+      setIsRetryingProcessing(false);
     }
   }
 
@@ -1341,6 +1537,7 @@ export function BooksView() {
                 initialEstimatedPages={data.estimatedPages}
                 initialWordCount={data.wordCount}
                 onUploadSuccess={() => {
+                  setPreviewRetryError(null);
                   setActionError(null);
                   setActionSuccess(null);
                   setResourceActionError(null);
@@ -1356,12 +1553,19 @@ export function BooksView() {
                   fontSize={data.fontSize}
                   currentHtmlUrl={data.currentHtmlUrl}
                   currentStatus={data.currentStatus}
-                  orderStatus={orderStatus}
+                  latestProcessingError={data.latestProcessingError}
                   pageCount={data.pageCount}
                   processing={data.processing}
                   hasUploadedManuscript={typeof data.wordCount === "number"}
                   forceReprocessing={isLayoutReprocessing}
+                  canRetryProcessing={Boolean(activeBookId)}
+                  isRetryingProcessing={isRetryingProcessing}
+                  retryProcessingError={previewRetryError}
+                  onRetryProcessing={() => {
+                    void handleRetryProcessing();
+                  }}
                   onSettingsReprocessingStart={() => {
+                    setPreviewRetryError(null);
                     setActionError(null);
                     setActionSuccess(null);
                     setResourceActionError(null);
@@ -1434,16 +1638,19 @@ export function BooksView() {
               toStatusLabel(data.currentStatus) ??
               tDashboard("book_progress_meta_value_unavailable")
             }
-            formattingState={
-              stateLabels[
-                data.timeline.find((step) => step.stage === "FORMATTING")?.state ?? "upcoming"
-              ] ?? tDashboard("book_progress_meta_value_unavailable")
-            }
-            reviewState={
-              stateLabels[
-                data.timeline.find((step) => step.stage === "REVIEW")?.state ?? "upcoming"
-              ] ?? tDashboard("book_progress_meta_value_unavailable")
-            }
+            formattingState={resolveFormattingSnapshotLabel({
+              tDashboard,
+              bookStatus: data.currentStatus,
+              currentHtmlUrl: data.currentHtmlUrl,
+              processingActive: data.processing.isActive,
+              forceProcessing: isLayoutReprocessing,
+            })}
+            reviewState={resolveReviewSnapshotLabel({
+              tDashboard,
+              bookStatus: data.currentStatus,
+              pageCount: data.pageCount,
+              forceProcessing: isLayoutReprocessing,
+            })}
             previewReady={
               data.previewPdfUrl
                 ? tDashboard("book_progress_preview_ready")
@@ -1508,17 +1715,6 @@ export function BooksView() {
                   ? tDashboard("book_progress_cta_review_preview_loading")
                   : tDashboard("book_progress_cta_review_preview")}
               </Button>
-            ) : null}
-
-            {data.finalPdfUrl ? (
-              <a
-                href={data.finalPdfUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="font-sans inline-flex min-h-11 items-center justify-center rounded-full border border-[#16a34a]/35 bg-[#0d1610] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#16a34a] hover:bg-[#122014] focus-visible:outline-2 focus-visible:outline-[#16a34a] focus-visible:outline-offset-2"
-              >
-                {tDashboard("book_progress_cta_download_final_pdf")}
-              </a>
             ) : null}
 
             <Button

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { InjectQueue } from "@nestjs/bullmq";
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
+import { PaymentStatus, PaymentType } from "../generated/prisma/enums.js";
 import {
   JOB_NAMES,
   QUEUE_AI_FORMATTING,
@@ -11,7 +12,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service.js";
 
 type OrchestrationTrigger = "upload" | "settings_change";
-type EnqueueResultReason = "QUEUED" | "NO_MANUSCRIPT" | "ALREADY_ACTIVE";
+type EnqueueResultReason = "QUEUED" | "NO_MANUSCRIPT" | "ALREADY_ACTIVE" | "RESTORED_FROM_CACHE";
 type QueueJobState =
   | "waiting"
   | "active"
@@ -29,6 +30,7 @@ export type EnqueueResult = {
 };
 
 const ACTIVE_DB_JOB_STATUSES = ["QUEUED", "PROCESSING"] as const;
+const ACTIVE_DB_JOB_STALE_AFTER_MS = 15 * 60 * 1000;
 const ACTIVE_QUEUE_STATES = new Set<QueueJobState>([
   "waiting",
   "active",
@@ -36,6 +38,7 @@ const ACTIVE_QUEUE_STATES = new Set<QueueJobState>([
   "prioritized",
   "waiting-children",
 ]);
+const TERMINAL_QUEUE_STATES = new Set<QueueJobState>(["completed", "failed"]);
 const TERMINAL_BOOK_STATUSES = new Set([
   "IN_PRODUCTION",
   "PRINTING",
@@ -46,6 +49,9 @@ const TERMINAL_BOOK_STATUSES = new Set([
   "CANCELLED",
 ]);
 const TERMINAL_ORDER_STATUSES = new Set(["IN_PRODUCTION", "COMPLETED", "CANCELLED", "REFUNDED"]);
+const FORMAT_CACHE_PROFILE_VERSION = "2026-03-10-format-cache-v1";
+const RENDER_CACHE_PROFILE_VERSION = "2026-03-10-render-cache-v1";
+const EXTRA_PAGE_PRICE_NGN = 10;
 
 @Injectable()
 export class BooksPipelineService {
@@ -120,14 +126,37 @@ export class BooksPipelineService {
       };
     }
 
+    if (params.trigger === "settings_change") {
+      const restored = await this.tryRestoreCachedPipelineArtifacts({
+        bookId: book.id,
+        orderId: book.orderId,
+        rawManuscriptFileId: rawManuscript.id,
+        pageSize: book.pageSize,
+        fontSize: book.fontSize,
+        bundlePageLimit: book.order.package.pageLimit,
+      });
+
+      if (restored) {
+        this.logger.log(
+          `Restored cached manuscript artifacts for book ${book.id} from AI job ${restored.aiJobId} and page-count job ${restored.pageCountJobId}`
+        );
+        return {
+          queued: false,
+          reason: "RESTORED_FROM_CACHE",
+          jobRecordId: null,
+          queueJobId: null,
+        };
+      }
+    }
+
     const fingerprint = this.createFingerprint([
       "format",
+      FORMAT_CACHE_PROFILE_VERSION,
       book.id,
       rawManuscript.id,
       book.pageSize,
       String(book.fontSize),
       String(book.wordCount ?? "0"),
-      params.trigger,
     ]);
     const queueJobId = this.buildQueueJobId("format", book.id, fingerprint);
 
@@ -155,6 +184,8 @@ export class BooksPipelineService {
       };
     }
 
+    await this.removeTerminalQueueJob(this.aiFormattingQueue, queueJobId);
+
     const payload = {
       trigger: params.trigger,
       source: params.trigger === "upload" ? "books.upload" : "books.settings",
@@ -172,6 +203,8 @@ export class BooksPipelineService {
       wordCount: book.wordCount ?? null,
       estimatedPages: book.estimatedPages ?? null,
       bundlePageLimit: book.order.package.pageLimit,
+      formatProfileVersion: FORMAT_CACHE_PROFILE_VERSION,
+      renderProfileVersion: RENDER_CACHE_PROFILE_VERSION,
       fingerprint,
       queuedAt: new Date().toISOString(),
     };
@@ -276,11 +309,11 @@ export class BooksPipelineService {
 
     const fingerprint = this.createFingerprint([
       "count-pages",
+      RENDER_CACHE_PROFILE_VERSION,
       book.id,
       params.cleanedHtmlFileId,
       book.pageSize,
       String(book.fontSize),
-      params.trigger,
     ]);
     const queueJobId = this.buildQueueJobId("count-pages", book.id, fingerprint);
 
@@ -308,6 +341,8 @@ export class BooksPipelineService {
       };
     }
 
+    await this.removeTerminalQueueJob(this.pageCountQueue, queueJobId);
+
     const payload = {
       trigger: params.trigger,
       source: "ai-formatting.success",
@@ -320,6 +355,7 @@ export class BooksPipelineService {
       outputWordCount: params.outputWordCount ?? null,
       bundlePageLimit: book.order.package.pageLimit,
       sourceAiJobRecordId: params.sourceAiJobRecordId ?? null,
+      renderProfileVersion: RENDER_CACHE_PROFILE_VERSION,
       fingerprint,
       queuedAt: new Date().toISOString(),
     };
@@ -426,6 +462,7 @@ export class BooksPipelineService {
 
     const fingerprint = this.createFingerprint([
       "generate-pdf",
+      RENDER_CACHE_PROFILE_VERSION,
       book.id,
       cleanedHtmlFile.id,
       book.currentHtmlUrl,
@@ -458,6 +495,8 @@ export class BooksPipelineService {
       };
     }
 
+    await this.removeTerminalQueueJob(this.pdfGenerationQueue, queueJobId);
+
     const payload = {
       source: "books.approve",
       trigger: "approval",
@@ -467,6 +506,7 @@ export class BooksPipelineService {
       cleanedHtmlUrl: book.currentHtmlUrl,
       pageSize: book.pageSize,
       fontSize: book.fontSize,
+      renderProfileVersion: RENDER_CACHE_PROFILE_VERSION,
       fingerprint,
       queuedAt: new Date().toISOString(),
     };
@@ -533,15 +573,37 @@ export class BooksPipelineService {
         status: { in: [...ACTIVE_DB_JOB_STATUSES] },
       },
       select: {
+        id: true,
+        status: true,
         payload: true,
+        createdAt: true,
+        startedAt: true,
       },
     });
+
+    const staleJobIds: string[] = [];
 
     for (const job of jobs) {
       const payload = this.asRecord(job.payload);
       if (payload && payload.fingerprint === params.fingerprint) {
+        if (this.isStaleActiveDbJob(job)) {
+          staleJobIds.push(job.id);
+          continue;
+        }
         return true;
       }
+    }
+
+    if (staleJobIds.length > 0) {
+      await this.prisma.job.updateMany({
+        where: { id: { in: staleJobIds } },
+        data: {
+          status: "FAILED",
+          error: "Marked stale and superseded by a fresh reprocess request.",
+          startedAt: null,
+          finishedAt: new Date(),
+        },
+      });
     }
 
     return false;
@@ -552,6 +614,31 @@ export class BooksPipelineService {
     if (!job) return false;
     const state = (await job.getState()) as QueueJobState;
     return ACTIVE_QUEUE_STATES.has(state);
+  }
+
+  private async removeTerminalQueueJob(queue: Queue, jobId: string): Promise<void> {
+    const job = await queue.getJob(jobId);
+    if (!job) return;
+
+    const state = (await job.getState()) as QueueJobState;
+    if (!TERMINAL_QUEUE_STATES.has(state)) {
+      return;
+    }
+
+    await queue.remove(jobId);
+    this.logger.warn(
+      `Removed terminal BullMQ job ${jobId} from ${queue.name} before re-enqueueing a fresh retry.`
+    );
+  }
+
+  private isStaleActiveDbJob(job: {
+    status: string;
+    createdAt: Date;
+    startedAt: Date | null;
+  }): boolean {
+    const referenceTimestamp =
+      job.status === "PROCESSING" ? (job.startedAt ?? job.createdAt) : job.createdAt;
+    return Date.now() - referenceTimestamp.getTime() > ACTIVE_DB_JOB_STALE_AFTER_MS;
   }
 
   private async markFormattingQueued(params: {
@@ -607,6 +694,165 @@ export class BooksPipelineService {
     });
   }
 
+  private async tryRestoreCachedPipelineArtifacts(params: {
+    bookId: string;
+    orderId: string;
+    rawManuscriptFileId: string;
+    pageSize: "A4" | "A5";
+    fontSize: 11 | 12 | 14;
+    bundlePageLimit: number;
+  }): Promise<{ aiJobId: string; pageCountJobId: string } | null> {
+    const aiJobs = await this.prisma.job.findMany({
+      where: {
+        bookId: params.bookId,
+        type: "AI_CLEANING",
+        status: "COMPLETED",
+      },
+      orderBy: [{ finishedAt: "desc" }, { createdAt: "desc" }],
+      take: 40,
+      select: {
+        id: true,
+        payload: true,
+        result: true,
+      },
+    });
+
+    const aiCandidates = aiJobs
+      .map((job) => {
+        const payload = this.asUnknownRecord(job.payload);
+        const result = this.asUnknownRecord(job.result);
+        if (!payload || !result) return null;
+        if (this.readString(payload, "rawManuscriptFileId") !== params.rawManuscriptFileId) {
+          return null;
+        }
+        if (this.readString(payload, "pageSize") !== params.pageSize) return null;
+        if (this.readInteger(payload, "fontSize") !== params.fontSize) return null;
+        if (
+          !this.isCompatibleCacheVersion(
+            this.readString(payload, "formatProfileVersion"),
+            FORMAT_CACHE_PROFILE_VERSION
+          )
+        ) {
+          return null;
+        }
+
+        const cleanedHtmlFileId = this.readString(result, "cleanedHtmlFileId");
+        const cleanedHtmlUrl = this.readString(result, "cleanedHtmlUrl");
+        if (!cleanedHtmlFileId || !cleanedHtmlUrl) return null;
+
+        return {
+          aiJobId: job.id,
+          cleanedHtmlFileId,
+          cleanedHtmlUrl,
+        };
+      })
+      .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
+
+    if (aiCandidates.length === 0) {
+      return null;
+    }
+
+    const pageCountJobs = await this.prisma.job.findMany({
+      where: {
+        bookId: params.bookId,
+        type: "PAGE_COUNT",
+        status: "COMPLETED",
+      },
+      orderBy: [{ finishedAt: "desc" }, { createdAt: "desc" }],
+      take: 40,
+      select: {
+        id: true,
+        payload: true,
+        result: true,
+      },
+    });
+
+    for (const aiCandidate of aiCandidates) {
+      const matchingPageCount = pageCountJobs.find((job) => {
+        const payload = this.asUnknownRecord(job.payload);
+        const result = this.asUnknownRecord(job.result);
+        if (!payload || !result) return false;
+        if (this.readString(payload, "cleanedHtmlFileId") !== aiCandidate.cleanedHtmlFileId) {
+          return false;
+        }
+        if (this.readString(payload, "pageSize") !== params.pageSize) return false;
+        if (this.readInteger(payload, "fontSize") !== params.fontSize) return false;
+        if (
+          !this.isCompatibleCacheVersion(
+            this.readString(payload, "renderProfileVersion"),
+            RENDER_CACHE_PROFILE_VERSION
+          )
+        ) {
+          return false;
+        }
+
+        return (
+          typeof this.readInteger(result, "pageCount") === "number" &&
+          Boolean(this.readString(result, "previewPdfUrl"))
+        );
+      });
+
+      if (!matchingPageCount) {
+        continue;
+      }
+
+      const pageCountResult = this.asUnknownRecord(matchingPageCount.result);
+      if (!pageCountResult) continue;
+
+      const pageCount = this.readInteger(pageCountResult, "pageCount");
+      const previewPdfUrl = this.readString(pageCountResult, "previewPdfUrl");
+      if (pageCount === null || !previewPdfUrl) continue;
+
+      const successfulExtraPayments = await this.prisma.payment.findMany({
+        where: {
+          orderId: params.orderId,
+          type: PaymentType.EXTRA_PAGES,
+          status: PaymentStatus.SUCCESS,
+        },
+        select: {
+          amount: true,
+        },
+      });
+
+      const paidAmount = successfulExtraPayments.reduce((sum, payment) => {
+        return sum + this.toCurrencyNumber(payment.amount);
+      }, 0);
+
+      const overagePages = Math.max(0, pageCount - params.bundlePageLimit);
+      const requiredAmount = overagePages * EXTRA_PAGE_PRICE_NGN;
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.book.update({
+          where: { id: params.bookId },
+          data: {
+            status: "PREVIEW_READY",
+            currentHtmlUrl: aiCandidate.cleanedHtmlUrl,
+            previewPdfUrl,
+            pageCount,
+          },
+        });
+
+        await tx.order.update({
+          where: { id: params.orderId },
+          data: {
+            status:
+              requiredAmount > 0 && paidAmount < requiredAmount
+                ? "PENDING_EXTRA_PAYMENT"
+                : "PREVIEW_READY",
+            extraAmount: requiredAmount,
+          },
+        });
+      });
+
+      return {
+        aiJobId: aiCandidate.aiJobId,
+        pageCountJobId: matchingPageCount.id,
+      };
+    }
+
+    return null;
+  }
+
   private createFingerprint(parts: string[]): string {
     const raw = parts.join("|");
     return createHash("sha256").update(raw).digest("hex");
@@ -629,6 +875,55 @@ export class BooksPipelineService {
       }
     }
     return output;
+  }
+
+  private asUnknownRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    return value as Record<string, unknown>;
+  }
+
+  private readString(record: Record<string, unknown>, key: string): string | null {
+    const value = record[key];
+    return typeof value === "string" && value.trim().length > 0 ? value : null;
+  }
+
+  private readInteger(record: Record<string, unknown>, key: string): number | null {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.trunc(value);
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return Math.trunc(parsed);
+      }
+    }
+    return null;
+  }
+
+  private isCompatibleCacheVersion(value: string | null, expectedVersion: string): boolean {
+    return value === null || value === expectedVersion;
+  }
+
+  private toCurrencyNumber(value: unknown): number {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    if (
+      value &&
+      typeof value === "object" &&
+      "toNumber" in value &&
+      typeof (value as { toNumber?: unknown }).toNumber === "function"
+    ) {
+      return Number((value as { toNumber: () => number }).toNumber());
+    }
+    return 0;
   }
 
   private isSupportedPageSize(value: string | null): value is "A4" | "A5" {

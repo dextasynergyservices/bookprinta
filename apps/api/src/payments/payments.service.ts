@@ -15,6 +15,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Resend } from "resend";
+import { normalizePhoneNumber } from "../auth/phone-number.util.js";
 import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
 import { CloudinaryService } from "../cloudinary/index.js";
 import type { Prisma } from "../generated/prisma/client.js";
@@ -1331,6 +1332,7 @@ export class PaymentsService {
     const splitName = this.splitFullName(fullName);
     const normalizedEmail = params.payerEmail.trim().toLowerCase();
     const normalizedPhone = checkout.phone?.trim() || null;
+    const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
     const signupTokenExpiry = new Date(Date.now() + MAX_SIGNUP_TOKEN_HOURS * 60 * 60 * 1000);
 
     return this.prisma.$transaction(async (tx) => {
@@ -1348,6 +1350,7 @@ export class PaymentsService {
             firstName: splitName.firstName,
             lastName: splitName.lastName,
             phoneNumber: normalizedPhone,
+            phoneNumberNormalized: normalizedPhoneLookup,
             preferredLanguage: locale,
             isVerified: false,
             verificationToken: signupToken,
@@ -1366,6 +1369,7 @@ export class PaymentsService {
             firstName: user.firstName || splitName.firstName,
             lastName: user.lastName ?? splitName.lastName,
             phoneNumber: user.phoneNumber || normalizedPhone,
+            phoneNumberNormalized: user.phoneNumberNormalized || normalizedPhoneLookup,
             preferredLanguage: locale,
             ...(needsSignupToken
               ? {
@@ -1415,6 +1419,8 @@ export class PaymentsService {
           orderId: order.id,
           userId: user.id,
           status: BookStatus.PAYMENT_RECEIVED,
+          productionStatus: BookStatus.PAYMENT_RECEIVED,
+          productionStatusUpdatedAt: new Date(),
           pageSize: checkout.bookSize ?? "A5",
         },
       });

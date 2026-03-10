@@ -195,6 +195,8 @@ export class OrdersService {
       select: {
         id: true,
         status: true,
+        productionStatus: true,
+        productionStatusUpdatedAt: true,
         rejectionReason: true,
         createdAt: true,
         updatedAt: true,
@@ -385,41 +387,46 @@ export class OrdersService {
 
     const book = row.book;
     const shouldUseOrderSource = this.issueOrderStatuses.has(row.status) || !book;
-    const timeline =
-      persistedEvents.length > 0
+    const productionBookStatus = book
+      ? this.resolveProductionStatus({
+          productionStatus: book.productionStatus,
+          manuscriptStatus: book.status,
+        })
+      : null;
+    const timeline = shouldUseOrderSource
+      ? persistedEvents.length > 0
         ? this.toTrackingTimelineFromEvents({
             events: persistedEvents,
             shouldUseOrderSource,
             currentOrderStatus: row.status,
-            currentBookStatus: row.book?.status ?? null,
+            currentBookStatus: productionBookStatus,
           })
-        : shouldUseOrderSource
-          ? this.buildProgressTimeline({
-              stages: this.orderTrackingStages,
-              currentStatus: row.status,
-              source: "order",
-              startedAt: row.createdAt,
-              updatedAt: row.updatedAt,
-            })
-          : this.buildProgressTimeline({
-              stages: this.bookTrackingStages,
-              currentStatus: book.status,
-              source: "book",
-              startedAt: book.createdAt,
-              updatedAt: book.updatedAt,
-            });
+        : this.buildProgressTimeline({
+            stages: this.orderTrackingStages,
+            currentStatus: row.status,
+            source: "order",
+            startedAt: row.createdAt,
+            updatedAt: row.updatedAt,
+          })
+      : this.buildProgressTimeline({
+          stages: this.bookTrackingStages,
+          currentStatus: productionBookStatus ?? "PAYMENT_RECEIVED",
+          source: "book",
+          startedAt: book.createdAt,
+          updatedAt: book.productionStatusUpdatedAt ?? book.createdAt,
+        });
 
     const latestEventReachedAt = timeline[timeline.length - 1]?.reachedAt ?? null;
     const currentUpdatedAt = shouldUseOrderSource
       ? row.updatedAt.toISOString()
-      : (row.book?.updatedAt ?? row.updatedAt).toISOString();
+      : (row.book?.productionStatusUpdatedAt ?? row.book?.createdAt ?? row.updatedAt).toISOString();
 
     return {
       orderId: row.id,
       orderNumber: row.orderNumber,
       bookId: row.book?.id ?? null,
       currentOrderStatus: row.status,
-      currentBookStatus: row.book?.status ?? null,
+      currentBookStatus: productionBookStatus,
       rejectionReason: row.book?.rejectionReason ?? null,
       trackingNumber: row.trackingNumber ?? null,
       shippingProvider: row.shippingProvider ?? null,
@@ -1058,7 +1065,10 @@ export class OrdersService {
           orderId: row.id,
           userId,
           source: "book",
-          status: row.book.status,
+          status: this.resolveProductionStatus({
+            productionStatus: row.book.productionStatus,
+            manuscriptStatus: row.book.status,
+          }),
           reachedAt: row.book.createdAt,
         });
       }
@@ -1076,8 +1086,11 @@ export class OrdersService {
         orderId: row.id,
         userId,
         source: "book",
-        status: row.book.status,
-        reachedAt: row.book.updatedAt,
+        status: this.resolveProductionStatus({
+          productionStatus: row.book.productionStatus,
+          manuscriptStatus: row.book.status,
+        }),
+        reachedAt: row.book.productionStatusUpdatedAt ?? row.book.createdAt,
       });
     }
   }
@@ -1389,6 +1402,13 @@ export class OrdersService {
     if (state === "current") return updatedAt.toISOString();
     if (state === "completed" && index === 0) return startedAt.toISOString();
     return null;
+  }
+
+  private resolveProductionStatus(params: {
+    productionStatus: BookStatus | null;
+    manuscriptStatus: BookStatus;
+  }): BookStatus {
+    return params.productionStatus ?? "PAYMENT_RECEIVED";
   }
 
   private toTrackingLabel(status: string): string {

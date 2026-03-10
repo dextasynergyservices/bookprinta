@@ -37,14 +37,15 @@ type FormatManuscriptPayload = {
 };
 
 type FormatManuscriptResult = {
-  cleanedHtmlFileId: string;
-  cleanedHtmlUrl: string;
+  cleanedHtmlFileId: string | null;
+  cleanedHtmlUrl: string | null;
   outputWordCount: number;
   inputWordCount: number;
   chunkCount: number;
   model: string;
   pageCountJobId: string | null;
   progressStep?: "AI_FORMATTING";
+  ignoredAsSuperseded?: boolean;
 };
 
 const FORMATTING_ACTIVE_BOOK_STATUSES: ReadonlySet<BookStatus> = new Set([
@@ -111,6 +112,26 @@ export class AiFormattingProcessor extends WorkerHost {
         html: formatted.html,
         inputWordCount: formatted.inputWordCount,
       });
+
+      const stillCurrentBeforePersist = await this.isCurrentFormatRequest(payload);
+      if (!stillCurrentBeforePersist) {
+        const result: FormatManuscriptResult = {
+          cleanedHtmlFileId: null,
+          cleanedHtmlUrl: null,
+          outputWordCount: validated.outputWordCount,
+          inputWordCount: formatted.inputWordCount,
+          chunkCount: formatted.chunkCount,
+          model: formatted.model,
+          pageCountJobId: null,
+          progressStep: "AI_FORMATTING",
+          ignoredAsSuperseded: true,
+        };
+        await this.markAttemptSuperseded(payload, result);
+        this.logger.warn(
+          `Skipped stale AI formatting write for book ${payload.bookId} (job=${payload.jobRecordId}) because manuscript/settings changed.`
+        );
+        return result;
+      }
 
       const cleanedHtmlFile = await this.saveCleanedHtmlFile({
         bookId: payload.bookId,
@@ -368,6 +389,21 @@ export class AiFormattingProcessor extends WorkerHost {
     });
   }
 
+  private async markAttemptSuperseded(
+    payload: FormatManuscriptPayload,
+    result: FormatManuscriptResult
+  ): Promise<void> {
+    await this.prisma.job.update({
+      where: { id: payload.jobRecordId },
+      data: {
+        status: "COMPLETED",
+        result,
+        error: null,
+        finishedAt: new Date(),
+      },
+    });
+  }
+
   private async markAttemptFailed(params: {
     payload: FormatManuscriptPayload;
     attempt: number;
@@ -381,9 +417,9 @@ export class AiFormattingProcessor extends WorkerHost {
       },
       data: {
         attempts: attempt,
-        status: isFinalAttempt ? "FAILED" : "PROCESSING",
+        status: isFinalAttempt ? "FAILED" : "QUEUED",
         error,
-        ...(isFinalAttempt ? { finishedAt: new Date() } : {}),
+        ...(isFinalAttempt ? { finishedAt: new Date() } : { startedAt: null }),
       },
     });
 
@@ -392,6 +428,17 @@ export class AiFormattingProcessor extends WorkerHost {
         where: { id: payload.bookId },
         data: {
           status: "FORMATTING_REVIEW",
+        },
+      });
+      await this.prisma.order.updateMany({
+        where: {
+          id: payload.orderId,
+          status: {
+            notIn: Array.from(TERMINAL_ORDER_STATUSES),
+          },
+        },
+        data: {
+          status: "ACTION_REQUIRED",
         },
       });
       this.logger.error(
@@ -409,5 +456,33 @@ export class AiFormattingProcessor extends WorkerHost {
       return error.message;
     }
     return String(error);
+  }
+
+  private async isCurrentFormatRequest(payload: FormatManuscriptPayload): Promise<boolean> {
+    const [book, latestRaw] = await Promise.all([
+      this.prisma.book.findUnique({
+        where: { id: payload.bookId },
+        select: {
+          pageSize: true,
+          fontSize: true,
+        },
+      }),
+      this.prisma.file.findFirst({
+        where: {
+          bookId: payload.bookId,
+          fileType: "RAW_MANUSCRIPT",
+        },
+        orderBy: { version: "desc" },
+        select: {
+          id: true,
+        },
+      }),
+    ]);
+
+    return (
+      book?.pageSize === payload.pageSize &&
+      book?.fontSize === payload.fontSize &&
+      latestRaw?.id === payload.rawManuscriptFileId
+    );
   }
 }
