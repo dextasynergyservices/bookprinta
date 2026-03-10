@@ -5,13 +5,16 @@
     "allowJs": true,
     "noEmit": true,
     "jsx": "preserve",
+    "baseUrl": ".",
     "plugins": [
       {
         "name": "next"
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@bookprinta/shared": ["../../packages/shared/index.ts"],
+      "@bookprinta/shared/*": ["../../packages/shared/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "**/*.mts"],

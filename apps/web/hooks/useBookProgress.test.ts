@@ -20,6 +20,7 @@ describe("useBookProgress data layer", () => {
       json: jest.fn().mockResolvedValue({
         id: "cm1111111111111111111111111",
         status: "PRINTING",
+        productionStatus: "PRINTING",
         rejectionReason: null,
         timeline: [
           {
@@ -48,6 +49,7 @@ describe("useBookProgress data layer", () => {
 
     expect(result.bookId).toBe("cm1111111111111111111111111");
     expect(result.currentStatus).toBe("PRINTING");
+    expect(result.productionStatus).toBe("PRINTING");
     expect(result.currentStage).toBe("PRINTING");
     expect(result.timeline.find((entry) => entry.stage === "PRINTING")?.state).toBe("current");
   });
@@ -58,6 +60,7 @@ describe("useBookProgress data layer", () => {
       json: jest.fn().mockResolvedValue({
         orderId: "cm2222222222222222222222222",
         currentBookStatus: "PREVIEW_READY",
+        productionStatus: "PAYMENT_RECEIVED",
         rejectionReason: null,
         timeline: [
           {
@@ -78,8 +81,11 @@ describe("useBookProgress data layer", () => {
 
     expect(result.sourceEndpoint).toBe("orders_tracking");
     expect(result.bookId).toBe("cm1111111111111111111111111");
-    expect(result.currentStage).toBe("REVIEW");
-    expect(result.timeline.find((entry) => entry.stage === "REVIEW")?.state).toBe("current");
+    expect(result.productionStatus).toBe("PAYMENT_RECEIVED");
+    expect(result.currentStage).toBe("PAYMENT_RECEIVED");
+    expect(result.timeline.find((entry) => entry.stage === "PAYMENT_RECEIVED")?.state).toBe(
+      "current"
+    );
   });
 
   it("delegates non-ok responses to throwApiError", async () => {

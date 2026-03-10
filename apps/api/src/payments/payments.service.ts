@@ -15,6 +15,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Resend } from "resend";
+import { normalizePhoneNumber } from "../auth/phone-number.util.js";
 import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
 import { CloudinaryService } from "../cloudinary/index.js";
 import type { Prisma } from "../generated/prisma/client.js";
@@ -27,8 +28,10 @@ import {
   PaymentType,
   UserRole,
 } from "../generated/prisma/client.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RolloutService } from "../rollout/rollout.service.js";
 import { ScannerService } from "../scanner/scanner.service.js";
 import type { InitializePaymentDto } from "./dto/payment-request.dto.js";
 import { PayPalService } from "./services/paypal.service.js";
@@ -38,6 +41,7 @@ import { StripeService } from "./services/stripe.service.js";
 
 const MAX_SIGNUP_TOKEN_HOURS = 24;
 const BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK = "+2348103208297";
+const EXTRA_PAGE_PRICE_NGN = 10;
 
 type CheckoutAddonMetadata = {
   id?: string | null;
@@ -110,7 +114,9 @@ export class PaymentsService {
     private readonly paypalService: PayPalService,
     private readonly scanner: ScannerService,
     private readonly cloudinary: CloudinaryService,
-    private readonly signupNotificationsService: SignupNotificationsService
+    private readonly signupNotificationsService: SignupNotificationsService,
+    private readonly notificationsService: NotificationsService,
+    private readonly rollout: RolloutService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.frontendBaseUrl = this.resolveFrontendBaseUrl();
@@ -763,11 +769,24 @@ export class PaymentsService {
     await this.ensureGatewayEnabled(provider);
     this.ensureProviderAvailable(provider);
 
-    // Look up the book to get the associated order
+    // Use authoritative gate values from Book.pageCount + Package.pageLimit.
     const book = await this.prisma.book.findUnique({
       where: { id: params.bookId },
-      include: {
-        order: true,
+      select: {
+        id: true,
+        userId: true,
+        orderId: true,
+        pageCount: true,
+        order: {
+          select: {
+            id: true,
+            package: {
+              select: {
+                pageLimit: true,
+              },
+            },
+          },
+        },
         user: {
           select: { email: true },
         },
@@ -782,9 +801,34 @@ export class PaymentsService {
       throw new BadRequestException("You can only pay for your own books");
     }
 
-    // Calculate extra pages cost: ₦300/page (from CLAUDE.md Section 7.2)
-    const costPerPage = 300;
-    const amount = params.extraPages * costPerPage;
+    this.rollout.assertBillingGateAccess(book);
+
+    if (typeof book.pageCount !== "number") {
+      throw new BadRequestException(
+        "Authoritative page count is not ready yet. Please try again shortly."
+      );
+    }
+
+    const overagePages = Math.max(0, book.pageCount - book.order.package.pageLimit);
+    if (overagePages <= 0) {
+      throw new BadRequestException("No extra pages payment is required for this manuscript.");
+    }
+
+    if (params.extraPages !== overagePages) {
+      throw new BadRequestException(
+        `Extra pages mismatch. Current overage is ${overagePages}. Please refresh and try again.`
+      );
+    }
+
+    const amount = overagePages * EXTRA_PAGE_PRICE_NGN;
+
+    await this.prisma.order.update({
+      where: { id: book.orderId },
+      data: {
+        status: OrderStatus.PENDING_EXTRA_PAYMENT,
+        extraAmount: amount,
+      },
+    });
 
     const reference = this.generateReference("ep");
 
@@ -801,8 +845,11 @@ export class PaymentsService {
         userId: params.userId,
         metadata: {
           bookId: params.bookId,
-          extraPages: params.extraPages,
-          costPerPage,
+          extraPages: overagePages,
+          costPerPage: EXTRA_PAGE_PRICE_NGN,
+          pageCount: book.pageCount,
+          pageLimit: book.order.package.pageLimit,
+          requiredAmount: amount,
         },
       } as Prisma.PaymentUncheckedCreateInput,
     });
@@ -1063,7 +1110,12 @@ export class PaymentsService {
         existingPayment.type === PaymentType.INITIAL &&
         (!existingPayment.userId || !existingPayment.orderId);
 
-      if (!shouldCreateCheckoutEntities) return;
+      if (!shouldCreateCheckoutEntities) {
+        if (existingPayment.type === PaymentType.EXTRA_PAGES && existingPayment.orderId) {
+          await this.reconcileExtraPagesBillingGate(existingPayment.orderId);
+        }
+        return;
+      }
 
       const checkoutResult = await this.createCheckoutEntitiesFromMetadata({
         paymentId: existingPayment.id,
@@ -1185,6 +1237,66 @@ export class PaymentsService {
     return metadata;
   }
 
+  private async reconcileExtraPagesBillingGate(orderId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        package: {
+          select: {
+            pageLimit: true,
+          },
+        },
+        book: {
+          select: {
+            pageCount: true,
+          },
+        },
+        payments: {
+          where: {
+            type: PaymentType.EXTRA_PAGES,
+            status: PaymentStatus.SUCCESS,
+          },
+          select: {
+            amount: true,
+          },
+        },
+      },
+    });
+
+    if (!order || !order.book || typeof order.book.pageCount !== "number") {
+      return;
+    }
+
+    if (
+      order.status === OrderStatus.APPROVED ||
+      order.status === OrderStatus.IN_PRODUCTION ||
+      order.status === OrderStatus.COMPLETED ||
+      order.status === OrderStatus.CANCELLED ||
+      order.status === OrderStatus.REFUNDED
+    ) {
+      return;
+    }
+
+    const overagePages = Math.max(0, order.book.pageCount - order.package.pageLimit);
+    const requiredAmount = overagePages * EXTRA_PAGE_PRICE_NGN;
+    const paidAmount = order.payments.reduce((sum, payment) => {
+      return sum + this.toCurrency(payment.amount);
+    }, 0);
+
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: {
+        status:
+          requiredAmount > 0 && paidAmount < requiredAmount
+            ? OrderStatus.PENDING_EXTRA_PAYMENT
+            : OrderStatus.PREVIEW_READY,
+        extraAmount: requiredAmount,
+      },
+    });
+  }
+
   private async createCheckoutEntitiesFromMetadata(params: {
     paymentId: string;
     payerEmail: string | null;
@@ -1220,6 +1332,7 @@ export class PaymentsService {
     const splitName = this.splitFullName(fullName);
     const normalizedEmail = params.payerEmail.trim().toLowerCase();
     const normalizedPhone = checkout.phone?.trim() || null;
+    const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
     const signupTokenExpiry = new Date(Date.now() + MAX_SIGNUP_TOKEN_HOURS * 60 * 60 * 1000);
 
     return this.prisma.$transaction(async (tx) => {
@@ -1237,6 +1350,7 @@ export class PaymentsService {
             firstName: splitName.firstName,
             lastName: splitName.lastName,
             phoneNumber: normalizedPhone,
+            phoneNumberNormalized: normalizedPhoneLookup,
             preferredLanguage: locale,
             isVerified: false,
             verificationToken: signupToken,
@@ -1255,6 +1369,7 @@ export class PaymentsService {
             firstName: user.firstName || splitName.firstName,
             lastName: user.lastName ?? splitName.lastName,
             phoneNumber: user.phoneNumber || normalizedPhone,
+            phoneNumberNormalized: user.phoneNumberNormalized || normalizedPhoneLookup,
             preferredLanguage: locale,
             ...(needsSignupToken
               ? {
@@ -1304,6 +1419,8 @@ export class PaymentsService {
           orderId: order.id,
           userId: user.id,
           status: BookStatus.PAYMENT_RECEIVED,
+          productionStatus: BookStatus.PAYMENT_RECEIVED,
+          productionStatusUpdatedAt: new Date(),
           pageSize: checkout.bookSize ?? "A5",
         },
       });
@@ -1344,6 +1461,18 @@ export class PaymentsService {
           orderId: order.id,
         },
       });
+
+      await this.notificationsService.createOrderStatusNotification(
+        {
+          userId: user.id,
+          orderId: order.id,
+          orderNumber,
+          status: OrderStatus.PAID,
+          source: "order",
+          bookId: book.id,
+        },
+        tx
+      );
 
       return {
         email: user.email,
@@ -1740,36 +1869,16 @@ export class PaymentsService {
     locale: Locale;
   }): Promise<void> {
     await Promise.allSettled([
-      this.createAdminInAppNotifications(params),
+      this.notificationsService.notifyAdminsBankTransferReceived({
+        reference: params.reference,
+        orderNumber: params.orderNumber,
+        payerName: params.payerName,
+        amountLabel: this.formatNaira(params.amount),
+      }),
       this.sendBankTransferAdminWhatsApp(params),
       this.sendBankTransferUserEmail(params),
       this.sendBankTransferAdminEmail(params),
     ]);
-  }
-
-  private async createAdminInAppNotifications(params: {
-    reference: string;
-    payerName: string;
-    amount: number;
-  }): Promise<void> {
-    const admins = await this.prisma.user.findMany({
-      where: {
-        role: { in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
-      },
-      select: { id: true },
-    });
-
-    if (admins.length === 0) return;
-
-    const amountLabel = this.formatNaira(params.amount);
-    await this.prisma.notification.createMany({
-      data: admins.map((admin) => ({
-        userId: admin.id,
-        title: "Bank Transfer Received",
-        message: `${params.payerName} submitted ${amountLabel}. Ref: ${params.reference}`,
-        type: "BANK_TRANSFER_RECEIVED",
-      })),
-    });
   }
 
   private async sendBankTransferAdminWhatsApp(params: {

@@ -34,6 +34,8 @@ function createService() {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
+    {} as never,
     {} as never
   );
 }

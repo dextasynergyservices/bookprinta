@@ -3,7 +3,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { normalizeBookProgressPayload } from "@/lib/api/book-progress-contract";
 import { throwApiError } from "@/lib/api-error";
-import { BOOK_PROGRESS_STAGES, type BookProgressNormalizedResponse } from "@/types/book-progress";
+import {
+  BOOK_PROGRESS_STAGES,
+  type BookProcessingState,
+  type BookProgressNormalizedResponse,
+  type BookRolloutState,
+} from "@/types/book-progress";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -15,12 +20,66 @@ function getApiV1BaseUrl() {
 
 const API_V1_BASE_URL = getApiV1BaseUrl();
 
+export interface ApproveBookInput {
+  bookId: string;
+  gateSnapshot?: string;
+}
+
+export interface ApproveBookResponse {
+  bookId: string;
+  bookStatus: string;
+  orderStatus: string;
+  queuedJob: {
+    queue: "pdf-generation";
+    name: "generate-pdf";
+    jobId: string | null;
+  };
+}
+
+export interface ReprocessBookResponse {
+  bookId: string;
+  bookStatus: string;
+  orderStatus: string;
+  queuedJob: {
+    queue: "ai-formatting";
+    name: "format-manuscript";
+    jobId: string | null;
+  };
+}
+
+function createFallbackRollout(): BookRolloutState {
+  return {
+    environment: "unknown",
+    allowInFlightAccess: true,
+    isGrandfathered: false,
+    blockedBy: null,
+    workspace: { enabled: true, access: "enabled" },
+    manuscriptPipeline: { enabled: true, access: "enabled" },
+    billingGate: { enabled: true, access: "enabled" },
+    finalPdf: { enabled: true, access: "enabled" },
+  };
+}
+
+function createFallbackProcessing(): BookProcessingState {
+  return {
+    isActive: false,
+    currentStep: null,
+    jobStatus: null,
+    trigger: null,
+    startedAt: null,
+    attempt: null,
+    maxAttempts: null,
+  };
+}
+
 function createFallbackBookProgress(bookId: string | null): BookProgressNormalizedResponse {
   return {
     sourceEndpoint: "books_detail",
     bookId,
     orderId: null,
     currentStatus: null,
+    productionStatus: "PAYMENT_RECEIVED",
+    latestProcessingError: null,
     rejectionReason: null,
     currentStage: "PAYMENT_RECEIVED",
     isRejected: false,
@@ -40,6 +99,8 @@ function createFallbackBookProgress(bookId: string | null): BookProgressNormaliz
     previewPdfUrl: null,
     finalPdfUrl: null,
     updatedAt: null,
+    rollout: createFallbackRollout(),
+    processing: createFallbackProcessing(),
   };
 }
 
@@ -97,6 +158,37 @@ export async function fetchBookProgress({
   };
 }
 
+export async function approveBookForProduction({
+  bookId,
+  gateSnapshot,
+}: ApproveBookInput): Promise<ApproveBookResponse> {
+  const response = await fetch(`${API_V1_BASE_URL}/books/${encodeURIComponent(bookId)}/approve`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(gateSnapshot ? { gateSnapshot } : {}),
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to approve your book right now");
+  }
+
+  return (await response.json()) as ApproveBookResponse;
+}
+
+export async function reprocessBookManuscript(bookId: string): Promise<ReprocessBookResponse> {
+  const response = await fetch(`${API_V1_BASE_URL}/books/${encodeURIComponent(bookId)}/reprocess`, {
+    method: "POST",
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to retry manuscript processing right now");
+  }
+
+  return (await response.json()) as ReprocessBookResponse;
+}
+
 type UseBookProgressParams = {
   bookId?: string | null;
   enabled?: boolean;
@@ -141,6 +233,8 @@ export function useBookProgress({ bookId, enabled = true }: UseBookProgressParam
     bookId: data.bookId ?? resolvedBookId,
     orderId: data.orderId,
     currentStatus: data.currentStatus,
+    productionStatus: data.productionStatus,
+    latestProcessingError: data.latestProcessingError,
     currentStage: data.currentStage,
     rejectionReason: data.rejectionReason,
     timeline: data.timeline,
@@ -156,6 +250,8 @@ export function useBookProgress({ bookId, enabled = true }: UseBookProgressParam
     previewPdfUrl: data.previewPdfUrl,
     finalPdfUrl: data.finalPdfUrl,
     updatedAt: data.updatedAt,
+    rollout: data.rollout,
+    processing: data.processing,
     isInitialLoading,
   };
 }

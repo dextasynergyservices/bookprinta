@@ -17,6 +17,7 @@ describe("book progress contract alignment", () => {
       orderNumber: "BP-2026-0001",
       bookId: "cm2222222222222222222222222",
       currentBookStatus: "PREVIEW_READY",
+      productionStatus: "PAYMENT_RECEIVED",
       rejectionReason: null,
       timeline: [
         {
@@ -42,10 +43,13 @@ describe("book progress contract alignment", () => {
     expect(normalized.sourceEndpoint).toBe("orders_tracking");
     expect(normalized.bookId).toBe("cm2222222222222222222222222");
     expect(normalized.currentStatus).toBe("PREVIEW_READY");
-    expect(normalized.currentStage).toBe("REVIEW");
-    expect(normalized.timeline.find((stage) => stage.stage === "REVIEW")?.state).toBe("current");
+    expect(normalized.productionStatus).toBe("PAYMENT_RECEIVED");
+    expect(normalized.currentStage).toBe("PAYMENT_RECEIVED");
+    expect(normalized.timeline.find((stage) => stage.stage === "PAYMENT_RECEIVED")?.state).toBe(
+      "current"
+    );
     expect(normalized.timeline.find((stage) => stage.stage === "DESIGNING")?.state).toBe(
-      "completed"
+      "upcoming"
     );
     expect(normalized.timeline.find((stage) => stage.stage === "APPROVED")?.state).toBe("upcoming");
   });
@@ -54,7 +58,27 @@ describe("book progress contract alignment", () => {
     const payload = {
       id: "cm2222222222222222222222222",
       status: "IN_PRODUCTION",
+      productionStatus: "IN_PRODUCTION",
       rejectionReason: null,
+      rollout: {
+        environment: "staging",
+        allowInFlightAccess: true,
+        isGrandfathered: false,
+        blockedBy: null,
+        workspace: { enabled: true, access: "enabled" },
+        manuscriptPipeline: { enabled: true, access: "enabled" },
+        billingGate: { enabled: true, access: "enabled" },
+        finalPdf: { enabled: true, access: "enabled" },
+      },
+      processing: {
+        isActive: true,
+        currentStep: "COUNTING_PAGES",
+        jobStatus: "processing",
+        trigger: "upload",
+        startedAt: "2026-03-03T12:05:00.000Z",
+        attempt: 1,
+        maxAttempts: 3,
+      },
       timeline: [
         {
           status: "APPROVED",
@@ -75,6 +99,10 @@ describe("book progress contract alignment", () => {
     expect(normalized.bookId).toBe("cm2222222222222222222222222");
     expect(normalized.currentStage).toBe("PRINTING");
     expect(normalized.timeline.find((stage) => stage.stage === "PRINTING")?.state).toBe("current");
+    expect(normalized.rollout.environment).toBe("staging");
+    expect(normalized.rollout.finalPdf.access).toBe("enabled");
+    expect(normalized.processing.currentStep).toBe("COUNTING_PAGES");
+    expect(normalized.processing.jobStatus).toBe("processing");
   });
 
   it("keeps a complete 11-step timeline and safe fallback when status is unknown", () => {
@@ -87,6 +115,7 @@ describe("book progress contract alignment", () => {
     const normalized = normalizeBookProgressPayload(payload);
 
     expect(normalized.currentStatus).toBe("SOMETHING_NEW");
+    expect(normalized.productionStatus).toBe("PAYMENT_RECEIVED");
     expect(normalized.currentStage).toBe("PAYMENT_RECEIVED");
     expect(normalized.timeline).toHaveLength(11);
     expect(normalized.timeline[0]?.state).toBe("current");
@@ -96,6 +125,7 @@ describe("book progress contract alignment", () => {
     const payload = {
       id: "cm2222222222222222222222222",
       status: "REJECTED",
+      productionStatus: "REJECTED",
       rejectionReason: "Images are low resolution.",
       timeline: [
         {
@@ -118,14 +148,28 @@ describe("book progress contract alignment", () => {
     expect(normalized.rejectionReason).toBe("Images are low resolution.");
     expect(normalized.timeline.find((stage) => stage.stage === "REVIEW")?.state).toBe("rejected");
   });
+
+  it("falls back to enabled rollout state when rollout metadata is absent", () => {
+    const normalized = normalizeBookProgressPayload({
+      id: "cm4444444444444444444444444",
+      status: "AWAITING_UPLOAD",
+      timeline: [],
+    });
+
+    expect(normalized.rollout.environment).toBe("unknown");
+    expect(normalized.rollout.workspace.access).toBe("enabled");
+    expect(normalized.rollout.blockedBy).toBeNull();
+    expect(normalized.processing.isActive).toBe(false);
+    expect(normalized.processing.currentStep).toBeNull();
+  });
 });
 
 describe("mapBackendStatusToProgressStage", () => {
   it("locks normalization rules from backend statuses to the 11-step UI pipeline", () => {
     expect(mapBackendStatusToProgressStage("PAYMENT_RECEIVED")).toBe("PAYMENT_RECEIVED");
-    expect(mapBackendStatusToProgressStage("AI_PROCESSING")).toBe("DESIGNING");
-    expect(mapBackendStatusToProgressStage("FORMATTING_REVIEW")).toBe("REVIEW");
-    expect(mapBackendStatusToProgressStage("PREVIEW_READY")).toBe("REVIEW");
+    expect(mapBackendStatusToProgressStage("AI_PROCESSING")).toBeNull();
+    expect(mapBackendStatusToProgressStage("FORMATTING_REVIEW")).toBeNull();
+    expect(mapBackendStatusToProgressStage("PREVIEW_READY")).toBeNull();
     expect(mapBackendStatusToProgressStage("IN_PRODUCTION")).toBe("PRINTING");
     expect(mapBackendStatusToProgressStage("COMPLETED")).toBe("DELIVERED");
     expect(mapBackendStatusToProgressStage("REJECTED")).toBe("REVIEW");

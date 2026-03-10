@@ -20,6 +20,8 @@ const config: Config = {
   // Module path aliases (match tsconfig paths)
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
+    "^@bookprinta/shared$": "<rootDir>/../../packages/shared/index.ts",
+    "^@bookprinta/shared/(.*)$": "<rootDir>/../../packages/shared/$1",
   },
 
   // Coverage

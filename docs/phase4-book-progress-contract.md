@@ -1,5 +1,8 @@
 # Phase 4 - Book Progress Tracker Contract (Alignment)
 
+Related flow-lock document:
+- `docs/phase0-manuscript-flow-lock.md` (authoritative pipeline state machine + API/job contracts)
+
 ## Endpoint Decision (Phase 0)
 
 - Current implemented source endpoint: `GET /api/v1/orders/:id/tracking`
