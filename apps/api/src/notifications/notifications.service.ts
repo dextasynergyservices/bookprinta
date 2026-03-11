@@ -1,4 +1,5 @@
 import {
+  ADMIN_ROLES,
   type NotificationAction,
   type NotificationData,
   NotificationDataSchema,
@@ -224,7 +225,7 @@ export class NotificationsService {
   ): Promise<void> {
     const admins = await executor.user.findMany({
       where: {
-        role: { in: ["ADMIN", "SUPER_ADMIN"] },
+        role: { in: [...ADMIN_ROLES] },
       },
       select: { id: true },
     });

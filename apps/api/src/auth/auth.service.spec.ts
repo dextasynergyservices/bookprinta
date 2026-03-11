@@ -81,7 +81,7 @@ describe("AuthService login instrumentation", () => {
       json: async () => ({ success: true, score: 0.9 }),
     } as Response);
 
-    await service.login(
+    const result = await service.login(
       {
         identifier: "writer@example.com",
         password: "Password123!",
@@ -91,6 +91,15 @@ describe("AuthService login instrumentation", () => {
         correlationId: "corr-success",
         clientRecaptchaDurationMs: 412,
       }
+    );
+
+    expect(result.user).toEqual(
+      expect.objectContaining({
+        firstName: "Writer",
+        lastName: "Example",
+        displayName: "Writer Example",
+        initials: "WE",
+      })
     );
 
     expect(pinoLogger.info).toHaveBeenCalledWith(
@@ -203,5 +212,94 @@ describe("AuthService login instrumentation", () => {
       }),
       "Auth login timing"
     );
+  });
+
+  it("builds a trimmed session displayName and initials from stored names", async () => {
+    const { prisma, service } = buildService();
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: "user-session-1",
+      email: "writer@example.com",
+      role: "ADMIN",
+      firstName: "  Ada   ",
+      lastName: "  Okafor  ",
+    });
+
+    await expect(service.getSessionUser("user-session-1")).resolves.toEqual({
+      id: "user-session-1",
+      email: "writer@example.com",
+      role: "ADMIN",
+      firstName: "  Ada   ",
+      lastName: "  Okafor  ",
+      displayName: "Ada Okafor",
+      initials: "AO",
+    });
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: "user-session-1" },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+      },
+    });
+  });
+
+  it.each([
+    "ADMIN",
+    "SUPER_ADMIN",
+    "EDITOR",
+    "MANAGER",
+  ] as const)("uses 1-hour refresh cookie max age for %s", (role) => {
+    const { service } = buildService();
+
+    expect(service.getRefreshTokenCookieOptions(role).maxAge).toBe(60 * 60 * 1000);
+  });
+
+  it.each([
+    "EDITOR",
+    "MANAGER",
+  ] as const)("persists the admin refresh-token expiry window for %s logins", async (role) => {
+    const { prisma, service } = buildService();
+    const storedPasswordHash = await bcrypt.hash("Password123!", 4);
+
+    prisma.user.findFirst.mockResolvedValue({
+      id: `user-${role.toLowerCase()}`,
+      email: `${role.toLowerCase()}@example.com`,
+      role,
+      firstName: role,
+      lastName: "User",
+      password: storedPasswordHash,
+      isVerified: true,
+    });
+    prisma.user.update.mockResolvedValue({});
+
+    jest.spyOn(global, "fetch").mockResolvedValue({
+      json: async () => ({ success: true, score: 0.95 }),
+    } as Response);
+
+    const loginStartedAt = Date.now();
+
+    await service.login(
+      {
+        identifier: `${role.toLowerCase()}@example.com`,
+        password: "Password123!",
+        recaptchaToken: "recaptcha-token",
+      } as never,
+      {
+        correlationId: `corr-${role.toLowerCase()}`,
+        clientRecaptchaDurationMs: 144,
+      }
+    );
+
+    expect(prisma.user.update).toHaveBeenCalled();
+
+    const refreshTokenExp = prisma.user.update.mock.calls.at(-1)?.[0]?.data?.refreshTokenExp;
+    const refreshTokenLifetimeMs = refreshTokenExp.getTime() - loginStartedAt;
+
+    expect(refreshTokenExp).toBeInstanceOf(Date);
+    expect(refreshTokenLifetimeMs).toBeLessThanOrEqual(60 * 60 * 1000 + 5_000);
+    expect(refreshTokenLifetimeMs).toBeGreaterThan(55 * 60 * 1000);
   });
 });
