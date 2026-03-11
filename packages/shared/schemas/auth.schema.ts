@@ -81,6 +81,28 @@ export const LoginSchema = z.object({
 export type LoginInput = z.infer<typeof LoginSchema>;
 
 /**
+ * Auth session user payload
+ * Returned by /auth/me and reused by login/verify-email responses
+ */
+export const AuthSessionUserSchema = z.object({
+  id: z.string().min(1, "User id is required"),
+  email: z.email("Invalid email address"),
+  firstName: z.string(),
+  lastName: z.string().nullable(),
+  role: z.string().min(1, "User role is required"),
+  displayName: z.string().min(1, "Display name is required"),
+  initials: z.string().min(1, "Initials are required"),
+});
+
+export type AuthSessionUser = z.infer<typeof AuthSessionUserSchema>;
+
+export const AuthSessionResponseSchema = z.object({
+  user: AuthSessionUserSchema,
+});
+
+export type AuthSessionResponse = z.infer<typeof AuthSessionResponseSchema>;
+
+/**
  * POST /auth/forgot-password
  * Send password reset email
  */

@@ -1,5 +1,7 @@
 "use client";
 
+import type { AuthSessionResponse } from "@bookprinta/shared";
+import { isAdminRole } from "@bookprinta/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -16,13 +18,7 @@ import { cn } from "@/lib/utils";
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 const RATE_LIMIT_FALLBACK_SECONDS = 180;
 
-type LoginResponse = {
-  user?: {
-    id?: string;
-    email?: string;
-    role?: string;
-  };
-};
+type LoginResponse = AuthSessionResponse;
 
 type LoginErrorResponse = {
   message?: string | string[];
@@ -102,10 +98,6 @@ function isPhoneIdentifier(value: string) {
 
 function isValidIdentifier(value: string) {
   return isEmailIdentifier(value) || isPhoneIdentifier(value);
-}
-
-function isAdminRole(role: string | undefined) {
-  return role === "ADMIN" || role === "SUPER_ADMIN";
 }
 
 function resolveRetryAfterSeconds(response: Response, payload: LoginErrorResponse | null) {
