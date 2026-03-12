@@ -1556,7 +1556,6 @@
     "orders_refund_error_invalid_type": "Selecciona uno de los tipos de reembolso permitidos antes de continuar.",
     "orders_refund_error_invalid_reason": "Ingresa un motivo de reembolso antes de continuar.",
     "orders_refund_error_invalid_amount": "Ingresa un monto personalizado válido hasta {amount}."
-    "section_placeholder_description": "Las herramientas de {section} se conectarán a este panel de administración a continuación."
   },
   "not_found": {
     "title": "Página no encontrada",
