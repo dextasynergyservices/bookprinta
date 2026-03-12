@@ -1,18 +1,9 @@
 "use client";
 
+import type { AuthSessionResponse, AuthSessionUser } from "@bookprinta/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-type AuthSessionUser = {
-  id: string;
-  email: string;
-  role: string;
-};
-
-type AuthSessionResponse = {
-  user: AuthSessionUser;
-};
-
-const AUTH_SESSION_QUERY_KEY = ["auth", "session"] as const;
+export const AUTH_SESSION_QUERY_KEY = ["auth", "session"] as const;
 const SESSION_HEALTHCHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 function getApiV1BaseUrl() {

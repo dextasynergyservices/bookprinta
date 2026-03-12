@@ -1,4 +1,5 @@
 /// <reference types="jest" />
+import { ADMIN_ROLES } from "@bookprinta/shared";
 import { NotFoundException } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -329,7 +330,7 @@ describe("NotificationsService", () => {
 
       expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
         where: {
-          role: { in: ["ADMIN", "SUPER_ADMIN"] },
+          role: { in: [...ADMIN_ROLES] },
         },
         select: { id: true },
       });
