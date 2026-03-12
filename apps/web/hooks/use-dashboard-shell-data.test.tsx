@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import {
   DASHBOARD_UNREAD_COUNT_QUERY_KEY,
   dashboardNotificationsQueryKeys,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
+  useNotificationBannerState,
 } from "./use-dashboard-shell-data";
 
 const unreadNotification = {
@@ -41,6 +42,24 @@ const productionDelayNotification = {
     presentation: {
       tone: "warning" as const,
       persistentBanner: "production_delay" as const,
+    },
+  },
+};
+
+const resolvedSystemNotification = {
+  id: "cm4444444444444444444444444",
+  type: "SYSTEM" as const,
+  isRead: false,
+  createdAt: "2026-03-03T11:00:00.000Z",
+  data: {
+    titleKey: "notifications.production_delay_resolved.title",
+    messageKey: "notifications.production_delay_resolved.message",
+    action: {
+      kind: "navigate" as const,
+      href: "/dashboard",
+    },
+    presentation: {
+      tone: "default" as const,
     },
   },
 };
@@ -189,5 +208,87 @@ describe("use-dashboard-shell-data mutations", () => {
     }>(dashboardNotificationsQueryKeys.list(1, 20));
 
     expect(cachedList?.items.every((item) => item.isRead)).toBe(true);
+  });
+});
+
+describe("useNotificationBannerState", () => {
+  const fetchMock = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  it("derives the production delay banner from notification presentation metadata", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        items: [productionDelayNotification],
+        pagination: {
+          page: 1,
+          pageSize: 50,
+          totalItems: 1,
+          totalPages: 1,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        },
+      }),
+    } as unknown as Response);
+
+    const { result } = renderHook(() => useNotificationBannerState(), {
+      wrapper: createWrapper(client),
+    });
+
+    await waitFor(() => {
+      expect(result.current.items).toHaveLength(1);
+    });
+
+    expect(result.current.hasProductionDelayBanner).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/notifications?page=1&limit=50"),
+      expect.objectContaining({
+        method: "GET",
+        credentials: "include",
+      })
+    );
+  });
+
+  it("does not show the banner when notifications do not carry the persistent banner marker", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        items: [resolvedSystemNotification],
+        pagination: {
+          page: 1,
+          pageSize: 50,
+          totalItems: 1,
+          totalPages: 1,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        },
+      }),
+    } as unknown as Response);
+
+    const { result } = renderHook(() => useNotificationBannerState(), {
+      wrapper: createWrapper(client),
+    });
+
+    await waitFor(() => {
+      expect(result.current.items).toHaveLength(1);
+    });
+
+    expect(result.current.hasProductionDelayBanner).toBe(false);
   });
 });

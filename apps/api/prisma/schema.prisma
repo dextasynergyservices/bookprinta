@@ -138,6 +138,16 @@ enum QuoteStatus {
   REJECTED
 }
 
+enum ProductionDelayEventSource {
+  AUTO
+  MANUAL
+}
+
+enum ProductionDelayEventStatus {
+  ACTIVE
+  RESOLVED
+}
+
 // ==========================================
 // 2. USER
 // ==========================================
@@ -174,11 +184,15 @@ model User {
   // Users complete this from their dashboard profile tab
   bio               String?        @db.Text   // Short author bio
   profileImageUrl   String?                   // Author photo (Cloudinary)
+  profileImagePublicId String?                // Cloudinary public_id for safe replace/delete
   whatsAppNumber    String?                   // For "Contact Author" on showcase
   websiteUrl        String?                   // Personal website or blog
   purchaseLinks     Json?                     // Array of { label, url } e.g. [{ "Amazon", "https://..." }]
   socialLinks       Json?                     // Array of { platform, url } e.g. [{ "instagram", "https://..." }]
   isProfileComplete Boolean        @default(false) // Controls "Complete your profile" banner
+  emailNotificationsEnabled Boolean @default(true) // User preference for email notifications
+  whatsAppNotificationsEnabled Boolean @default(true) // User preference for WhatsApp notifications
+  inAppNotificationsEnabled Boolean @default(true) // User preference for in-app notifications
 
   // Relations
   orders            Order[]
@@ -191,6 +205,7 @@ model User {
   customQuotes      CustomQuote[]
   blogPosts         BlogPost[]
   showcases         AuthorShowcase[]
+  productionDelayRecipients ProductionDelayEventRecipient[]
 
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
@@ -369,9 +384,11 @@ model Book {
   estimatedPages  Int?       // Math.ceil(wordCount / 300) — shown before actual count
 
   // User formatting preferences
+  title           String?    // User-facing book title captured before manuscript upload
   fontFamily      String?
   fontSize        Int?
   pageSize        String?    @default("A5")  // "A4", "A5", etc.
+  coverImageUrl   String?    // Canonical dashboard/showcase cover pointer
 
   // Quick-access URLs (avoid joining File[] for common lookups)
   currentHtmlUrl  String?
@@ -395,6 +412,7 @@ model Book {
   updatedAt       DateTime   @updatedAt
 
   @@index([status])
+  @@index([productionStatus])
   @@index([userId])
 }
 
@@ -557,7 +575,7 @@ model Job {
 
 // ==========================================
 // 11. REVIEW
-// When Book.status reaches PRINTED, user is prompted to leave a review.
+// When Book.status reaches DELIVERED, user is prompted to leave a review.
 // Dialog appears on dashboard + "Review" sidebar item is enabled.
 // ==========================================
 
@@ -805,6 +823,50 @@ model SystemSetting {
   description String?
   updatedBy   String?
   updatedAt   DateTime @updatedAt
+}
+
+model ProductionDelayEvent {
+  id                     String                     @id @default(cuid())
+  source                 ProductionDelayEventSource @default(AUTO)
+  status                 ProductionDelayEventStatus @default(ACTIVE)
+  threshold              Int
+  backlogCountOnStart    Int
+  backlogCountOnResolve  Int?
+  affectedUserCount      Int                        @default(0)
+  activatedAt            DateTime                   @default(now())
+  lastEvaluatedAt        DateTime                   @default(now())
+  resolvedAt             DateTime?
+  triggeredBy            String?
+  resolvedBy             String?
+  notes                  String?                    @db.Text
+
+  recipients             ProductionDelayEventRecipient[]
+
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+
+  @@index([status, activatedAt])
+  @@index([source, status])
+}
+
+model ProductionDelayEventRecipient {
+  id                               String               @id @default(cuid())
+  eventId                          String
+  event                            ProductionDelayEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId                           String
+  user                             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstAffectedAt                  DateTime             @default(now())
+  lastAffectedAt                   DateTime             @default(now())
+  emailSentAt                      DateTime?
+  delayNotificationCreatedAt       DateTime?
+  resolutionNotificationCreatedAt  DateTime?
+
+  createdAt                        DateTime             @default(now())
+  updatedAt                        DateTime             @updatedAt
+
+  @@unique([eventId, userId])
+  @@index([userId, createdAt])
+  @@index([eventId, emailSentAt])
 }
 
 // ==========================================

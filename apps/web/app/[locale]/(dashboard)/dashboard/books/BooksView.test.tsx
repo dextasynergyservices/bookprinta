@@ -124,6 +124,11 @@ const TRANSLATIONS: Record<string, string> = {
   book_progress_browser_preview_error: "Unable to load browser preview right now.",
   book_progress_browser_preview_settings_error: "Unable to update preview settings right now.",
   book_progress_browser_preview_frame_title: "Browser manuscript preview",
+  manuscript_upload_book_title_label: "Book title",
+  manuscript_upload_book_title_hint:
+    "Add the title you want us to use across your dashboard and reviews.",
+  manuscript_upload_book_title_placeholder: "Enter your book title",
+  manuscript_upload_error_title_required: "Please add your book title.",
   manuscript_upload_book_size_a4: "A4",
   manuscript_upload_book_size_a4_desc: "Standard trim with more words per page.",
   manuscript_upload_book_size_a5: "A5",

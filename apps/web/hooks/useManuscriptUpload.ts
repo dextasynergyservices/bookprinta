@@ -14,6 +14,7 @@ export type BookFontSize = 11 | 12 | 14;
 
 export interface BookSettingsResponse {
   id: string;
+  title: string | null;
   pageSize: BookPageSize;
   fontSize: BookFontSize;
   wordCount: number | null;
@@ -23,6 +24,7 @@ export interface BookSettingsResponse {
 
 export interface BookManuscriptUploadResponse {
   bookId: string;
+  title: string | null;
   fileId: string;
   fileUrl: string;
   fileName: string;
@@ -36,6 +38,7 @@ export interface BookManuscriptUploadResponse {
 
 export interface UpdateBookSettingsInput {
   bookId: string;
+  title?: string;
   pageSize: BookPageSize;
   fontSize: BookFontSize;
 }
@@ -103,6 +106,7 @@ export async function updateBookSettings(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        ...(payload.title ? { title: payload.title } : {}),
         pageSize: payload.pageSize,
         fontSize: payload.fontSize,
       }),

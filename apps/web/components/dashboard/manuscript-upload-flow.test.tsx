@@ -12,6 +12,10 @@ const TRANSLATIONS: Record<string, string> = {
   manuscript_upload_step_settings: "Settings",
   manuscript_upload_step_upload: "Upload",
   manuscript_upload_step_result: "Result",
+  manuscript_upload_book_title_label: "Book title",
+  manuscript_upload_book_title_hint:
+    "Add the title you want us to use across your dashboard and reviews.",
+  manuscript_upload_book_title_placeholder: "Enter your book title",
   manuscript_upload_book_size_label: "Book size",
   manuscript_upload_book_size_hint: "Choose the trim size before upload.",
   manuscript_upload_book_size_a4: "A4",
@@ -21,6 +25,8 @@ const TRANSLATIONS: Record<string, string> = {
   manuscript_upload_font_size_label: "Font size",
   manuscript_upload_font_size_hint: "Pick the type size for your manuscript preview.",
   manuscript_upload_font_size_value: "{size}pt",
+  manuscript_upload_back_to_settings: "Back to Settings",
+  manuscript_upload_error_title_required: "Add your book title to continue.",
   manuscript_upload_error_book_size_required: "Select a book size to continue.",
   manuscript_upload_error_font_size_required: "Choose a font size to continue.",
   manuscript_upload_error_settings_required: "Select book size and font size before uploading.",
@@ -29,7 +35,7 @@ const TRANSLATIONS: Record<string, string> = {
   manuscript_upload_error_file_empty: "File cannot be empty.",
   manuscript_upload_error_generic: "Unable to upload manuscript right now.",
   manuscript_upload_error_scanner_unavailable: "File scanning temporarily unavailable",
-  manuscript_upload_continue: "Continue to Upload",
+  manuscript_upload_continue: "Save Settings",
   manuscript_upload_save_settings: "Saving settings...",
   manuscript_upload_dropzone_aria: "Drag and drop your manuscript",
   manuscript_upload_dropzone_label: "Drop your manuscript here",
@@ -134,6 +140,7 @@ describe("ManuscriptUploadFlow", () => {
     render(
       <ManuscriptUploadFlow
         bookId="cm_book_1"
+        initialTitle={null}
         initialPageSize={null}
         initialFontSize={null}
         initialEstimatedPages={null}
@@ -141,15 +148,103 @@ describe("ManuscriptUploadFlow", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Continue to Upload" }));
-    expect(screen.getByText("Select a book size to continue.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save Settings" }));
+    expect(screen.getByText("Add your book title to continue.")).toBeInTheDocument();
     expect(updateBookSettingsMock).not.toHaveBeenCalled();
 
+    await user.type(screen.getByLabelText("Book title"), "The Lagos Chronicle");
+    await user.click(screen.getByRole("button", { name: "Save Settings" }));
+    expect(screen.getByText("Select a book size to continue.")).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: /^A4/ }));
-    await user.click(screen.getByRole("button", { name: "Continue to Upload" }));
+    await user.click(screen.getByRole("button", { name: "Save Settings" }));
 
     expect(screen.getByText("Choose a font size to continue.")).toBeInTheDocument();
     expect(updateBookSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves spaces while typing the title and saves it correctly", async () => {
+    const user = userEvent.setup();
+    updateBookSettingsMock.mockResolvedValue({
+      id: "cm_book_1",
+      title: "The Lagos Chronicle",
+      pageSize: "A4",
+      fontSize: 12,
+      wordCount: null,
+      estimatedPages: null,
+      updatedAt: "2026-03-11T10:00:00.000Z",
+    });
+
+    render(
+      <ManuscriptUploadFlow
+        bookId="cm_book_1"
+        initialTitle={null}
+        initialPageSize={null}
+        initialFontSize={null}
+        initialEstimatedPages={null}
+        initialWordCount={null}
+      />
+    );
+
+    const titleInput = screen.getByLabelText("Book title");
+    await user.type(titleInput, "The Lagos Chronicle");
+
+    expect(titleInput).toHaveValue("The Lagos Chronicle");
+
+    await user.click(screen.getByRole("button", { name: /^A4/ }));
+    await user.click(screen.getByRole("button", { name: "12pt" }));
+    await user.click(screen.getByRole("button", { name: "Save Settings" }));
+
+    await waitFor(() =>
+      expect(updateBookSettingsMock).toHaveBeenCalledWith({
+        bookId: "cm_book_1",
+        title: "The Lagos Chronicle",
+        pageSize: "A4",
+        fontSize: 12,
+      })
+    );
+
+    expect(screen.getByRole("button", { name: "Back to Settings" })).toBeInTheDocument();
+  });
+
+  it("lets the user go back to settings from the upload step", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ManuscriptUploadFlow
+        bookId="cm_book_1"
+        initialTitle="Story Title"
+        initialPageSize="A5"
+        initialFontSize={12}
+        initialEstimatedPages={null}
+        initialWordCount={null}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+
+    expect(screen.getByLabelText("Book title")).toHaveValue("Story Title");
+    expect(screen.getByRole("button", { name: "Save Settings" })).toBeInTheDocument();
+  });
+
+  it("lets the user reopen settings after a manuscript estimate exists", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ManuscriptUploadFlow
+        bookId="cm_book_1"
+        initialTitle="Story Title"
+        initialPageSize="A5"
+        initialFontSize={12}
+        initialEstimatedPages={150}
+        initialWordCount={42000}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
+
+    expect(screen.getByLabelText("Book title")).toHaveValue("Story Title");
+    expect(screen.getByRole("button", { name: "Save Settings" })).toBeInTheDocument();
   });
 
   it("supports mobile drag-and-drop upload with progress, processing, and result states", async () => {
@@ -167,6 +262,7 @@ describe("ManuscriptUploadFlow", () => {
     const { container } = render(
       <ManuscriptUploadFlow
         bookId="cm_book_1"
+        initialTitle="Story Title"
         initialPageSize="A5"
         initialFontSize={12}
         initialEstimatedPages={null}
@@ -229,6 +325,7 @@ describe("ManuscriptUploadFlow", () => {
     render(
       <ManuscriptUploadFlow
         bookId="cm_book_1"
+        initialTitle="Story Title"
         initialPageSize="A4"
         initialFontSize={11}
         initialEstimatedPages={null}
@@ -269,6 +366,7 @@ describe("ManuscriptUploadFlow", () => {
     render(
       <ManuscriptUploadFlow
         bookId="cm_book_1"
+        initialTitle="Story Title"
         initialPageSize="A5"
         initialFontSize={14}
         initialEstimatedPages={null}
