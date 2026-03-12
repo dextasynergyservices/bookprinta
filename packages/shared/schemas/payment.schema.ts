@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { AdminAuditEntrySchema, AdminRefundTypeSchema } from "./admin.schema.ts";
+import { BookStatusSchema, OrderStatusSchema, RefundPolicySnapshotSchema } from "./order.schema.ts";
 
 // ==========================================
 // Payment Schemas — Source of Truth
@@ -107,6 +109,42 @@ export const ReprintPaymentSchema = z.object({
 });
 export type ReprintPaymentInput = z.infer<typeof ReprintPaymentSchema>;
 
+/**
+ * POST /api/v1/admin/payments/:id/refund
+ * Process a full, policy-partial, or custom refund from the admin panel.
+ */
+export const AdminRefundProcessingModeSchema = z.enum(["gateway", "manual"]);
+export type AdminRefundProcessingMode = z.infer<typeof AdminRefundProcessingModeSchema>;
+
+export const AdminRefundRequestSchema = z
+  .object({
+    type: AdminRefundTypeSchema,
+    reason: z.string().trim().min(1).max(1000),
+    note: z.string().trim().min(1).max(1000).optional(),
+    customAmount: z.number().positive().optional(),
+    expectedOrderVersion: z.number().int().min(1),
+    expectedBookVersion: z.number().int().min(1).optional(),
+    policySnapshot: RefundPolicySnapshotSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.type === "CUSTOM" && value.customAmount === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customAmount"],
+        message: "customAmount is required when refund type is CUSTOM",
+      });
+    }
+
+    if (value.type !== "CUSTOM" && value.customAmount !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["customAmount"],
+        message: "customAmount is only allowed when refund type is CUSTOM",
+      });
+    }
+  });
+export type AdminRefundRequestInput = z.infer<typeof AdminRefundRequestSchema>;
+
 // ──────────────────────────────────────────────
 // Response Schemas
 // ──────────────────────────────────────────────
@@ -149,3 +187,26 @@ export const PaymentGatewayResponseSchema = z.object({
   priority: z.number(),
 });
 export type PaymentGatewayResponse = z.infer<typeof PaymentGatewayResponseSchema>;
+
+export const AdminRefundResponseSchema = z.object({
+  orderId: z.string().cuid(),
+  paymentId: z.string().cuid(),
+  refundPaymentId: z.string().cuid(),
+  provider: PaymentProviderSchema,
+  processingMode: AdminRefundProcessingModeSchema,
+  refundType: AdminRefundTypeSchema,
+  refundedAmount: z.number().nonnegative(),
+  currency: z.string().length(3),
+  paymentStatus: PaymentStatusSchema,
+  providerRefundReference: z.string().nullable(),
+  orderStatus: OrderStatusSchema,
+  bookStatus: BookStatusSchema.nullable(),
+  refundedAt: z.string().datetime(),
+  refundReason: z.string().trim().min(1).max(1000),
+  orderVersion: z.number().int().min(1),
+  bookVersion: z.number().int().min(1).nullable(),
+  emailSent: z.boolean(),
+  policySnapshot: RefundPolicySnapshotSchema,
+  audit: AdminAuditEntrySchema,
+});
+export type AdminRefundResponse = z.infer<typeof AdminRefundResponseSchema>;

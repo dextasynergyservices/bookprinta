@@ -40,11 +40,14 @@ describe("useOrderDetail data layer", () => {
         ],
         payments: [
           {
+            id: "cmf0pay000000000000000001",
             provider: "PAYSTACK",
             status: "SUCCESS",
+            type: "ORDER_PAYMENT",
             amount: "125000",
             currency: "NGN",
             providerRef: "PSK_REF_001",
+            createdAt: "2026-03-01T10:00:00.000Z",
           },
         ],
       }),

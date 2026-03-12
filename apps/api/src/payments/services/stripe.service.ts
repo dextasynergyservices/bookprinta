@@ -145,11 +145,12 @@ export class StripeService {
 
   /**
    * Initiate a Stripe refund.
-   * @param paymentIntentId — The Stripe PaymentIntent ID to refund.
+   * Accepts either a PaymentIntent ID (`pi_...`) or a Checkout Session ID (`cs_...`).
    * @param amountInNaira — Refund amount in Naira (optional — full refund if omitted).
    */
-  async refund(paymentIntentId: string, amountInNaira?: number): Promise<Record<string, unknown>> {
+  async refund(paymentReference: string, amountInNaira?: number): Promise<Record<string, unknown>> {
     const client = this.getClient();
+    const paymentIntentId = await this.resolveRefundPaymentIntentId(client, paymentReference);
 
     this.logger.log(
       `Initiating Stripe refund for PI: ${paymentIntentId}` +
@@ -167,6 +168,42 @@ export class StripeService {
     const refund = await client.refunds.create(params);
 
     return refund as unknown as Record<string, unknown>;
+  }
+
+  private async resolveRefundPaymentIntentId(
+    client: Stripe,
+    paymentReference: string
+  ): Promise<string> {
+    if (paymentReference.startsWith("pi_")) {
+      return paymentReference;
+    }
+
+    if (!paymentReference.startsWith("cs_")) {
+      return paymentReference;
+    }
+
+    const session = await client.checkout.sessions.retrieve(paymentReference, {
+      expand: ["payment_intent"],
+    });
+    const paymentIntent = session.payment_intent;
+
+    if (typeof paymentIntent === "string" && paymentIntent.trim().length > 0) {
+      return paymentIntent;
+    }
+
+    if (
+      paymentIntent &&
+      typeof paymentIntent === "object" &&
+      "id" in paymentIntent &&
+      typeof paymentIntent.id === "string" &&
+      paymentIntent.id.trim().length > 0
+    ) {
+      return paymentIntent.id;
+    }
+
+    throw new BadRequestException(
+      "Stripe payment intent could not be resolved for this refund request."
+    );
   }
 
   private serializeCheckoutState(metadata?: Record<string, unknown>): string {
