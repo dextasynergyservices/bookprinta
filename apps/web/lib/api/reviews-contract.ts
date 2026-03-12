@@ -3,7 +3,7 @@ import {
   CreateReviewResponseSchema,
   type MyReviewsResponse,
   MyReviewsResponseSchema,
-  type ReviewedBook,
+  type ReviewBook,
 } from "@bookprinta/shared";
 import type { ZodType } from "zod";
 
@@ -28,9 +28,9 @@ function parseWithEnvelope<T>(payload: unknown, schema: ZodType<T>): T | null {
 
 export function createEmptyReviewState(): MyReviewsResponse {
   return {
-    hasAnyPrintedBook: false,
-    reviewedBooks: [],
-    pendingBooks: [],
+    hasEligibleBooks: false,
+    hasPendingReviews: false,
+    books: [],
   };
 }
 
@@ -45,16 +45,14 @@ export function normalizeCreateReviewPayload(payload: unknown): CreateReviewResp
   throw new Error("Unable to normalize review submission response");
 }
 
-export function appendReviewToState(
-  state: MyReviewsResponse,
-  review: ReviewedBook
-): MyReviewsResponse {
+export function appendReviewToState(state: MyReviewsResponse, book: ReviewBook): MyReviewsResponse {
+  const books = state.books.some((existingBook) => existingBook.bookId === book.bookId)
+    ? state.books.map((existingBook) => (existingBook.bookId === book.bookId ? book : existingBook))
+    : [book, ...state.books];
+
   return {
-    hasAnyPrintedBook: true,
-    reviewedBooks: [
-      review,
-      ...state.reviewedBooks.filter((existingReview) => existingReview.bookId !== review.bookId),
-    ],
-    pendingBooks: state.pendingBooks.filter((book) => book.bookId !== review.bookId),
+    hasEligibleBooks: books.length > 0,
+    hasPendingReviews: books.some((existingBook) => existingBook.reviewStatus === "PENDING"),
+    books,
   };
 }

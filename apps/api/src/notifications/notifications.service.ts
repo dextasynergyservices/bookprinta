@@ -309,7 +309,7 @@ export class NotificationsService {
           userId: params.userId,
           type: "REVIEW_REQUEST",
           fallbackTitle: "Leave a review",
-          fallbackMessage: `"${normalizedTitle}" is printed and ready for your feedback.`,
+          fallbackMessage: `"${normalizedTitle}" has been delivered and is ready for your feedback.`,
           data: {
             titleKey: NOTIFICATION_TRANSLATION_KEYS.reviewRequest.title,
             messageKey: NOTIFICATION_TRANSLATION_KEYS.reviewRequest.message,

@@ -1532,6 +1532,7 @@ export function BooksView() {
             <>
               <ManuscriptUploadFlow
                 bookId={data.bookId ?? resolvedBookId}
+                initialTitle={data.title}
                 initialPageSize={data.pageSize}
                 initialFontSize={data.fontSize}
                 initialEstimatedPages={data.estimatedPages}

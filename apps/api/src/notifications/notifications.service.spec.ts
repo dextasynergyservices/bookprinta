@@ -442,7 +442,7 @@ describe("NotificationsService", () => {
           {
             userId: "cmuser222222222222222222222222",
             title: "Leave a review",
-            message: '"The Lagos Chronicle" is printed and ready for your feedback.',
+            message: '"The Lagos Chronicle" has been delivered and is ready for your feedback.',
             type: "REVIEW_REQUEST",
             data: {
               titleKey: "notifications.review_request.title",
