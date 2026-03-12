@@ -1556,6 +1556,7 @@
     "orders_refund_error_invalid_type": "Select one of the allowed refund types before continuing.",
     "orders_refund_error_invalid_reason": "Enter a refund reason before continuing.",
     "orders_refund_error_invalid_amount": "Enter a valid custom amount up to {amount}."
+    "section_placeholder_description": "{section} tools will plug into this admin shell next."
   },
   "not_found": {
     "title": "Page Not Found",
