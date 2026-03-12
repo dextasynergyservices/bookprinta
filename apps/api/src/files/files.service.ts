@@ -145,6 +145,13 @@ export class FilesService {
       `File uploaded: ${fileRecord.id} (type=${fileType}, version=${nextVersion}, book=${bookId}, cloudinary=${cloudinaryResult.public_id})`
     );
 
+    await this.syncBookMetadataFromFile({
+      bookId,
+      fileType: fileType as FileType,
+      url: fileRecord.url,
+      fileName: fileRecord.fileName,
+    });
+
     return fileRecord;
   }
 
@@ -206,7 +213,7 @@ export class FilesService {
     });
     const nextVersion = (latestFile?.version ?? 0) + 1;
 
-    return this.prisma.file.create({
+    const created = await this.prisma.file.create({
       data: {
         bookId: params.bookId,
         fileType: params.fileType,
@@ -218,6 +225,15 @@ export class FilesService {
         createdBy: params.createdBy ?? "SYSTEM",
       },
     });
+
+    await this.syncBookMetadataFromFile({
+      bookId: params.bookId,
+      fileType: params.fileType,
+      url: created.url,
+      fileName: created.fileName,
+    });
+
+    return created;
   }
 
   // ──────────────────────────────────────────────
@@ -261,5 +277,69 @@ export class FilesService {
       },
       orderBy: [{ fileType: "asc" }, { version: "desc" }],
     });
+  }
+
+  private async syncBookMetadataFromFile(params: {
+    bookId: string;
+    fileType: FileType;
+    url: string;
+    fileName: string | null;
+  }): Promise<void> {
+    if (params.fileType === "RAW_MANUSCRIPT") {
+      const derivedTitle = this.deriveTitleFromFileName(params.fileName);
+      if (!derivedTitle) return;
+
+      await this.prisma.book.updateMany({
+        where: {
+          id: params.bookId,
+          title: null,
+        },
+        data: {
+          title: derivedTitle,
+        },
+      });
+      return;
+    }
+
+    if (params.fileType === "COVER_DESIGN_FINAL") {
+      await this.prisma.book.update({
+        where: { id: params.bookId },
+        data: {
+          coverImageUrl: params.url,
+        },
+      });
+      return;
+    }
+
+    if (params.fileType === "COVER_DESIGN_DRAFT") {
+      const hasFinalCover = await this.prisma.file.findFirst({
+        where: {
+          bookId: params.bookId,
+          fileType: "COVER_DESIGN_FINAL",
+        },
+        select: { id: true },
+      });
+      if (hasFinalCover) return;
+
+      await this.prisma.book.update({
+        where: { id: params.bookId },
+        data: {
+          coverImageUrl: params.url,
+        },
+      });
+    }
+  }
+
+  private deriveTitleFromFileName(fileName: string | null | undefined): string | null {
+    if (typeof fileName !== "string") return null;
+    const trimmed = fileName.trim();
+    if (!trimmed) return null;
+
+    const normalized = trimmed
+      .replace(/\.[^.]+$/, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return normalized.length > 0 ? normalized : null;
   }
 }

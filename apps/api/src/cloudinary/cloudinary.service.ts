@@ -41,6 +41,7 @@ export interface CloudinarySignatureResponse {
   folder: string;
   eager?: string;
   resourceType: "image" | "raw";
+  tags?: string[];
 }
 
 /**
@@ -130,6 +131,7 @@ export class CloudinaryService {
       folder,
       ...(eager && { eager }),
       resourceType,
+      ...(tags && tags.length > 0 ? { tags } : {}),
     };
   }
 

@@ -59,14 +59,12 @@ export function DashboardSidebar({
   onNavigate,
   isCollapsed = false,
   onToggleCollapse,
-  onOpenReviewDialog,
+  onOpenReviewDialog: _onOpenReviewDialog,
 }: DashboardSidebarProps) {
   const tDashboard = useTranslations("dashboard");
   const pathname = usePathname();
   const {
-    hasAnyPrintedBook,
-    pendingBooks,
-    reviewedBooks,
+    hasAnyEligibleBook,
     isLoading: isReviewEligibilityLoading,
     isError: isReviewEligibilityError,
     isFallback: isReviewEligibilityFallback,
@@ -76,17 +74,6 @@ export function DashboardSidebar({
     : isReviewEligibilityError || isReviewEligibilityFallback
       ? tDashboard("reviews_eligibility_unavailable")
       : tDashboard("reviews_disabled_tooltip");
-  const firstReviewTarget = pendingBooks[0]
-    ? {
-        bookId: pendingBooks[0].bookId,
-        bookTitle: null,
-      }
-    : reviewedBooks[0]
-      ? {
-          bookId: reviewedBooks[0].bookId,
-          bookTitle: null,
-        }
-      : null;
   const canCollapseDesktop = !onNavigate && typeof onToggleCollapse === "function";
   const collapseAriaLabel = isCollapsed
     ? tDashboard("sidebar_expand_aria")
@@ -142,7 +129,7 @@ export function DashboardSidebar({
             {SIDEBAR_ITEMS.map((item) => {
               const isActive = isItemActive(pathname, item);
               const isReviewsItem = item.labelKey === "reviews";
-              const isReviewsLocked = isReviewsItem && !hasAnyPrintedBook;
+              const isReviewsLocked = isReviewsItem && !hasAnyEligibleBook;
               const Icon = item.icon;
               const itemLabel = tDashboard(item.labelKey);
               const tooltipLabel = isReviewsLocked
@@ -161,11 +148,6 @@ export function DashboardSidebar({
                     if (isReviewsLocked) {
                       event.preventDefault();
                       return;
-                    }
-
-                    if (isReviewsItem && firstReviewTarget && onOpenReviewDialog) {
-                      event.preventDefault();
-                      onOpenReviewDialog(firstReviewTarget);
                     }
 
                     onNavigate?.();

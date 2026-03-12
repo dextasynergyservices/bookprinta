@@ -3,11 +3,19 @@ import { Logger, Module } from "@nestjs/common";
 import { BooksModule } from "../books/books.module.js";
 import { EngineModule } from "../engine/engine.module.js";
 import { FilesModule } from "../files/files.module.js";
+import { ProductionDelayModule } from "../production-delay/production-delay.module.js";
 import { AiFormattingProcessor } from "./ai-formatting.processor.js";
 import { resolveBullMqConnection } from "./bullmq-connection.js";
-import { QUEUE_AI_FORMATTING, QUEUE_PAGE_COUNT, QUEUE_PDF_GENERATION } from "./jobs.constants.js";
+import {
+  QUEUE_AI_FORMATTING,
+  QUEUE_PAGE_COUNT,
+  QUEUE_PDF_GENERATION,
+  QUEUE_PRODUCTION_DELAY,
+} from "./jobs.constants.js";
 import { PageCountProcessor } from "./page-count.processor.js";
 import { PdfGenerationProcessor } from "./pdf-generation.processor.js";
+import { ProductionDelayProcessor } from "./production-delay.processor.js";
+import { ProductionDelayScheduler } from "./production-delay.scheduler.js";
 
 const logger = new Logger("JobsModule");
 
@@ -18,6 +26,7 @@ const logger = new Logger("JobsModule");
  *  - ai-formatting:   Gemini AI manuscript → semantic HTML (concurrency 1, 5/min)
  *  - pdf-generation:  Gotenberg HTML → print-ready PDF   (concurrency 1, 3/min)
  *  - page-count:      Gotenberg HTML → page count         (concurrency 1, 3/min)
+ *  - production-delay: scheduled backlog monitor          (every 15 minutes)
  *
  * AI formatting, authoritative page-count, and final PDF workers are registered here.
  *
@@ -118,12 +127,37 @@ export class JobsModule {
           },
         }),
 
+        // ─────────────────────────────────────────────────────
+        // Queue: production-delay
+        // Scheduled backlog monitor for production delay events
+        // Triggered every 15 minutes by a job scheduler
+        // ─────────────────────────────────────────────────────
+        BullModule.registerQueue({
+          name: QUEUE_PRODUCTION_DELAY,
+          defaultJobOptions: {
+            attempts: 1,
+            removeOnComplete: {
+              count: 24,
+            },
+            removeOnFail: {
+              count: 48,
+            },
+          },
+        }),
+
         // Services used by job processors (Gemini formatting, validation, pipeline chaining)
         EngineModule,
         FilesModule,
         BooksModule,
+        ProductionDelayModule,
       ],
-      providers: [AiFormattingProcessor, PageCountProcessor, PdfGenerationProcessor],
+      providers: [
+        AiFormattingProcessor,
+        PageCountProcessor,
+        PdfGenerationProcessor,
+        ProductionDelayProcessor,
+        ProductionDelayScheduler,
+      ],
       exports: [BullModule],
     };
   }
