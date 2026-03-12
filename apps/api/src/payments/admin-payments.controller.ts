@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
+import { AdminRefundPaymentDto, AdminRefundPaymentResponseDto } from "./dto/admin-payments.dto.js";
 import { PaymentsService } from "./payments.service.js";
 
 @ApiTags("Admin Payments")
@@ -61,6 +62,35 @@ export class AdminPaymentsController {
       paymentId,
       adminId,
       adminNote,
+    });
+  }
+
+  @Post(":paymentId/refund")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Process an admin refund",
+    description:
+      "Processes a full, policy-partial, or custom refund, dispatches the provider/manual workflow, records audit logs, and sends the refund confirmation email.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Refund processed successfully",
+    type: AdminRefundPaymentResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Refund request is invalid for the current payment/order",
+  })
+  @ApiResponse({ status: 404, description: "Payment not found" })
+  async refundPayment(
+    @Param("paymentId") paymentId: string,
+    @Body() dto: AdminRefundPaymentDto,
+    @CurrentUser("sub") adminId: string
+  ): Promise<AdminRefundPaymentResponseDto> {
+    return this.paymentsService.refundAdminPayment({
+      paymentId,
+      adminId,
+      input: dto,
     });
   }
 

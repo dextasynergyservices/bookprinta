@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  AdminAuditEntrySchema,
+  AdminRefundTypeSchema,
+  AdminSortDirectionSchema,
+  IsoDateOnlySchema,
+} from "./admin.schema.ts";
 
 // ==========================================
 // Order Schemas — Source of Truth
@@ -235,3 +241,241 @@ export const OrderInvoiceArchiveResponseSchema = z.object({
   paymentProof: OrderInvoicePaymentProofSchema,
 });
 export type OrderInvoiceArchiveResponse = z.infer<typeof OrderInvoiceArchiveResponseSchema>;
+
+// ==========================================
+// Admin Order Contracts
+// ==========================================
+
+export const AdminOrderStatusSourceSchema = z.enum(["order", "book"]);
+export type AdminOrderStatusSource = z.infer<typeof AdminOrderStatusSourceSchema>;
+
+export const AdminOrderDisplayStatusSchema = z.enum([
+  "PENDING_PAYMENT",
+  "PENDING_PAYMENT_APPROVAL",
+  "PAID",
+  "PROCESSING",
+  "AWAITING_UPLOAD",
+  "FORMATTING",
+  "ACTION_REQUIRED",
+  "PREVIEW_READY",
+  "PENDING_EXTRA_PAYMENT",
+  "APPROVED",
+  "IN_PRODUCTION",
+  "COMPLETED",
+  "CANCELLED",
+  "REFUNDED",
+  "UPLOADED",
+  "PAYMENT_RECEIVED",
+  "AI_PROCESSING",
+  "DESIGNING",
+  "DESIGNED",
+  "FORMATTED",
+  "FORMATTING_REVIEW",
+  "REVIEW",
+  "REJECTED",
+  "PRINTING",
+  "PRINTED",
+  "SHIPPING",
+  "DELIVERED",
+]);
+export type AdminOrderDisplayStatus = z.infer<typeof AdminOrderDisplayStatusSchema>;
+
+export const AdminOrderSortFieldSchema = z.enum([
+  "orderNumber",
+  "customerName",
+  "customerEmail",
+  "packageName",
+  "displayStatus",
+  "createdAt",
+  "totalAmount",
+]);
+export type AdminOrderSortField = z.infer<typeof AdminOrderSortFieldSchema>;
+
+export const RefundPolicyDecisionSchema = z.enum(["FULL", "PARTIAL", "NONE"]);
+export type RefundPolicyDecision = z.infer<typeof RefundPolicyDecisionSchema>;
+
+export const RefundPolicySnapshotSchema = z.object({
+  calculatedAt: z.string().datetime(),
+  statusSource: AdminOrderStatusSourceSchema,
+  stage: AdminOrderDisplayStatusSchema,
+  stageLabel: z.string().trim().min(1).max(120),
+  eligible: z.boolean(),
+  policyDecision: RefundPolicyDecisionSchema,
+  allowedRefundTypes: z.array(AdminRefundTypeSchema),
+  recommendedRefundType: AdminRefundTypeSchema.nullable(),
+  orderTotalAmount: z.number().nonnegative(),
+  recommendedAmount: z.number().nonnegative(),
+  maxRefundAmount: z.number().nonnegative(),
+  policyPercent: z.number().min(0).max(100),
+  policyMessage: z.string().trim().min(1).max(1000),
+});
+export type RefundPolicySnapshot = z.infer<typeof RefundPolicySnapshotSchema>;
+
+export const AdminOrdersListQuerySchema = z
+  .object({
+    cursor: z.string().cuid().optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+    status: AdminOrderDisplayStatusSchema.optional(),
+    packageId: z.string().cuid().optional(),
+    dateFrom: IsoDateOnlySchema.optional(),
+    dateTo: IsoDateOnlySchema.optional(),
+    q: z.string().trim().max(200).optional(),
+    sortBy: AdminOrderSortFieldSchema.default("createdAt"),
+    sortDirection: AdminSortDirectionSchema.default("desc"),
+  })
+  .superRefine((value, ctx) => {
+    if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateTo"],
+        message: "dateTo must be on or after dateFrom",
+      });
+    }
+  });
+export type AdminOrdersListQuery = z.infer<typeof AdminOrdersListQuerySchema>;
+
+export const AdminOrderCustomerSummarySchema = z.object({
+  id: z.string().cuid(),
+  fullName: z.string().trim().min(1).max(200),
+  email: z.string().email(),
+  phoneNumber: z.string().trim().min(1).max(40).nullable(),
+  preferredLanguage: z.string().trim().min(2).max(10),
+});
+export type AdminOrderCustomerSummary = z.infer<typeof AdminOrderCustomerSummarySchema>;
+
+export const AdminOrdersListItemSchema = z.object({
+  id: z.string().cuid(),
+  orderNumber: z.string(),
+  customer: AdminOrderCustomerSummarySchema,
+  package: OrderPackageSummarySchema,
+  orderStatus: OrderStatusSchema,
+  bookStatus: BookStatusSchema.nullable(),
+  displayStatus: AdminOrderDisplayStatusSchema,
+  statusSource: AdminOrderStatusSourceSchema,
+  createdAt: z.string().datetime(),
+  totalAmount: z.number().nonnegative(),
+  currency: z.string().length(3),
+  detailUrl: z.string(),
+});
+export type AdminOrdersListItem = z.infer<typeof AdminOrdersListItemSchema>;
+
+export const AdminOrdersListResponseSchema = z.object({
+  items: z.array(AdminOrdersListItemSchema),
+  nextCursor: z.string().cuid().nullable(),
+  hasMore: z.boolean(),
+  totalItems: z.number().int().min(0),
+  limit: z.number().int().min(1).max(50),
+  sortBy: AdminOrderSortFieldSchema,
+  sortDirection: AdminSortDirectionSchema,
+  sortableFields: z.array(AdminOrderSortFieldSchema),
+});
+export type AdminOrdersListResponse = z.infer<typeof AdminOrdersListResponseSchema>;
+
+export const AdminOrderShippingAddressSchema = z.object({
+  street: z.string().trim().min(1),
+  city: z.string().trim().min(1),
+  state: z.string().trim().min(1),
+  country: z.string().trim().min(1),
+  zipCode: z.string().trim().min(1).nullable(),
+});
+export type AdminOrderShippingAddress = z.infer<typeof AdminOrderShippingAddressSchema>;
+
+export const AdminOrderBookDetailSchema = z.object({
+  id: z.string().cuid(),
+  status: BookStatusSchema,
+  productionStatus: BookStatusSchema.nullable(),
+  version: z.number().int().min(1),
+  rejectionReason: z.string().nullable(),
+  pageCount: z.number().int().nullable(),
+  wordCount: z.number().int().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AdminOrderBookDetail = z.infer<typeof AdminOrderBookDetailSchema>;
+
+export const AdminOrderPaymentDetailSchema = z.object({
+  id: z.string().cuid(),
+  provider: z.string().trim().min(1),
+  status: z.string().trim().min(1),
+  type: z.string().trim().min(1),
+  amount: z.number(),
+  currency: z.string().length(3),
+  providerRef: z.string().nullable(),
+  receiptUrl: z.string().url().nullable(),
+  payerName: z.string().nullable(),
+  payerEmail: z.string().email().nullable(),
+  payerPhone: z.string().nullable(),
+  adminNote: z.string().nullable(),
+  approvedAt: z.string().datetime().nullable(),
+  approvedBy: z.string().nullable(),
+  processedAt: z.string().datetime().nullable(),
+  isRefundable: z.boolean(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AdminOrderPaymentDetail = z.infer<typeof AdminOrderPaymentDetailSchema>;
+
+export const AdminOrderStatusControlSchema = z.object({
+  currentStatus: OrderStatusSchema,
+  expectedVersion: z.number().int().min(1),
+  nextAllowedStatuses: z.array(OrderStatusSchema),
+});
+export type AdminOrderStatusControl = z.infer<typeof AdminOrderStatusControlSchema>;
+
+export const AdminOrderDetailSchema = z.object({
+  id: z.string().cuid(),
+  orderNumber: z.string(),
+  orderType: OrderTypeSchema,
+  orderStatus: OrderStatusSchema,
+  bookStatus: BookStatusSchema.nullable(),
+  displayStatus: AdminOrderDisplayStatusSchema,
+  statusSource: AdminOrderStatusSourceSchema,
+  orderVersion: z.number().int().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  customer: AdminOrderCustomerSummarySchema,
+  package: OrderPackageSummarySchema,
+  shippingAddress: AdminOrderShippingAddressSchema.nullable(),
+  book: AdminOrderBookDetailSchema.nullable(),
+  copies: z.number().int().min(1),
+  bookSize: z.string(),
+  paperColor: z.string(),
+  lamination: z.string(),
+  initialAmount: z.number().nonnegative(),
+  extraAmount: z.number().nonnegative(),
+  discountAmount: z.number().nonnegative(),
+  totalAmount: z.number().nonnegative(),
+  refundAmount: z.number().nonnegative(),
+  refundReason: z.string().nullable(),
+  refundedAt: z.string().datetime().nullable(),
+  refundedBy: z.string().nullable(),
+  currency: z.string().length(3),
+  trackingNumber: z.string().nullable(),
+  shippingProvider: z.string().nullable(),
+  addons: z.array(OrderAddonSummarySchema),
+  payments: z.array(AdminOrderPaymentDetailSchema),
+  timeline: z.array(OrderTrackingTimelineItemSchema),
+  refundPolicy: RefundPolicySnapshotSchema,
+  statusControl: AdminOrderStatusControlSchema,
+});
+export type AdminOrderDetail = z.infer<typeof AdminOrderDetailSchema>;
+
+export const AdminUpdateOrderStatusSchema = z.object({
+  nextStatus: OrderStatusSchema,
+  expectedVersion: z.number().int().min(1),
+  reason: z.string().trim().min(1).max(240).optional(),
+  note: z.string().trim().min(1).max(1000).optional(),
+});
+export type AdminUpdateOrderStatusInput = z.infer<typeof AdminUpdateOrderStatusSchema>;
+
+export const AdminUpdateOrderStatusResponseSchema = z.object({
+  orderId: z.string().cuid(),
+  previousStatus: OrderStatusSchema,
+  nextStatus: OrderStatusSchema,
+  displayStatus: AdminOrderDisplayStatusSchema,
+  statusSource: AdminOrderStatusSourceSchema,
+  orderVersion: z.number().int().min(1),
+  updatedAt: z.string().datetime(),
+  audit: AdminAuditEntrySchema,
+});
+export type AdminUpdateOrderStatusResponse = z.infer<typeof AdminUpdateOrderStatusResponseSchema>;
