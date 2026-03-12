@@ -16,6 +16,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useMemo } from "react";
 import {
   coerceNotificationsPage,
   coerceNotificationsPageSize,
@@ -88,7 +89,7 @@ type NotificationMarkAllReadMutationContext = {
 };
 
 export type ReviewEligibilityContract = {
-  hasAnyPrintedBook: boolean;
+  hasAnyEligibleBook: boolean;
 };
 
 function isAbortError(error: unknown): boolean {
@@ -607,16 +608,43 @@ export function useReviewState() {
     refetchOnMount: "always",
   });
 
-  const data = query.data ?? {
-    ...createEmptyReviewState(),
-    isFallback: true,
-  };
+  const emptyReviewState = useMemo(
+    () => ({
+      ...createEmptyReviewState(),
+      isFallback: true,
+    }),
+    []
+  );
+  const data = query.data ?? emptyReviewState;
+  const pendingBooks = useMemo(
+    () => data.books.filter((book) => book.reviewStatus === "PENDING"),
+    [data.books]
+  );
+  const reviewedBooks = useMemo(
+    () =>
+      data.books.flatMap((book) =>
+        book.review
+          ? [
+              {
+                bookId: book.bookId,
+                rating: book.review.rating,
+                comment: book.review.comment,
+                isPublic: book.review.isPublic,
+                createdAt: book.review.createdAt,
+              },
+            ]
+          : []
+      ),
+    [data.books]
+  );
 
   return {
     ...query,
-    hasAnyPrintedBook: data.hasAnyPrintedBook,
-    reviewedBooks: data.reviewedBooks,
-    pendingBooks: data.pendingBooks,
+    hasAnyEligibleBook: data.hasEligibleBooks,
+    hasPendingReviews: data.hasPendingReviews,
+    books: data.books,
+    pendingBooks,
+    reviewedBooks,
     isFallback: data.isFallback,
   };
 }
@@ -637,12 +665,12 @@ export function useCreateReview() {
           ...appendReviewToState(
             current
               ? {
-                  hasAnyPrintedBook: current.hasAnyPrintedBook,
-                  reviewedBooks: current.reviewedBooks,
-                  pendingBooks: current.pendingBooks,
+                  hasEligibleBooks: current.hasEligibleBooks,
+                  hasPendingReviews: current.hasPendingReviews,
+                  books: current.books,
                 }
               : createEmptyReviewState(),
-            result.review
+            result.book
           ),
           isFallback: false,
         })
@@ -661,9 +689,13 @@ export function useReviewEligibility() {
 
   return {
     ...query,
-    hasAnyPrintedBook: query.hasAnyPrintedBook,
+    hasAnyEligibleBook: query.hasAnyEligibleBook,
     isFallback: query.isFallback,
   };
+}
+
+export function useHasAnyEligibleBook() {
+  return useReviewEligibility();
 }
 
 export function useHasAnyPrintedBook() {

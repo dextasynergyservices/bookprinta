@@ -96,6 +96,8 @@ function createFallbackOrderTracking(orderId: string | null): OrderTrackingNorma
       reachedAt: null,
       sourceStatus: null,
     })),
+    title: null,
+    coverImageUrl: null,
     pageCount: null,
     wordCount: null,
     estimatedPages: null,
@@ -223,6 +225,8 @@ export function useOrderTracking({ orderId, enabled = true }: UseOrderTrackingPa
     rejectionReason: data.rejectionReason,
     timeline: data.timeline,
     isRejected: data.isRejected,
+    title: data.title,
+    coverImageUrl: data.coverImageUrl,
     sourceEndpoint: data.sourceEndpoint,
     isInitialLoading,
   };

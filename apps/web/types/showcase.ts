@@ -1,45 +1,23 @@
-export interface ShowcaseEntry {
-  id: string;
-  authorName: string;
-  bookTitle: string;
-  bookCoverUrl: string;
-  aboutBook: string | null;
-  testimonial: string | null;
-  categoryId: string | null;
-  category: ShowcaseCategory | null;
-  publishedYear: number | null;
-  publishedAt: string | null;
-  userId: string | null;
-  isFeatured: boolean;
-  isProfileComplete: boolean;
-}
+import type {
+  AuthorProfile as SharedAuthorProfile,
+  PurchaseLink as SharedPurchaseLink,
+  ShowcaseCategoriesResponse as SharedShowcaseCategoriesResponse,
+  ShowcaseCategory as SharedShowcaseCategory,
+  ShowcaseEntry as SharedShowcaseEntry,
+  ShowcaseListResponse as SharedShowcaseResponse,
+  ShowcaseSortOption as SharedShowcaseSortOption,
+  SocialLink as SharedSocialLink,
+} from "@bookprinta/shared";
 
-export interface ShowcaseCategory {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  sortOrder: number;
-}
+export type ShowcaseEntry = SharedShowcaseEntry;
 
-export interface AuthorProfile {
-  bio?: string;
-  profileImageUrl?: string;
-  whatsAppNumber?: string;
-  websiteUrl?: string;
-  purchaseLinks?: PurchaseLink[];
-  socialLinks?: SocialLink[];
-}
+export type ShowcaseCategory = SharedShowcaseCategory;
 
-export interface PurchaseLink {
-  label: string;
-  url: string;
-}
+export type AuthorProfile = SharedAuthorProfile;
 
-export interface SocialLink {
-  platform: string;
-  url: string;
-}
+export type PurchaseLink = SharedPurchaseLink;
+
+export type SocialLink = SharedSocialLink;
 
 export interface ShowcaseFilters {
   q: string;
@@ -48,14 +26,8 @@ export interface ShowcaseFilters {
   year: string;
 }
 
-export type ShowcaseSortOption = "date_desc" | "date_asc" | "title_asc" | "title_desc";
+export type ShowcaseSortOption = SharedShowcaseSortOption;
 
-export interface ShowcaseResponse {
-  items: ShowcaseEntry[];
-  nextCursor: string | null;
-  hasMore: boolean;
-}
+export type ShowcaseResponse = SharedShowcaseResponse;
 
-export interface ShowcaseCategoriesResponse {
-  categories: ShowcaseCategory[];
-}
+export type ShowcaseCategoriesResponse = SharedShowcaseCategoriesResponse;

@@ -1,10 +1,13 @@
 import type {
   AuthorProfileResponse,
+  PurchaseLink,
   ShowcaseCategoriesResponse,
   ShowcaseListQuery,
   ShowcaseListResponse,
   ShowcaseSortOption,
+  SocialLink,
 } from "@bookprinta/shared";
+import { PurchaseLinkSchema, SocialLinkSchema } from "@bookprinta/shared";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 
@@ -48,16 +51,6 @@ type AuthorProfileRow = {
     isProfileComplete: boolean;
   } | null;
 } | null;
-
-type PurchaseLinkRecord = {
-  label: string;
-  url: string;
-};
-
-type SocialLinkRecord = {
-  platform: string;
-  url: string;
-};
 
 @Injectable()
 export class ShowcaseService {
@@ -252,43 +245,21 @@ export class ShowcaseService {
     };
   }
 
-  private parsePurchaseLinks(value: unknown): PurchaseLinkRecord[] {
+  private parsePurchaseLinks(value: unknown): PurchaseLink[] {
     if (!Array.isArray(value)) return [];
 
     return value.flatMap((item) => {
-      if (
-        item &&
-        typeof item === "object" &&
-        "label" in item &&
-        "url" in item &&
-        typeof item.label === "string" &&
-        item.label.trim().length > 0 &&
-        typeof item.url === "string" &&
-        item.url.trim().length > 0
-      ) {
-        return [{ label: item.label.trim(), url: item.url.trim() }];
-      }
-      return [];
+      const parsed = PurchaseLinkSchema.safeParse(item);
+      return parsed.success ? [parsed.data] : [];
     });
   }
 
-  private parseSocialLinks(value: unknown): SocialLinkRecord[] {
+  private parseSocialLinks(value: unknown): SocialLink[] {
     if (!Array.isArray(value)) return [];
 
     return value.flatMap((item) => {
-      if (
-        item &&
-        typeof item === "object" &&
-        "platform" in item &&
-        "url" in item &&
-        typeof item.platform === "string" &&
-        item.platform.trim().length > 0 &&
-        typeof item.url === "string" &&
-        item.url.trim().length > 0
-      ) {
-        return [{ platform: item.platform.trim(), url: item.url.trim() }];
-      }
-      return [];
+      const parsed = SocialLinkSchema.safeParse(item);
+      return parsed.success ? [parsed.data] : [];
     });
   }
 }

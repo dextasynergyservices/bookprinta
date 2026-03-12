@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BookTitleSchema } from "./book.schema.ts";
 import { BookStatusSchema } from "./order.schema.ts";
 
 // ==========================================
@@ -6,28 +7,34 @@ import { BookStatusSchema } from "./order.schema.ts";
 // Shared between frontend & backend
 // ==========================================
 
-export const ReviewedBookSchema = z.object({
-  bookId: z.string().cuid(),
+export const ReviewSummarySchema = z.object({
   rating: z.number().int().min(1).max(5),
   comment: z.string().nullable(),
   isPublic: z.boolean(),
   createdAt: z.string().datetime(),
 });
-export type ReviewedBook = z.infer<typeof ReviewedBookSchema>;
+export type ReviewSummary = z.infer<typeof ReviewSummarySchema>;
 
-export const PendingReviewBookSchema = z.object({
+export const ReviewBookStatusSchema = z.enum(["PENDING", "REVIEWED"]);
+export type ReviewBookStatus = z.infer<typeof ReviewBookStatusSchema>;
+
+export const ReviewBookSchema = z.object({
   bookId: z.string().cuid(),
-  status: BookStatusSchema,
+  title: BookTitleSchema.nullable(),
+  coverImageUrl: z.string().nullable(),
+  lifecycleStatus: BookStatusSchema,
+  reviewStatus: ReviewBookStatusSchema,
+  review: ReviewSummarySchema.nullable(),
 });
-export type PendingReviewBook = z.infer<typeof PendingReviewBookSchema>;
+export type ReviewBook = z.infer<typeof ReviewBookSchema>;
 
 /**
  * GET /api/v1/reviews/my
  */
 export const MyReviewsResponseSchema = z.object({
-  hasAnyPrintedBook: z.boolean(),
-  reviewedBooks: z.array(ReviewedBookSchema),
-  pendingBooks: z.array(PendingReviewBookSchema),
+  hasEligibleBooks: z.boolean(),
+  hasPendingReviews: z.boolean(),
+  books: z.array(ReviewBookSchema),
 });
 export type MyReviewsResponse = z.infer<typeof MyReviewsResponseSchema>;
 
@@ -47,6 +54,6 @@ export const CreateReviewBodySchema = z.object({
 export type CreateReviewBodyInput = z.infer<typeof CreateReviewBodySchema>;
 
 export const CreateReviewResponseSchema = z.object({
-  review: ReviewedBookSchema,
+  book: ReviewBookSchema,
 });
 export type CreateReviewResponse = z.infer<typeof CreateReviewResponseSchema>;

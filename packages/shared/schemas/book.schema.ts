@@ -101,11 +101,19 @@ export type BookPageSize = z.infer<typeof BookPageSizeSchema>;
 export const BookFontSizeSchema = z.union([z.literal(11), z.literal(12), z.literal(14)]);
 export type BookFontSize = z.infer<typeof BookFontSizeSchema>;
 
+export const BookTitleSchema = z
+  .string()
+  .trim()
+  .min(1, "Title is required")
+  .max(240, "Title must be at most 240 characters");
+export type BookTitle = z.infer<typeof BookTitleSchema>;
+
 /**
  * PATCH /api/v1/books/:id/settings
  * Stores the user's pre-upload formatting choices.
  */
 export const UpdateBookSettingsSchema = z.object({
+  title: BookTitleSchema.optional(),
   pageSize: BookPageSizeSchema,
   fontSize: BookFontSizeSchema,
 });
@@ -113,6 +121,7 @@ export type UpdateBookSettingsInput = z.infer<typeof UpdateBookSettingsSchema>;
 
 export const BookSettingsResponseSchema = z.object({
   id: z.string().cuid(),
+  title: BookTitleSchema.nullable(),
   pageSize: BookPageSizeSchema,
   fontSize: BookFontSizeSchema,
   wordCount: z.number().int().nullable(),
@@ -147,6 +156,7 @@ export type AdminBookProductionStatusResponse = z.infer<
  */
 export const BookManuscriptUploadResponseSchema = z.object({
   bookId: z.string().cuid(),
+  title: z.string().trim().min(1).max(240).nullable(),
   fileId: z.string().cuid(),
   fileUrl: z.string().url(),
   fileName: z.string().min(1),
@@ -254,6 +264,8 @@ export const BookDetailResponseSchema = z.object({
   orderId: z.string().cuid(),
   status: BookStatusSchema,
   productionStatus: BookStatusSchema,
+  title: z.string().trim().min(1).max(240).nullable(),
+  coverImageUrl: z.string().nullable(),
   latestProcessingError: z.string().nullable(),
   rejectionReason: z.string().nullable(),
   rejectedAt: z.string().datetime().nullable(),
