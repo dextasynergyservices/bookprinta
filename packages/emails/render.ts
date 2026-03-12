@@ -104,7 +104,6 @@ export interface RenderRefundConfirmProps {
   refundAmount: string;
   refundReason: string;
 }
-
 export interface RenderProductionDelayProps {
   locale?: Locale;
   userName: string;
@@ -259,7 +258,6 @@ export async function renderRefundConfirmEmail(
     subject: getEmailSubject("refund_confirm", locale),
   };
 }
-
 export async function renderProductionDelayEmail(
   props: RenderProductionDelayProps
 ): Promise<{ html: string; subject: string }> {
