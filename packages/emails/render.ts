@@ -10,8 +10,10 @@ import { BankTransferUserEmail } from "./emails/BankTransferUserEmail.tsx";
 import { ContactAdminEmail } from "./emails/ContactAdminEmail.tsx";
 import { ContactConfirmationEmail } from "./emails/ContactConfirmationEmail.tsx";
 import { PasswordResetEmail } from "./emails/PasswordResetEmail.tsx";
+import { ProductionDelayEmail } from "./emails/ProductionDelayEmail.tsx";
 import { QuoteAdminNotificationEmail } from "./emails/QuoteAdminNotificationEmail.tsx";
 import { QuoteReceivedEmail } from "./emails/QuoteReceivedEmail.tsx";
+import { RefundConfirmEmail } from "./emails/RefundConfirmEmail.tsx";
 import { SignupLinkEmail } from "./emails/SignupLinkEmail.tsx";
 import { SignupVerificationEmail } from "./emails/SignupVerificationEmail.tsx";
 import { WelcomeEmail } from "./emails/WelcomeEmail.tsx";
@@ -92,6 +94,21 @@ export interface RenderPasswordResetProps {
   locale?: Locale;
   userName: string;
   resetUrl: string;
+}
+
+export interface RenderRefundConfirmProps {
+  locale?: Locale;
+  userName: string;
+  orderNumber: string;
+  originalAmount: string;
+  refundAmount: string;
+  refundReason: string;
+}
+export interface RenderProductionDelayProps {
+  locale?: Locale;
+  userName: string;
+  affectedBooks: string[];
+  dashboardUrl: string;
 }
 
 export type QuoteBookSize = "A4" | "A5" | "A6";
@@ -228,6 +245,27 @@ export async function renderPasswordResetEmail(
   return {
     html,
     subject: getEmailSubject("password_reset", locale),
+  };
+}
+
+export async function renderRefundConfirmEmail(
+  props: RenderRefundConfirmProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(RefundConfirmEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("refund_confirm", locale),
+  };
+}
+export async function renderProductionDelayEmail(
+  props: RenderProductionDelayProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(ProductionDelayEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("production_delay", locale),
   };
 }
 

@@ -85,17 +85,13 @@ export class AuthController {
   @ApiCookieAuth("access_token")
   @ApiOperation({
     summary: "Get current authenticated user",
-    description: "Returns user identity from the validated access_token cookie.",
+    description: "Returns the current authenticated user session payload.",
   })
   @ApiResponse({ status: 200, description: "Current user returned" })
   @ApiResponse({ status: 401, description: "Not authenticated" })
-  getMe(@CurrentUser() user: JwtPayload) {
+  async getMe(@CurrentUser() user: JwtPayload) {
     return {
-      user: {
-        id: user.sub,
-        email: user.email,
-        role: user.role,
-      },
+      user: await this.authService.getSessionUser(user.sub),
     };
   }
 

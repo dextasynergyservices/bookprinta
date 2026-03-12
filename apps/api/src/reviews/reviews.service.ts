@@ -1,8 +1,10 @@
 import type {
+  BookStatus,
   CreateReviewBodyInput,
   CreateReviewResponse,
   MyReviewsResponse,
-  ReviewedBook,
+  ReviewBook,
+  ReviewSummary,
 } from "@bookprinta/shared";
 import {
   BadRequestException,
@@ -10,63 +12,64 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { BookStatus } from "../generated/prisma/enums.js";
+import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import {
+  isReviewEligibleLifecycleStatus,
+  REVIEW_ELIGIBLE_BOOK_STATUSES,
+  resolveReviewLifecycleStatus,
+} from "./review-eligibility.js";
 
-const REVIEW_ELIGIBLE_BOOK_STATUSES: BookStatus[] = [
-  BookStatus.PRINTED,
-  BookStatus.SHIPPING,
-  BookStatus.DELIVERED,
-  BookStatus.COMPLETED,
-];
-
-const REVIEW_SELECT = {
-  bookId: true,
+const REVIEW_SUMMARY_SELECT = {
   rating: true,
   comment: true,
   isPublic: true,
   createdAt: true,
 } as const;
 
+const REVIEW_BOOK_SELECT = {
+  id: true,
+  status: true,
+  productionStatus: true,
+  title: true,
+  coverImageUrl: true,
+  order: {
+    select: {
+      customQuote: {
+        select: {
+          workingTitle: true,
+        },
+      },
+    },
+  },
+  files: {
+    select: {
+      fileType: true,
+      url: true,
+      fileName: true,
+      version: true,
+    },
+  },
+  reviews: {
+    select: REVIEW_SUMMARY_SELECT,
+  },
+} satisfies Prisma.BookSelect;
+
+type ReviewBookRow = Prisma.BookGetPayload<{ select: typeof REVIEW_BOOK_SELECT }>;
+type ReviewSummaryRow = NonNullable<ReviewBookRow["reviews"][number]>;
+
 @Injectable()
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getMyReviews(userId: string): Promise<MyReviewsResponse> {
-    const [reviews, reviewEligibleBooks] = await Promise.all([
-      this.prisma.review.findMany({
-        where: { userId },
-        orderBy: { createdAt: "desc" },
-        select: REVIEW_SELECT,
-      }),
-      this.prisma.book.findMany({
-        where: {
-          userId,
-          status: { in: REVIEW_ELIGIBLE_BOOK_STATUSES },
-        },
-        select: {
-          id: true,
-          status: true,
-          reviews: {
-            where: { userId },
-            select: { id: true },
-            take: 1,
-          },
-        },
-      }),
-    ]);
-
-    const pendingBooks = reviewEligibleBooks
-      .filter((book) => book.reviews.length === 0)
-      .map((book) => ({
-        bookId: book.id,
-        status: book.status,
-      }));
+    const rows = await this.findEligibleReviewBooks(userId);
+    const books = rows.map((row) => this.serializeReviewBook(row));
 
     return {
-      hasAnyPrintedBook: reviewEligibleBooks.length > 0,
-      reviewedBooks: reviews.map((review) => this.serializeReviewedBook(review)),
-      pendingBooks,
+      hasEligibleBooks: books.length > 0,
+      hasPendingReviews: books.some((book) => book.reviewStatus === "PENDING"),
+      books,
     };
   }
 
@@ -79,9 +82,10 @@ export class ReviewsService {
       select: {
         id: true,
         status: true,
+        productionStatus: true,
         reviews: {
           where: { userId },
-          select: { id: true },
+          select: { rating: true },
           take: 1,
         },
       },
@@ -91,7 +95,14 @@ export class ReviewsService {
       throw new NotFoundException(`Book "${input.bookId}" not found`);
     }
 
-    if (!REVIEW_ELIGIBLE_BOOK_STATUSES.includes(book.status)) {
+    if (
+      !isReviewEligibleLifecycleStatus(
+        resolveReviewLifecycleStatus({
+          manuscriptStatus: book.status,
+          productionStatus: book.productionStatus,
+        })
+      )
+    ) {
       throw new BadRequestException("This book is not ready for review yet");
     }
 
@@ -99,35 +110,163 @@ export class ReviewsService {
       throw new ConflictException("You have already reviewed this book");
     }
 
-    const review = await this.prisma.review.create({
-      data: {
-        bookId: input.bookId,
-        userId,
-        rating: input.rating,
-        comment: input.comment ?? null,
-        isPublic: false,
-      },
-      select: REVIEW_SELECT,
-    });
+    try {
+      await this.prisma.review.create({
+        data: {
+          bookId: input.bookId,
+          userId,
+          rating: input.rating,
+          comment: input.comment ?? null,
+          isPublic: false,
+        },
+      });
+    } catch (error) {
+      if (this.isPrismaUniqueViolation(error)) {
+        throw new ConflictException("You have already reviewed this book");
+      }
+      throw error;
+    }
+
+    const reviewBook = await this.findEligibleReviewBookById(userId, input.bookId);
+    if (!reviewBook) {
+      throw new NotFoundException(`Book "${input.bookId}" not found`);
+    }
 
     return {
-      review: this.serializeReviewedBook(review),
+      book: this.serializeReviewBook(reviewBook),
     };
   }
 
-  private serializeReviewedBook(review: {
-    bookId: string;
-    rating: number;
-    comment: string | null;
-    isPublic: boolean;
-    createdAt: Date;
-  }): ReviewedBook {
+  private async findEligibleReviewBooks(userId: string): Promise<ReviewBookRow[]> {
+    return (await this.prisma.book.findMany({
+      where: this.buildEligibleReviewBooksWhere({ userId }),
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: this.buildReviewBookSelect(userId),
+    })) as unknown as ReviewBookRow[];
+  }
+
+  private async findEligibleReviewBookById(
+    userId: string,
+    bookId: string
+  ): Promise<ReviewBookRow | null> {
+    return (await this.prisma.book.findFirst({
+      where: this.buildEligibleReviewBooksWhere({ userId, bookId }),
+      select: this.buildReviewBookSelect(userId),
+    })) as unknown as ReviewBookRow | null;
+  }
+
+  private buildEligibleReviewBooksWhere(params: {
+    userId: string;
+    bookId?: string;
+  }): Prisma.BookWhereInput {
+    const eligibleStatuses = [...REVIEW_ELIGIBLE_BOOK_STATUSES];
+
     return {
-      bookId: review.bookId,
+      ...(params.bookId ? { id: params.bookId } : {}),
+      userId: params.userId,
+      OR: [
+        { productionStatus: { in: eligibleStatuses } },
+        {
+          productionStatus: null,
+          status: { in: eligibleStatuses },
+        },
+      ],
+    };
+  }
+
+  private buildReviewBookSelect(userId: string): Prisma.BookSelect {
+    return {
+      ...REVIEW_BOOK_SELECT,
+      files: {
+        where: {
+          fileType: {
+            in: ["RAW_MANUSCRIPT", "COVER_DESIGN_DRAFT", "COVER_DESIGN_FINAL"],
+          },
+        },
+        orderBy: [{ version: "desc" }],
+        select: REVIEW_BOOK_SELECT.files.select,
+      },
+      reviews: {
+        where: { userId },
+        orderBy: [{ createdAt: "desc" }],
+        take: 1,
+        select: REVIEW_SUMMARY_SELECT,
+      },
+    };
+  }
+
+  private serializeReviewBook(row: ReviewBookRow): ReviewBook {
+    const review = row.reviews[0] ? this.serializeReviewSummary(row.reviews[0]) : null;
+    const lifecycleStatus = resolveReviewLifecycleStatus({
+      manuscriptStatus: row.status as BookStatus,
+      productionStatus: row.productionStatus as BookStatus | null,
+    });
+
+    return {
+      bookId: row.id,
+      title: this.resolveBookTitle(row),
+      coverImageUrl: this.resolveCoverImageUrl(row),
+      lifecycleStatus,
+      reviewStatus: review ? "REVIEWED" : "PENDING",
+      review,
+    };
+  }
+
+  private serializeReviewSummary(review: ReviewSummaryRow): ReviewSummary {
+    return {
       rating: review.rating,
       comment: review.comment,
       isPublic: review.isPublic,
       createdAt: review.createdAt.toISOString(),
     };
+  }
+
+  private resolveBookTitle(row: ReviewBookRow): string | null {
+    const storedTitle = this.normalizeString(row.title);
+    if (storedTitle) return storedTitle;
+
+    const quoteTitle = this.normalizeString(row.order?.customQuote?.workingTitle ?? null);
+    if (quoteTitle) return quoteTitle;
+
+    const manuscriptFile = row.files.find((file) => file.fileType === "RAW_MANUSCRIPT");
+    return this.deriveTitleFromFileName(manuscriptFile?.fileName ?? null);
+  }
+
+  private resolveCoverImageUrl(row: ReviewBookRow): string | null {
+    const storedCover = this.normalizeString(row.coverImageUrl);
+    if (storedCover) return storedCover;
+
+    const finalCover = row.files.find((file) => file.fileType === "COVER_DESIGN_FINAL");
+    if (finalCover?.url) return finalCover.url;
+
+    const draftCover = row.files.find((file) => file.fileType === "COVER_DESIGN_DRAFT");
+    return draftCover?.url ?? null;
+  }
+
+  private deriveTitleFromFileName(fileName: string | null | undefined): string | null {
+    const trimmed = this.normalizeString(fileName);
+    if (!trimmed) return null;
+
+    const normalized = trimmed
+      .replace(/\.[^.]+$/, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private normalizeString(value: string | null | undefined): string | null {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private isPrismaUniqueViolation(error: unknown): boolean {
+    return Boolean(
+      error &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2002"
+    );
   }
 }

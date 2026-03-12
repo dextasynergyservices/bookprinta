@@ -21,6 +21,7 @@ type ManuscriptUploadStep = "settings" | "upload" | "result";
 
 type ManuscriptUploadFlowProps = {
   bookId: string;
+  initialTitle: string | null;
   initialPageSize: string | null;
   initialFontSize: number | null;
   initialEstimatedPages: number | null;
@@ -30,18 +31,30 @@ type ManuscriptUploadFlowProps = {
 
 const FONT_SIZE_OPTIONS: readonly BookFontSize[] = [11, 12, 14] as const;
 
+function resolveBookTitleInputValue(value: string | null | undefined): string {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizeBookTitle(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function resolveInitialStep(
+  title: string | null,
   pageSize: BookPageSize | null,
   fontSize: BookFontSize | null,
   estimatedPages: number | null
 ): ManuscriptUploadStep {
-  if (!pageSize || !fontSize) return "settings";
   if (typeof estimatedPages === "number" && estimatedPages > 0) return "result";
+  if (!title || !pageSize || !fontSize) return "settings";
   return "upload";
 }
 
 export function ManuscriptUploadFlow({
   bookId,
+  initialTitle,
   initialPageSize,
   initialFontSize,
   initialEstimatedPages,
@@ -53,6 +66,9 @@ export function ManuscriptUploadFlow({
   const prefersReducedMotion = useReducedMotion();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [selectedTitleInput, setSelectedTitleInput] = useState<string>(
+    resolveBookTitleInputValue(initialTitle)
+  );
   const [selectedPageSize, setSelectedPageSize] = useState<BookPageSize | null>(
     normalizeBookPageSize(initialPageSize)
   );
@@ -63,6 +79,7 @@ export function ManuscriptUploadFlow({
   const [wordCount, setWordCount] = useState<number | null>(initialWordCount);
   const [step, setStep] = useState<ManuscriptUploadStep>(
     resolveInitialStep(
+      normalizeBookTitle(initialTitle),
       normalizeBookPageSize(initialPageSize),
       normalizeBookFontSize(initialFontSize),
       initialEstimatedPages
@@ -76,12 +93,15 @@ export function ManuscriptUploadFlow({
   const [processingDots, setProcessingDots] = useState(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const hasRequiredSettings = Boolean(selectedPageSize && selectedFontSize);
+  const selectedTitle = useMemo(() => normalizeBookTitle(selectedTitleInput), [selectedTitleInput]);
+  const hasRequiredSettings = Boolean(selectedTitle && selectedPageSize && selectedFontSize);
   const isBusy = isSavingSettings || isUploading;
 
   useEffect(() => {
+    const normalizedTitle = normalizeBookTitle(initialTitle);
     const normalizedPageSize = normalizeBookPageSize(initialPageSize);
     const normalizedFontSize = normalizeBookFontSize(initialFontSize);
+    setSelectedTitleInput(resolveBookTitleInputValue(initialTitle));
     setSelectedPageSize(normalizedPageSize);
     setSelectedFontSize(normalizedFontSize);
     setEstimatedPages(initialEstimatedPages);
@@ -93,8 +113,15 @@ export function ManuscriptUploadFlow({
     setDragActive(false);
     setProcessingDots(1);
     setErrorMessage(null);
-    setStep(resolveInitialStep(normalizedPageSize, normalizedFontSize, initialEstimatedPages));
-  }, [initialEstimatedPages, initialFontSize, initialPageSize, initialWordCount]);
+    setStep(
+      resolveInitialStep(
+        normalizedTitle,
+        normalizedPageSize,
+        normalizedFontSize,
+        initialEstimatedPages
+      )
+    );
+  }, [initialEstimatedPages, initialFontSize, initialPageSize, initialTitle, initialWordCount]);
 
   useEffect(() => {
     if (!isProcessing) {
@@ -119,8 +146,21 @@ export function ManuscriptUploadFlow({
 
   const clearError = () => setErrorMessage(null);
 
+  const handleBackToSettings = () => {
+    clearError();
+    setDragActive(false);
+    setIsProcessing(false);
+    setUploadProgress(0);
+    setStep("settings");
+  };
+
   const handleSettingsSave = async () => {
     clearError();
+
+    if (!selectedTitle) {
+      setErrorMessage(tDashboard("manuscript_upload_error_title_required"));
+      return;
+    }
 
     if (!selectedPageSize) {
       setErrorMessage(tDashboard("manuscript_upload_error_book_size_required"));
@@ -136,15 +176,27 @@ export function ManuscriptUploadFlow({
     try {
       const response = await updateBookSettings({
         bookId,
+        title: selectedTitle,
         pageSize: selectedPageSize,
         fontSize: selectedFontSize,
       });
 
+      const normalizedResponseTitle = normalizeBookTitle(response.title);
+      const normalizedResponsePageSize = normalizeBookPageSize(response.pageSize);
+      const normalizedResponseFontSize = normalizeBookFontSize(response.fontSize);
+      setSelectedTitleInput(response.title ?? selectedTitle);
       setSelectedPageSize(response.pageSize);
       setSelectedFontSize(response.fontSize);
       setEstimatedPages(response.estimatedPages);
       setWordCount(response.wordCount);
-      setStep("upload");
+      setStep(
+        resolveInitialStep(
+          normalizedResponseTitle,
+          normalizedResponsePageSize,
+          normalizedResponseFontSize,
+          response.estimatedPages
+        )
+      );
     } catch (error) {
       setErrorMessage(
         error instanceof Error && error.message.trim().length > 0
@@ -196,6 +248,7 @@ export function ManuscriptUploadFlow({
         },
       });
 
+      setSelectedTitleInput(response.title ?? selectedTitle ?? "");
       setSelectedPageSize(response.pageSize);
       setSelectedFontSize(response.fontSize);
       setWordCount(response.wordCount);
@@ -308,6 +361,31 @@ export function ManuscriptUploadFlow({
 
       {step === "settings" ? (
         <div className="mt-4 space-y-5">
+          <div className="space-y-2">
+            <label
+              htmlFor="manuscript-book-title"
+              className="font-sans text-sm font-semibold text-white"
+            >
+              {tDashboard("manuscript_upload_book_title_label")}
+            </label>
+            <p className="font-sans text-xs text-[#a9a9a9]">
+              {tDashboard("manuscript_upload_book_title_hint")}
+            </p>
+            <input
+              id="manuscript-book-title"
+              type="text"
+              value={selectedTitleInput}
+              onChange={(event) => {
+                setSelectedTitleInput(event.target.value);
+                clearError();
+              }}
+              maxLength={240}
+              placeholder={tDashboard("manuscript_upload_book_title_placeholder")}
+              className="font-sans min-h-11 w-full rounded-2xl border border-[#2A2A2A] bg-[#080808] px-4 py-3 text-sm text-white placeholder:text-[#6f6f6f] focus:border-[#007eff] focus:outline-none"
+              autoComplete="off"
+            />
+          </div>
+
           <div className="space-y-2">
             <div>
               <p className="font-sans text-sm font-semibold text-white">
@@ -430,6 +508,16 @@ export function ManuscriptUploadFlow({
 
       {step === "upload" ? (
         <div className="mt-4 space-y-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleBackToSettings}
+            disabled={isBusy}
+            className="font-sans min-h-11 w-full rounded-full border-[#2A2A2A] bg-[#050505] text-sm text-white hover:bg-[#131313]"
+          >
+            {tDashboard("manuscript_upload_back_to_settings")}
+          </Button>
+
           <button
             type="button"
             disabled={!hasRequiredSettings || isBusy}
@@ -533,14 +621,28 @@ export function ManuscriptUploadFlow({
             </p>
           ) : null}
 
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setStep("upload")}
-            className="font-sans mt-2 min-h-11 w-full rounded-full border-[#2A2A2A] bg-[#000000] text-sm text-white hover:bg-[#131313]"
-          >
-            {tDashboard("manuscript_upload_replace_file")}
-          </Button>
+          <div className="mt-2 flex flex-col gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleBackToSettings}
+              className="font-sans min-h-11 w-full rounded-full border-[#2A2A2A] bg-[#050505] text-sm text-white hover:bg-[#131313]"
+            >
+              {tDashboard("manuscript_upload_back_to_settings")}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                clearError();
+                setStep("upload");
+              }}
+              className="font-sans min-h-11 w-full rounded-full border-[#2A2A2A] bg-[#000000] text-sm text-white hover:bg-[#131313]"
+            >
+              {tDashboard("manuscript_upload_replace_file")}
+            </Button>
+          </div>
         </div>
       ) : null}
     </section>

@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { FilesService } from "../files/files.service.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { BooksService } from "./books.service.js";
@@ -60,6 +61,10 @@ const mockBooksPipelineService = {
   }),
 };
 
+const mockNotificationsService = {
+  createReviewRequestNotification: jest.fn(),
+};
+
 const defaultRolloutState = {
   environment: "staging",
   allowInFlightAccess: true,
@@ -90,12 +95,16 @@ describe("BooksService", () => {
         { provide: FilesService, useValue: mockFilesService },
         { provide: BooksPipelineService, useValue: mockBooksPipelineService },
         { provide: ManuscriptAnalysisService, useValue: mockManuscriptAnalysisService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: RolloutService, useValue: mockRolloutService },
       ],
     }).compile();
 
     service = module.get<BooksService>(BooksService);
     jest.clearAllMocks();
+    txBookUpdate.mockReset();
+    txOrderUpdate.mockReset();
+    mockNotificationsService.createReviewRequestNotification.mockReset();
     mockRolloutService.resolveBookRolloutState.mockReturnValue(defaultRolloutState);
     mockRolloutService.assertBookWorkspaceAccess.mockImplementation(() => undefined);
     mockRolloutService.assertManuscriptPipelineAccess.mockImplementation(() => undefined);
@@ -109,10 +118,12 @@ describe("BooksService", () => {
         id: "cm1111111111111111111111111",
         wordCount: 58_000,
         status: "PAYMENT_RECEIVED",
+        title: null,
       });
       mockManuscriptAnalysisService.estimatePages.mockReturnValue(224);
       mockPrismaService.book.update.mockResolvedValue({
         id: "cm1111111111111111111111111",
+        title: "The Lagos Chronicle",
         pageSize: "A4",
         fontSize: 12,
         wordCount: 58_000,
@@ -121,6 +132,7 @@ describe("BooksService", () => {
       });
 
       const result = await service.updateUserBookSettings("user_1", "cm1111111111111111111111111", {
+        title: "The Lagos Chronicle",
         pageSize: "A4",
         fontSize: 12,
       });
@@ -136,6 +148,7 @@ describe("BooksService", () => {
       });
       expect(result).toEqual({
         id: "cm1111111111111111111111111",
+        title: "The Lagos Chronicle",
         pageSize: "A4",
         fontSize: 12,
         wordCount: 58_000,
@@ -149,10 +162,12 @@ describe("BooksService", () => {
         id: "cm1111111111111111111111111",
         wordCount: 58_000,
         status: "APPROVED",
+        title: "Locked Title",
       });
 
       await expect(
         service.updateUserBookSettings("user_1", "cm1111111111111111111111111", {
+          title: "Locked Title",
           pageSize: "A4",
           fontSize: 12,
         })
@@ -167,6 +182,7 @@ describe("BooksService", () => {
         id: "cm1111111111111111111111111",
         wordCount: 58_000,
         status: "PAYMENT_RECEIVED",
+        title: null,
       });
       mockRolloutService.assertManuscriptPipelineAccess.mockImplementation(() => {
         throw new ServiceUnavailableException(
@@ -176,6 +192,7 @@ describe("BooksService", () => {
 
       await expect(
         service.updateUserBookSettings("user_1", "cm1111111111111111111111111", {
+          title: "The Lagos Chronicle",
           pageSize: "A4",
           fontSize: 12,
         })
@@ -195,6 +212,7 @@ describe("BooksService", () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cm1111111111111111111111111",
         status: "AWAITING_UPLOAD",
+        title: null,
         pageSize: null,
         fontSize: null,
       });
@@ -208,6 +226,7 @@ describe("BooksService", () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cm1111111111111111111111111",
         status: "AWAITING_UPLOAD",
+        title: null,
         pageSize: "A5",
         fontSize: 11,
       });
@@ -254,12 +273,14 @@ describe("BooksService", () => {
       });
       expect(result.estimatedPages).toBe(164);
       expect(result.wordCount).toBe(42_000);
+      expect(result.title).toBe("novel");
     });
 
     it("returns scanner unavailable message when scan provider is down", async () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cm1111111111111111111111111",
         status: "AWAITING_UPLOAD",
+        title: "Scanner Test",
         pageSize: "A4",
         fontSize: 12,
       });
@@ -279,6 +300,7 @@ describe("BooksService", () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cm1111111111111111111111111",
         status: "AWAITING_UPLOAD",
+        title: null,
         pageSize: "A4",
         fontSize: 12,
       });
@@ -954,11 +976,16 @@ describe("BooksService", () => {
   });
 
   describe("updateAdminBookProductionStatus", () => {
-    it("updates the admin-controlled production tracker without changing manuscript status", async () => {
+    it("updates the admin-controlled production tracker without creating a review request before delivered", async () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        userId: "user_1",
+        title: "The Lagos Chronicle",
+        status: "PRINTING",
+        productionStatus: "PRINTING",
       });
-      mockPrismaService.book.update.mockResolvedValue({
+      txBookUpdate.mockResolvedValue({
         id: "cm1111111111111111111111111",
         productionStatus: "PRINTING",
         productionStatusUpdatedAt: new Date("2026-03-10T12:00:00.000Z"),
@@ -968,7 +995,7 @@ describe("BooksService", () => {
         productionStatus: "PRINTING",
       });
 
-      expect(mockPrismaService.book.update).toHaveBeenCalledWith({
+      expect(txBookUpdate).toHaveBeenCalledWith({
         where: { id: "cm1111111111111111111111111" },
         data: {
           productionStatus: "PRINTING",
@@ -980,11 +1007,84 @@ describe("BooksService", () => {
           productionStatusUpdatedAt: true,
         },
       });
+      expect(mockNotificationsService.createReviewRequestNotification).not.toHaveBeenCalled();
       expect(result).toEqual({
         bookId: "cm1111111111111111111111111",
         productionStatus: "PRINTING",
         updatedAt: "2026-03-10T12:00:00.000Z",
       });
+    });
+
+    it("creates a review request notification when a book first reaches delivered", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        userId: "user_1",
+        title: "The Lagos Chronicle",
+        status: "PRINTING",
+        productionStatus: "SHIPPING",
+      });
+      txBookUpdate.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        productionStatus: "DELIVERED",
+        productionStatusUpdatedAt: new Date("2026-03-10T14:30:00.000Z"),
+      });
+
+      const result = await service.updateAdminBookProductionStatus("cm1111111111111111111111111", {
+        productionStatus: "DELIVERED",
+      });
+
+      expect(txBookUpdate).toHaveBeenCalledWith({
+        where: { id: "cm1111111111111111111111111" },
+        data: {
+          productionStatus: "DELIVERED",
+          productionStatusUpdatedAt: expect.any(Date),
+        },
+        select: {
+          id: true,
+          productionStatus: true,
+          productionStatusUpdatedAt: true,
+        },
+      });
+      expect(mockNotificationsService.createReviewRequestNotification).toHaveBeenCalledWith(
+        {
+          userId: "user_1",
+          orderId: "cm2222222222222222222222222",
+          bookId: "cm1111111111111111111111111",
+          bookTitle: "The Lagos Chronicle",
+        },
+        expect.objectContaining({
+          book: expect.any(Object),
+          order: expect.any(Object),
+        })
+      );
+      expect(result).toEqual({
+        bookId: "cm1111111111111111111111111",
+        productionStatus: "DELIVERED",
+        updatedAt: "2026-03-10T14:30:00.000Z",
+      });
+    });
+
+    it("does not create a review request notification when the book is already review eligible", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        userId: "user_1",
+        title: "The Lagos Chronicle",
+        status: "COMPLETED",
+        productionStatus: null,
+      });
+      txBookUpdate.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        productionStatus: "DELIVERED",
+        productionStatusUpdatedAt: new Date("2026-03-10T15:00:00.000Z"),
+      });
+
+      await service.updateAdminBookProductionStatus("cm1111111111111111111111111", {
+        productionStatus: "DELIVERED",
+      });
+
+      expect(mockNotificationsService.createReviewRequestNotification).not.toHaveBeenCalled();
     });
   });
 });

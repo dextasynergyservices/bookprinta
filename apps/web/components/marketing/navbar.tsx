@@ -1,5 +1,6 @@
 "use client";
 
+import { isAdminRole } from "@bookprinta/shared";
 import { CircleUserRound, LayoutDashboard, LogOut, MenuIcon } from "lucide-react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
@@ -27,10 +28,6 @@ const navLinks = [
   { href: "/resources", labelKey: "resources" },
   { href: "/contact", labelKey: "contact" },
 ] as const;
-
-function isAdminRole(role: string | undefined) {
-  return role === "ADMIN" || role === "SUPER_ADMIN";
-}
 
 export function Navbar() {
   const t = useTranslations("nav");

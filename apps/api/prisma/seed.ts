@@ -2,6 +2,7 @@ import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { buildGatewaySeedsFromEnv } from "./payment-gateways.seed.js";
+import { seedProductionDelaySettings } from "./production-delay-settings.seed.js";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -378,6 +379,7 @@ async function main() {
   await seedPackageCatalog();
   await seedAddons();
   await seedGateways();
+  await seedProductionDelaySettings(prisma);
   console.log("🎉 All seeding complete.\n");
 }
 

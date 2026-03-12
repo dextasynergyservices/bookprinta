@@ -4,10 +4,17 @@ import type { Locale } from "@bookprinta/emails";
 import {
   renderBankTransferAdminEmail,
   renderBankTransferUserEmail,
+  renderRefundConfirmEmail,
 } from "@bookprinta/emails/render";
+import type {
+  AdminRefundRequestInput,
+  AdminRefundResponse,
+  RefundPolicySnapshot,
+} from "@bookprinta/shared";
 import { DEFAULT_CURRENCY } from "@bookprinta/shared";
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -27,9 +34,10 @@ import {
   PaymentStatus,
   PaymentType,
   UserRole,
-} from "../generated/prisma/client.js";
+} from "../generated/prisma/enums.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
+import { buildRefundPolicySnapshot } from "../orders/admin-order-workflow.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { ScannerService } from "../scanner/scanner.service.js";
@@ -751,6 +759,340 @@ export class PaymentsService {
       id: payment.id,
       status: PaymentStatus.FAILED,
       message: "Bank transfer rejected.",
+    };
+  }
+
+  async refundAdminPayment(params: {
+    paymentId: string;
+    adminId: string;
+    input: AdminRefundRequestInput;
+  }): Promise<AdminRefundResponse> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: params.paymentId },
+      select: {
+        id: true,
+        orderId: true,
+        userId: true,
+        provider: true,
+        type: true,
+        amount: true,
+        currency: true,
+        status: true,
+        providerRef: true,
+        payerName: true,
+        payerEmail: true,
+        payerPhone: true,
+        adminNote: true,
+        gatewayResponse: true,
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            userId: true,
+            status: true,
+            version: true,
+            totalAmount: true,
+            currency: true,
+            refundedAt: true,
+            refundAmount: true,
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+                email: true,
+                preferredLanguage: true,
+              },
+            },
+            book: {
+              select: {
+                id: true,
+                status: true,
+                productionStatus: true,
+                version: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!payment) {
+      throw new NotFoundException("Payment not found");
+    }
+
+    if (!payment.order) {
+      throw new BadRequestException("This payment is not linked to an order.");
+    }
+    const order = payment.order;
+    const orderBook = order.book;
+
+    if (payment.type === PaymentType.REFUND) {
+      throw new BadRequestException("Refund payments cannot be refunded again.");
+    }
+
+    if (payment.status !== PaymentStatus.SUCCESS) {
+      throw new BadRequestException("Only successful payments can be refunded.");
+    }
+
+    if (order.status === OrderStatus.REFUNDED || order.refundedAt) {
+      throw new BadRequestException("This order has already been refunded.");
+    }
+
+    if (order.version !== params.input.expectedOrderVersion) {
+      throw new ConflictException("Order was updated by another admin. Refresh and try again.");
+    }
+
+    if (
+      orderBook &&
+      params.input.expectedBookVersion !== undefined &&
+      orderBook.version !== params.input.expectedBookVersion
+    ) {
+      throw new ConflictException("Book was updated by another admin. Refresh and try again.");
+    }
+
+    const policySnapshot = buildRefundPolicySnapshot({
+      orderTotalAmount: this.toCurrency(order.totalAmount),
+      orderStatus: order.status,
+      book: orderBook
+        ? {
+            status: orderBook.status,
+            productionStatus: orderBook.productionStatus,
+          }
+        : null,
+    });
+
+    this.assertRefundPolicySnapshotMatches(params.input.policySnapshot, policySnapshot);
+
+    if (!policySnapshot.eligible) {
+      throw new BadRequestException(policySnapshot.policyMessage);
+    }
+
+    const originalPaymentAmount = this.toCurrency(payment.amount);
+    const refundedAmount = this.resolveAdminRefundAmount({
+      input: params.input,
+      paymentAmount: originalPaymentAmount,
+      policySnapshot,
+    });
+    const normalizedReason = params.input.reason.trim();
+    const normalizedNote = params.input.note?.trim() || null;
+    const refundedAt = new Date();
+
+    const providerDispatch = await this.dispatchAdminRefund({
+      provider: payment.provider,
+      providerRef: payment.providerRef,
+      gatewayResponse: this.asRecord(payment.gatewayResponse),
+      amount: refundedAmount,
+    });
+
+    const { refundPayment, updatedOrder, updatedBook, audit } = await this.prisma.$transaction(
+      async (tx) => {
+        const orderUpdated = await tx.order.updateMany({
+          where: {
+            id: order.id,
+            version: params.input.expectedOrderVersion,
+            refundedAt: null,
+          },
+          data: {
+            status: OrderStatus.REFUNDED,
+            refundAmount: refundedAmount,
+            refundReason: normalizedReason,
+            refundedAt,
+            refundedBy: params.adminId,
+            version: {
+              increment: 1,
+            },
+          },
+        });
+
+        if (orderUpdated.count === 0) {
+          throw new ConflictException("Order was updated by another admin. Refresh and try again.");
+        }
+
+        let updatedBook: {
+          id: string;
+          status: BookStatus;
+          version: number;
+        } | null = null;
+
+        if (orderBook) {
+          const expectedBookVersion = params.input.expectedBookVersion ?? orderBook.version;
+          const bookUpdated = await tx.book.updateMany({
+            where: {
+              id: orderBook.id,
+              version: expectedBookVersion,
+            },
+            data: {
+              status: BookStatus.CANCELLED,
+              productionStatus: BookStatus.CANCELLED,
+              productionStatusUpdatedAt: refundedAt,
+              version: {
+                increment: 1,
+              },
+            },
+          });
+
+          if (bookUpdated.count === 0) {
+            throw new ConflictException(
+              "Book was updated by another admin. Refresh and try again."
+            );
+          }
+
+          updatedBook = await tx.book.findUnique({
+            where: { id: orderBook.id },
+            select: {
+              id: true,
+              status: true,
+              version: true,
+            },
+          });
+        }
+
+        if (refundedAmount >= originalPaymentAmount) {
+          await tx.payment.update({
+            where: { id: payment.id },
+            data: {
+              status: PaymentStatus.REFUNDED,
+              adminNote: normalizedNote ?? payment.adminNote ?? null,
+            },
+          });
+        } else if (normalizedNote && normalizedNote !== payment.adminNote) {
+          await tx.payment.update({
+            where: { id: payment.id },
+            data: {
+              adminNote: normalizedNote,
+            },
+          });
+        }
+
+        const refundPayment = await tx.payment.create({
+          data: {
+            orderId: order.id,
+            userId: payment.userId ?? order.userId,
+            provider: payment.provider,
+            type: PaymentType.REFUND,
+            amount: -refundedAmount,
+            currency: payment.currency,
+            status: PaymentStatus.REFUNDED,
+            providerRef: providerDispatch.providerRefundReference ?? undefined,
+            processedAt: refundedAt,
+            payerName: payment.payerName ?? null,
+            payerEmail: payment.payerEmail ?? order.user.email,
+            payerPhone: payment.payerPhone ?? null,
+            adminNote: normalizedNote,
+            approvedAt: refundedAt,
+            approvedBy: params.adminId,
+            metadata: {
+              originalPaymentId: payment.id,
+              refundType: params.input.type,
+              policySnapshot,
+            },
+            gatewayResponse: providerDispatch.response ?? undefined,
+          } as Prisma.PaymentUncheckedCreateInput,
+        });
+
+        const updatedOrder = await tx.order.findUnique({
+          where: { id: order.id },
+          select: {
+            id: true,
+            status: true,
+            version: true,
+          },
+        });
+
+        if (!updatedOrder) {
+          throw new NotFoundException(`Order "${order.id}" not found`);
+        }
+
+        const audit = await tx.auditLog.create({
+          data: {
+            userId: params.adminId,
+            action: "ADMIN_ORDER_REFUND_PROCESSED",
+            entityType: "ORDER",
+            entityId: order.id,
+            details: {
+              paymentId: payment.id,
+              refundPaymentId: refundPayment.id,
+              refundType: params.input.type,
+              refundedAmount,
+              provider: payment.provider,
+              processingMode: providerDispatch.processingMode,
+              providerRefundReference: providerDispatch.providerRefundReference,
+              reason: normalizedReason,
+              note: normalizedNote,
+              policySnapshot,
+            },
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            userId: params.adminId,
+            action: "ORDER_STATUS_REACHED",
+            entityType: "ORDER_TRACKING",
+            entityId: order.id,
+            details: {
+              source: "order",
+              status: OrderStatus.REFUNDED,
+              reachedAt: refundedAt.toISOString(),
+              label: "Refunded",
+            },
+          },
+        });
+
+        await this.notificationsService.createOrderStatusNotification(
+          {
+            userId: order.userId,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: OrderStatus.REFUNDED,
+            source: "order",
+            bookId: orderBook?.id,
+          },
+          tx
+        );
+
+        return {
+          refundPayment,
+          updatedOrder,
+          updatedBook,
+          audit,
+        };
+      }
+    );
+
+    const emailSent = await this.sendRefundConfirmationEmail({
+      email: order.user.email,
+      userName: this.pickDisplayName(
+        [order.user.firstName, order.user.lastName].filter(Boolean).join(" ") || undefined,
+        order.user.email
+      ),
+      locale: this.resolveLocale(order.user.preferredLanguage),
+      orderNumber: order.orderNumber,
+      originalAmount: originalPaymentAmount,
+      refundedAmount,
+      refundReason: normalizedReason,
+    });
+
+    return {
+      orderId: order.id,
+      paymentId: payment.id,
+      refundPaymentId: refundPayment.id,
+      provider: payment.provider,
+      processingMode: providerDispatch.processingMode,
+      refundType: params.input.type,
+      refundedAmount,
+      currency: payment.currency,
+      paymentStatus: refundPayment.status,
+      providerRefundReference: providerDispatch.providerRefundReference,
+      orderStatus: updatedOrder.status,
+      bookStatus: updatedBook?.status ?? null,
+      refundedAt: refundedAt.toISOString(),
+      refundReason: normalizedReason,
+      orderVersion: updatedOrder.version,
+      bookVersion: updatedBook?.version ?? null,
+      emailSent,
+      policySnapshot,
+      audit: this.serializeAdminAuditEntry(audit, params.adminId),
     };
   }
 
@@ -2064,6 +2406,206 @@ export class PaymentsService {
         `Failed to send online payment admin email: ${sendResult.error.name} — ${sendResult.error.message}`
       );
     }
+  }
+
+  private assertRefundPolicySnapshotMatches(
+    clientSnapshot: RefundPolicySnapshot,
+    serverSnapshot: RefundPolicySnapshot
+  ): void {
+    const sameAllowedTypes =
+      clientSnapshot.allowedRefundTypes.length === serverSnapshot.allowedRefundTypes.length &&
+      clientSnapshot.allowedRefundTypes.every(
+        (value, index) => value === serverSnapshot.allowedRefundTypes[index]
+      );
+
+    const matches =
+      clientSnapshot.stage === serverSnapshot.stage &&
+      clientSnapshot.statusSource === serverSnapshot.statusSource &&
+      clientSnapshot.policyDecision === serverSnapshot.policyDecision &&
+      clientSnapshot.eligible === serverSnapshot.eligible &&
+      sameAllowedTypes &&
+      this.toCurrency(clientSnapshot.orderTotalAmount) ===
+        this.toCurrency(serverSnapshot.orderTotalAmount) &&
+      this.toCurrency(clientSnapshot.recommendedAmount) ===
+        this.toCurrency(serverSnapshot.recommendedAmount) &&
+      this.toCurrency(clientSnapshot.maxRefundAmount) ===
+        this.toCurrency(serverSnapshot.maxRefundAmount) &&
+      this.toCurrency(clientSnapshot.policyPercent) ===
+        this.toCurrency(serverSnapshot.policyPercent);
+
+    if (!matches) {
+      throw new ConflictException(
+        "Refund policy changed. Refresh the order and review the latest policy."
+      );
+    }
+  }
+
+  private resolveAdminRefundAmount(params: {
+    input: AdminRefundRequestInput;
+    paymentAmount: number;
+    policySnapshot: RefundPolicySnapshot;
+  }): number {
+    if (!params.policySnapshot.allowedRefundTypes.includes(params.input.type)) {
+      throw new BadRequestException(
+        "Selected refund type is not allowed for the current order stage."
+      );
+    }
+
+    const maxRefundAmount = this.toCurrency(
+      Math.min(params.policySnapshot.maxRefundAmount, params.paymentAmount)
+    );
+
+    let resolvedAmount = 0;
+    switch (params.input.type) {
+      case "FULL":
+        resolvedAmount = maxRefundAmount;
+        break;
+      case "PARTIAL":
+        resolvedAmount = this.toCurrency(
+          Math.min(params.policySnapshot.recommendedAmount, maxRefundAmount)
+        );
+        break;
+      case "CUSTOM":
+        resolvedAmount = this.toCurrency(params.input.customAmount ?? 0);
+        if (resolvedAmount > maxRefundAmount) {
+          throw new BadRequestException(
+            `Custom refund amount cannot exceed ${this.formatNaira(maxRefundAmount)} for this payment.`
+          );
+        }
+        break;
+      default:
+        throw new BadRequestException("Unsupported refund type.");
+    }
+
+    if (resolvedAmount <= 0) {
+      throw new BadRequestException("Refund amount must be greater than zero.");
+    }
+
+    return resolvedAmount;
+  }
+
+  private async dispatchAdminRefund(params: {
+    provider: PaymentProvider;
+    providerRef: string | null;
+    gatewayResponse: Record<string, unknown> | null;
+    amount: number;
+  }): Promise<{
+    processingMode: "gateway" | "manual";
+    providerRefundReference: string | null;
+    response: Prisma.InputJsonValue | undefined;
+  }> {
+    switch (params.provider) {
+      case PaymentProvider.PAYSTACK: {
+        if (!params.providerRef) {
+          throw new BadRequestException("Paystack payment reference is missing for this refund.");
+        }
+        const response = await this.paystackService.refund(params.providerRef, params.amount);
+        return {
+          processingMode: "gateway",
+          providerRefundReference: this.extractRefundReference(response),
+          response: response as Prisma.InputJsonValue,
+        };
+      }
+
+      case PaymentProvider.STRIPE: {
+        const stripeReference =
+          this.asString(params.gatewayResponse?.payment_intent) ?? params.providerRef;
+        if (!stripeReference) {
+          throw new BadRequestException("Stripe payment reference is missing for this refund.");
+        }
+        const response = await this.stripeService.refund(stripeReference, params.amount);
+        return {
+          processingMode: "gateway",
+          providerRefundReference: this.extractRefundReference(response),
+          response: response as Prisma.InputJsonValue,
+        };
+      }
+
+      case PaymentProvider.BANK_TRANSFER:
+        return {
+          processingMode: "manual",
+          providerRefundReference: null,
+          response: undefined,
+        };
+
+      case PaymentProvider.PAYPAL:
+        throw new BadRequestException(
+          "PayPal refunds are not supported by the admin refund workflow yet."
+        );
+
+      default:
+        throw new BadRequestException(`Unsupported refund provider: ${params.provider}`);
+    }
+  }
+
+  private async sendRefundConfirmationEmail(params: {
+    email: string;
+    userName: string;
+    locale: Locale;
+    orderNumber: string;
+    originalAmount: number;
+    refundedAmount: number;
+    refundReason: string;
+  }): Promise<boolean> {
+    if (!this.resend) {
+      this.logger.warn("RESEND_API_KEY not set — refund confirmation email skipped");
+      return false;
+    }
+
+    const email = await renderRefundConfirmEmail({
+      locale: params.locale,
+      userName: params.userName,
+      orderNumber: params.orderNumber,
+      originalAmount: this.formatNaira(params.originalAmount),
+      refundAmount: this.formatNaira(params.refundedAmount),
+      refundReason: params.refundReason,
+    });
+
+    const sendResult = await this.resend.emails.send({
+      from: this.paymentsFromEmail,
+      to: params.email,
+      subject: email.subject,
+      html: email.html,
+    });
+
+    if (sendResult.error) {
+      this.logger.error(
+        `Failed to send refund confirmation email: ${sendResult.error.name} — ${sendResult.error.message}`
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private extractRefundReference(response: Record<string, unknown>): string | null {
+    return (
+      this.asString(response.id) ??
+      this.asString(response.reference) ??
+      this.asString(response.refund_reference) ??
+      this.asString(response.transaction_reference) ??
+      null
+    );
+  }
+
+  private serializeAdminAuditEntry(
+    row: Pick<
+      Prisma.AuditLogGetPayload<object>,
+      "id" | "action" | "entityType" | "entityId" | "details" | "createdAt"
+    >,
+    recordedBy: string
+  ): AdminRefundResponse["audit"] {
+    const details = this.asRecord(row.details);
+    return {
+      auditId: row.id,
+      action: row.action,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      recordedAt: row.createdAt.toISOString(),
+      recordedBy,
+      note: this.asString(details?.note) ?? null,
+      reason: this.asString(details?.reason) ?? null,
+    };
   }
 
   private pickDisplayName(fullName: string | undefined, email: string): string {

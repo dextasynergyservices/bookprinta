@@ -19,10 +19,10 @@ export class ReviewsController {
   @Header("Cache-Control", "private, no-store")
   @Header("Vary", "Cookie")
   @ApiOperation({
-    summary: "Get current user's reviews and review-eligible books",
+    summary: "Get current user's delivered-book review state",
     description:
-      "Returns review state for the authenticated user, including submitted reviews, " +
-      "pending reviewable books, and `hasAnyPrintedBook` used to gate the dashboard sidebar item.",
+      "Returns a unified review-state payload for the authenticated user, including " +
+      "DELIVERED-or-later books, persisted book metadata, review status, and submitted review summaries.",
   })
   @ApiResponse({
     status: 200,
@@ -38,10 +38,10 @@ export class ReviewsController {
   @Header("Cache-Control", "private, no-store")
   @Header("Vary", "Cookie")
   @ApiOperation({
-    summary: "Submit a review for a printed book",
+    summary: "Submit a review for a delivered book",
     description:
       "Creates one review for the authenticated user and selected book. " +
-      "The book must belong to the user, be PRINTED or later, and not already have a review.",
+      "The book must belong to the user, be DELIVERED or later, and not already have a review.",
   })
   @ApiResponse({
     status: 201,
