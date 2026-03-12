@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type {
+  AdminOrderDetail,
+  AdminOrderDisplayStatus,
+  AdminOrderSortField,
+  AdminOrdersListResponse,
+  AdminUpdateOrderStatusResponse,
   BookStatus,
   OrderDetailResponse,
   OrderInvoiceArchiveResponse,
@@ -11,14 +16,25 @@ import type {
   TrackingState,
 } from "@bookprinta/shared";
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import type { Prisma } from "../generated/prisma/client.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import {
+  buildRefundPolicySnapshot,
+  humanizeAdminStatus,
+  resolveAdminStatusProjection,
+  resolveNextAllowedOrderStatuses,
+} from "./admin-order-workflow.js";
+import type { AdminOrdersListQueryDto, AdminUpdateOrderStatusDto } from "./dto/admin-order.dto.js";
 import type { OrdersListQueryDto } from "./dto/order.dto.js";
 import { renderOrderInvoiceHtml } from "./order-invoice.template.js";
 
@@ -80,7 +96,8 @@ export class OrdersService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly cloudinary: CloudinaryService
+    private readonly cloudinary: CloudinaryService,
+    @Optional() private readonly notificationsService?: NotificationsService
   ) {}
 
   private static readonly ORDER_LIST_SELECT = {
@@ -185,6 +202,7 @@ export class OrdersService {
 
   private static readonly ORDER_TRACKING_SELECT = {
     id: true,
+    userId: true,
     orderNumber: true,
     status: true,
     createdAt: true,
@@ -200,6 +218,154 @@ export class OrdersService {
         rejectionReason: true,
         createdAt: true,
         updatedAt: true,
+      },
+    },
+  } as const;
+
+  private static readonly ADMIN_ORDER_SORTABLE_FIELDS: AdminOrderSortField[] = [
+    "orderNumber",
+    "customerName",
+    "customerEmail",
+    "packageName",
+    "displayStatus",
+    "createdAt",
+    "totalAmount",
+  ];
+
+  private static readonly ORDER_ADMIN_LIST_SELECT = {
+    id: true,
+    orderNumber: true,
+    status: true,
+    createdAt: true,
+    totalAmount: true,
+    currency: true,
+    user: {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phoneNumber: true,
+        preferredLanguage: true,
+      },
+    },
+    package: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+      },
+    },
+    book: {
+      select: {
+        id: true,
+        status: true,
+        productionStatus: true,
+      },
+    },
+  } as const;
+
+  private static readonly ORDER_ADMIN_DETAIL_SELECT = {
+    id: true,
+    userId: true,
+    orderNumber: true,
+    orderType: true,
+    status: true,
+    version: true,
+    createdAt: true,
+    updatedAt: true,
+    copies: true,
+    bookSize: true,
+    paperColor: true,
+    lamination: true,
+    initialAmount: true,
+    extraAmount: true,
+    discountAmount: true,
+    totalAmount: true,
+    refundAmount: true,
+    refundReason: true,
+    refundedAt: true,
+    refundedBy: true,
+    currency: true,
+    trackingNumber: true,
+    shippingProvider: true,
+    user: {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phoneNumber: true,
+        preferredLanguage: true,
+      },
+    },
+    package: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+      },
+    },
+    shippingAddress: {
+      select: {
+        street: true,
+        city: true,
+        state: true,
+        country: true,
+        zipCode: true,
+      },
+    },
+    book: {
+      select: {
+        id: true,
+        status: true,
+        productionStatus: true,
+        version: true,
+        rejectionReason: true,
+        pageCount: true,
+        wordCount: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    },
+    payments: {
+      select: {
+        id: true,
+        provider: true,
+        status: true,
+        type: true,
+        amount: true,
+        currency: true,
+        providerRef: true,
+        receiptUrl: true,
+        payerName: true,
+        payerEmail: true,
+        payerPhone: true,
+        adminNote: true,
+        approvedAt: true,
+        approvedBy: true,
+        processedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: {
+        createdAt: "desc" as const,
+      },
+    },
+    addons: {
+      select: {
+        id: true,
+        addonId: true,
+        priceSnap: true,
+        wordCount: true,
+        addon: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      orderBy: {
+        id: "asc" as const,
       },
     },
   } as const;
@@ -323,6 +489,332 @@ export class OrdersService {
     };
   }
 
+  async findAdminOrders(query: AdminOrdersListQueryDto): Promise<AdminOrdersListResponse> {
+    const where = this.buildAdminOrdersWhere(query);
+    const orderBy = this.buildAdminOrdersOrderBy(query.sortBy, query.sortDirection);
+
+    const [rows, totalItems] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        orderBy,
+        take: query.limit + 1,
+        ...(query.cursor
+          ? {
+              cursor: { id: query.cursor },
+              skip: 1,
+            }
+          : {}),
+        select: OrdersService.ORDER_ADMIN_LIST_SELECT,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    const hasMore = rows.length > query.limit;
+    const pageItems = hasMore ? rows.slice(0, query.limit) : rows;
+
+    return {
+      items: pageItems.map((row) => this.serializeAdminListItem(row)),
+      nextCursor:
+        hasMore && pageItems.length > 0 ? (pageItems[pageItems.length - 1]?.id ?? null) : null,
+      hasMore,
+      totalItems,
+      limit: query.limit,
+      sortBy: query.sortBy,
+      sortDirection: query.sortDirection,
+      sortableFields: [...OrdersService.ADMIN_ORDER_SORTABLE_FIELDS],
+    };
+  }
+
+  async findAdminOrderById(orderId: string): Promise<AdminOrderDetail> {
+    const row = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: OrdersService.ORDER_ADMIN_DETAIL_SELECT,
+    });
+
+    if (!row) {
+      throw new NotFoundException(`Order "${orderId}" not found`);
+    }
+
+    const statusProjection = resolveAdminStatusProjection({
+      orderStatus: row.status,
+      book: row.book
+        ? {
+            status: row.book.status,
+            productionStatus: row.book.productionStatus,
+          }
+        : null,
+    });
+    const refundPolicy = buildRefundPolicySnapshot({
+      orderTotalAmount: this.toNumber(row.totalAmount),
+      orderStatus: row.status,
+      book: row.book
+        ? {
+            status: row.book.status,
+            productionStatus: row.book.productionStatus,
+          }
+        : null,
+    });
+    const tracking = await this.getOrderTrackingSnapshotOrThrow(orderId);
+
+    return {
+      id: row.id,
+      orderNumber: row.orderNumber,
+      orderType: row.orderType,
+      orderStatus: row.status,
+      bookStatus: statusProjection.bookStatus,
+      displayStatus: statusProjection.displayStatus,
+      statusSource: statusProjection.statusSource,
+      orderVersion: row.version,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      customer: {
+        id: row.user.id,
+        fullName: this.buildCustomerName(row.user.firstName, row.user.lastName, row.user.email),
+        email: row.user.email,
+        phoneNumber: row.user.phoneNumber ?? null,
+        preferredLanguage: this.normalizePreferredLanguage(row.user.preferredLanguage),
+      },
+      package: {
+        id: row.package.id,
+        name: row.package.name,
+        slug: row.package.slug,
+      },
+      shippingAddress: row.shippingAddress
+        ? {
+            street: row.shippingAddress.street,
+            city: row.shippingAddress.city,
+            state: row.shippingAddress.state,
+            country: row.shippingAddress.country,
+            zipCode: row.shippingAddress.zipCode ?? null,
+          }
+        : null,
+      book: row.book
+        ? {
+            id: row.book.id,
+            status: row.book.status,
+            productionStatus: row.book.productionStatus ?? null,
+            version: row.book.version,
+            rejectionReason: row.book.rejectionReason ?? null,
+            pageCount: row.book.pageCount ?? null,
+            wordCount: row.book.wordCount ?? null,
+            createdAt: row.book.createdAt.toISOString(),
+            updatedAt: row.book.updatedAt.toISOString(),
+          }
+        : null,
+      copies: row.copies,
+      bookSize: row.bookSize,
+      paperColor: row.paperColor,
+      lamination: row.lamination,
+      initialAmount: this.toNumber(row.initialAmount),
+      extraAmount: this.toNumber(row.extraAmount),
+      discountAmount: this.toNumber(row.discountAmount),
+      totalAmount: this.toNumber(row.totalAmount),
+      refundAmount: this.toNumber(row.refundAmount),
+      refundReason: row.refundReason ?? null,
+      refundedAt: row.refundedAt?.toISOString() ?? null,
+      refundedBy: row.refundedBy ?? null,
+      currency: row.currency,
+      trackingNumber: row.trackingNumber ?? null,
+      shippingProvider: row.shippingProvider ?? null,
+      addons: row.addons.map((addon) => ({
+        id: addon.id,
+        addonId: addon.addonId,
+        name: addon.addon.name,
+        price: this.toNumber(addon.priceSnap),
+        wordCount: addon.wordCount ?? null,
+      })),
+      payments: row.payments.map((payment) => ({
+        id: payment.id,
+        provider: payment.provider,
+        status: payment.status,
+        type: payment.type,
+        amount: this.toNumber(payment.amount),
+        currency: payment.currency,
+        providerRef: payment.providerRef ?? null,
+        receiptUrl: payment.receiptUrl ?? null,
+        payerName: payment.payerName ?? null,
+        payerEmail: payment.payerEmail ?? null,
+        payerPhone: payment.payerPhone ?? null,
+        adminNote: payment.adminNote ?? null,
+        approvedAt: payment.approvedAt?.toISOString() ?? null,
+        approvedBy: payment.approvedBy ?? null,
+        processedAt: payment.processedAt?.toISOString() ?? null,
+        isRefundable: this.isAdminPaymentRefundable({
+          provider: payment.provider,
+          status: payment.status,
+          type: payment.type,
+          amount: this.toNumber(payment.amount),
+          refundPolicy,
+        }),
+        createdAt: payment.createdAt.toISOString(),
+        updatedAt: payment.updatedAt.toISOString(),
+      })),
+      timeline: tracking.timeline,
+      refundPolicy,
+      statusControl: {
+        currentStatus: row.status,
+        expectedVersion: row.version,
+        nextAllowedStatuses: resolveNextAllowedOrderStatuses(row.status),
+      },
+    };
+  }
+
+  async updateAdminOrderStatus(
+    orderId: string,
+    dto: AdminUpdateOrderStatusDto,
+    adminId: string
+  ): Promise<AdminUpdateOrderStatusResponse> {
+    const current = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        userId: true,
+        orderNumber: true,
+        status: true,
+        version: true,
+        book: {
+          select: {
+            status: true,
+            productionStatus: true,
+          },
+        },
+      },
+    });
+
+    if (!current) {
+      throw new NotFoundException(`Order "${orderId}" not found`);
+    }
+
+    if (current.version !== dto.expectedVersion) {
+      throw new ConflictException("Order was updated by another admin. Refresh and try again.");
+    }
+
+    if (current.status === dto.nextStatus) {
+      throw new BadRequestException("Order is already in that status.");
+    }
+
+    const nextAllowedStatuses = resolveNextAllowedOrderStatuses(current.status);
+    if (!nextAllowedStatuses.includes(dto.nextStatus)) {
+      throw new BadRequestException(
+        `Cannot transition order from ${current.status} to ${dto.nextStatus}.`
+      );
+    }
+
+    const reason = dto.reason?.trim() || null;
+    const note = dto.note?.trim() || null;
+    const recordedAt = new Date();
+
+    const { updated, audit } = await this.prisma.$transaction(async (tx) => {
+      const updatedCount = await tx.order.updateMany({
+        where: {
+          id: current.id,
+          version: dto.expectedVersion,
+        },
+        data: {
+          status: dto.nextStatus,
+          version: {
+            increment: 1,
+          },
+        },
+      });
+
+      if (updatedCount.count === 0) {
+        throw new ConflictException("Order was updated by another admin. Refresh and try again.");
+      }
+
+      const updatedOrder = await tx.order.findUnique({
+        where: { id: current.id },
+        select: {
+          id: true,
+          userId: true,
+          orderNumber: true,
+          status: true,
+          version: true,
+          updatedAt: true,
+          book: {
+            select: {
+              status: true,
+              productionStatus: true,
+            },
+          },
+        },
+      });
+
+      if (!updatedOrder) {
+        throw new NotFoundException(`Order "${orderId}" not found`);
+      }
+
+      const auditLog = await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_ORDER_STATUS_UPDATED",
+          entityType: "ORDER",
+          entityId: current.id,
+          details: {
+            previousStatus: current.status,
+            nextStatus: dto.nextStatus,
+            note,
+            reason,
+            expectedVersion: dto.expectedVersion,
+            orderVersion: updatedOrder.version,
+          },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: OrdersService.ORDER_TRACKING_ACTION,
+          entityType: OrdersService.ORDER_TRACKING_ENTITY_TYPE,
+          entityId: current.id,
+          details: {
+            source: "order",
+            status: dto.nextStatus,
+            reachedAt: recordedAt.toISOString(),
+            label: humanizeAdminStatus(dto.nextStatus),
+          },
+        },
+      });
+
+      await this.notificationsService?.createOrderStatusNotification(
+        {
+          userId: updatedOrder.userId,
+          orderId: updatedOrder.id,
+          orderNumber: updatedOrder.orderNumber,
+          status: dto.nextStatus,
+          source: "order",
+        },
+        tx
+      );
+
+      return {
+        updated: updatedOrder,
+        audit: auditLog,
+      };
+    });
+
+    const statusProjection = resolveAdminStatusProjection({
+      orderStatus: updated.status,
+      book: updated.book
+        ? {
+            status: updated.book.status,
+            productionStatus: updated.book.productionStatus,
+          }
+        : null,
+    });
+
+    return {
+      orderId: updated.id,
+      previousStatus: current.status,
+      nextStatus: updated.status,
+      displayStatus: statusProjection.displayStatus,
+      statusSource: statusProjection.statusSource,
+      orderVersion: updated.version,
+      updatedAt: updated.updatedAt.toISOString(),
+      audit: this.serializeAdminAuditEntry(audit, adminId),
+    };
+  }
+
   async appendTrackingEvent(params: {
     orderId: string;
     userId?: string | null;
@@ -382,57 +874,7 @@ export class OrdersService {
       throw new NotFoundException(`Order "${orderId}" not found`);
     }
 
-    await this.ensureTrackingEventsForOrder(row, userId);
-    const persistedEvents = await this.readTrackingEvents(row.id);
-
-    const book = row.book;
-    const shouldUseOrderSource = this.issueOrderStatuses.has(row.status) || !book;
-    const productionBookStatus = book
-      ? this.resolveProductionStatus({
-          productionStatus: book.productionStatus,
-          manuscriptStatus: book.status,
-        })
-      : null;
-    const timeline = shouldUseOrderSource
-      ? persistedEvents.length > 0
-        ? this.toTrackingTimelineFromEvents({
-            events: persistedEvents,
-            shouldUseOrderSource,
-            currentOrderStatus: row.status,
-            currentBookStatus: productionBookStatus,
-          })
-        : this.buildProgressTimeline({
-            stages: this.orderTrackingStages,
-            currentStatus: row.status,
-            source: "order",
-            startedAt: row.createdAt,
-            updatedAt: row.updatedAt,
-          })
-      : this.buildProgressTimeline({
-          stages: this.bookTrackingStages,
-          currentStatus: productionBookStatus ?? "PAYMENT_RECEIVED",
-          source: "book",
-          startedAt: book.createdAt,
-          updatedAt: book.productionStatusUpdatedAt ?? book.createdAt,
-        });
-
-    const latestEventReachedAt = timeline[timeline.length - 1]?.reachedAt ?? null;
-    const currentUpdatedAt = shouldUseOrderSource
-      ? row.updatedAt.toISOString()
-      : (row.book?.productionStatusUpdatedAt ?? row.book?.createdAt ?? row.updatedAt).toISOString();
-
-    return {
-      orderId: row.id,
-      orderNumber: row.orderNumber,
-      bookId: row.book?.id ?? null,
-      currentOrderStatus: row.status,
-      currentBookStatus: productionBookStatus,
-      rejectionReason: row.book?.rejectionReason ?? null,
-      trackingNumber: row.trackingNumber ?? null,
-      shippingProvider: row.shippingProvider ?? null,
-      updatedAt: latestEventReachedAt ?? currentUpdatedAt,
-      timeline,
-    };
+    return this.buildOrderTrackingResponse(row);
   }
 
   async getUserOrderInvoiceArchive(
@@ -1095,6 +1537,75 @@ export class OrdersService {
     }
   }
 
+  private async getOrderTrackingSnapshotOrThrow(orderId: string): Promise<OrderTrackingResponse> {
+    const row = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: OrdersService.ORDER_TRACKING_SELECT,
+    });
+
+    if (!row) {
+      throw new NotFoundException(`Order "${orderId}" not found`);
+    }
+
+    return this.buildOrderTrackingResponse(row);
+  }
+
+  private async buildOrderTrackingResponse(
+    row: Prisma.OrderGetPayload<{ select: typeof OrdersService.ORDER_TRACKING_SELECT }>
+  ): Promise<OrderTrackingResponse> {
+    await this.ensureTrackingEventsForOrder(row, row.userId);
+    const persistedEvents = await this.readTrackingEvents(row.id);
+
+    const book = row.book;
+    const shouldUseOrderSource = this.issueOrderStatuses.has(row.status) || !book;
+    const productionBookStatus = book
+      ? this.resolveProductionStatus({
+          productionStatus: book.productionStatus,
+          manuscriptStatus: book.status,
+        })
+      : null;
+    const timeline = shouldUseOrderSource
+      ? persistedEvents.length > 0
+        ? this.toTrackingTimelineFromEvents({
+            events: persistedEvents,
+            shouldUseOrderSource,
+            currentOrderStatus: row.status,
+            currentBookStatus: productionBookStatus,
+          })
+        : this.buildProgressTimeline({
+            stages: this.orderTrackingStages,
+            currentStatus: row.status,
+            source: "order",
+            startedAt: row.createdAt,
+            updatedAt: row.updatedAt,
+          })
+      : this.buildProgressTimeline({
+          stages: this.bookTrackingStages,
+          currentStatus: productionBookStatus ?? "PAYMENT_RECEIVED",
+          source: "book",
+          startedAt: book.createdAt,
+          updatedAt: book.productionStatusUpdatedAt ?? book.createdAt,
+        });
+
+    const latestEventReachedAt = timeline[timeline.length - 1]?.reachedAt ?? null;
+    const currentUpdatedAt = shouldUseOrderSource
+      ? row.updatedAt.toISOString()
+      : (row.book?.productionStatusUpdatedAt ?? row.book?.createdAt ?? row.updatedAt).toISOString();
+
+    return {
+      orderId: row.id,
+      orderNumber: row.orderNumber,
+      bookId: row.book?.id ?? null,
+      currentOrderStatus: row.status,
+      currentBookStatus: productionBookStatus,
+      rejectionReason: row.book?.rejectionReason ?? null,
+      trackingNumber: row.trackingNumber ?? null,
+      shippingProvider: row.shippingProvider ?? null,
+      updatedAt: latestEventReachedAt ?? currentUpdatedAt,
+      timeline,
+    };
+  }
+
   private async readTrackingEvents(orderId: string): Promise<TrackingEventRow[]> {
     const rows = await this.prisma.auditLog.findMany({
       where: {
@@ -1322,6 +1833,239 @@ export class OrdersService {
       minute: "2-digit",
       hour12: false,
     }).format(parsed);
+  }
+
+  private buildAdminOrdersWhere(query: AdminOrdersListQueryDto): Prisma.OrderWhereInput {
+    const q = query.q?.trim();
+    const createdAt: Prisma.DateTimeFilter | undefined =
+      query.dateFrom || query.dateTo
+        ? {
+            ...(query.dateFrom ? { gte: new Date(`${query.dateFrom}T00:00:00.000Z`) } : {}),
+            ...(query.dateTo ? { lte: new Date(`${query.dateTo}T23:59:59.999Z`) } : {}),
+          }
+        : undefined;
+    const filters: Prisma.OrderWhereInput[] = [];
+
+    if (query.packageId) {
+      filters.push({ packageId: query.packageId });
+    }
+
+    if (createdAt) {
+      filters.push({ createdAt });
+    }
+
+    if (query.status) {
+      filters.push(this.buildAdminOrderStatusWhere(query.status));
+    }
+
+    if (q) {
+      filters.push({
+        OR: [
+          { orderNumber: { contains: q, mode: "insensitive" } },
+          { user: { is: { firstName: { contains: q, mode: "insensitive" } } } },
+          { user: { is: { lastName: { contains: q, mode: "insensitive" } } } },
+          { user: { is: { email: { contains: q, mode: "insensitive" } } } },
+          { package: { is: { name: { contains: q, mode: "insensitive" } } } },
+        ],
+      });
+    }
+
+    if (filters.length === 0) {
+      return {};
+    }
+
+    if (filters.length === 1) {
+      return filters[0] ?? {};
+    }
+
+    return {
+      AND: filters,
+    };
+  }
+
+  private buildAdminOrderStatusWhere(status: AdminOrderDisplayStatus): Prisma.OrderWhereInput {
+    const filters: Prisma.OrderWhereInput[] = [];
+
+    if (this.isOrderLifecycleStatus(status)) {
+      filters.push({ status });
+    }
+
+    if (this.isBookLifecycleStatus(status)) {
+      filters.push({ book: { is: { productionStatus: status } } });
+      filters.push({ book: { is: { status } } });
+    }
+
+    return filters.length === 1 ? filters[0] : { OR: filters };
+  }
+
+  private buildAdminOrdersOrderBy(
+    sortBy: AdminOrderSortField,
+    sortDirection: "asc" | "desc"
+  ): Prisma.OrderOrderByWithRelationInput[] {
+    const direction = sortDirection;
+
+    switch (sortBy) {
+      case "orderNumber":
+        return [{ orderNumber: direction }, { id: direction }];
+      case "customerName":
+        return [
+          { user: { firstName: direction } },
+          { user: { lastName: direction } },
+          { id: direction },
+        ];
+      case "customerEmail":
+        return [{ user: { email: direction } }, { id: direction }];
+      case "packageName":
+        return [{ package: { name: direction } }, { id: direction }];
+      case "displayStatus":
+        return [
+          { book: { productionStatus: direction } },
+          { book: { status: direction } },
+          { status: direction },
+          { id: direction },
+        ];
+      case "totalAmount":
+        return [{ totalAmount: direction }, { id: direction }];
+      default:
+        return [{ createdAt: direction }, { id: direction }];
+    }
+  }
+
+  private serializeAdminListItem(
+    row: Prisma.OrderGetPayload<{ select: typeof OrdersService.ORDER_ADMIN_LIST_SELECT }>
+  ): AdminOrdersListResponse["items"][number] {
+    const statusProjection = resolveAdminStatusProjection({
+      orderStatus: row.status,
+      book: row.book
+        ? {
+            status: row.book.status,
+            productionStatus: row.book.productionStatus,
+          }
+        : null,
+    });
+
+    return {
+      id: row.id,
+      orderNumber: row.orderNumber,
+      customer: {
+        id: row.user.id,
+        fullName: this.buildCustomerName(row.user.firstName, row.user.lastName, row.user.email),
+        email: row.user.email,
+        phoneNumber: row.user.phoneNumber ?? null,
+        preferredLanguage: this.normalizePreferredLanguage(row.user.preferredLanguage),
+      },
+      package: {
+        id: row.package.id,
+        name: row.package.name,
+        slug: row.package.slug,
+      },
+      orderStatus: row.status,
+      bookStatus: statusProjection.bookStatus,
+      displayStatus: statusProjection.displayStatus,
+      statusSource: statusProjection.statusSource,
+      createdAt: row.createdAt.toISOString(),
+      totalAmount: this.toNumber(row.totalAmount),
+      currency: row.currency,
+      detailUrl: `/admin/orders/${row.id}`,
+    };
+  }
+
+  private isAdminPaymentRefundable(params: {
+    provider: string;
+    status: string;
+    type: string;
+    amount: number;
+    refundPolicy: AdminOrderDetail["refundPolicy"];
+  }): boolean {
+    if (!params.refundPolicy.eligible) return false;
+    if (params.status !== "SUCCESS") return false;
+    if (params.type === "REFUND") return false;
+    if (params.amount <= 0) return false;
+    return (
+      params.provider === "PAYSTACK" ||
+      params.provider === "STRIPE" ||
+      params.provider === "BANK_TRANSFER"
+    );
+  }
+
+  private buildCustomerName(
+    firstName: string | null,
+    lastName: string | null,
+    email: string
+  ): string {
+    const parts = [firstName?.trim(), lastName?.trim()].filter((value): value is string =>
+      Boolean(value && value.length > 0)
+    );
+    return parts.join(" ") || email;
+  }
+
+  private normalizePreferredLanguage(value: string | null): string {
+    const normalized = value?.trim().toLowerCase();
+    return normalized && normalized.length >= 2 ? normalized : "en";
+  }
+
+  private isOrderLifecycleStatus(status: AdminOrderDisplayStatus): status is OrderStatus {
+    return (
+      status === "PENDING_PAYMENT" ||
+      status === "PENDING_PAYMENT_APPROVAL" ||
+      status === "PAID" ||
+      status === "PROCESSING" ||
+      status === "AWAITING_UPLOAD" ||
+      status === "FORMATTING" ||
+      status === "ACTION_REQUIRED" ||
+      status === "PREVIEW_READY" ||
+      status === "PENDING_EXTRA_PAYMENT" ||
+      status === "APPROVED" ||
+      status === "IN_PRODUCTION" ||
+      status === "COMPLETED" ||
+      status === "CANCELLED" ||
+      status === "REFUNDED"
+    );
+  }
+
+  private isBookLifecycleStatus(status: AdminOrderDisplayStatus): status is BookStatus {
+    return (
+      status === "AWAITING_UPLOAD" ||
+      status === "UPLOADED" ||
+      status === "PAYMENT_RECEIVED" ||
+      status === "AI_PROCESSING" ||
+      status === "DESIGNING" ||
+      status === "DESIGNED" ||
+      status === "FORMATTING" ||
+      status === "FORMATTED" ||
+      status === "FORMATTING_REVIEW" ||
+      status === "PREVIEW_READY" ||
+      status === "REVIEW" ||
+      status === "APPROVED" ||
+      status === "REJECTED" ||
+      status === "IN_PRODUCTION" ||
+      status === "PRINTING" ||
+      status === "PRINTED" ||
+      status === "SHIPPING" ||
+      status === "DELIVERED" ||
+      status === "COMPLETED" ||
+      status === "CANCELLED"
+    );
+  }
+
+  private serializeAdminAuditEntry(
+    row: Pick<
+      Prisma.AuditLogGetPayload<object>,
+      "id" | "action" | "entityType" | "entityId" | "details" | "createdAt"
+    >,
+    recordedBy: string
+  ): AdminUpdateOrderStatusResponse["audit"] {
+    const details = this.toRecord(row.details);
+    return {
+      auditId: row.id,
+      action: row.action,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      recordedAt: row.createdAt.toISOString(),
+      recordedBy,
+      note: this.toStringValue(details?.note) ?? null,
+      reason: this.toStringValue(details?.reason) ?? null,
+    };
   }
 
   private serializeListItem(

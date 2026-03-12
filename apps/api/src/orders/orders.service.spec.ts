@@ -2,6 +2,7 @@
 import { NotFoundException } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { OrdersService } from "./orders.service.js";
 
@@ -10,6 +11,8 @@ const mockPrismaService = {
     findMany: jest.fn(),
     count: jest.fn(),
     findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    updateMany: jest.fn(),
   },
   auditLog: {
     findMany: jest.fn(),
@@ -17,10 +20,15 @@ const mockPrismaService = {
     create: jest.fn(),
     createMany: jest.fn(),
   },
+  $transaction: jest.fn(),
 };
 
 const mockCloudinaryService = {
   upload: jest.fn(),
+};
+
+const mockNotificationsService = {
+  createOrderStatusNotification: jest.fn(),
 };
 
 describe("OrdersService", () => {
@@ -33,6 +41,7 @@ describe("OrdersService", () => {
         OrdersService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: CloudinaryService, useValue: mockCloudinaryService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
       ],
     }).compile();
 
@@ -44,6 +53,8 @@ describe("OrdersService", () => {
     mockPrismaService.auditLog.create.mockResolvedValue({
       id: "audit_1",
     });
+    mockPrismaService.$transaction.mockReset();
+    mockNotificationsService.createOrderStatusNotification.mockReset();
     delete process.env.GOTENBERG_URL;
     delete process.env.GOTENBERG_BACKUP_URL;
     delete process.env.GOTENBERG_USERNAME;
@@ -123,6 +134,278 @@ describe("OrdersService", () => {
     });
   });
 
+  describe("admin order management", () => {
+    it("applies filters, sorting, and cursor pagination for admin order lists", async () => {
+      mockPrismaService.order.findMany.mockResolvedValue([
+        {
+          id: "cmadminorder1",
+          orderNumber: "BP-2026-0001",
+          status: "FORMATTING",
+          createdAt: new Date("2026-03-10T09:30:00.000Z"),
+          totalAmount: { toNumber: () => 100000 } as unknown,
+          currency: "NGN",
+          package: {
+            id: "pkg_1",
+            name: "Signature Memoir",
+            slug: "signature-memoir",
+          },
+          user: {
+            id: "user_1",
+            email: "ada@example.com",
+            firstName: "Ada",
+            lastName: "Okafor",
+            phoneNumber: "+2348012345678",
+            preferredLanguage: "en",
+          },
+          book: {
+            status: "FORMATTING",
+            productionStatus: "FORMATTING",
+          },
+        },
+        {
+          id: "cmadminorder2",
+          orderNumber: "BP-2026-0002",
+          status: "FORMATTING",
+          createdAt: new Date("2026-03-11T09:30:00.000Z"),
+          totalAmount: { toNumber: () => 150000 } as unknown,
+          currency: "NGN",
+          package: {
+            id: "pkg_1",
+            name: "Signature Memoir",
+            slug: "signature-memoir",
+          },
+          user: {
+            id: "user_2",
+            email: "grace@example.com",
+            firstName: "Grace",
+            lastName: "Bello",
+            phoneNumber: "+2348098765432",
+            preferredLanguage: "en",
+          },
+          book: null,
+        },
+      ]);
+      mockPrismaService.order.count.mockResolvedValue(2);
+
+      const result = await service.findAdminOrders({
+        cursor: "cm_cursor_1",
+        limit: 1,
+        status: "FORMATTING",
+        packageId: "pkg_1",
+        dateFrom: "2026-03-01",
+        dateTo: "2026-03-31",
+        q: "Ada",
+        sortBy: "customerName",
+        sortDirection: "asc",
+      });
+
+      expect(mockPrismaService.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 2,
+          cursor: { id: "cm_cursor_1" },
+          skip: 1,
+          orderBy: [{ user: { firstName: "asc" } }, { user: { lastName: "asc" } }, { id: "asc" }],
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              { packageId: "pkg_1" },
+              {
+                createdAt: {
+                  gte: new Date("2026-03-01T00:00:00.000Z"),
+                  lte: new Date("2026-03-31T23:59:59.999Z"),
+                },
+              },
+            ]),
+          }),
+        })
+      );
+      expect(mockPrismaService.order.findMany.mock.calls[0]?.[0]?.where).toEqual(
+        expect.objectContaining({
+          AND: expect.arrayContaining([
+            {
+              OR: expect.arrayContaining([
+                { status: "FORMATTING" },
+                { book: { is: { productionStatus: "FORMATTING" } } },
+                { book: { is: { status: "FORMATTING" } } },
+              ]),
+            },
+            {
+              OR: expect.arrayContaining([
+                { orderNumber: { contains: "Ada", mode: "insensitive" } },
+                { user: { is: { firstName: { contains: "Ada", mode: "insensitive" } } } },
+                { user: { is: { lastName: { contains: "Ada", mode: "insensitive" } } } },
+                { user: { is: { email: { contains: "Ada", mode: "insensitive" } } } },
+                { package: { is: { name: { contains: "Ada", mode: "insensitive" } } } },
+              ]),
+            },
+          ]),
+        })
+      );
+      expect(result).toEqual({
+        items: [
+          {
+            id: "cmadminorder1",
+            orderNumber: "BP-2026-0001",
+            customer: {
+              id: "user_1",
+              fullName: "Ada Okafor",
+              email: "ada@example.com",
+              phoneNumber: "+2348012345678",
+              preferredLanguage: "en",
+            },
+            package: {
+              id: "pkg_1",
+              name: "Signature Memoir",
+              slug: "signature-memoir",
+            },
+            orderStatus: "FORMATTING",
+            bookStatus: "FORMATTING",
+            displayStatus: "FORMATTING",
+            statusSource: "book",
+            createdAt: "2026-03-10T09:30:00.000Z",
+            totalAmount: 100000,
+            currency: "NGN",
+            detailUrl: "/admin/orders/cmadminorder1",
+          },
+        ],
+        nextCursor: "cmadminorder1",
+        hasMore: true,
+        totalItems: 2,
+        limit: 1,
+        sortBy: "customerName",
+        sortDirection: "asc",
+        sortableFields: [
+          "orderNumber",
+          "customerName",
+          "customerEmail",
+          "packageName",
+          "displayStatus",
+          "createdAt",
+          "totalAmount",
+        ],
+      });
+    });
+
+    it("creates an audit entry when an admin advances order status", async () => {
+      mockPrismaService.order.findUnique.mockResolvedValue({
+        id: "cmadminorder1",
+        userId: "user_1",
+        orderNumber: "BP-2026-0001",
+        status: "FORMATTING",
+        version: 3,
+        book: null,
+      });
+
+      const auditLogCreateMock = jest
+        .fn()
+        .mockResolvedValueOnce({
+          id: "audit_status_1",
+          createdAt: new Date("2026-03-12T10:00:00.000Z"),
+          action: "ADMIN_ORDER_STATUS_UPDATED",
+          entityType: "ORDER",
+          entityId: "cmadminorder1",
+          details: {
+            note: "QA sign-off completed.",
+            reason: "Preview approved internally.",
+          },
+        })
+        .mockResolvedValueOnce({
+          id: "audit_tracking_1",
+        });
+      const tx = {
+        order: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          findUnique: jest.fn().mockResolvedValue({
+            id: "cmadminorder1",
+            userId: "user_1",
+            orderNumber: "BP-2026-0001",
+            status: "PREVIEW_READY",
+            version: 4,
+            updatedAt: new Date("2026-03-12T10:00:00.000Z"),
+            book: null,
+          }),
+        },
+        auditLog: {
+          create: auditLogCreateMock,
+        },
+      };
+      mockPrismaService.$transaction.mockImplementation(
+        async (callback: (trx: typeof tx) => unknown) => callback(tx)
+      );
+
+      const result = await service.updateAdminOrderStatus(
+        "cmadminorder1",
+        {
+          nextStatus: "PREVIEW_READY",
+          expectedVersion: 3,
+          reason: "Preview approved internally.",
+          note: "QA sign-off completed.",
+        },
+        "admin_1"
+      );
+
+      expect(tx.order.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: "cmadminorder1",
+          version: 3,
+        },
+        data: {
+          status: "PREVIEW_READY",
+          version: {
+            increment: 1,
+          },
+        },
+      });
+      expect(auditLogCreateMock).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: "admin_1",
+            action: "ADMIN_ORDER_STATUS_UPDATED",
+            entityType: "ORDER",
+            entityId: "cmadminorder1",
+            details: expect.objectContaining({
+              previousStatus: "FORMATTING",
+              nextStatus: "PREVIEW_READY",
+              note: "QA sign-off completed.",
+              reason: "Preview approved internally.",
+              expectedVersion: 3,
+              orderVersion: 4,
+            }),
+          }),
+        })
+      );
+      expect(mockNotificationsService.createOrderStatusNotification).toHaveBeenCalledWith(
+        {
+          userId: "user_1",
+          orderId: "cmadminorder1",
+          orderNumber: "BP-2026-0001",
+          status: "PREVIEW_READY",
+          source: "order",
+        },
+        tx
+      );
+      expect(result).toEqual({
+        orderId: "cmadminorder1",
+        previousStatus: "FORMATTING",
+        nextStatus: "PREVIEW_READY",
+        displayStatus: "PREVIEW_READY",
+        statusSource: "order",
+        orderVersion: 4,
+        updatedAt: "2026-03-12T10:00:00.000Z",
+        audit: {
+          auditId: "audit_status_1",
+          action: "ADMIN_ORDER_STATUS_UPDATED",
+          entityType: "ORDER",
+          entityId: "cmadminorder1",
+          recordedAt: "2026-03-12T10:00:00.000Z",
+          recordedBy: "admin_1",
+          note: "QA sign-off completed.",
+          reason: "Preview approved internally.",
+        },
+      });
+    });
+  });
+
   describe("getUserOrderTracking", () => {
     it("uses book lifecycle timeline when order is not in issue state", async () => {
       mockPrismaService.order.findFirst.mockResolvedValue({
@@ -136,9 +419,11 @@ describe("OrdersService", () => {
         book: {
           id: "cm3333333333333333333333333",
           status: "DELIVERED",
+          productionStatus: "DELIVERED",
           rejectionReason: null,
           createdAt: new Date("2026-03-01T09:00:00.000Z"),
           updatedAt: new Date("2026-03-03T10:00:00.000Z"),
+          productionStatusUpdatedAt: new Date("2026-03-03T10:00:00.000Z"),
         },
       });
 
@@ -164,9 +449,11 @@ describe("OrdersService", () => {
         book: {
           id: "cm3333333333333333333333333",
           status: "DELIVERED",
+          productionStatus: "DELIVERED",
           rejectionReason: null,
           createdAt: new Date("2026-03-01T09:00:00.000Z"),
           updatedAt: new Date("2026-03-03T10:00:00.000Z"),
+          productionStatusUpdatedAt: new Date("2026-03-03T10:00:00.000Z"),
         },
       });
 
