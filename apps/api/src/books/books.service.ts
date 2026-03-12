@@ -26,7 +26,12 @@ import {
 import { FilesService } from "../files/files.service.js";
 import { Prisma } from "../generated/prisma/client.js";
 import type { FileType, JobStatus } from "../generated/prisma/enums.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import {
+  isReviewEligibleLifecycleStatus,
+  resolveReviewLifecycleStatus,
+} from "../reviews/review-eligibility.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { BooksPipelineService } from "./books-pipeline.service.js";
 import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
@@ -39,6 +44,8 @@ const BOOK_DETAIL_SELECT = {
   status: true,
   productionStatus: true,
   productionStatusUpdatedAt: true,
+  title: true,
+  coverImageUrl: true,
   rejectionReason: true,
   rejectedAt: true,
   pageCount: true,
@@ -125,6 +132,7 @@ export class BooksService {
     private readonly filesService: FilesService,
     private readonly booksPipeline: BooksPipelineService,
     private readonly manuscriptAnalysis: ManuscriptAnalysisService,
+    private readonly notifications: NotificationsService,
     private readonly rollout: RolloutService
   ) {}
 
@@ -172,7 +180,14 @@ export class BooksService {
   ): Promise<BookSettingsResponse> {
     const book = await this.prisma.book.findFirst({
       where: { id: bookId, userId },
-      select: { id: true, wordCount: true, status: true, pageSize: true, fontSize: true },
+      select: {
+        id: true,
+        wordCount: true,
+        status: true,
+        pageSize: true,
+        fontSize: true,
+        title: true,
+      },
     });
 
     if (!book) {
@@ -197,12 +212,14 @@ export class BooksService {
     const updated = await this.prisma.book.update({
       where: { id: bookId },
       data: {
+        ...(input.title !== undefined ? { title: input.title } : {}),
         pageSize: input.pageSize,
         fontSize: input.fontSize,
         estimatedPages,
       },
       select: {
         id: true,
+        title: true,
         pageSize: true,
         fontSize: true,
         wordCount: true,
@@ -224,6 +241,7 @@ export class BooksService {
 
     return {
       id: updated.id,
+      title: updated.title ?? null,
       pageSize,
       fontSize,
       wordCount: updated.wordCount,
@@ -242,6 +260,7 @@ export class BooksService {
       select: {
         id: true,
         status: true,
+        title: true,
         pageSize: true,
         fontSize: true,
       },
@@ -305,6 +324,7 @@ export class BooksService {
 
     return {
       bookId: book.id,
+      title: book.title ?? this.deriveTitleFromFileName(uploadedFile.fileName ?? file.originalname),
       fileId: uploadedFile.id,
       fileUrl: uploadedFile.url,
       fileName: uploadedFile.fileName ?? file.originalname,
@@ -340,6 +360,8 @@ export class BooksService {
         productionStatus: row.productionStatus,
         manuscriptStatus: row.status,
       }),
+      title: row.title ?? null,
+      coverImageUrl: row.coverImageUrl ?? null,
       latestProcessingError: this.resolveLatestProcessingError(row.jobs),
       rejectionReason: row.rejectionReason ?? null,
       rejectedAt: row.rejectedAt?.toISOString() ?? null,
@@ -418,25 +440,55 @@ export class BooksService {
   ): Promise<AdminBookProductionStatusResponse> {
     const book = await this.prisma.book.findFirst({
       where: { id: bookId },
-      select: { id: true },
+      select: {
+        id: true,
+        orderId: true,
+        userId: true,
+        title: true,
+        status: true,
+        productionStatus: true,
+      },
     });
 
     if (!book) {
       throw new NotFoundException(`Book "${bookId}" not found`);
     }
 
+    const previousLifecycleStatus = resolveReviewLifecycleStatus({
+      manuscriptStatus: book.status,
+      productionStatus: book.productionStatus,
+    });
+    const shouldCreateReviewRequest =
+      input.productionStatus === "DELIVERED" &&
+      !isReviewEligibleLifecycleStatus(previousLifecycleStatus);
     const updatedAt = new Date();
-    const updated = await this.prisma.book.update({
-      where: { id: bookId },
-      data: {
-        productionStatus: input.productionStatus,
-        productionStatusUpdatedAt: updatedAt,
-      },
-      select: {
-        id: true,
-        productionStatus: true,
-        productionStatusUpdatedAt: true,
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.book.update({
+        where: { id: bookId },
+        data: {
+          productionStatus: input.productionStatus,
+          productionStatusUpdatedAt: updatedAt,
+        },
+        select: {
+          id: true,
+          productionStatus: true,
+          productionStatusUpdatedAt: true,
+        },
+      });
+
+      if (shouldCreateReviewRequest) {
+        await this.notifications.createReviewRequestNotification(
+          {
+            userId: book.userId,
+            orderId: book.orderId,
+            bookId: book.id,
+            bookTitle: book.title ?? "Your book",
+          },
+          tx
+        );
+      }
+
+      return result;
     });
 
     return {
@@ -792,6 +844,19 @@ export class BooksService {
 
   private resolveFontSize(value: number | null): 11 | 12 | 14 | null {
     return value === 11 || value === 12 || value === 14 ? value : null;
+  }
+
+  private deriveTitleFromFileName(fileName: string | null | undefined): string | null {
+    if (typeof fileName !== "string") return null;
+    const trimmed = fileName.trim();
+    if (!trimmed) return null;
+
+    const normalized = trimmed
+      .replace(/\.[^.]+$/, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return normalized.length > 0 ? normalized : null;
   }
 
   private resolveProcessingState(params: {

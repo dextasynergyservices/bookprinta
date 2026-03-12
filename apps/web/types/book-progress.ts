@@ -84,6 +84,8 @@ export interface BookProgressNormalizedResponse {
   currentStage: BookProgressStage;
   isRejected: boolean;
   timeline: BookProgressTimelineStep[];
+  title: string | null;
+  coverImageUrl: string | null;
   pageCount: number | null;
   wordCount: number | null;
   estimatedPages: number | null;

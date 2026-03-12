@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import type { Locale } from "@bookprinta/emails";
 import { renderPasswordResetEmail } from "@bookprinta/emails/render";
+import { isAdminRole } from "@bookprinta/shared";
 import {
   BadRequestException,
   ConflictException,
@@ -40,7 +41,7 @@ import { hashRefreshToken } from "./refresh-token.util.js";
  * - JWT access/refresh tokens with HttpOnly cookies
  * - Refresh token rotation (new pair on each refresh)
  * - Absolute refresh-session window (refresh rotation does not extend initial expiry)
- * - Differentiated token expiry: 15min access, 7d refresh (users) / 1h refresh (admins)
+ * - Differentiated token expiry: 15min access, 7d refresh (users) / 1h refresh (admin roles)
  * - Password hashing via bcrypt
  * - Email verification via 6-digit code
  * - Password reset via token link
@@ -341,13 +342,7 @@ export class AuthService {
     });
 
     return {
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-      },
+      user: this.serializeSafeUser(user),
       tokens,
     };
   }
@@ -470,13 +465,7 @@ export class AuthService {
       loginTiming.outcome = "success";
 
       return {
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role,
-        },
+        user: this.serializeSafeUser(user),
         tokens,
       };
     } catch (error) {
@@ -507,6 +496,25 @@ export class AuthService {
     });
 
     return { message: "Logged out successfully" };
+  }
+
+  async getSessionUser(userId: string): Promise<SafeUser> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException("User not found");
+    }
+
+    return this.serializeSafeUser(user);
   }
 
   // ==========================================
@@ -771,7 +779,7 @@ export class AuthService {
    * Expiry rules from CLAUDE.md:
    * - Access token: 15min
    * - Refresh token (USER): 7 days
-   * - Refresh token (ADMIN/SUPER_ADMIN): 1 hour
+   * - Refresh token (admin roles): 1 hour
    *
    * Session rule:
    * - During refresh rotation, reuse the existing refresh expiry (absolute cap)
@@ -799,9 +807,8 @@ export class AuthService {
       }
     } else {
       // Determine refresh token expiry based on role
-      // CLAUDE.md: 15min access, 7d refresh (users), 1h refresh (admins)
-      const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
-      const refreshExpiryMsByRole = isAdmin
+      // CLAUDE.md: 15min access, 7d refresh (users), 1h refresh (admin roles)
+      const refreshExpiryMsByRole = isAdminRole(role)
         ? this.parseExpiryToMs(this.REFRESH_TOKEN_EXPIRY_ADMIN)
         : this.parseExpiryToMs(this.REFRESH_TOKEN_EXPIRY_USER);
       refreshTokenExp = new Date(Date.now() + refreshExpiryMsByRole);
@@ -871,9 +878,8 @@ export class AuthService {
    * Uses role to determine max age.
    */
   getRefreshTokenCookieOptions(role: string): CookieOptions {
-    const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
-    const maxAge = isAdmin
-      ? 60 * 60 * 1000 // 1 hour for admins
+    const maxAge = isAdminRole(role)
+      ? 60 * 60 * 1000 // 1 hour for admin roles
       : 7 * 24 * 60 * 60 * 1000; // 7 days for users
 
     const secure = process.env.NODE_ENV === "production";
@@ -910,6 +916,61 @@ export class AuthService {
     const normalized = value?.trim().toLowerCase();
     if (normalized === "fr" || normalized === "es") return normalized;
     return "en";
+  }
+
+  private serializeSafeUser(user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string | null;
+    role: UserRole;
+  }): SafeUser {
+    const displayName = this.buildDisplayName(user.firstName, user.lastName, user.email);
+
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      displayName,
+      initials: this.buildInitials(displayName, user.email),
+    };
+  }
+
+  private buildDisplayName(firstName: string, lastName: string | null, email: string): string {
+    const displayName = [firstName, lastName]
+      .map((value) => value?.replace(/\s+/g, " ").trim() ?? "")
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return displayName || this.buildEmailDisplayName(email);
+  }
+
+  private buildEmailDisplayName(email: string): string {
+    const cleaned = (email.split("@")[0] || "")
+      .replace(/[._-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!cleaned) return "Account";
+
+    return cleaned
+      .split(" ")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  private buildInitials(displayName: string, email: string): string {
+    const source = displayName || this.buildEmailDisplayName(email);
+    const words = source.split(" ").filter(Boolean);
+
+    if (words.length === 0) return "AC";
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+
+    return `${words[0].charAt(0)}${words[1].charAt(0)}`.toUpperCase();
   }
 
   /**
@@ -1282,7 +1343,9 @@ export interface SafeUser {
   email: string;
   firstName: string;
   lastName: string | null;
-  role: string;
+  role: UserRole;
+  displayName: string;
+  initials: string;
 }
 
 /**

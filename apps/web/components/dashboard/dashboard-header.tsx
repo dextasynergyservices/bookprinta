@@ -2,7 +2,6 @@
 
 import { ChevronDown, CircleUserRound, LogOut, Menu } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useMemo } from "react";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/dashboard/notification-bell";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
@@ -28,21 +27,6 @@ function resolveTitle(
   if (pathname.startsWith("/dashboard/reviews")) return tDashboard("reviews");
 
   return dashboardTitle;
-}
-
-function toDisplayName(email: string | undefined, fallback: string) {
-  if (!email) return fallback;
-  const local = email.split("@")[0] || "";
-  const cleaned = local
-    .replace(/[._-]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-  if (!cleaned) return fallback;
-
-  return cleaned
-    .split(" ")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function toInitials(value: string, fallback: string) {
@@ -72,16 +56,11 @@ export function DashboardHeader({
   const router = useRouter();
   const { user, logout, isLoggingOut } = useAuthSession();
   const dashboardTitle = tDashboard("title");
+  const guestLabel = tDashboard("header_guest");
 
   const pageTitle = resolveTitle(pathname, dashboardTitle, tDashboard);
-  const displayName = useMemo(
-    () => toDisplayName(user?.email, tDashboard("header_guest")),
-    [tDashboard, user?.email]
-  );
-  const initials = useMemo(
-    () => toInitials(displayName, tDashboard("header_guest")),
-    [displayName, tDashboard]
-  );
+  const displayName = user?.displayName ?? guestLabel;
+  const initials = user?.initials ?? toInitials(guestLabel, guestLabel);
 
   const handleLogout = async () => {
     try {

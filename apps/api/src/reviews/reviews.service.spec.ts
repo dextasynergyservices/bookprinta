@@ -1,13 +1,11 @@
 /// <reference types="jest" />
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
-import { BookStatus } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ReviewsService } from "./reviews.service.js";
 
 const mockPrismaService = {
   review: {
-    findMany: jest.fn(),
     create: jest.fn(),
   },
   book: {
@@ -29,44 +27,78 @@ describe("ReviewsService", () => {
   });
 
   describe("getMyReviews", () => {
-    it("returns pending and submitted review state for the current user", async () => {
-      mockPrismaService.review.findMany.mockResolvedValue([
-        {
-          bookId: "cmbook111111111111111111111111",
-          rating: 5,
-          comment: "Excellent quality.",
-          isPublic: false,
-          createdAt: new Date("2026-03-07T10:00:00.000Z"),
-        },
-      ]);
+    it("returns delivered-book review state with persisted metadata and review summaries", async () => {
       mockPrismaService.book.findMany.mockResolvedValue([
         {
           id: "cmbook111111111111111111111111",
-          status: BookStatus.PRINTED,
-          reviews: [{ id: "cmreview1111111111111111111111" }],
+          status: "PRINTING",
+          productionStatus: "DELIVERED",
+          title: "The Lagos Chronicle",
+          coverImageUrl: "https://cdn.example.com/covers/lagos-final.jpg",
+          order: {
+            customQuote: null,
+          },
+          files: [],
+          reviews: [
+            {
+              rating: 5,
+              comment: "Excellent quality.",
+              isPublic: false,
+              createdAt: new Date("2026-03-07T10:00:00.000Z"),
+            },
+          ],
         },
         {
           id: "cmbook222222222222222222222222",
-          status: BookStatus.SHIPPING,
+          status: "COMPLETED",
+          productionStatus: null,
+          title: null,
+          coverImageUrl: null,
+          order: {
+            customQuote: null,
+          },
+          files: [
+            {
+              fileType: "RAW_MANUSCRIPT",
+              url: "https://cdn.example.com/manuscripts/book-2.docx",
+              fileName: "my-second-book.docx",
+              version: 2,
+            },
+            {
+              fileType: "COVER_DESIGN_DRAFT",
+              url: "https://cdn.example.com/covers/book-2-draft.jpg",
+              fileName: "book-2-draft.jpg",
+              version: 1,
+            },
+          ],
           reviews: [],
         },
       ]);
 
       await expect(service.getMyReviews("cmuser111111111111111111111111")).resolves.toEqual({
-        hasAnyPrintedBook: true,
-        reviewedBooks: [
+        hasEligibleBooks: true,
+        hasPendingReviews: true,
+        books: [
           {
             bookId: "cmbook111111111111111111111111",
-            rating: 5,
-            comment: "Excellent quality.",
-            isPublic: false,
-            createdAt: "2026-03-07T10:00:00.000Z",
+            title: "The Lagos Chronicle",
+            coverImageUrl: "https://cdn.example.com/covers/lagos-final.jpg",
+            lifecycleStatus: "DELIVERED",
+            reviewStatus: "REVIEWED",
+            review: {
+              rating: 5,
+              comment: "Excellent quality.",
+              isPublic: false,
+              createdAt: "2026-03-07T10:00:00.000Z",
+            },
           },
-        ],
-        pendingBooks: [
           {
             bookId: "cmbook222222222222222222222222",
-            status: BookStatus.SHIPPING,
+            title: "my second book",
+            coverImageUrl: "https://cdn.example.com/covers/book-2-draft.jpg",
+            lifecycleStatus: "COMPLETED",
+            reviewStatus: "PENDING",
+            review: null,
           },
         ],
       });
@@ -74,18 +106,35 @@ describe("ReviewsService", () => {
   });
 
   describe("createReview", () => {
-    it("creates a review when the book is eligible and not yet reviewed", async () => {
-      mockPrismaService.book.findFirst.mockResolvedValue({
-        id: "cmbook333333333333333333333333",
-        status: BookStatus.PRINTED,
-        reviews: [],
-      });
+    it("creates a review when the book is eligible and returns the refreshed book review state", async () => {
+      mockPrismaService.book.findFirst
+        .mockResolvedValueOnce({
+          id: "cmbook333333333333333333333333",
+          status: "PRINTING",
+          productionStatus: "DELIVERED",
+          reviews: [],
+        })
+        .mockResolvedValueOnce({
+          id: "cmbook333333333333333333333333",
+          status: "PRINTING",
+          productionStatus: "DELIVERED",
+          title: "New Dawn",
+          coverImageUrl: "https://cdn.example.com/covers/new-dawn.jpg",
+          order: {
+            customQuote: null,
+          },
+          files: [],
+          reviews: [
+            {
+              rating: 4,
+              comment: "Very smooth process.",
+              isPublic: false,
+              createdAt: new Date("2026-03-07T12:00:00.000Z"),
+            },
+          ],
+        });
       mockPrismaService.review.create.mockResolvedValue({
-        bookId: "cmbook333333333333333333333333",
-        rating: 4,
-        comment: "Very smooth process.",
-        isPublic: false,
-        createdAt: new Date("2026-03-07T12:00:00.000Z"),
+        id: "cmreview3333333333333333333333",
       });
 
       await expect(
@@ -95,12 +144,18 @@ describe("ReviewsService", () => {
           comment: "Very smooth process.",
         })
       ).resolves.toEqual({
-        review: {
+        book: {
           bookId: "cmbook333333333333333333333333",
-          rating: 4,
-          comment: "Very smooth process.",
-          isPublic: false,
-          createdAt: "2026-03-07T12:00:00.000Z",
+          title: "New Dawn",
+          coverImageUrl: "https://cdn.example.com/covers/new-dawn.jpg",
+          lifecycleStatus: "DELIVERED",
+          reviewStatus: "REVIEWED",
+          review: {
+            rating: 4,
+            comment: "Very smooth process.",
+            isPublic: false,
+            createdAt: "2026-03-07T12:00:00.000Z",
+          },
         },
       });
 
@@ -111,13 +166,6 @@ describe("ReviewsService", () => {
           rating: 4,
           comment: "Very smooth process.",
           isPublic: false,
-        },
-        select: {
-          bookId: true,
-          rating: true,
-          comment: true,
-          isPublic: true,
-          createdAt: true,
         },
       });
     });
@@ -137,7 +185,8 @@ describe("ReviewsService", () => {
     it("throws BadRequestException when the book is not review eligible", async () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cmbook444444444444444444444444",
-        status: BookStatus.PRINTING,
+        status: "COMPLETED",
+        productionStatus: "SHIPPING",
         reviews: [],
       });
 
@@ -153,8 +202,9 @@ describe("ReviewsService", () => {
     it("throws ConflictException when the user already reviewed the book", async () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cmbook555555555555555555555555",
-        status: BookStatus.PRINTED,
-        reviews: [{ id: "cmreview5555555555555555555555" }],
+        status: "PRINTING",
+        productionStatus: "DELIVERED",
+        reviews: [{ rating: 5 }],
       });
 
       await expect(
@@ -164,6 +214,27 @@ describe("ReviewsService", () => {
           comment: undefined,
         })
       ).rejects.toThrow(ConflictException);
+    });
+
+    it("maps unique constraint races to a 409 ConflictException", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cmbook666666666666666666666666",
+        status: "PRINTING",
+        productionStatus: "DELIVERED",
+        reviews: [],
+      });
+      mockPrismaService.review.create.mockRejectedValue({ code: "P2002" });
+
+      const error = await service
+        .createReview("cmuser666666666666666666666666", {
+          bookId: "cmbook666666666666666666666666",
+          rating: 5,
+          comment: "Great.",
+        })
+        .catch((caught) => caught);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.getStatus()).toBe(409);
     });
   });
 });

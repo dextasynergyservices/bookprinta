@@ -418,6 +418,11 @@ function resolveBookMetadata(payload: unknown) {
   const book = toRecord(root?.book);
 
   return {
+    title: toStringValue(root?.title) ?? toStringValue(data?.title) ?? toStringValue(book?.title),
+    coverImageUrl:
+      toStringValue(root?.coverImageUrl) ??
+      toStringValue(data?.coverImageUrl) ??
+      toStringValue(book?.coverImageUrl),
     pageCount:
       toNumberValue(root?.pageCount) ??
       toNumberValue(data?.pageCount) ??
@@ -553,6 +558,8 @@ export function normalizeBookProgressPayload(payload: unknown): BookProgressNorm
     currentStage: timeline[currentStageIndex]?.stage ?? BOOK_PROGRESS_STAGES[0],
     isRejected,
     timeline,
+    title: metadata.title,
+    coverImageUrl: metadata.coverImageUrl,
     pageCount: metadata.pageCount,
     wordCount: metadata.wordCount,
     estimatedPages: metadata.estimatedPages,

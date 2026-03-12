@@ -19,6 +19,7 @@ import { OrdersModule } from "./orders/orders.module.js";
 import { PackagesModule } from "./packages/packages.module.js";
 import { PaymentsModule } from "./payments/payments.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
+import { ProductionDelayModule } from "./production-delay/production-delay.module.js";
 import { QuotesModule } from "./quotes/quotes.module.js";
 import { AppThrottlerGuard } from "./rate-limit/app-throttler.guard.js";
 import { RedisThrottlerStorage } from "./rate-limit/redis-throttler.storage.js";
@@ -29,6 +30,7 @@ import { ReviewsModule } from "./reviews/reviews.module.js";
 import { RolloutModule } from "./rollout/rollout.module.js";
 import { ScannerModule } from "./scanner/scanner.module.js";
 import { ShowcaseModule } from "./showcase/showcase.module.js";
+import { UsersModule } from "./users/users.module.js";
 
 @Module({
   imports: [
@@ -121,8 +123,14 @@ import { ShowcaseModule } from "./showcase/showcase.module.js";
     // Payment processing & webhook handlers (Paystack, Stripe, PayPal, Bank Transfer)
     PaymentsModule,
 
+    // Production delay resolution service (backlog threshold, affected users/books, override state)
+    ProductionDelayModule,
+
     // User review endpoints (GET /reviews/my for dashboard eligibility + review state)
     ReviewsModule,
+
+    // Authenticated user profile/settings endpoints
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [

@@ -22,19 +22,36 @@ interface LanguageSwitcherProps {
   isScrolled?: boolean;
   compact?: boolean;
   className?: string;
+  disabled?: boolean;
+  selectedLocale?: string;
+  onLocaleChange?: (newLocale: string) => Promise<void> | void;
 }
 
 export function LanguageSwitcher({
   isScrolled = true,
   compact = false,
   className,
+  disabled = false,
+  selectedLocale,
+  onLocaleChange,
 }: LanguageSwitcherProps) {
   const t = useTranslations("language_switcher");
   const locale = useLocale();
   const router = useRouter();
   const pathname = usePathname();
+  const activeLocale = selectedLocale ?? locale;
 
-  function handleLocaleChange(newLocale: string) {
+  async function handleLocaleChange(newLocale: string) {
+    if (disabled || newLocale === activeLocale) {
+      return;
+    }
+
+    try {
+      await onLocaleChange?.(newLocale);
+    } catch {
+      return;
+    }
+
     router.replace(pathname, { locale: newLocale });
   }
 
@@ -52,6 +69,7 @@ export function LanguageSwitcher({
               : "text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10",
             className
           )}
+          disabled={disabled}
           aria-label={t("label")}
         >
           <GlobeIcon className="size-5" />
@@ -62,8 +80,11 @@ export function LanguageSwitcher({
         {locales.map(({ code, label }) => (
           <DropdownMenuItem
             key={code}
-            onClick={() => handleLocaleChange(code)}
-            className={locale === code ? "bg-accent/10 font-semibold" : ""}
+            onClick={() => {
+              void handleLocaleChange(code);
+            }}
+            disabled={disabled || activeLocale === code}
+            className={activeLocale === code ? "bg-accent/10 font-semibold" : ""}
           >
             <span className="mr-2 text-sm uppercase opacity-60">{code}</span>
             {label}

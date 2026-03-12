@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   DashboardReviewRequestDialog,
   type ReviewRequestDialogTarget,
@@ -49,8 +49,16 @@ describe("DashboardReviewRequestDialog", () => {
     });
 
     useReviewStateMock.mockReturnValue({
-      pendingBooks: [{ bookId: target.bookId, status: "PRINTED" }],
-      reviewedBooks: [],
+      books: [
+        {
+          bookId: target.bookId,
+          title: target.bookTitle,
+          coverImageUrl: null,
+          lifecycleStatus: "DELIVERED",
+          reviewStatus: "PENDING",
+          review: null,
+        },
+      ],
       isLoading: false,
     });
     useCreateReviewMock.mockReturnValue({
@@ -58,20 +66,39 @@ describe("DashboardReviewRequestDialog", () => {
       isPending: false,
     });
     submitReviewMock.mockResolvedValue({
-      review: {
+      book: {
         bookId: target.bookId,
-        rating: 4,
-        comment: "Excellent support.",
-        isPublic: false,
-        createdAt: "2026-03-07T12:00:00.000Z",
+        title: target.bookTitle,
+        coverImageUrl: null,
+        lifecycleStatus: "DELIVERED",
+        reviewStatus: "REVIEWED",
+        review: {
+          rating: 4,
+          comment: "Excellent support.",
+          isPublic: false,
+          createdAt: "2026-03-07T12:00:00.000Z",
+        },
       },
     });
   });
 
-  it("submits a review for the selected book", async () => {
-    const onOpenChange = jest.fn();
+  afterEach(() => {
+    jest.useRealTimers();
+  });
 
-    render(<DashboardReviewRequestDialog open target={target} onOpenChange={onOpenChange} />);
+  it("submits a review, shows the success state, and auto-closes after 2 seconds", async () => {
+    jest.useFakeTimers();
+    const onOpenChange = jest.fn();
+    const onReviewSubmitted = jest.fn();
+
+    render(
+      <DashboardReviewRequestDialog
+        open
+        target={target}
+        onOpenChange={onOpenChange}
+        onReviewSubmitted={onReviewSubmitted}
+      />
+    );
 
     fireEvent.click(screen.getByRole("radio", { name: "review_dialog_rating_option-4" }));
     fireEvent.change(screen.getByLabelText("review_comment"), {
@@ -88,7 +115,56 @@ describe("DashboardReviewRequestDialog", () => {
     });
 
     await waitFor(() => {
+      expect(onReviewSubmitted).toHaveBeenCalledWith(target.bookId);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "review_thanks" })).toBeInTheDocument();
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+
+    await waitFor(() => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
   }, 15_000);
+
+  it("supports keyboard star selection", async () => {
+    const onOpenChange = jest.fn();
+
+    render(<DashboardReviewRequestDialog open target={target} onOpenChange={onOpenChange} />);
+
+    const firstStar = screen.getByRole("radio", { name: "review_dialog_rating_option-1" });
+    firstStar.focus();
+
+    fireEvent.keyDown(firstStar, { key: "End" });
+    fireEvent.click(screen.getByRole("button", { name: "review_submit" }));
+
+    await waitFor(() => {
+      expect(submitReviewMock).toHaveBeenCalledWith({
+        bookId: target.bookId,
+        rating: 5,
+        comment: "",
+      });
+    });
+  });
+
+  it("supports click-based star selection", () => {
+    const onOpenChange = jest.fn();
+
+    render(<DashboardReviewRequestDialog open target={target} onOpenChange={onOpenChange} />);
+
+    const thirdStar = screen.getByRole("radio", { name: "review_dialog_rating_option-3" });
+    const fifthStar = screen.getByRole("radio", { name: "review_dialog_rating_option-5" });
+
+    fireEvent.click(thirdStar);
+    expect(thirdStar).toHaveAttribute("aria-checked", "true");
+    expect(fifthStar).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(fifthStar);
+    expect(thirdStar).toHaveAttribute("aria-checked", "false");
+    expect(fifthStar).toHaveAttribute("aria-checked", "true");
+  });
 });

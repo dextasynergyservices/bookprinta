@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PublicAuthorProfileSchema } from "./user.schema.ts";
 
 const SlugSchema = z
   .string()
@@ -28,28 +29,7 @@ export const ShowcaseCategorySchema = z.object({
 });
 export type ShowcaseCategory = z.infer<typeof ShowcaseCategorySchema>;
 
-export const PurchaseLinkSchema = z.object({
-  label: z.string().trim().min(1).max(120),
-  url: z.string().trim().url().max(2048),
-});
-export type PurchaseLink = z.infer<typeof PurchaseLinkSchema>;
-
-export const SocialLinkSchema = z.object({
-  platform: z.string().trim().min(1).max(80),
-  url: z.string().trim().url().max(2048),
-});
-export type SocialLink = z.infer<typeof SocialLinkSchema>;
-
-export const AuthorProfileSchema = z
-  .object({
-    bio: z.string().trim().min(1).max(5000).optional(),
-    profileImageUrl: z.string().trim().url().max(2048).optional(),
-    whatsAppNumber: z.string().trim().min(1).max(40).optional(),
-    websiteUrl: z.string().trim().url().max(2048).optional(),
-    purchaseLinks: z.array(PurchaseLinkSchema).min(1).optional(),
-    socialLinks: z.array(SocialLinkSchema).min(1).optional(),
-  })
-  .strict();
+export const AuthorProfileSchema = PublicAuthorProfileSchema;
 export type AuthorProfile = z.infer<typeof AuthorProfileSchema>;
 
 export const ShowcaseEntrySchema = z.object({
