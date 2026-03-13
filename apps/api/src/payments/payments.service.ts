@@ -54,6 +54,10 @@ const EXTRA_PAGE_PRICE_NGN = 10;
 const REPRINT_MIN_COPIES = 25;
 const DEFAULT_REPRINT_COST_PER_PAGE_A5 = 10;
 const REPRINT_COST_PER_PAGE_SETTING_KEY = "quote_cost_per_page";
+const PHONE_ALREADY_IN_USE_MESSAGE =
+  "This phone number is already linked to another account. Use another phone number or sign in to your existing account.";
+const EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE =
+  "This email and phone number belong to different accounts. Sign in to the correct account or use a different phone number.";
 const REPRINT_ALLOWED_BOOK_SIZES = new Set(["A4", "A5", "A6"]);
 const REPRINT_ALLOWED_PAPER_COLORS = new Set(["white", "cream"]);
 const REPRINT_ALLOWED_LAMINATIONS = new Set(["matt", "gloss"]);
@@ -227,6 +231,11 @@ export class PaymentsService {
 
     // 2. Ensure the provider SDK is available
     this.ensureProviderAvailable(provider);
+
+    await this.assertCheckoutIdentityConflict({
+      email: dto.email,
+      phone: this.extractCheckoutMetadata(this.asRecord(dto.metadata))?.phone ?? null,
+    });
 
     // 3. Generate a unique reference
     const reference = this.generateReference();
@@ -516,6 +525,11 @@ export class PaymentsService {
   async submitBankTransfer(dto: NormalizedBankTransferInput, receiptFile?: Express.Multer.File) {
     // Check bank transfer gateway is enabled
     await this.ensureGatewayEnabled(PaymentProvider.BANK_TRANSFER);
+
+    await this.assertCheckoutIdentityConflict({
+      email: dto.payerEmail,
+      phone: dto.payerPhone,
+    });
 
     const reference = this.generateReference("bt");
     const checkoutMetadata = (dto.metadata as Record<string, unknown>) ?? {};
@@ -1787,157 +1801,233 @@ export class PaymentsService {
     const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
     const signupTokenExpiry = new Date(Date.now() + MAX_SIGNUP_TOKEN_HOURS * 60 * 60 * 1000);
 
-    return this.prisma.$transaction(async (tx) => {
-      let user = await tx.user.findUnique({
-        where: { email: normalizedEmail },
-      });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await this.assertCheckoutIdentityConflict({
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          tx,
+        });
 
-      let signupToken: string | null = null;
-
-      if (!user) {
-        signupToken = this.generateSecureToken();
-        user = await tx.user.create({
-          data: {
-            email: normalizedEmail,
-            firstName: splitName.firstName,
-            lastName: splitName.lastName,
-            phoneNumber: normalizedPhone,
-            phoneNumberNormalized: normalizedPhoneLookup,
-            preferredLanguage: locale,
-            isVerified: false,
-            verificationToken: signupToken,
-            tokenExpiry: signupTokenExpiry,
+        let user = await tx.user.findFirst({
+          where: {
+            email: {
+              equals: normalizedEmail,
+              mode: "insensitive",
+            },
           },
         });
-      } else {
-        const needsSignupToken = !user.password || !user.isVerified;
-        if (needsSignupToken) {
+
+        let signupToken: string | null = null;
+
+        if (!user) {
           signupToken = this.generateSecureToken();
+          user = await tx.user.create({
+            data: {
+              email: normalizedEmail,
+              firstName: splitName.firstName,
+              lastName: splitName.lastName,
+              phoneNumber: normalizedPhone,
+              phoneNumberNormalized: normalizedPhoneLookup,
+              preferredLanguage: locale,
+              isVerified: false,
+              verificationToken: signupToken,
+              tokenExpiry: signupTokenExpiry,
+            },
+          });
+        } else {
+          const needsSignupToken = !user.password || !user.isVerified;
+          if (needsSignupToken) {
+            signupToken = this.generateSecureToken();
+          }
+
+          user = await tx.user.update({
+            where: { id: user.id },
+            data: {
+              firstName: user.firstName || splitName.firstName,
+              lastName: user.lastName ?? splitName.lastName,
+              phoneNumber: user.phoneNumber || normalizedPhone,
+              phoneNumberNormalized: user.phoneNumberNormalized || normalizedPhoneLookup,
+              preferredLanguage: locale,
+              ...(needsSignupToken
+                ? {
+                    verificationToken: signupToken,
+                    tokenExpiry: signupTokenExpiry,
+                  }
+                : {}),
+            },
+          });
         }
 
-        user = await tx.user.update({
-          where: { id: user.id },
+        const orderNumber = await this.generateOrderNumber(tx);
+        const totalAmount = this.toCurrency(checkout.totalPrice ?? params.amount);
+        const initialAmount = this.toCurrency(params.amount);
+        const appliedCoupon = await this.resolveAppliedCouponForOrder(tx, checkout, initialAmount);
+        const discountAmount = appliedCoupon?.discountAmount ?? 0;
+
+        const order = await tx.order.create({
           data: {
-            firstName: user.firstName || splitName.firstName,
-            lastName: user.lastName ?? splitName.lastName,
-            phoneNumber: user.phoneNumber || normalizedPhone,
-            phoneNumberNormalized: user.phoneNumberNormalized || normalizedPhoneLookup,
-            preferredLanguage: locale,
-            ...(needsSignupToken
-              ? {
-                  verificationToken: signupToken,
-                  tokenExpiry: signupTokenExpiry,
-                }
-              : {}),
+            orderNumber,
+            userId: user.id,
+            packageId: pkg.id,
+            orderType: "STANDARD",
+            packagePriceSnap: Number(pkg.basePrice),
+            hasCoverDesign: checkout.hasCover ?? true,
+            hasFormatting: checkout.hasFormatting ?? true,
+            bookSize: checkout.bookSize ?? "A5",
+            paperColor: checkout.paperColor ?? "white",
+            lamination: checkout.lamination ?? "gloss",
+            status: OrderStatus.PAID,
+            initialAmount,
+            extraAmount: 0,
+            couponId: appliedCoupon?.id ?? null,
+            discountAmount,
+            totalAmount: Math.max(totalAmount, initialAmount),
+            currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
+          } as Prisma.OrderUncheckedCreateInput,
+        });
+
+        await this.createOrderAddonsFromMetadata(tx, order.id, checkout);
+
+        // Resolve addon names for confirmation display
+        const addonNames = await this.resolveAddonNamesFromMetadata(tx, checkout);
+
+        const book = await tx.book.create({
+          data: {
+            orderId: order.id,
+            userId: user.id,
+            status: BookStatus.PAYMENT_RECEIVED,
+            productionStatus: BookStatus.PAYMENT_RECEIVED,
+            productionStatusUpdatedAt: new Date(),
+            pageSize: checkout.bookSize ?? "A5",
           },
         });
+
+        await tx.auditLog.createMany({
+          data: [
+            {
+              userId: user.id,
+              action: "ORDER_STATUS_REACHED",
+              entityType: "ORDER_TRACKING",
+              entityId: order.id,
+              details: {
+                source: "order",
+                status: OrderStatus.PAID,
+                reachedAt: order.createdAt.toISOString(),
+                label: "Paid",
+              },
+            },
+            {
+              userId: user.id,
+              action: "ORDER_STATUS_REACHED",
+              entityType: "ORDER_TRACKING",
+              entityId: order.id,
+              details: {
+                source: "book",
+                status: BookStatus.PAYMENT_RECEIVED,
+                reachedAt: book.createdAt.toISOString(),
+                label: "Payment Received",
+              },
+            },
+          ],
+        });
+
+        await tx.payment.update({
+          where: { id: params.paymentId },
+          data: {
+            userId: user.id,
+            orderId: order.id,
+          },
+        });
+
+        await this.notificationsService.createOrderStatusNotification(
+          {
+            userId: user.id,
+            orderId: order.id,
+            orderNumber,
+            status: OrderStatus.PAID,
+            source: "order",
+            bookId: book.id,
+          },
+          tx
+        );
+
+        return {
+          email: user.email,
+          name: user.firstName,
+          locale: this.resolveLocale(user.preferredLanguage),
+          signupToken,
+          phone: user.phoneNumber ?? null,
+          orderNumber,
+          packageName: pkg.name,
+          amountPaid: this.formatNaira(params.amount),
+          addons: addonNames,
+        };
+      });
+    } catch (error) {
+      if (this.isPrismaUniqueViolationForField(error, "phoneNumberNormalized")) {
+        throw new ConflictException(PHONE_ALREADY_IN_USE_MESSAGE);
       }
 
-      const orderNumber = await this.generateOrderNumber(tx);
-      const totalAmount = this.toCurrency(checkout.totalPrice ?? params.amount);
-      const initialAmount = this.toCurrency(params.amount);
-      const appliedCoupon = await this.resolveAppliedCouponForOrder(tx, checkout, initialAmount);
-      const discountAmount = appliedCoupon?.discountAmount ?? 0;
+      throw error;
+    }
+  }
 
-      const order = await tx.order.create({
-        data: {
-          orderNumber,
-          userId: user.id,
-          packageId: pkg.id,
-          orderType: "STANDARD",
-          packagePriceSnap: Number(pkg.basePrice),
-          hasCoverDesign: checkout.hasCover ?? true,
-          hasFormatting: checkout.hasFormatting ?? true,
-          bookSize: checkout.bookSize ?? "A5",
-          paperColor: checkout.paperColor ?? "white",
-          lamination: checkout.lamination ?? "gloss",
-          status: OrderStatus.PAID,
-          initialAmount,
-          extraAmount: 0,
-          couponId: appliedCoupon?.id ?? null,
-          discountAmount,
-          totalAmount: Math.max(totalAmount, initialAmount),
-          currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
-        } as Prisma.OrderUncheckedCreateInput,
-      });
+  private async assertCheckoutIdentityConflict(params: {
+    email: string;
+    phone: string | null;
+    tx?: Prisma.TransactionClient | PrismaService;
+    allowUserId?: string | null;
+  }): Promise<void> {
+    const normalizedEmail = params.email.trim().toLowerCase();
+    const normalizedPhone = normalizePhoneNumber(params.phone);
 
-      await this.createOrderAddonsFromMetadata(tx, order.id, checkout);
+    if (!normalizedEmail || !normalizedPhone) {
+      return;
+    }
 
-      // Resolve addon names for confirmation display
-      const addonNames = await this.resolveAddonNamesFromMetadata(tx, checkout);
-
-      const book = await tx.book.create({
-        data: {
-          orderId: order.id,
-          userId: user.id,
-          status: BookStatus.PAYMENT_RECEIVED,
-          productionStatus: BookStatus.PAYMENT_RECEIVED,
-          productionStatusUpdatedAt: new Date(),
-          pageSize: checkout.bookSize ?? "A5",
-        },
-      });
-
-      await tx.auditLog.createMany({
-        data: [
-          {
-            userId: user.id,
-            action: "ORDER_STATUS_REACHED",
-            entityType: "ORDER_TRACKING",
-            entityId: order.id,
-            details: {
-              source: "order",
-              status: OrderStatus.PAID,
-              reachedAt: order.createdAt.toISOString(),
-              label: "Paid",
-            },
+    const db = params.tx ?? this.prisma;
+    const [emailUser, phoneUsers] = await Promise.all([
+      db.user.findFirst({
+        where: {
+          email: {
+            equals: normalizedEmail,
+            mode: "insensitive",
           },
-          {
-            userId: user.id,
-            action: "ORDER_STATUS_REACHED",
-            entityType: "ORDER_TRACKING",
-            entityId: order.id,
-            details: {
-              source: "book",
-              status: BookStatus.PAYMENT_RECEIVED,
-              reachedAt: book.createdAt.toISOString(),
-              label: "Payment Received",
-            },
-          },
-        ],
-      });
-
-      await tx.payment.update({
-        where: { id: params.paymentId },
-        data: {
-          userId: user.id,
-          orderId: order.id,
         },
-      });
-
-      await this.notificationsService.createOrderStatusNotification(
-        {
-          userId: user.id,
-          orderId: order.id,
-          orderNumber,
-          status: OrderStatus.PAID,
-          source: "order",
-          bookId: book.id,
+        select: {
+          id: true,
+          email: true,
         },
-        tx
-      );
+      }),
+      db.user.findMany({
+        where: {
+          phoneNumberNormalized: normalizedPhone,
+        },
+        select: {
+          id: true,
+          email: true,
+        },
+        take: 3,
+      }),
+    ]);
 
-      return {
-        email: user.email,
-        name: user.firstName,
-        locale: this.resolveLocale(user.preferredLanguage),
-        signupToken,
-        phone: user.phoneNumber ?? null,
-        orderNumber,
-        packageName: pkg.name,
-        amountPaid: this.formatNaira(params.amount),
-        addons: addonNames,
-      };
-    });
+    const emailOwnerId = emailUser && emailUser.id !== params.allowUserId ? emailUser.id : null;
+    const conflictingPhoneUsers = phoneUsers.filter((user) => user.id !== params.allowUserId);
+
+    if (conflictingPhoneUsers.length === 0) {
+      return;
+    }
+
+    if (emailOwnerId && conflictingPhoneUsers.every((user) => user.id === emailOwnerId)) {
+      return;
+    }
+
+    if (emailOwnerId) {
+      throw new ConflictException(EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE);
+    }
+
+    throw new ConflictException(PHONE_ALREADY_IN_USE_MESSAGE);
   }
 
   private async createReprintEntitiesFromMetadata(params: {
@@ -2988,6 +3078,28 @@ export class PaymentsService {
       return (error as { code: string }).code === "P2002";
     }
     return false;
+  }
+
+  private isPrismaUniqueViolationForField(error: unknown, field: string): boolean {
+    if (!this.isPrismaUniqueViolation(error)) {
+      return false;
+    }
+
+    if (
+      !error ||
+      typeof error !== "object" ||
+      !("meta" in error) ||
+      !(error as { meta?: { target?: unknown } }).meta
+    ) {
+      return false;
+    }
+
+    const target = (error as { meta?: { target?: unknown } }).meta?.target;
+    if (Array.isArray(target)) {
+      return target.some((value) => value === field);
+    }
+
+    return typeof target === "string" && target.includes(field);
   }
 
   private asString(value: unknown): string | undefined {

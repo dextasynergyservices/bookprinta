@@ -160,7 +160,7 @@ model User {
   firstName         String
   lastName          String?
   phoneNumber       String?
-  phoneNumberNormalized String?
+  phoneNumberNormalized String?        @unique
   role              UserRole       @default(USER)
 
   // Auth: "Pay First, Signup Later" flow
@@ -211,7 +211,6 @@ model User {
   updatedAt         DateTime       @updatedAt
 
   @@index([email])
-  @@index([phoneNumberNormalized])
 }
 
 // ==========================================
