@@ -511,19 +511,19 @@ type DesktopTableProps = {
 };
 
 function getHeaderCellClass(columnId: string): string {
-  if (columnId === "orderNumber") return "min-w-[9.5rem]";
-  if (columnId === "customerName") return "min-w-[11rem]";
-  if (columnId === "customerEmail") return "min-w-[14rem]";
-  if (columnId === "packageName") return "min-w-[10.5rem]";
-  if (columnId === "displayStatus") return "min-w-[9rem]";
-  if (columnId === "createdAt") return "min-w-[8rem]";
-  if (columnId === "totalAmount") return "min-w-[8rem] text-right";
-  if (columnId === "actions") return "min-w-[8rem] text-right";
+  if (columnId === "orderNumber") return "min-w-[8.5rem]";
+  if (columnId === "customerName") return "min-w-[10.5rem]";
+  if (columnId === "customerEmail") return "hidden 2xl:table-cell 2xl:min-w-[14rem]";
+  if (columnId === "packageName") return "min-w-[9.5rem]";
+  if (columnId === "displayStatus") return "min-w-[8.5rem]";
+  if (columnId === "createdAt") return "min-w-[7.5rem]";
+  if (columnId === "totalAmount") return "min-w-[7rem] text-right";
+  if (columnId === "actions") return "min-w-[7rem] text-right";
   return "";
 }
 
 function getBodyCellClass(columnId: string): string {
-  if (columnId === "customerEmail") return "max-w-[15rem]";
+  if (columnId === "customerEmail") return "hidden max-w-[15rem] 2xl:table-cell";
   if (columnId === "totalAmount") return "text-right whitespace-nowrap";
   if (columnId === "actions") return "text-right whitespace-nowrap";
   return "";
@@ -572,6 +572,9 @@ function AdminOrdersDesktopTable({
             </p>
             <p className="font-sans mt-1 text-xs text-[#8f8f8f]">
               {row.original.customer.phoneNumber ?? tAdmin("orders_customer_phone_unavailable")}
+            </p>
+            <p className="font-sans mt-1 truncate text-xs text-[#8f8f8f] 2xl:hidden">
+              {row.original.customer.email}
             </p>
           </div>
         ),
@@ -673,7 +676,7 @@ function AdminOrdersDesktopTable({
         cell: ({ row }) => (
           <Link
             href={row.original.detailUrl}
-            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-4 py-2 font-sans text-[11px] font-medium tracking-[0.02em] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#101010] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-3 py-2 font-sans text-[10px] font-medium tracking-[0.02em] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#101010] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 xl:px-4 xl:text-[11px]"
           >
             {tAdmin("orders_action_view")}
           </Link>
@@ -692,9 +695,9 @@ function AdminOrdersDesktopTable({
   return (
     <DashboardTableViewport
       className="touch-pan-x"
-      minWidthClassName="md:min-w-[1180px] xl:min-w-[1260px]"
+      minWidthClassName="md:min-w-[900px] xl:min-w-[960px] 2xl:min-w-[1180px]"
     >
-      <Table className="min-w-[1180px] border-collapse xl:min-w-[1260px]">
+      <Table className="min-w-[900px] border-collapse xl:min-w-[960px] 2xl:min-w-[1180px]">
         <TableHeader className="border-b border-[#2A2A2A] bg-[#0A0A0A]">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id} className="border-b border-[#2A2A2A]">
@@ -736,7 +739,10 @@ function AdminOrdersDesktopTable({
             ? ADMIN_ORDER_TABLE_TRANSITION_ROW_IDS.map((rowId) => (
                 <tr key={rowId} className="border-b border-[#2A2A2A] bg-[#111111]">
                   {ADMIN_ORDER_TABLE_COLUMN_IDS.map((columnId) => (
-                    <TableCell key={`${rowId}-${columnId}`} className="px-4 py-4">
+                    <TableCell
+                      key={`${rowId}-${columnId}`}
+                      className={cn("px-4 py-4", getBodyCellClass(columnId))}
+                    >
                       <div className="h-4 w-full animate-pulse rounded bg-[#2A2A2A]" />
                     </TableCell>
                   ))}
@@ -880,12 +886,15 @@ function AdminOrdersMobileSkeleton() {
 
 function AdminOrdersTableSkeleton() {
   return (
-    <DashboardTableViewport minWidthClassName="md:min-w-[1180px] xl:min-w-[1260px]">
-      <Table className="min-w-[1180px] border-collapse xl:min-w-[1260px]">
+    <DashboardTableViewport minWidthClassName="md:min-w-[900px] xl:min-w-[960px] 2xl:min-w-[1180px]">
+      <Table className="min-w-[900px] border-collapse xl:min-w-[960px] 2xl:min-w-[1180px]">
         <TableHeader className="border-b border-[#2A2A2A] bg-[#0A0A0A]">
           <tr className="border-b border-[#2A2A2A]">
             {ADMIN_ORDER_TABLE_COLUMN_IDS.map((columnId) => (
-              <TableHead key={`admin-orders-table-head-${columnId}`} className="h-12 px-4">
+              <TableHead
+                key={`admin-orders-table-head-${columnId}`}
+                className={cn("h-12 px-4", getHeaderCellClass(columnId))}
+              >
                 <div className="h-3 w-20 animate-pulse rounded bg-[#2A2A2A]" />
               </TableHead>
             ))}
@@ -895,7 +904,10 @@ function AdminOrdersTableSkeleton() {
           {ADMIN_ORDER_TABLE_SKELETON_ROW_IDS.slice(0, TABLE_SKELETON_ROWS).map((rowId) => (
             <tr key={rowId} className="border-b border-[#2A2A2A] bg-[#111111]">
               {ADMIN_ORDER_TABLE_COLUMN_IDS.map((columnId) => (
-                <TableCell key={`${rowId}-${columnId}`} className="px-4 py-4">
+                <TableCell
+                  key={`${rowId}-${columnId}`}
+                  className={cn("px-4 py-4", getBodyCellClass(columnId))}
+                >
                   <div className="h-4 w-full animate-pulse rounded bg-[#2A2A2A]" />
                 </TableCell>
               ))}

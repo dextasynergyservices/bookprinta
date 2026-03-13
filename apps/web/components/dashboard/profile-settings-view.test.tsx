@@ -6,6 +6,7 @@ const usePathnameMock = jest.fn();
 const useSearchParamsMock = jest.fn();
 
 const DASHBOARD_TRANSLATIONS: Record<string, string> = {
+  addresses: "Addresses",
   profile: "Profile",
   settings: "Settings",
   bio: "About You",
@@ -47,6 +48,10 @@ jest.mock("./profile-settings-settings-panel", () => ({
   ProfileSettingsSettingsPanel: () => <div data-testid="profile-settings-settings-panel" />,
 }));
 
+jest.mock("./profile-settings-addresses-panel", () => ({
+  ProfileSettingsAddressesPanel: () => <div data-testid="profile-settings-addresses-panel" />,
+}));
+
 describe("ProfileSettingsView", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -75,13 +80,24 @@ describe("ProfileSettingsView", () => {
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("allows query state to override the selected tab without changing the shared view", () => {
-    usePathnameMock.mockReturnValue("/dashboard/profile");
-    useSearchParamsMock.mockReturnValue(new URLSearchParams("tab=settings"));
+  it("marks the addresses route tab as active and renders the addresses panel", () => {
+    usePathnameMock.mockReturnValue("/dashboard/settings/addresses");
+    useSearchParamsMock.mockReturnValue(new URLSearchParams());
 
     render(<ProfileSettingsView />);
 
-    expect(screen.getByTestId("profile-settings-settings-panel")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "Addresses" })).toBeInTheDocument();
+    expect(screen.getByTestId("profile-settings-addresses-panel")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Addresses" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("allows query state to override the selected tab without changing the shared view", () => {
+    usePathnameMock.mockReturnValue("/dashboard/profile");
+    useSearchParamsMock.mockReturnValue(new URLSearchParams("tab=addresses"));
+
+    render(<ProfileSettingsView />);
+
+    expect(screen.getByTestId("profile-settings-addresses-panel")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Addresses" })).toHaveAttribute("aria-current", "page");
   });
 });

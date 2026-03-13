@@ -11,7 +11,7 @@ import {
   Truck,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { type ComponentType, useCallback, useMemo, useState } from "react";
+import { type ComponentType, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   type OrderJourneyStep,
@@ -19,6 +19,7 @@ import {
   type OrderJourneyStepState,
   OrderJourneyTracker,
 } from "@/components/dashboard/order-journey-tracker";
+import { ReprintSameModal } from "@/components/dashboard/reprint-same-modal";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
 import { useOrderDetail } from "@/hooks/useOrderDetail";
 import { useOrderTracking } from "@/hooks/useOrderTracking";
 import { Link } from "@/lib/i18n/navigation";
@@ -72,6 +74,7 @@ const ORDER_PAID_STATUSES = new Set([
   "IN_PRODUCTION",
   "COMPLETED",
 ]);
+const ORDER_REPRINT_BOOK_STATUSES = new Set(["DELIVERED", "COMPLETED"]);
 
 const JOURNEY_STEPS: OrderJourneyStepKey[] = [
   "ORDER_CREATED",
@@ -111,6 +114,15 @@ function toLocaleTag(locale: string): string {
   if (locale === "fr") return "fr-FR";
   if (locale === "es") return "es-ES";
   return "en-NG";
+}
+
+function resolveReprintInlineMessageKey(disableReason: string | null | undefined): string {
+  switch (disableReason) {
+    case "FINAL_PDF_MISSING":
+      return "reprint_same_unavailable_inline_final_pdf";
+    default:
+      return "reprint_same_unavailable_inline_generic";
+  }
 }
 
 function formatCurrency(
@@ -290,6 +302,8 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
   const [isDownloadingInvoice, setIsDownloadingInvoice] = useState(false);
   const [isSharingJourney, setIsSharingJourney] = useState(false);
   const [isRefundPolicyOpen, setIsRefundPolicyOpen] = useState(false);
+  const [isReprintSameModalOpen, setIsReprintSameModalOpen] = useState(false);
+  const reprintSameTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const tracking = useOrderTracking({
     orderId,
@@ -303,6 +317,18 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
   const orderReference = tracking.orderNumber || tracking.orderId || orderId;
   const orderStatus = normalizeStatus(tracking.currentOrderStatus);
   const bookStatus = normalizeStatus(tracking.currentBookStatus);
+  const canShowReprintActions =
+    tracking.bookId !== null && bookStatus !== null && ORDER_REPRINT_BOOK_STATUSES.has(bookStatus);
+  const {
+    config: reprintConfig,
+    isError: isReprintConfigError,
+    isInitialLoading: isReprintConfigInitialLoading,
+    refetch: refetchReprintConfig,
+    error: reprintConfigError,
+  } = useBookReprintConfig({
+    bookId: tracking.bookId,
+    enabled: canShowReprintActions,
+  });
 
   const currentJourneySteps = useMemo(
     () =>
@@ -367,6 +393,28 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
     tDashboard("order_tracking_last_updated_unavailable"),
     { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }
   );
+  const reviseReprintHref = useMemo(() => {
+    if (!tracking.bookId) return null;
+
+    const params = new URLSearchParams({
+      orderType: "REPRINT_REVISED",
+      sourceBookId: tracking.bookId,
+    });
+
+    return `/pricing?${params.toString()}`;
+  }, [tracking.bookId]);
+  const isReprintSameDisabled =
+    canShowReprintActions &&
+    !isReprintConfigInitialLoading &&
+    !isReprintConfigError &&
+    reprintConfig !== null &&
+    !reprintConfig.canReprintSame;
+  const shouldShowReprintInlineMessage =
+    canShowReprintActions && isReprintSameDisabled && reprintConfig?.disableReason !== null;
+  const reprintSameErrorMessage =
+    reprintConfigError instanceof Error && reprintConfigError.message.trim().length > 0
+      ? reprintConfigError.message
+      : tDashboard("reprint_same_load_error_description");
 
   const handleDownloadInvoice = useCallback(async () => {
     setIsDownloadingInvoice(true);
@@ -587,6 +635,27 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
             ? tDashboard("order_journey_download_invoice_loading")
             : tDashboard("order_journey_download_invoice")}
         </button>
+        {canShowReprintActions ? (
+          <Button
+            ref={reprintSameTriggerRef}
+            type="button"
+            variant="outline"
+            onClick={() => setIsReprintSameModalOpen(true)}
+            disabled={isReprintSameDisabled}
+            className="font-sans min-h-11 rounded-full border-[#007eff] bg-transparent px-5 text-sm font-semibold text-[#007eff] shadow-none hover:border-[#3398ff] hover:bg-[#071320] hover:text-[#3398ff]"
+          >
+            {tDashboard("reprint_same")}
+          </Button>
+        ) : null}
+        {canShowReprintActions && reviseReprintHref !== null ? (
+          <Button
+            asChild
+            variant="secondary"
+            className="font-sans min-h-11 rounded-full border border-[#2A2A2A] bg-[#111111] px-5 text-sm font-semibold text-white hover:border-[#007eff] hover:bg-[#151515]"
+          >
+            <Link href={reviseReprintHref}>{tDashboard("revise_reprint")}</Link>
+          </Button>
+        ) : null}
         <button
           type="button"
           onClick={handleShareJourney}
@@ -614,6 +683,18 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
           {tDashboard("order_journey_contact_support")}
         </a>
       </div>
+
+      {shouldShowReprintInlineMessage ? (
+        <p className="font-sans text-sm leading-6 text-[#BDBDBD]">
+          {tDashboard(resolveReprintInlineMessageKey(reprintConfig?.disableReason))}{" "}
+          <Link
+            href="/contact"
+            className="font-semibold text-[#007eff] underline decoration-[#007eff]/45 underline-offset-4 transition-colors duration-150 hover:text-[#47a6ff]"
+          >
+            {tDashboard("reprint_same_contact_support")}
+          </Link>
+        </p>
+      ) : null}
 
       <section className="space-y-2 rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4">
         <h2 className="font-display text-lg font-semibold text-white">
@@ -724,6 +805,20 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ReprintSameModal
+        open={isReprintSameModalOpen}
+        onOpenChange={setIsReprintSameModalOpen}
+        bookTitle={tracking.title ?? null}
+        config={reprintConfig}
+        isLoading={isReprintConfigInitialLoading}
+        isError={isReprintConfigError}
+        errorMessage={reprintSameErrorMessage}
+        onRetry={() => {
+          void refetchReprintConfig();
+        }}
+        returnFocusElement={reprintSameTriggerRef.current}
+      />
     </section>
   );
 }

@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AddonsModule } from "./addons/addons.module.js";
+import { AddressesModule } from "./addresses/addresses.module.js";
 import { AppController } from "./app.controller.js";
 import { AppService } from "./app.service.js";
 import { AuthModule } from "./auth/auth.module.js";
@@ -110,6 +111,9 @@ import { UsersModule } from "./users/users.module.js";
 
     // Public addon endpoints (Cover Design, Formatting, ISBN Registration)
     AddonsModule,
+
+    // Authenticated address book endpoints for delivery settings and checkout reuse
+    AddressesModule,
 
     // In-app notifications endpoints (e.g. GET /notifications/unread-count for dashboard header badge)
     NotificationsModule,
