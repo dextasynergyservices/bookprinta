@@ -97,4 +97,12 @@ describe("AdminSidebar", () => {
     expect(screen.queryByText("Overview")).not.toBeInTheDocument();
     expect(screen.getByText("Content")).toBeInTheDocument();
   });
+
+  it("renders a compact icon-first layout when collapsed", () => {
+    const { container } = render(<AdminSidebar userRole="ADMIN" isCollapsed />);
+
+    expect(container.querySelector('[data-src="/favicon.png"]')).not.toBeNull();
+    expect(screen.queryByText("Overview")).not.toBeInTheDocument();
+    expect(screen.getByText("Orders")).toHaveClass("sr-only");
+  });
 });

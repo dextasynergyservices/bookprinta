@@ -49,6 +49,8 @@ export interface PaymentMetadata {
   packageId: string | null;
   packageSlug: string | null;
   packageName: string | null;
+  orderType?: "STANDARD" | "REPRINT_SAME" | "REPRINT_REVISED";
+  sourceBookId?: string | null;
   includesISBN: boolean;
   bookSize: BookSize | null;
   paperColor: PaperColor | null;

@@ -340,8 +340,8 @@ export class PaymentsController {
   @ApiOperation({
     summary: "Pay for reprint order",
     description:
-      "Initiates payment for a reprint order. Requires authentication. " +
-      "The order must belong to the authenticated user.",
+      "Initiates payment for a same-PDF reprint from the authenticated user's source book. " +
+      "The final server-side amount and order creation are resolved by the reprint flow.",
   })
   @ApiResponse({
     status: 200,
@@ -349,10 +349,14 @@ export class PaymentsController {
     type: InitializePaymentResponseDto,
   })
   @ApiResponse({ status: 401, description: "Unauthorized — JWT required" })
-  @ApiResponse({ status: 404, description: "Order not found" })
+  @ApiResponse({ status: 404, description: "Book not found" })
   async payReprint(@Body() dto: ReprintPaymentDto, @CurrentUser("sub") userId: string) {
     return this.paymentsService.payReprint({
-      orderId: dto.orderId,
+      sourceBookId: dto.sourceBookId,
+      copies: dto.copies,
+      bookSize: dto.bookSize,
+      paperColor: dto.paperColor,
+      lamination: dto.lamination,
       provider: dto.provider,
       callbackUrl: dto.callbackUrl ?? undefined,
       userId,

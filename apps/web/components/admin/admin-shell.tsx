@@ -1,6 +1,8 @@
 "use client";
 
-import { type CSSProperties, useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import { useAdminIdleLogout } from "@/hooks/use-admin-idle-logout";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useLenis } from "@/hooks/use-lenis";
@@ -17,19 +19,51 @@ type AdminShellProps = {
 };
 
 const ADMIN_SIDEBAR_WIDTH = "17.5rem";
+const ADMIN_SIDEBAR_COLLAPSED_WIDTH = "6rem";
+const ADMIN_SIDEBAR_COLLAPSED_STORAGE_KEY = "admin_sidebar_collapsed";
 
 export function AdminShell({ children, onNotificationsClick }: AdminShellProps) {
+  const tAdmin = useTranslations("admin");
   const { user } = useAuthSession();
   const { lenis } = useLenis();
   const pathname = usePathname();
   const prefersReducedMotion = useReducedMotion();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
+  const toggleDesktopSidebar = useCallback(() => {
+    setIsDesktopSidebarCollapsed((previous) => !previous);
+  }, []);
+  const desktopSidebarWidth = useMemo(
+    () => (isDesktopSidebarCollapsed ? ADMIN_SIDEBAR_COLLAPSED_WIDTH : ADMIN_SIDEBAR_WIDTH),
+    [isDesktopSidebarCollapsed]
+  );
+  const desktopSidebarToggleLabel = isDesktopSidebarCollapsed
+    ? tAdmin("sidebar_expand_aria")
+    : tAdmin("sidebar_collapse_aria");
+  const DesktopSidebarToggleIcon = isDesktopSidebarCollapsed ? ChevronRight : ChevronLeft;
 
   useAdminIdleLogout({
     onIdleTimeout: () => {
       setIsMobileDrawerOpen(false);
     },
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    setIsDesktopSidebarCollapsed(
+      window.localStorage.getItem(ADMIN_SIDEBAR_COLLAPSED_STORAGE_KEY) === "1"
+    );
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    window.localStorage.setItem(
+      ADMIN_SIDEBAR_COLLAPSED_STORAGE_KEY,
+      isDesktopSidebarCollapsed ? "1" : "0"
+    );
+  }, [isDesktopSidebarCollapsed]);
 
   useEffect(() => {
     if (!pathname) {
@@ -61,7 +95,7 @@ export function AdminShell({ children, onNotificationsClick }: AdminShellProps) 
       className="relative min-h-screen overflow-x-clip bg-[#000000] text-white"
       style={
         {
-          "--admin-sidebar-width": ADMIN_SIDEBAR_WIDTH,
+          "--admin-sidebar-width": desktopSidebarWidth,
         } as CSSProperties
       }
     >
@@ -85,11 +119,31 @@ export function AdminShell({ children, onNotificationsClick }: AdminShellProps) 
         }}
       />
 
-      <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:block lg:w-[var(--admin-sidebar-width)] lg:overflow-hidden lg:border-r lg:border-[#1F1F1F]">
-        <AdminSidebar userRole={user?.role} className="h-full" />
+      <aside className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:block lg:w-[var(--admin-sidebar-width)] lg:overflow-hidden lg:border-r lg:border-[#1F1F1F] lg:transition-[width] lg:duration-200 lg:ease-out">
+        <AdminSidebar
+          userRole={user?.role}
+          isCollapsed={isDesktopSidebarCollapsed}
+          className="h-full"
+        />
       </aside>
 
-      <div className="relative z-10 min-h-screen lg:pl-[var(--admin-sidebar-width)]">
+      <div
+        className="pointer-events-none fixed top-24 z-50 hidden lg:block lg:transition-[left] lg:duration-200 lg:ease-out"
+        style={{ left: "calc(var(--admin-sidebar-width) - 1rem)" }}
+      >
+        <button
+          type="button"
+          aria-pressed={isDesktopSidebarCollapsed}
+          aria-label={desktopSidebarToggleLabel}
+          title={desktopSidebarToggleLabel}
+          onClick={toggleDesktopSidebar}
+          className="pointer-events-auto inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#111111] text-white shadow-[0_16px_36px_rgba(0,0,0,0.45)] transition-colors duration-150 hover:border-[#007eff] hover:bg-[#1a1a1a] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+        >
+          <DesktopSidebarToggleIcon className="size-4" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="relative z-10 min-h-screen lg:pl-[var(--admin-sidebar-width)] lg:transition-[padding] lg:duration-200 lg:ease-out">
         <div className="flex min-h-screen flex-col">
           <AdminHeader
             onOpenMobileMenu={() => setIsMobileDrawerOpen(true)}

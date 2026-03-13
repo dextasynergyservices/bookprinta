@@ -19,6 +19,7 @@ import {
   BookManuscriptUploadResponseSchema,
   BookParamsSchema,
   BookPreviewResponseSchema,
+  BookReprintConfigResponseSchema,
   BookReprocessResponseSchema,
   BookRolloutStateSchema,
   BookSettingsResponseSchema,
@@ -157,3 +158,6 @@ export class AdminBookDownloadParamsDto extends createZodDto(AdminBookDownloadPa
 export class AdminBookVersionFileDownloadParamsDto extends createZodDto(
   AdminBookVersionFileDownloadParamsSchema
 ) {}
+
+/** Response for GET /api/v1/books/:id/reprint-config */
+export class BookReprintConfigResponseDto extends createZodDto(BookReprintConfigResponseSchema) {}
