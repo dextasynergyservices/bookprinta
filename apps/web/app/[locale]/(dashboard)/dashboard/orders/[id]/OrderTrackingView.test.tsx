@@ -5,6 +5,7 @@ import { OrderTrackingView } from "./OrderTrackingView";
 
 const useOrderTrackingMock = jest.fn();
 const useOrderDetailMock = jest.fn();
+const useBookReprintConfigMock = jest.fn();
 const toastSuccessMock = jest.fn();
 const toastErrorMock = jest.fn();
 const fetchMock = jest.fn();
@@ -84,6 +85,13 @@ const TRANSLATIONS: Record<string, string> = {
     "Need help with a refund request? Contact support with your order reference.",
   order_tracking_refund_policy_modal_contact: "Contact Support",
   order_tracking_refund_policy_modal_close: "Close",
+  reprint_same: "Reprint Same",
+  revise_reprint: "Revise & Reprint",
+  reprint_same_contact_support: "Contact support",
+  reprint_same_unavailable_inline_final_pdf:
+    "Final PDF is not available for same-file reprint yet.",
+  reprint_same_unavailable_inline_generic: "Same-file reprint is unavailable right now.",
+  reprint_same_load_error_description: "Unable to load reprint options right now.",
   updated: "Last updated: March 5, 2026",
   orders_unknown_status: "Unknown status",
   orders_unknown_total: "Unknown total",
@@ -122,8 +130,17 @@ jest.mock("@/hooks/useOrderDetail", () => ({
   useOrderDetail: (...args: unknown[]) => useOrderDetailMock(...args),
 }));
 
+jest.mock("@/hooks/use-book-reprint-config", () => ({
+  useBookReprintConfig: (...args: unknown[]) => useBookReprintConfigMock(...args),
+}));
+
 jest.mock("@/components/dashboard/order-journey-tracker", () => ({
   OrderJourneyTracker: () => <div data-testid="order-journey-tracker" />,
+}));
+
+jest.mock("@/components/dashboard/reprint-same-modal", () => ({
+  ReprintSameModal: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="reprint-same-modal" /> : null,
 }));
 
 jest.mock("@/lib/i18n/navigation", () => ({
@@ -146,6 +163,13 @@ describe("OrderTrackingView route integration", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = fetchMock as unknown as typeof fetch;
+    useBookReprintConfigMock.mockReturnValue({
+      config: null,
+      isError: false,
+      isInitialLoading: false,
+      refetch: jest.fn(),
+      error: null,
+    });
     useOrderDetailMock.mockReturnValue({
       createdAt: "2026-03-01T08:00:00.000Z",
       updatedAt: "2026-03-03T08:00:00.000Z",
@@ -225,6 +249,7 @@ describe("OrderTrackingView route integration", () => {
         currentStage: "SHIPPING",
         currentOrderStatus: "IN_PRODUCTION",
         currentBookStatus: "SHIPPING",
+        bookId: "book_1",
         shippingProvider: "DHL",
         trackingNumber: "TRK-101",
         timeline: [
@@ -243,6 +268,7 @@ describe("OrderTrackingView route integration", () => {
       currentStage: "SHIPPING",
       currentOrderStatus: "IN_PRODUCTION",
       currentBookStatus: "SHIPPING",
+      bookId: "book_1",
       isInitialLoading: false,
       isError: false,
       isFetching: false,
@@ -262,9 +288,120 @@ describe("OrderTrackingView route integration", () => {
     expect(screen.getByRole("button", { name: "Download PDF Invoice" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Share Journey" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy Order Ref" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reprint Same" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Revise & Reprint" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Contact Support" })).toHaveAttribute(
       "href",
       "https://wa.me/2348103208297"
+    );
+  });
+
+  it("shows reprint actions on delivered orders with a linked book", () => {
+    useBookReprintConfigMock.mockReturnValue({
+      config: {
+        canReprintSame: true,
+        disableReason: null,
+      },
+      isError: false,
+      isInitialLoading: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderTrackingMock.mockReturnValue({
+      data: {
+        orderId: "ord_1",
+        orderNumber: "BP-2026-0001",
+        updatedAt: "2026-03-04T09:00:00.000Z",
+        currentStage: "DELIVERED",
+        currentOrderStatus: "COMPLETED",
+        currentBookStatus: "DELIVERED",
+        bookId: "book_1",
+        title: "My Delivered Book",
+        shippingProvider: "DHL",
+        trackingNumber: "TRK-101",
+        timeline: [],
+      },
+      shippingProvider: "DHL",
+      trackingNumber: "TRK-101",
+      orderNumber: "BP-2026-0001",
+      orderId: "ord_1",
+      currentStage: "DELIVERED",
+      currentOrderStatus: "COMPLETED",
+      currentBookStatus: "DELIVERED",
+      bookId: "book_1",
+      title: "My Delivered Book",
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+      dataUpdatedAt: Date.now(),
+    });
+
+    render(<OrderTrackingView orderId="ord_1" />);
+
+    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Revise & Reprint" })).toHaveAttribute(
+      "href",
+      "/pricing?orderType=REPRINT_REVISED&sourceBookId=book_1"
+    );
+  });
+
+  it("disables same-file reprint and shows support guidance when the final PDF is missing", () => {
+    useBookReprintConfigMock.mockReturnValue({
+      config: {
+        canReprintSame: false,
+        disableReason: "FINAL_PDF_MISSING",
+      },
+      isError: false,
+      isInitialLoading: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderTrackingMock.mockReturnValue({
+      data: {
+        orderId: "ord_1",
+        orderNumber: "BP-2026-0001",
+        updatedAt: "2026-03-04T09:00:00.000Z",
+        currentStage: "DELIVERED",
+        currentOrderStatus: "COMPLETED",
+        currentBookStatus: "DELIVERED",
+        bookId: "book_1",
+        title: "My Delivered Book",
+        shippingProvider: "DHL",
+        trackingNumber: "TRK-101",
+        timeline: [],
+      },
+      shippingProvider: "DHL",
+      trackingNumber: "TRK-101",
+      orderNumber: "BP-2026-0001",
+      orderId: "ord_1",
+      currentStage: "DELIVERED",
+      currentOrderStatus: "COMPLETED",
+      currentBookStatus: "DELIVERED",
+      bookId: "book_1",
+      title: "My Delivered Book",
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+      dataUpdatedAt: Date.now(),
+    });
+
+    render(<OrderTrackingView orderId="ord_1" />);
+
+    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeDisabled();
+    expect(
+      screen.getByText("Final PDF is not available for same-file reprint yet.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Contact support" })).toHaveAttribute(
+      "href",
+      "/contact"
+    );
+    expect(screen.getByRole("link", { name: "Revise & Reprint" })).toHaveAttribute(
+      "href",
+      "/pricing?orderType=REPRINT_REVISED&sourceBookId=book_1"
     );
   });
 

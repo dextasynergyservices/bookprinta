@@ -23,9 +23,13 @@ import type {
   BookProcessingStep,
   BookProcessingTrigger,
   BookProgressStage,
+  BookReprintConfigResponse,
   BookReprocessResponse,
   BookSettingsResponse,
   BookStatus,
+  Lamination,
+  PaperColor,
+  ReprintBookSize,
   UpdateAdminBookProductionStatusInput,
   UpdateBookSettingsInput,
 } from "@bookprinta/shared";
@@ -42,7 +46,7 @@ import { Resend } from "resend";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { FilesService } from "../files/files.service.js";
 import { Prisma } from "../generated/prisma/client.js";
-import type { FileType, JobStatus } from "../generated/prisma/enums.js";
+import { type FileType, type JobStatus, PaymentProvider } from "../generated/prisma/enums.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import {
@@ -224,8 +228,22 @@ type AdminDownloadAsset = {
 export class BooksService {
   private readonly logger = new Logger(BooksService.name);
   private static readonly EXTRA_PAGE_PRICE_NGN = 10;
+  private static readonly DEFAULT_REPRINT_COST_PER_PAGE_A5 = 10;
+  private static readonly REPRINT_COST_PER_PAGE_SETTING_KEY = "quote_cost_per_page";
+  private static readonly REPRINT_MIN_COPIES = 25;
   private static readonly ACTIVE_JOB_STALE_AFTER_MS = 15 * 60 * 1000;
   private static readonly FALLBACK_PROCESSING_STALE_AFTER_MS = 15 * 60 * 1000;
+  private static readonly REPRINT_ELIGIBLE_BOOK_STATUSES = new Set<BookStatus>([
+    "DELIVERED",
+    "COMPLETED",
+  ]);
+  private static readonly REPRINT_ALLOWED_BOOK_SIZES: ReprintBookSize[] = ["A4", "A5", "A6"];
+  private static readonly REPRINT_ALLOWED_PAPER_COLORS: PaperColor[] = ["white", "cream"];
+  private static readonly REPRINT_ALLOWED_LAMINATIONS: Lamination[] = ["matt", "gloss"];
+  private static readonly REPRINT_PAYMENT_PROVIDERS = [
+    PaymentProvider.PAYSTACK,
+    PaymentProvider.STRIPE,
+  ] as const;
   private static readonly NON_USER_FACING_PROCESSING_ERRORS = [
     "cleared by local development queue reset.",
     "marked stale and superseded by a fresh reprocess request.",
@@ -1131,6 +1149,100 @@ export class BooksService {
         })
       ),
       mimeType: file.mimeType?.trim() || "application/octet-stream",
+    };
+  }
+
+  async getUserBookReprintConfig(
+    userId: string,
+    bookId: string
+  ): Promise<BookReprintConfigResponse> {
+    const book = await this.prisma.book.findFirst({
+      where: {
+        id: bookId,
+        userId,
+      },
+      select: {
+        id: true,
+        status: true,
+        pageCount: true,
+        finalPdfUrl: true,
+        order: {
+          select: {
+            bookSize: true,
+            paperColor: true,
+            lamination: true,
+          },
+        },
+      },
+    });
+
+    if (!book) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    const [systemSettings, paymentGateways] = await Promise.all([
+      this.prisma.systemSetting.findMany({
+        where: {
+          key: {
+            in: [BooksService.REPRINT_COST_PER_PAGE_SETTING_KEY],
+          },
+        },
+        select: {
+          key: true,
+          value: true,
+        },
+      }),
+      this.prisma.paymentGateway.findMany({
+        where: {
+          isEnabled: true,
+          provider: {
+            in: [...BooksService.REPRINT_PAYMENT_PROVIDERS],
+          },
+        },
+        orderBy: [{ priority: "asc" }, { provider: "asc" }],
+        select: {
+          provider: true,
+        },
+      }),
+    ]);
+
+    const configuredA5Cost = this.resolveConfiguredReprintCostPerPage(systemSettings);
+    const defaultBookSize = this.normalizeReprintBookSize(book.order.bookSize);
+    const defaultPaperColor = this.normalizePaperColor(book.order.paperColor);
+    const defaultLamination = this.normalizeLamination(book.order.lamination);
+    const enabledPaymentProviders = paymentGateways
+      .map((gateway) => gateway.provider)
+      .filter(
+        (provider): provider is BookReprintConfigResponse["enabledPaymentProviders"][number] =>
+          provider === PaymentProvider.PAYSTACK || provider === PaymentProvider.STRIPE
+      );
+    const disableReason = this.resolveReprintDisableReason({
+      bookStatus: book.status,
+      finalPdfUrl: book.finalPdfUrl,
+      pageCount: book.pageCount,
+      defaultBookSize,
+      enabledPaymentProvidersCount: enabledPaymentProviders.length,
+    });
+
+    return {
+      bookId: book.id,
+      canReprintSame: disableReason === null,
+      disableReason,
+      finalPdfUrlPresent: Boolean(book.finalPdfUrl),
+      pageCount: typeof book.pageCount === "number" && book.pageCount > 0 ? book.pageCount : null,
+      minCopies: BooksService.REPRINT_MIN_COPIES,
+      defaultBookSize,
+      defaultPaperColor,
+      defaultLamination,
+      allowedBookSizes: [...BooksService.REPRINT_ALLOWED_BOOK_SIZES],
+      allowedPaperColors: [...BooksService.REPRINT_ALLOWED_PAPER_COLORS],
+      allowedLaminations: [...BooksService.REPRINT_ALLOWED_LAMINATIONS],
+      costPerPageBySize: {
+        A4: configuredA5Cost * 2,
+        A5: configuredA5Cost,
+        A6: configuredA5Cost / 2,
+      },
+      enabledPaymentProviders,
     };
   }
 
@@ -2400,6 +2512,57 @@ export class BooksService {
     return trigger === "upload" || trigger === "settings_change" || trigger === "approval"
       ? trigger
       : null;
+  }
+
+  private resolveConfiguredReprintCostPerPage(rows: Array<{ key: string; value: string }>): number {
+    const configuredValue = rows.find(
+      (row) => row.key === BooksService.REPRINT_COST_PER_PAGE_SETTING_KEY
+    )?.value;
+    const parsedValue = this.readMoneyValue(configuredValue);
+
+    return parsedValue > 0 ? parsedValue : BooksService.DEFAULT_REPRINT_COST_PER_PAGE_A5;
+  }
+
+  private resolveReprintDisableReason(params: {
+    bookStatus: BookStatus;
+    finalPdfUrl: string | null;
+    pageCount: number | null;
+    defaultBookSize: ReprintBookSize | null;
+    enabledPaymentProvidersCount: number;
+  }): BookReprintConfigResponse["disableReason"] {
+    if (!BooksService.REPRINT_ELIGIBLE_BOOK_STATUSES.has(params.bookStatus)) {
+      return "BOOK_NOT_ELIGIBLE";
+    }
+
+    if (!params.finalPdfUrl) {
+      return "FINAL_PDF_MISSING";
+    }
+
+    if (typeof params.pageCount !== "number" || params.pageCount < 1) {
+      return "PAGE_COUNT_UNAVAILABLE";
+    }
+
+    if (params.defaultBookSize === null) {
+      return "BOOK_SIZE_UNSUPPORTED";
+    }
+
+    if (params.enabledPaymentProvidersCount < 1) {
+      return "PAYMENT_PROVIDER_UNAVAILABLE";
+    }
+
+    return null;
+  }
+
+  private normalizeReprintBookSize(value: string | null | undefined): ReprintBookSize | null {
+    return value === "A4" || value === "A5" || value === "A6" ? value : null;
+  }
+
+  private normalizePaperColor(value: string | null | undefined): PaperColor {
+    return value === "cream" ? "cream" : "white";
+  }
+
+  private normalizeLamination(value: string | null | undefined): Lamination {
+    return value === "matt" ? "matt" : "gloss";
   }
 
   private asRecord(value: unknown): Record<string, unknown> | null {

@@ -27,6 +27,12 @@ const mockPrismaService = {
   payment: {
     aggregate: jest.fn(),
   },
+  systemSetting: {
+    findMany: jest.fn(),
+  },
+  paymentGateway: {
+    findMany: jest.fn(),
+  },
   $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
     callback({
       book: { update: txBookUpdate },
@@ -110,6 +116,8 @@ describe("BooksService", () => {
     mockRolloutService.assertManuscriptPipelineAccess.mockImplementation(() => undefined);
     mockRolloutService.assertBillingGateAccess.mockImplementation(() => undefined);
     mockRolloutService.assertFinalPdfAccess.mockImplementation(() => undefined);
+    mockPrismaService.systemSetting.findMany.mockResolvedValue([]);
+    mockPrismaService.paymentGateway.findMany.mockResolvedValue([]);
   });
 
   describe("updateUserBookSettings", () => {
@@ -971,6 +979,140 @@ describe("BooksService", () => {
             createdAt: "2026-03-07T10:15:00.000Z",
           },
         ],
+      });
+    });
+  });
+
+  describe("getUserBookReprintConfig", () => {
+    it("returns the narrow reprint config for a delivered book", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        status: "DELIVERED",
+        pageCount: 192,
+        finalPdfUrl: "https://cdn.example.com/books/1/final.pdf",
+        order: {
+          bookSize: "A5",
+          paperColor: "cream",
+          lamination: "matt",
+        },
+      });
+      mockPrismaService.systemSetting.findMany.mockResolvedValue([
+        {
+          key: "quote_cost_per_page",
+          value: "12",
+        },
+      ]);
+      mockPrismaService.paymentGateway.findMany.mockResolvedValue([
+        { provider: "PAYSTACK" },
+        { provider: "STRIPE" },
+      ]);
+
+      const result = await service.getUserBookReprintConfig(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
+
+      expect(mockPrismaService.book.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: "cm1111111111111111111111111",
+          userId: "user_1",
+        },
+        select: {
+          id: true,
+          status: true,
+          pageCount: true,
+          finalPdfUrl: true,
+          order: {
+            select: {
+              bookSize: true,
+              paperColor: true,
+              lamination: true,
+            },
+          },
+        },
+      });
+      expect(mockPrismaService.systemSetting.findMany).toHaveBeenCalledWith({
+        where: {
+          key: {
+            in: ["quote_cost_per_page"],
+          },
+        },
+        select: {
+          key: true,
+          value: true,
+        },
+      });
+      expect(mockPrismaService.paymentGateway.findMany).toHaveBeenCalledWith({
+        where: {
+          isEnabled: true,
+          provider: {
+            in: ["PAYSTACK", "STRIPE"],
+          },
+        },
+        orderBy: [{ priority: "asc" }, { provider: "asc" }],
+        select: {
+          provider: true,
+        },
+      });
+      expect(result).toEqual({
+        bookId: "cm1111111111111111111111111",
+        canReprintSame: true,
+        disableReason: null,
+        finalPdfUrlPresent: true,
+        pageCount: 192,
+        minCopies: 25,
+        defaultBookSize: "A5",
+        defaultPaperColor: "cream",
+        defaultLamination: "matt",
+        allowedBookSizes: ["A4", "A5", "A6"],
+        allowedPaperColors: ["white", "cream"],
+        allowedLaminations: ["matt", "gloss"],
+        costPerPageBySize: {
+          A4: 24,
+          A5: 12,
+          A6: 6,
+        },
+        enabledPaymentProviders: ["PAYSTACK", "STRIPE"],
+      });
+    });
+
+    it("flags books that cannot reprint the same PDF yet", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        status: "PRINTING",
+        pageCount: null,
+        finalPdfUrl: null,
+        order: {
+          bookSize: "A6",
+          paperColor: "white",
+          lamination: "gloss",
+        },
+      });
+
+      const result = await service.getUserBookReprintConfig(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
+
+      expect(result).toEqual({
+        bookId: "cm1111111111111111111111111",
+        canReprintSame: false,
+        disableReason: "BOOK_NOT_ELIGIBLE",
+        finalPdfUrlPresent: false,
+        pageCount: null,
+        minCopies: 25,
+        defaultBookSize: "A6",
+        defaultPaperColor: "white",
+        defaultLamination: "gloss",
+        allowedBookSizes: ["A4", "A5", "A6"],
+        allowedPaperColors: ["white", "cream"],
+        allowedLaminations: ["matt", "gloss"],
+        costPerPageBySize: {
+          A4: 20,
+          A5: 10,
+          A6: 5,
+        },
+        enabledPaymentProviders: [],
       });
     });
   });

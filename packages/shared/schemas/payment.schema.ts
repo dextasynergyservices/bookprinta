@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { AdminAuditEntrySchema, AdminRefundTypeSchema } from "./admin.schema.ts";
+import {
+  LaminationSchema,
+  PaperColorSchema,
+  ReprintBookSizeSchema,
+  ReprintPaymentProviderSchema,
+} from "./book.schema.ts";
 import { BookStatusSchema, OrderStatusSchema, RefundPolicySnapshotSchema } from "./order.schema.ts";
 
 // ==========================================
@@ -100,11 +106,15 @@ export type ExtraPagesPaymentInput = z.infer<typeof ExtraPagesPaymentSchema>;
 
 /**
  * POST /api/v1/payments/reprint
- * Pay for a reprint order.
+ * Initialize payment for a same-PDF reprint.
  */
 export const ReprintPaymentSchema = z.object({
-  orderId: z.string().cuid(),
-  provider: z.enum(["PAYSTACK", "STRIPE"]),
+  sourceBookId: z.string().cuid(),
+  copies: z.number().int().min(25, "Minimum 25 copies required for reprints"),
+  bookSize: ReprintBookSizeSchema,
+  paperColor: PaperColorSchema,
+  lamination: LaminationSchema,
+  provider: ReprintPaymentProviderSchema,
   callbackUrl: z.string().url().optional(),
 });
 export type ReprintPaymentInput = z.infer<typeof ReprintPaymentSchema>;

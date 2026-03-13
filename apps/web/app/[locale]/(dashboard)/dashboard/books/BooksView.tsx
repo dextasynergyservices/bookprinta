@@ -7,7 +7,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BookProgressTracker } from "@/components/dashboard/book-progress-tracker";
 import { ManuscriptPreviewPanel } from "@/components/dashboard/manuscript-preview-panel";
 import { ManuscriptUploadFlow } from "@/components/dashboard/manuscript-upload-flow";
+import { ReprintSameModal } from "@/components/dashboard/reprint-same-modal";
 import { Button } from "@/components/ui/button";
+import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
 import {
   approveBookForProduction,
   reprocessBookManuscript,
@@ -23,7 +25,7 @@ import {
   usePaymentGateways,
   verifyPayment,
 } from "@/hooks/usePayments";
-import { Link } from "@/lib/i18n/navigation";
+import { Link, usePathname, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import {
   BOOK_PROGRESS_STAGES,
@@ -64,6 +66,7 @@ const WORKSPACE_APPROVED_BOOK_STATUSES = new Set([
   "DELIVERED",
   "COMPLETED",
 ]);
+const WORKSPACE_REPRINT_BOOK_STATUSES = new Set(["DELIVERED", "COMPLETED"]);
 const WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES = new Set(["FORMATTING_REVIEW", "REJECTED"]);
 type TranslationValues = Record<string, string | number | Date>;
 type DashboardTranslator = (key: string, values?: TranslationValues) => string;
@@ -124,6 +127,15 @@ function resolveLocaleTag(locale: string): string {
   if (locale === "fr") return "fr-FR";
   if (locale === "es") return "es-ES";
   return "en-NG";
+}
+
+function resolveReprintInlineMessageKey(disableReason: string | null | undefined): string {
+  switch (disableReason) {
+    case "FINAL_PDF_MISSING":
+      return "reprint_same_unavailable_inline_final_pdf";
+    default:
+      return "reprint_same_unavailable_inline_generic";
+  }
 }
 
 function formatInteger(value: number, locale: string): string {
@@ -1109,10 +1121,14 @@ export function BooksView() {
   const [isFileHistoryOpen, setIsFileHistoryOpen] = useState(false);
   const [previewRetryError, setPreviewRetryError] = useState<string | null>(null);
   const verifiedPaymentReferenceRef = useRef<string | null>(null);
+  const reprintSameTriggerRef = useRef<HTMLButtonElement | null>(null);
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const requestedBookId = resolveBookId(searchParams.get("bookId"));
   const callbackPaymentReference =
     resolveBookId(searchParams.get("reference")) ?? resolveBookId(searchParams.get("trxref"));
+  const requestedReprintMode = searchParams.get("reprint");
   const shouldResolveFromOrders = requestedBookId === null;
 
   const {
@@ -1188,6 +1204,7 @@ export function BooksView() {
     bookId: activeBookId,
     enabled: isFileHistoryOpen && Boolean(activeBookId),
   });
+  const normalizedCurrentBookStatus = normalizeStatusToken(data.currentStatus);
   const billingStatus = orderStatus ?? data.currentStatus;
   const extraPagesProvider = resolveExtraPagesProvider(paymentGateways);
   const pendingExtraPaymentReference =
@@ -1195,6 +1212,43 @@ export function BooksView() {
     (orderStatus === "PENDING_EXTRA_PAYMENT" && latestExtraPaymentStatus === "PENDING"
       ? latestPaymentReference
       : null);
+  const canShowReprintActions =
+    activeBookId !== null &&
+    normalizedCurrentBookStatus !== null &&
+    WORKSPACE_REPRINT_BOOK_STATUSES.has(normalizedCurrentBookStatus);
+  const {
+    config: reprintConfig,
+    isError: isReprintConfigError,
+    isInitialLoading: isReprintConfigInitialLoading,
+    refetch: refetchReprintConfig,
+    error: reprintConfigError,
+  } = useBookReprintConfig({
+    bookId: activeBookId,
+    enabled: canShowReprintActions,
+  });
+  const reviseReprintHref = useMemo(() => {
+    if (!activeBookId) return null;
+
+    const params = new URLSearchParams({
+      orderType: "REPRINT_REVISED",
+      sourceBookId: activeBookId,
+    });
+
+    return `/pricing?${params.toString()}`;
+  }, [activeBookId]);
+  const isReprintSameModalOpen = canShowReprintActions && requestedReprintMode === "same";
+  const isReprintSameDisabled =
+    canShowReprintActions &&
+    !isReprintConfigInitialLoading &&
+    !isReprintConfigError &&
+    reprintConfig !== null &&
+    !reprintConfig.canReprintSame;
+  const shouldShowReprintInlineMessage =
+    canShowReprintActions && isReprintSameDisabled && reprintConfig?.disableReason !== null;
+  const reprintSameErrorMessage =
+    reprintConfigError instanceof Error && reprintConfigError.message.trim().length > 0
+      ? reprintConfigError.message
+      : tDashboard("reprint_same_load_error_description");
   const isPaymentGatewayUnavailable =
     billingStatus === "PENDING_EXTRA_PAYMENT" &&
     !isPaymentGatewaysLoading &&
@@ -1322,6 +1376,35 @@ export function BooksView() {
     refetchOrderDetail,
     tDashboard,
   ]);
+
+  const updateBooksWorkspaceSearchParams = (updater: (params: URLSearchParams) => void) => {
+    const params = new URLSearchParams(searchParams.toString());
+    updater(params);
+    const nextSearch = params.toString();
+    router.replace(nextSearch.length > 0 ? `${pathname}?${nextSearch}` : pathname);
+  };
+
+  const handleOpenReprintSameModal = () => {
+    if (!activeBookId || isReprintSameDisabled) {
+      return;
+    }
+
+    updateBooksWorkspaceSearchParams((params) => {
+      params.set("bookId", activeBookId);
+      params.set("reprint", "same");
+    });
+  };
+
+  const handleReprintSameModalOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      handleOpenReprintSameModal();
+      return;
+    }
+
+    updateBooksWorkspaceSearchParams((params) => {
+      params.delete("reprint");
+    });
+  };
 
   async function handlePayExtraPages() {
     if (!activeBookId) return;
@@ -1729,6 +1812,29 @@ export function BooksView() {
                 : tDashboard("book_progress_cta_view_files")}
             </Button>
 
+            {canShowReprintActions ? (
+              <Button
+                ref={reprintSameTriggerRef}
+                type="button"
+                variant="outline"
+                onClick={handleOpenReprintSameModal}
+                disabled={isReprintSameDisabled}
+                className="font-sans min-h-11 rounded-full border-[#007eff] bg-transparent px-5 text-sm font-semibold text-[#007eff] shadow-none hover:border-[#3398ff] hover:bg-[#071320] hover:text-[#3398ff]"
+              >
+                {tDashboard("reprint_same")}
+              </Button>
+            ) : null}
+
+            {canShowReprintActions && reviseReprintHref !== null ? (
+              <Button
+                asChild
+                variant="secondary"
+                className="font-sans min-h-11 rounded-full border border-[#2A2A2A] bg-[#111111] px-5 text-sm font-semibold text-white hover:border-[#007eff] hover:bg-[#151515]"
+              >
+                <Link href={reviseReprintHref}>{tDashboard("revise_reprint")}</Link>
+              </Button>
+            ) : null}
+
             <Link
               href={data.orderId ? `/dashboard/orders/${data.orderId}` : "/dashboard/orders"}
               className="font-sans inline-flex min-h-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
@@ -1736,6 +1842,18 @@ export function BooksView() {
               {tDashboard("book_progress_cta_open_workspace")}
             </Link>
           </div>
+
+          {shouldShowReprintInlineMessage ? (
+            <p className="font-sans text-sm leading-6 text-[#BDBDBD]">
+              {tDashboard(resolveReprintInlineMessageKey(reprintConfig?.disableReason))}{" "}
+              <Link
+                href="/contact"
+                className="font-semibold text-[#007eff] underline decoration-[#007eff]/45 underline-offset-4 transition-colors duration-150 hover:text-[#47a6ff]"
+              >
+                {tDashboard("reprint_same_contact_support")}
+              </Link>
+            </p>
+          ) : null}
 
           {resourceActionError ? (
             <p
@@ -1757,6 +1875,20 @@ export function BooksView() {
           ) : null}
         </div>
       )}
+
+      <ReprintSameModal
+        open={isReprintSameModalOpen}
+        onOpenChange={handleReprintSameModalOpenChange}
+        bookTitle={data?.title ?? null}
+        config={reprintConfig}
+        isLoading={isReprintConfigInitialLoading}
+        isError={isReprintConfigError}
+        errorMessage={reprintSameErrorMessage}
+        onRetry={() => {
+          void refetchReprintConfig();
+        }}
+        returnFocusElement={reprintSameTriggerRef.current}
+      />
     </section>
   );
 }

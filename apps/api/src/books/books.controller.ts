@@ -37,6 +37,7 @@ import {
   BookManuscriptUploadResponseDto,
   BookParamsDto,
   BookPreviewResponseDto,
+  BookReprintConfigResponseDto,
   BookReprocessResponseDto,
   BookSettingsResponseDto,
   UpdateBookSettingsDto,
@@ -327,6 +328,38 @@ export class BooksController {
     @Param() params: BookParamsDto
   ): Promise<BookFilesResponseDto> {
     return this.booksService.getUserBookFiles(userId, params.id);
+  }
+
+  /**
+   * GET /api/v1/books/:id/reprint-config
+   * Returns the narrow server-authored reprint configuration for a delivered/completed book.
+   */
+  @Get(":id/reprint-config")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Get reprint configuration",
+    description:
+      "Returns the authenticated user's reprint-same configuration for a book, including " +
+      "eligibility, default print options, cost-per-page lookup, and enabled inline providers.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Book CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Reprint configuration retrieved successfully",
+    type: BookReprintConfigResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 404, description: "Book not found" })
+  async getBookReprintConfig(
+    @CurrentUser("sub") userId: string,
+    @Param() params: BookParamsDto
+  ): Promise<BookReprintConfigResponseDto> {
+    return this.booksService.getUserBookReprintConfig(userId, params.id);
   }
 
   /**

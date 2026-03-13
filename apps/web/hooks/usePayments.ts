@@ -64,6 +64,16 @@ export interface ExtraPagesPaymentInput {
   callbackUrl?: string;
 }
 
+export interface ReprintPaymentInput {
+  sourceBookId: string;
+  copies: number;
+  bookSize: "A4" | "A5" | "A6";
+  paperColor: "white" | "cream";
+  lamination: "matt" | "gloss";
+  provider: Extract<OnlinePaymentProvider, "PAYSTACK" | "STRIPE">;
+  callbackUrl?: string;
+}
+
 export interface BankTransferInput {
   payerName: string;
   payerEmail: string;
@@ -152,6 +162,21 @@ export async function initializePayment(payload: InitializePaymentInput) {
 
 export async function payExtraPages(payload: ExtraPagesPaymentInput) {
   const response = await fetch(`${API_V1_BASE_URL}/payments/extra-pages`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    await parseError(response);
+  }
+
+  return (await response.json()) as InitializePaymentResponse;
+}
+
+export async function payReprint(payload: ReprintPaymentInput) {
+  const response = await fetch(`${API_V1_BASE_URL}/payments/reprint`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
