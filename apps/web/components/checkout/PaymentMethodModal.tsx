@@ -17,6 +17,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useAuthSession } from "@/hooks/use-auth-session";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   initializePayment,
@@ -102,6 +103,7 @@ export function PaymentMethodModal({
   const locale = useLocale();
   const router = useRouter();
   const isMobile = useIsMobile();
+  const { user, isAuthenticated } = useAuthSession();
   const { data: gateways, isLoading, isError, refetch } = usePaymentGateways(open);
 
   const [paymentChoice, setPaymentChoice] = useState<PaymentChoice | null>(null);
@@ -118,6 +120,15 @@ export function PaymentMethodModal({
   const [copiedFieldKey, setCopiedFieldKey] = useState<string | null>(null);
   const [onlineRateLimitSeconds, setOnlineRateLimitSeconds] = useState(0);
   const [bankRateLimitSeconds, setBankRateLimitSeconds] = useState(0);
+  const isAuthenticatedReprintCheckout =
+    paymentMetadata.orderType === "REPRINT_REVISED" &&
+    typeof paymentMetadata.sourceBookId === "string" &&
+    paymentMetadata.sourceBookId.trim().length > 0 &&
+    isAuthenticated &&
+    typeof user?.email === "string" &&
+    user.email.trim().length > 0;
+  const lockedReprintEmail = isAuthenticatedReprintCheckout ? user.email.trim().toLowerCase() : "";
+  const lockedReprintName = isAuthenticatedReprintCheckout ? user.displayName.trim() : "";
 
   const modalMotion = isMobile
     ? {
@@ -223,6 +234,20 @@ export function PaymentMethodModal({
   }, [open, resetBankTransferMutation, resetInitializeMutation]);
 
   useEffect(() => {
+    if (!open || !lockedReprintEmail) {
+      return;
+    }
+
+    setOnlineEmail(lockedReprintEmail);
+    setBankEmail(lockedReprintEmail);
+
+    if (lockedReprintName) {
+      setOnlineFullName((current) => current || lockedReprintName);
+      setBankFullName((current) => current || lockedReprintName);
+    }
+  }, [lockedReprintEmail, lockedReprintName, open]);
+
+  useEffect(() => {
     if (onlineRateLimitSeconds <= 0) return;
     const timer = window.setTimeout(() => {
       setOnlineRateLimitSeconds((current) => Math.max(0, current - 1));
@@ -254,6 +279,7 @@ export function PaymentMethodModal({
 
   const submitOnlinePayment = () => {
     if (!isOnlineFormComplete || !onlineProvider || isOnlineRateLimited) return;
+    const payerEmail = lockedReprintEmail || onlineEmail.trim().toLowerCase();
 
     const callbackUrl =
       typeof window !== "undefined"
@@ -262,15 +288,17 @@ export function PaymentMethodModal({
 
     initializeMutation.mutate({
       provider: onlineProvider,
-      email: onlineEmail.trim(),
+      email: payerEmail,
       amount,
       currency: "NGN",
       callbackUrl,
       metadata: {
+        ...paymentMetadata,
         locale,
         fullName: onlineFullName.trim(),
         phone: onlinePhone.trim(),
-        ...paymentMetadata,
+        payerEmail,
+        email: payerEmail,
       },
     });
   };
@@ -296,10 +324,11 @@ export function PaymentMethodModal({
 
   const submitBankPayment = () => {
     if (!isBankFormComplete || !bankReceiptFile || isBankRateLimited) return;
+    const payerEmail = lockedReprintEmail || bankEmail.trim().toLowerCase();
 
     bankTransferMutation.mutate({
       payerName: bankFullName.trim(),
-      payerEmail: bankEmail.trim().toLowerCase(),
+      payerEmail,
       payerPhone: bankPhone.trim(),
       amount,
       currency: "NGN",
@@ -309,8 +338,8 @@ export function PaymentMethodModal({
         locale,
         fullName: bankFullName.trim(),
         phone: bankPhone.trim(),
-        payerEmail: bankEmail.trim().toLowerCase(),
-        email: bankEmail.trim().toLowerCase(),
+        payerEmail,
+        email: payerEmail,
       },
     });
   };
@@ -566,6 +595,8 @@ export function PaymentMethodModal({
                             onChange={(event) => setOnlineEmail(event.target.value)}
                             placeholder={t("payment_modal_form_email")}
                             aria-label={t("payment_modal_form_email")}
+                            readOnly={Boolean(lockedReprintEmail)}
+                            aria-readonly={Boolean(lockedReprintEmail)}
                             className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                           />
                           <input
@@ -765,6 +796,8 @@ export function PaymentMethodModal({
                                   onChange={(event) => setBankEmail(event.target.value)}
                                   placeholder={t("payment_modal_form_email")}
                                   aria-label={t("payment_modal_form_email")}
+                                  readOnly={Boolean(lockedReprintEmail)}
+                                  aria-readonly={Boolean(lockedReprintEmail)}
                                   className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                                 />
                                 <input

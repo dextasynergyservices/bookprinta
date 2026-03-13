@@ -30,6 +30,7 @@ import {
   BookStatus,
   DiscountType,
   OrderStatus,
+  OrderType,
   PaymentProvider,
   PaymentStatus,
   PaymentType,
@@ -50,6 +51,16 @@ import { StripeService } from "./services/stripe.service.js";
 const MAX_SIGNUP_TOKEN_HOURS = 24;
 const BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK = "+2348103208297";
 const EXTRA_PAGE_PRICE_NGN = 10;
+const REPRINT_MIN_COPIES = 25;
+const DEFAULT_REPRINT_COST_PER_PAGE_A5 = 10;
+const REPRINT_COST_PER_PAGE_SETTING_KEY = "quote_cost_per_page";
+const REPRINT_ALLOWED_BOOK_SIZES = new Set(["A4", "A5", "A6"]);
+const REPRINT_ALLOWED_PAPER_COLORS = new Set(["white", "cream"]);
+const REPRINT_ALLOWED_LAMINATIONS = new Set(["matt", "gloss"]);
+const REPRINT_ELIGIBLE_BOOK_STATUSES = new Set<BookStatus>([
+  BookStatus.DELIVERED,
+  BookStatus.COMPLETED,
+]);
 
 type CheckoutAddonMetadata = {
   id?: string | null;
@@ -78,6 +89,17 @@ type CheckoutMetadata = {
   discountAmount?: number;
   totalPrice?: number;
   addons?: CheckoutAddonMetadata[];
+};
+
+type ReprintMetadata = {
+  sourceBookId: string;
+  sourceOrderId: string | null;
+  copies: number;
+  bookSize: string;
+  paperColor: string;
+  lamination: string;
+  pageCount: number | null;
+  finalPdfUrl: string | null;
 };
 
 type NormalizedBankTransferInput = {
@@ -1212,54 +1234,115 @@ export class PaymentsService {
    * Authenticated endpoint — requires userId.
    */
   async payReprint(params: {
-    orderId: string;
+    sourceBookId: string;
+    copies: number;
+    bookSize: string;
+    paperColor: string;
+    lamination: string;
     provider: string;
     callbackUrl?: string;
     userId: string;
   }) {
     const provider = params.provider.toUpperCase() as PaymentProvider;
+
+    if (provider !== PaymentProvider.PAYSTACK && provider !== PaymentProvider.STRIPE) {
+      throw new BadRequestException("Reprint payments currently support Paystack and Stripe only.");
+    }
+
     await this.ensureGatewayEnabled(provider);
     this.ensureProviderAvailable(provider);
 
-    const order = await this.prisma.order.findUnique({
-      where: { id: params.orderId },
-      include: {
+    const sourceBook = await this.prisma.book.findFirst({
+      where: {
+        id: params.sourceBookId,
+        userId: params.userId,
+      },
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        pageCount: true,
+        finalPdfUrl: true,
         user: {
-          select: { email: true },
+          select: {
+            email: true,
+          },
         },
       },
     });
 
-    if (!order) {
-      throw new NotFoundException(`Order "${params.orderId}" not found`);
+    if (!sourceBook) {
+      throw new NotFoundException(`Book "${params.sourceBookId}" not found`);
     }
 
-    if (order.userId !== params.userId) {
-      throw new BadRequestException("You can only pay for your own orders");
+    if (!REPRINT_ELIGIBLE_BOOK_STATUSES.has(sourceBook.status)) {
+      throw new BadRequestException(
+        "Only delivered books can start a same-file reprint from the dashboard."
+      );
     }
 
+    if (!sourceBook.finalPdfUrl) {
+      throw new BadRequestException("Final PDF is not available for same-file reprint yet.");
+    }
+
+    if (typeof sourceBook.pageCount !== "number" || sourceBook.pageCount < 1) {
+      throw new BadRequestException(
+        "Authoritative page count is required before reprint payment can start."
+      );
+    }
+
+    if (params.copies < REPRINT_MIN_COPIES) {
+      throw new BadRequestException("Minimum 25 copies required for reprints.");
+    }
+
+    if (!REPRINT_ALLOWED_BOOK_SIZES.has(params.bookSize)) {
+      throw new BadRequestException("Unsupported book size for same-file reprint.");
+    }
+
+    if (!REPRINT_ALLOWED_PAPER_COLORS.has(params.paperColor)) {
+      throw new BadRequestException("Unsupported paper color for same-file reprint.");
+    }
+
+    if (!REPRINT_ALLOWED_LAMINATIONS.has(params.lamination)) {
+      throw new BadRequestException("Unsupported lamination for same-file reprint.");
+    }
+
+    const configuredA5Cost = await this.resolveConfiguredReprintCostPerPage();
+    const unitCostPerPage = this.resolveReprintCostPerPage(params.bookSize, configuredA5Cost);
+    const amount = this.toCurrency(params.copies * sourceBook.pageCount * unitCostPerPage);
     const reference = this.generateReference("rp");
 
     const payment = await this.prisma.payment.create({
       data: {
         provider,
         type: PaymentType.REPRINT,
-        amount: order.totalAmount,
-        currency: order.currency,
+        amount,
+        currency: DEFAULT_CURRENCY,
         status: PaymentStatus.PENDING,
         providerRef: reference,
-        orderId: order.id,
         userId: params.userId,
+        payerEmail: sourceBook.user.email,
+        metadata: {
+          sourceBookId: sourceBook.id,
+          sourceOrderId: sourceBook.orderId,
+          orderType: "REPRINT_SAME",
+          copies: params.copies,
+          bookSize: params.bookSize,
+          paperColor: params.paperColor,
+          lamination: params.lamination,
+          pageCount: sourceBook.pageCount,
+          unitCostPerPage,
+          finalPdfUrl: sourceBook.finalPdfUrl,
+        },
       } as Prisma.PaymentUncheckedCreateInput,
     });
 
     return this.delegateInitialize(provider, {
-      email: order.user.email,
-      amount: Number(order.totalAmount),
+      email: sourceBook.user.email,
+      amount,
       reference,
       callbackUrl: params.callbackUrl,
       paymentId: payment.id,
-      orderId: order.id,
     });
   }
 
@@ -1387,8 +1470,8 @@ export class PaymentsService {
    *   Payment → User (pending) → Order → Book
    * and sends a signup link email as a network fallback.
    *
-   * For pre-created payments (extra pages, reprint), this updates the
-   * existing pending record to SUCCESS without creating checkout entities.
+   * For pre-created payments this updates the existing pending record to
+   * SUCCESS, then runs any follow-up fulfillment required for that payment type.
    */
   private async createPaymentFromWebhook(data: {
     provider: PaymentProvider;
@@ -1445,6 +1528,33 @@ export class PaymentsService {
 
       if (claimed.count === 0) {
         this.logger.log(`Payment ${data.providerRef} claimed by another process — skipping`);
+        return;
+      }
+
+      const shouldCreateReprintEntities =
+        existingPayment.type === PaymentType.REPRINT && !existingPayment.orderId;
+
+      if (shouldCreateReprintEntities) {
+        const reprintResult = await this.createReprintEntitiesFromMetadata({
+          paymentId: existingPayment.id,
+          userId: existingPayment.userId,
+          payerEmail: data.payerEmail ?? existingPayment.payerEmail,
+          metadata: mergedMetadata,
+          amount: data.amount,
+          currency: data.currency,
+        });
+
+        if (reprintResult) {
+          await this.sendOnlinePaymentAdminEmail({
+            orderNumber: reprintResult.orderNumber,
+            packageName: reprintResult.packageName,
+            amountPaid: reprintResult.amountPaid,
+            addons: reprintResult.addons,
+            payerEmail: reprintResult.email,
+            provider: data.provider,
+            reference: data.providerRef,
+          });
+        }
         return;
       }
 
@@ -1830,6 +1940,193 @@ export class PaymentsService {
     });
   }
 
+  private async createReprintEntitiesFromMetadata(params: {
+    paymentId: string;
+    userId: string | null;
+    payerEmail: string | null;
+    metadata: Record<string, unknown> | null;
+    amount: number;
+    currency: string;
+  }): Promise<{
+    email: string;
+    orderNumber: string;
+    packageName: string;
+    amountPaid: string;
+    addons: string[];
+  } | null> {
+    if (!params.userId) {
+      throw new ConflictException("Authenticated reprint payments require a linked user.");
+    }
+
+    const reprint = this.extractReprintMetadata(params.metadata);
+    if (!reprint) {
+      this.logger.warn(
+        `Webhook payment ${params.paymentId}: reprint metadata is incomplete, skipping order creation`
+      );
+      return null;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const sourceBook = await tx.book.findUnique({
+        where: { id: reprint.sourceBookId },
+        select: {
+          id: true,
+          orderId: true,
+          userId: true,
+          title: true,
+          coverImageUrl: true,
+          pageCount: true,
+          wordCount: true,
+          estimatedPages: true,
+          fontFamily: true,
+          fontSize: true,
+          finalPdfUrl: true,
+          user: {
+            select: {
+              email: true,
+            },
+          },
+          order: {
+            select: {
+              id: true,
+              packageId: true,
+              packagePriceSnap: true,
+              package: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!sourceBook || sourceBook.userId !== params.userId) {
+        throw new ForbiddenException("Source book is no longer available for reprint fulfillment.");
+      }
+
+      if (reprint.sourceOrderId && sourceBook.orderId !== reprint.sourceOrderId) {
+        throw new ConflictException("Reprint payment metadata does not match the source order.");
+      }
+
+      const finalPdfUrl = reprint.finalPdfUrl ?? sourceBook.finalPdfUrl;
+      if (!finalPdfUrl) {
+        throw new ConflictException("Final PDF is required to fulfill a same-file reprint.");
+      }
+
+      const pageCount = reprint.pageCount ?? sourceBook.pageCount ?? null;
+      if (typeof pageCount !== "number" || pageCount < 1) {
+        throw new ConflictException(
+          "Authoritative page count is required for reprint fulfillment."
+        );
+      }
+
+      const orderNumber = await this.generateOrderNumber(tx);
+      const amount = this.toCurrency(params.amount);
+      const now = new Date();
+
+      const order = await tx.order.create({
+        data: {
+          orderNumber,
+          userId: sourceBook.userId,
+          packageId: sourceBook.order.packageId,
+          orderType: OrderType.REPRINT_SAME,
+          originalBookId: sourceBook.id,
+          skipFormatting: true,
+          copies: reprint.copies,
+          packagePriceSnap: Number(sourceBook.order.packagePriceSnap),
+          hasCoverDesign: false,
+          hasFormatting: false,
+          bookSize: reprint.bookSize,
+          paperColor: reprint.paperColor,
+          lamination: reprint.lamination,
+          status: OrderStatus.IN_PRODUCTION,
+          initialAmount: amount,
+          extraAmount: 0,
+          discountAmount: 0,
+          totalAmount: amount,
+          currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
+        } as Prisma.OrderUncheckedCreateInput,
+      });
+
+      const book = await tx.book.create({
+        data: {
+          orderId: order.id,
+          userId: sourceBook.userId,
+          status: BookStatus.IN_PRODUCTION,
+          productionStatus: BookStatus.IN_PRODUCTION,
+          productionStatusUpdatedAt: now,
+          title: sourceBook.title,
+          coverImageUrl: sourceBook.coverImageUrl,
+          pageCount,
+          wordCount: sourceBook.wordCount,
+          estimatedPages: sourceBook.estimatedPages,
+          fontFamily: sourceBook.fontFamily,
+          fontSize: sourceBook.fontSize,
+          pageSize: reprint.bookSize,
+          finalPdfUrl,
+        },
+      });
+
+      await tx.auditLog.createMany({
+        data: [
+          {
+            userId: sourceBook.userId,
+            action: "ORDER_STATUS_REACHED",
+            entityType: "ORDER_TRACKING",
+            entityId: order.id,
+            details: {
+              source: "order",
+              status: OrderStatus.IN_PRODUCTION,
+              reachedAt: order.createdAt.toISOString(),
+              label: "In Production",
+            },
+          },
+          {
+            userId: sourceBook.userId,
+            action: "ORDER_STATUS_REACHED",
+            entityType: "ORDER_TRACKING",
+            entityId: order.id,
+            details: {
+              source: "book",
+              status: BookStatus.IN_PRODUCTION,
+              reachedAt: book.createdAt.toISOString(),
+              label: "In Production",
+            },
+          },
+        ],
+      });
+
+      await tx.payment.update({
+        where: { id: params.paymentId },
+        data: {
+          userId: sourceBook.userId,
+          orderId: order.id,
+        },
+      });
+
+      await this.notificationsService.createOrderStatusNotification(
+        {
+          userId: sourceBook.userId,
+          orderId: order.id,
+          orderNumber,
+          status: OrderStatus.IN_PRODUCTION,
+          source: "order",
+          bookId: book.id,
+        },
+        tx
+      );
+
+      return {
+        email: params.payerEmail ?? sourceBook.user.email,
+        orderNumber,
+        packageName: sourceBook.order.package.name,
+        amountPaid: this.formatNaira(params.amount),
+        addons: [],
+      };
+    });
+  }
+
   private async createOrderAddonsFromMetadata(
     tx: Prisma.TransactionClient,
     orderId: string,
@@ -2006,6 +2303,41 @@ export class PaymentsService {
       discountAmount: this.asNumber(merged.discountAmount),
       totalPrice: this.asNumber(merged.totalPrice),
       addons,
+    };
+  }
+
+  private extractReprintMetadata(metadata: Record<string, unknown> | null): ReprintMetadata | null {
+    if (!metadata || typeof metadata !== "object") return null;
+
+    const sourceBookId = this.asString(metadata.sourceBookId);
+    const copies = this.asInteger(metadata.copies);
+    const bookSize = this.asString(metadata.bookSize);
+    const paperColor = this.asString(metadata.paperColor);
+    const lamination = this.asString(metadata.lamination);
+
+    if (
+      !sourceBookId ||
+      typeof copies !== "number" ||
+      copies < REPRINT_MIN_COPIES ||
+      !bookSize ||
+      !REPRINT_ALLOWED_BOOK_SIZES.has(bookSize) ||
+      !paperColor ||
+      !REPRINT_ALLOWED_PAPER_COLORS.has(paperColor) ||
+      !lamination ||
+      !REPRINT_ALLOWED_LAMINATIONS.has(lamination)
+    ) {
+      return null;
+    }
+
+    return {
+      sourceBookId,
+      sourceOrderId: this.asString(metadata.sourceOrderId) ?? null,
+      copies,
+      bookSize,
+      paperColor,
+      lamination,
+      pageCount: this.asInteger(metadata.pageCount) ?? null,
+      finalPdfUrl: this.asString(metadata.finalPdfUrl) ?? null,
     };
   }
 
@@ -2966,6 +3298,32 @@ export class PaymentsService {
    * Delegate payment initialization to the correct provider.
    * Used internally by payExtraPages and payReprint.
    */
+  private async resolveConfiguredReprintCostPerPage(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: {
+        key: REPRINT_COST_PER_PAGE_SETTING_KEY,
+      },
+      select: {
+        value: true,
+      },
+    });
+
+    const parsed = this.toCurrency(setting?.value);
+    return parsed > 0 ? parsed : DEFAULT_REPRINT_COST_PER_PAGE_A5;
+  }
+
+  private resolveReprintCostPerPage(bookSize: string, configuredA5Cost: number): number {
+    if (bookSize === "A4") {
+      return this.toCurrency(configuredA5Cost * 2);
+    }
+
+    if (bookSize === "A6") {
+      return this.toCurrency(configuredA5Cost / 2);
+    }
+
+    return this.toCurrency(configuredA5Cost);
+  }
+
   private async delegateInitialize(
     provider: PaymentProvider,
     params: {
@@ -2974,7 +3332,7 @@ export class PaymentsService {
       reference: string;
       callbackUrl?: string;
       paymentId: string;
-      orderId: string;
+      orderId?: string;
     }
   ) {
     switch (provider) {
@@ -2986,7 +3344,7 @@ export class PaymentsService {
           callbackUrl: params.callbackUrl,
           metadata: {
             paymentId: params.paymentId,
-            orderId: params.orderId,
+            ...(params.orderId ? { orderId: params.orderId } : {}),
           },
         });
         return {

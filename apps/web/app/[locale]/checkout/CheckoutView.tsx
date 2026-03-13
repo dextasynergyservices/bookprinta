@@ -114,6 +114,10 @@ export function CheckoutView() {
 
   const packageSlug = searchParams.get("package");
   const categorySlug = searchParams.get("category");
+  const checkoutOrderType = searchParams.get("orderType");
+  const checkoutSourceBookId = searchParams.get("sourceBookId")?.trim() ?? "";
+  const isReviseReprintCheckout =
+    checkoutOrderType === "REPRINT_REVISED" && checkoutSourceBookId.length > 0;
 
   const { data: packages, isLoading: isLoadingPackages } = usePackages();
   const { data: addons, isLoading: isLoadingAddons, isError: isAddonsError, refetch } = useAddons();
@@ -175,6 +179,32 @@ export function CheckoutView() {
   const openPaymentModal = () => setIsPaymentModalOpen(true);
 
   const visibleAddons = checkoutAddons;
+
+  const pricingHref = useMemo(() => {
+    if (!isReviseReprintCheckout || !checkoutSourceBookId) {
+      return "/pricing";
+    }
+
+    const params = new URLSearchParams({
+      orderType: "REPRINT_REVISED",
+      sourceBookId: checkoutSourceBookId,
+    });
+    return `/pricing?${params.toString()}`;
+  }, [checkoutSourceBookId, isReviseReprintCheckout]);
+
+  const paymentMetadata = useMemo(() => {
+    const metadata = toPaymentMetadata();
+
+    if (!isReviseReprintCheckout || !checkoutSourceBookId) {
+      return metadata;
+    }
+
+    return {
+      ...metadata,
+      orderType: "REPRINT_REVISED" as const,
+      sourceBookId: checkoutSourceBookId,
+    };
+  }, [checkoutSourceBookId, isReviseReprintCheckout, toPaymentMetadata]);
 
   const couponMutation = useMutation({
     mutationFn: validateCouponCode,
@@ -318,7 +348,7 @@ export function CheckoutView() {
           <p className="font-sans text-base text-white/70">{t("addons_missing_package")}</p>
           <button
             type="button"
-            onClick={() => router.push("/pricing")}
+            onClick={() => router.push(pricingHref)}
             className="mt-5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-opacity hover:opacity-95"
           >
             {t("addons_back_to_pricing")}
@@ -335,7 +365,7 @@ export function CheckoutView() {
           <p className="font-sans text-base text-white/70">{t("addons_configuration_required")}</p>
           <button
             type="button"
-            onClick={() => router.push("/pricing")}
+            onClick={() => router.push(pricingHref)}
             className="mt-5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-opacity hover:opacity-95"
           >
             {t("addons_back_to_pricing")}
@@ -388,7 +418,7 @@ export function CheckoutView() {
         <div className="relative mx-auto max-w-7xl px-4 pb-10 pt-10 md:px-6 md:pt-14 lg:px-8">
           <button
             type="button"
-            onClick={() => router.push("/pricing")}
+            onClick={() => router.push(pricingHref)}
             aria-label={t("addons_back_to_pricing_aria")}
             className="inline-flex min-h-11 min-w-11 items-center gap-2 rounded-full border border-[#2A2A2A] bg-black px-4 font-sans text-sm font-medium text-white/80 transition-colors duration-150 hover:border-[#007eff] hover:text-white"
           >
@@ -731,7 +761,7 @@ export function CheckoutView() {
         onOpenChange={setIsPaymentModalOpen}
         amount={orderTotal}
         packageName={selectedPackage.name}
-        paymentMetadata={toPaymentMetadata()}
+        paymentMetadata={paymentMetadata}
       />
     </main>
   );

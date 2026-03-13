@@ -98,6 +98,34 @@ export type BookParamsInput = z.infer<typeof BookParamsSchema>;
 export const BookPageSizeSchema = z.enum(["A4", "A5"]);
 export type BookPageSize = z.infer<typeof BookPageSizeSchema>;
 
+export const ReprintBookSizeSchema = z.enum(["A4", "A5", "A6"]);
+export type ReprintBookSize = z.infer<typeof ReprintBookSizeSchema>;
+
+export const PaperColorSchema = z.enum(["white", "cream"]);
+export type PaperColor = z.infer<typeof PaperColorSchema>;
+
+export const LaminationSchema = z.enum(["matt", "gloss"]);
+export type Lamination = z.infer<typeof LaminationSchema>;
+
+export const ReprintPaymentProviderSchema = z.enum(["PAYSTACK", "STRIPE"]);
+export type ReprintPaymentProvider = z.infer<typeof ReprintPaymentProviderSchema>;
+
+export const ReprintUnavailableReasonSchema = z.enum([
+  "BOOK_NOT_ELIGIBLE",
+  "FINAL_PDF_MISSING",
+  "PAGE_COUNT_UNAVAILABLE",
+  "BOOK_SIZE_UNSUPPORTED",
+  "PAYMENT_PROVIDER_UNAVAILABLE",
+]);
+export type ReprintUnavailableReason = z.infer<typeof ReprintUnavailableReasonSchema>;
+
+export const ReprintCostPerPageBySizeSchema = z.object({
+  A4: z.number().nonnegative(),
+  A5: z.number().nonnegative(),
+  A6: z.number().nonnegative(),
+});
+export type ReprintCostPerPageBySize = z.infer<typeof ReprintCostPerPageBySizeSchema>;
+
 export const BookFontSizeSchema = z.union([z.literal(11), z.literal(12), z.literal(14)]);
 export type BookFontSize = z.infer<typeof BookFontSizeSchema>;
 
@@ -245,6 +273,24 @@ export const BookFilesResponseSchema = z.object({
   files: z.array(BookFileVersionSchema),
 });
 export type BookFilesResponse = z.infer<typeof BookFilesResponseSchema>;
+
+export const BookReprintConfigResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  canReprintSame: z.boolean(),
+  disableReason: ReprintUnavailableReasonSchema.nullable(),
+  finalPdfUrlPresent: z.boolean(),
+  pageCount: z.number().int().positive().nullable(),
+  minCopies: z.number().int().min(1),
+  defaultBookSize: ReprintBookSizeSchema.nullable(),
+  defaultPaperColor: PaperColorSchema,
+  defaultLamination: LaminationSchema,
+  allowedBookSizes: z.array(ReprintBookSizeSchema).min(1),
+  allowedPaperColors: z.array(PaperColorSchema).min(1),
+  allowedLaminations: z.array(LaminationSchema).min(1),
+  costPerPageBySize: ReprintCostPerPageBySizeSchema,
+  enabledPaymentProviders: z.array(ReprintPaymentProviderSchema),
+});
+export type BookReprintConfigResponse = z.infer<typeof BookReprintConfigResponseSchema>;
 
 export const BookTimelineItemSchema = z.object({
   key: z.string(),
