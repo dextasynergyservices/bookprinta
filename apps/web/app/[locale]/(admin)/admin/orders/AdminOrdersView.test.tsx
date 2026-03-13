@@ -262,4 +262,15 @@ describe("AdminOrdersView", () => {
     );
     expect(screen.getByRole("navigation", { name: "Orders pagination" })).toBeInTheDocument();
   });
+
+  it("reduces desktop width pressure by hiding the standalone email column before 2xl", () => {
+    render(<AdminOrdersView />);
+
+    expect(screen.getByRole("columnheader", { name: "Email" })).toHaveClass(
+      "hidden",
+      "2xl:table-cell"
+    );
+    expect(screen.getByRole("columnheader", { name: "Actions" })).not.toHaveClass("sticky");
+    expect(screen.getAllByText("ada@example.com").length).toBeGreaterThan(0);
+  });
 });

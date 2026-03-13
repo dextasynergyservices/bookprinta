@@ -8,12 +8,15 @@ const reprocessBookManuscriptMock = jest.fn();
 const useBookProgressMock = jest.fn();
 const useBookPreviewMock = jest.fn();
 const useBookFilesMock = jest.fn();
+const useBookReprintConfigMock = jest.fn();
 const useOrderDetailMock = jest.fn();
 const useOrdersMock = jest.fn();
 const usePaymentGatewaysMock = jest.fn();
 const payExtraPagesMock = jest.fn();
+const payReprintMock = jest.fn();
 const verifyPaymentMock = jest.fn();
 const toastSuccessMock = jest.fn();
+const routerReplaceMock = jest.fn();
 let currentBookId: string | null = null;
 let currentSearchParams = new Map<string, string>();
 
@@ -227,7 +230,20 @@ const TRANSLATIONS: Record<string, string> = {
   book_progress_rollout_grandfathered:
     "This manuscript started before the current rollout limit changed, so it can continue through the automated path without interruption.",
   book_progress_rollout_environment: "Environment: {environment}",
+  reprint_same: "Reprint Same",
+  revise_reprint: "Revise & Reprint",
   loading: "Loading...",
+  reprint_same_modal_title: "Reprint with the same final PDF",
+  reprint_same_modal_description:
+    "Reuse your delivered final PDF, adjust the print settings, and review the live reprint price before payment.",
+  reprint_same_close_aria: "Close reprint modal",
+  reprint_same_load_error_description:
+    "We couldn't load this reprint configuration right now. Try again in a moment.",
+  reprint_same_unavailable_inline_final_pdf:
+    "Same-file reprint is disabled because the final PDF is not available yet.",
+  reprint_same_unavailable_inline_generic:
+    "Same-file reprint is currently unavailable for this book.",
+  reprint_same_contact_support: "Contact support",
 };
 
 function interpolate(template: string, values?: Record<string, unknown>) {
@@ -268,6 +284,10 @@ jest.mock("@/hooks/useBookResources", () => ({
   useBookFiles: (...args: unknown[]) => useBookFilesMock(...args),
 }));
 
+jest.mock("@/hooks/use-book-reprint-config", () => ({
+  useBookReprintConfig: (...args: unknown[]) => useBookReprintConfigMock(...args),
+}));
+
 jest.mock("@/hooks/useOrderDetail", () => ({
   useOrderDetail: (...args: unknown[]) => useOrderDetailMock(...args),
 }));
@@ -279,6 +299,7 @@ jest.mock("@/hooks/useOrders", () => ({
 jest.mock("@/hooks/usePayments", () => ({
   usePaymentGateways: (...args: unknown[]) => usePaymentGatewaysMock(...args),
   payExtraPages: (...args: unknown[]) => payExtraPagesMock(...args),
+  payReprint: (...args: unknown[]) => payReprintMock(...args),
   verifyPayment: (...args: unknown[]) => verifyPaymentMock(...args),
 }));
 
@@ -326,6 +347,10 @@ jest.mock("@/lib/i18n/navigation", () => ({
       {children}
     </a>
   ),
+  usePathname: () => "/dashboard/books",
+  useRouter: () => ({
+    replace: (...args: unknown[]) => routerReplaceMock(...args),
+  }),
 }));
 
 function setViewportWidth(width: number) {
@@ -335,6 +360,23 @@ function setViewportWidth(width: number) {
     value: width,
   });
   window.dispatchEvent(new Event("resize"));
+}
+
+function installMatchMediaMock() {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: jest.fn().mockImplementation((query: string) => ({
+      matches: query.includes("max-width") ? window.innerWidth < 768 : false,
+      media: query,
+      onchange: null,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  });
 }
 
 function createRolloutState(overrides: Record<string, unknown> = {}) {
@@ -397,7 +439,10 @@ describe("BooksView route integration", () => {
     jest.clearAllMocks();
     currentBookId = "cm1111111111111111111111111";
     currentSearchParams = new Map();
+    setViewportWidth(1280);
+    installMatchMediaMock();
     toastSuccessMock.mockReset();
+    routerReplaceMock.mockReset();
     approveBookForProductionMock.mockResolvedValue({
       bookId: "cm1111111111111111111111111",
       bookStatus: "APPROVED",
@@ -463,6 +508,33 @@ describe("BooksView route integration", () => {
         error: null,
       })
     );
+    useBookReprintConfigMock.mockReturnValue({
+      config: {
+        bookId: currentBookId ?? "cm1111111111111111111111111",
+        canReprintSame: true,
+        disableReason: null,
+        finalPdfUrlPresent: true,
+        pageCount: 128,
+        minCopies: 25,
+        defaultBookSize: "A5",
+        defaultPaperColor: "white",
+        defaultLamination: "gloss",
+        allowedBookSizes: ["A4", "A5", "A6"],
+        allowedPaperColors: ["white", "cream"],
+        allowedLaminations: ["matt", "gloss"],
+        costPerPageBySize: {
+          A4: 20,
+          A5: 10,
+          A6: 5,
+        },
+        enabledPaymentProviders: ["PAYSTACK", "STRIPE"],
+      },
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      error: null,
+      refetch: jest.fn(),
+    });
     useOrderDetailMock.mockReturnValue({
       data: {
         status: null,
@@ -497,6 +569,11 @@ describe("BooksView route integration", () => {
     payExtraPagesMock.mockResolvedValue({
       authorizationUrl: "https://example.com/pay",
       reference: "ref_123",
+      provider: "PAYSTACK",
+    });
+    payReprintMock.mockResolvedValue({
+      authorizationUrl: "https://example.com/reprint-pay",
+      reference: "rp_ref_123",
       provider: "PAYSTACK",
     });
     verifyPaymentMock.mockResolvedValue({
@@ -1354,6 +1431,228 @@ describe("BooksView route integration", () => {
 
     expect(screen.getByText("Approved for production")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Download Final PDF" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "DELIVERED",
+    "COMPLETED",
+  ] as const)("shows reprint actions for %s books in the workspace action row", (bookStatus) => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "DELIVERED",
+        currentStatus: bookStatus,
+        timeline: [
+          {
+            stage: "DELIVERED",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: bookStatus,
+          },
+        ],
+        pageCount: 128,
+        wordCount: 37000,
+        previewPdfUrl: "https://example.com/preview.pdf",
+        finalPdfUrl: "https://example.com/final.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: bookStatus,
+        extraAmount: 0,
+        latestExtraPaymentStatus: "SUCCESS",
+      },
+      status: bookStatus,
+      extraAmount: 0,
+      latestExtraPaymentStatus: "SUCCESS",
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Revise & Reprint" })).toHaveAttribute(
+      "href",
+      `/pricing?orderType=REPRINT_REVISED&sourceBookId=${currentBookId}`
+    );
+  });
+
+  it("hides reprint actions for books that are not delivered or completed", () => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "SHIPPING",
+        currentStatus: "SHIPPING",
+        timeline: [
+          {
+            stage: "SHIPPING",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "SHIPPING",
+          },
+        ],
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "SHIPPING",
+        extraAmount: 0,
+        latestExtraPaymentStatus: "SUCCESS",
+      },
+      status: "SHIPPING",
+      extraAmount: 0,
+      latestExtraPaymentStatus: "SUCCESS",
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    expect(screen.queryByRole("button", { name: "Reprint Same" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Revise & Reprint" })).not.toBeInTheDocument();
+  });
+
+  it("opens the reprint modal route state from the workspace action row", async () => {
+    const user = userEvent.setup();
+
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "DELIVERED",
+        currentStatus: "DELIVERED",
+        timeline: [
+          {
+            stage: "DELIVERED",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "DELIVERED",
+          },
+        ],
+        pageCount: 128,
+        wordCount: 37000,
+        finalPdfUrl: "https://example.com/final.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "DELIVERED",
+        extraAmount: 0,
+        latestExtraPaymentStatus: "SUCCESS",
+      },
+      status: "DELIVERED",
+      extraAmount: 0,
+      latestExtraPaymentStatus: "SUCCESS",
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    await user.click(screen.getByRole("button", { name: "Reprint Same" }));
+
+    expect(routerReplaceMock).toHaveBeenCalledWith(
+      `/dashboard/books?bookId=${currentBookId}&reprint=same`
+    );
+  });
+
+  it("disables same-file reprint and shows the support message when the final PDF is missing", () => {
+    currentBookId = "cm1111111111111111111111111";
+    useBookReprintConfigMock.mockReturnValue({
+      config: {
+        bookId: currentBookId,
+        canReprintSame: false,
+        disableReason: "FINAL_PDF_MISSING",
+        finalPdfUrlPresent: false,
+        pageCount: 128,
+        minCopies: 25,
+        defaultBookSize: "A5",
+        defaultPaperColor: "white",
+        defaultLamination: "gloss",
+        allowedBookSizes: ["A4", "A5", "A6"],
+        allowedPaperColors: ["white", "cream"],
+        allowedLaminations: ["matt", "gloss"],
+        costPerPageBySize: {
+          A4: 20,
+          A5: 10,
+          A6: 5,
+        },
+        enabledPaymentProviders: ["PAYSTACK"],
+      },
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      error: null,
+      refetch: jest.fn(),
+    });
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "DELIVERED",
+        currentStatus: "DELIVERED",
+        timeline: [
+          {
+            stage: "DELIVERED",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "DELIVERED",
+          },
+        ],
+        pageCount: 128,
+        wordCount: 37000,
+        finalPdfUrl: null,
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "DELIVERED",
+        extraAmount: 0,
+        latestExtraPaymentStatus: "SUCCESS",
+      },
+      status: "DELIVERED",
+      extraAmount: 0,
+      latestExtraPaymentStatus: "SUCCESS",
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeDisabled();
+    expect(
+      screen.getByText("Same-file reprint is disabled because the final PDF is not available yet.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Contact support" })).toHaveAttribute(
+      "href",
+      "/contact"
+    );
   });
 
   it("shows rollout fallback when manuscript automation is disabled for a new book", () => {

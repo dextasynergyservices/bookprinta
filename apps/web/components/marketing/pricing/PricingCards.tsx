@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { BookOpen, Check, Shield, Sparkles } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useCallback, useRef, useState } from "react";
 
@@ -463,12 +464,17 @@ function PricingCardsSkeleton() {
 export function PricingCards() {
   const t = useTranslations("pricing");
   const router = useRouter();
+  const searchParams = useSearchParams();
   const prefersReducedMotion = useReducedMotion();
   const { data: categories, isLoading, isError, refetch } = usePackageCategories();
   const [activeCategorySlug, setActiveCategorySlug] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<SelectedPackage | null>(null);
   const [isConfigurationOpen, setIsConfigurationOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const reviseOrderType = searchParams.get("orderType");
+  const reviseSourceBookId = searchParams.get("sourceBookId")?.trim() ?? "";
+  const isReviseReprintFlow =
+    reviseOrderType === "REPRINT_REVISED" && reviseSourceBookId.length > 0;
 
   // Set default active category once data loads
   const activeSlug =
@@ -486,10 +492,18 @@ export function PricingCards() {
   const handleConfigurationContinue = useCallback(() => {
     if (!selectedPackage) return;
     setIsConfigurationOpen(false);
-    router.push(
-      `/checkout?package=${selectedPackage.slug}&category=${selectedPackage.categorySlug}`
-    );
-  }, [router, selectedPackage]);
+    const params = new URLSearchParams({
+      package: selectedPackage.slug,
+      category: selectedPackage.categorySlug,
+    });
+
+    if (isReviseReprintFlow && reviseSourceBookId) {
+      params.set("orderType", "REPRINT_REVISED");
+      params.set("sourceBookId", reviseSourceBookId);
+    }
+
+    router.push(`/checkout?${params.toString()}`);
+  }, [isReviseReprintFlow, reviseSourceBookId, router, selectedPackage]);
 
   useGSAP(
     () => {

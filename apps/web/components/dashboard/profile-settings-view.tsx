@@ -1,34 +1,43 @@
 "use client";
 
-import { Cog, UserRound } from "lucide-react";
+import { Cog, MapPin, UserRound } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { Link, usePathname } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
+import { ProfileSettingsAddressesPanel } from "./profile-settings-addresses-panel";
 import { ProfileSettingsProfilePanel } from "./profile-settings-profile-panel";
 import { ProfileSettingsSettingsPanel } from "./profile-settings-settings-panel";
 
-type ProfileSettingsTab = "profile" | "settings";
+type ProfileSettingsTab = "addresses" | "profile" | "settings";
 
 type TabConfig = {
   href: string;
   key: ProfileSettingsTab;
-  labelKey: "profile" | "settings";
+  labelKey: "addresses" | "profile" | "settings";
   icon: React.ComponentType<{ className?: string }>;
 };
 
 const TAB_CONFIGS: TabConfig[] = [
   { key: "profile", href: "/dashboard/profile", labelKey: "profile", icon: UserRound },
   { key: "settings", href: "/dashboard/settings", labelKey: "settings", icon: Cog },
+  { key: "addresses", href: "/dashboard/settings/addresses", labelKey: "addresses", icon: MapPin },
 ];
 
 function resolveSelectedTab(
   pathname: string,
   queryValue: string | null | undefined
 ): ProfileSettingsTab {
-  if (queryValue === "profile" || queryValue === "settings") {
+  if (queryValue === "addresses" || queryValue === "profile" || queryValue === "settings") {
     return queryValue;
+  }
+
+  if (
+    pathname === "/dashboard/settings/addresses" ||
+    pathname.startsWith("/dashboard/settings/addresses/")
+  ) {
+    return "addresses";
   }
 
   if (pathname === "/dashboard/settings" || pathname.startsWith("/dashboard/settings/")) {
@@ -85,11 +94,9 @@ export function ProfileSettingsView() {
           </nav>
         </header>
 
-        {selectedTab === "profile" ? (
-          <ProfileSettingsProfilePanel />
-        ) : (
-          <ProfileSettingsSettingsPanel />
-        )}
+        {selectedTab === "profile" ? <ProfileSettingsProfilePanel /> : null}
+        {selectedTab === "settings" ? <ProfileSettingsSettingsPanel /> : null}
+        {selectedTab === "addresses" ? <ProfileSettingsAddressesPanel /> : null}
       </div>
     </section>
   );

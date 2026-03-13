@@ -38,6 +38,7 @@ import {
   BookStatus,
   DiscountType,
   OrderStatus,
+  OrderType,
   PaymentProvider,
   PaymentStatus,
   PaymentType,
@@ -62,6 +63,20 @@ const DEFAULT_DASHBOARD_PATH = "/dashboard";
 const BANK_TRANSFER_REJECTED_TITLE_KEY = "notifications.bank_transfer_rejected.title";
 const BANK_TRANSFER_REJECTED_MESSAGE_KEY = "notifications.bank_transfer_rejected.message";
 const BANK_TRANSFER_REJECTED_FALLBACK_TITLE = "Bank transfer not approved";
+const REPRINT_MIN_COPIES = 25;
+const DEFAULT_REPRINT_COST_PER_PAGE_A5 = 10;
+const REPRINT_COST_PER_PAGE_SETTING_KEY = "quote_cost_per_page";
+const PHONE_ALREADY_IN_USE_MESSAGE =
+  "This phone number is already linked to another account. Use another phone number or sign in to your existing account.";
+const EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE =
+  "This email and phone number belong to different accounts. Sign in to the correct account or use a different phone number.";
+const REPRINT_ALLOWED_BOOK_SIZES = new Set(["A4", "A5", "A6"]);
+const REPRINT_ALLOWED_PAPER_COLORS = new Set(["white", "cream"]);
+const REPRINT_ALLOWED_LAMINATIONS = new Set(["matt", "gloss"]);
+const REPRINT_ELIGIBLE_BOOK_STATUSES = new Set<BookStatus>([
+  BookStatus.DELIVERED,
+  BookStatus.COMPLETED,
+]);
 
 type CheckoutAddonMetadata = {
   id?: string | null;
@@ -90,6 +105,17 @@ type CheckoutMetadata = {
   discountAmount?: number;
   totalPrice?: number;
   addons?: CheckoutAddonMetadata[];
+};
+
+type ReprintMetadata = {
+  sourceBookId: string;
+  sourceOrderId: string | null;
+  copies: number;
+  bookSize: string;
+  paperColor: string;
+  lamination: string;
+  pageCount: number | null;
+  finalPdfUrl: string | null;
 };
 
 type NormalizedBankTransferInput = {
@@ -308,6 +334,11 @@ export class PaymentsService {
 
     // 2. Ensure the provider SDK is available
     this.ensureProviderAvailable(provider);
+
+    await this.assertCheckoutIdentityConflict({
+      email: dto.email,
+      phone: this.extractCheckoutMetadata(this.asRecord(dto.metadata))?.phone ?? null,
+    });
 
     // 3. Generate a unique reference
     const reference = this.generateReference();
@@ -597,6 +628,11 @@ export class PaymentsService {
   async submitBankTransfer(dto: NormalizedBankTransferInput, receiptFile?: Express.Multer.File) {
     // Check bank transfer gateway is enabled
     await this.ensureGatewayEnabled(PaymentProvider.BANK_TRANSFER);
+
+    await this.assertCheckoutIdentityConflict({
+      email: dto.payerEmail,
+      phone: dto.payerPhone,
+    });
 
     const reference = this.generateReference("bt");
     const checkoutMetadata = (dto.metadata as Record<string, unknown>) ?? {};
@@ -1487,54 +1523,115 @@ export class PaymentsService {
    * Authenticated endpoint — requires userId.
    */
   async payReprint(params: {
-    orderId: string;
+    sourceBookId: string;
+    copies: number;
+    bookSize: string;
+    paperColor: string;
+    lamination: string;
     provider: string;
     callbackUrl?: string;
     userId: string;
   }) {
     const provider = params.provider.toUpperCase() as PaymentProvider;
+
+    if (provider !== PaymentProvider.PAYSTACK && provider !== PaymentProvider.STRIPE) {
+      throw new BadRequestException("Reprint payments currently support Paystack and Stripe only.");
+    }
+
     await this.ensureGatewayEnabled(provider);
     this.ensureProviderAvailable(provider);
 
-    const order = await this.prisma.order.findUnique({
-      where: { id: params.orderId },
-      include: {
+    const sourceBook = await this.prisma.book.findFirst({
+      where: {
+        id: params.sourceBookId,
+        userId: params.userId,
+      },
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        pageCount: true,
+        finalPdfUrl: true,
         user: {
-          select: { email: true },
+          select: {
+            email: true,
+          },
         },
       },
     });
 
-    if (!order) {
-      throw new NotFoundException(`Order "${params.orderId}" not found`);
+    if (!sourceBook) {
+      throw new NotFoundException(`Book "${params.sourceBookId}" not found`);
     }
 
-    if (order.userId !== params.userId) {
-      throw new BadRequestException("You can only pay for your own orders");
+    if (!REPRINT_ELIGIBLE_BOOK_STATUSES.has(sourceBook.status)) {
+      throw new BadRequestException(
+        "Only delivered books can start a same-file reprint from the dashboard."
+      );
     }
 
+    if (!sourceBook.finalPdfUrl) {
+      throw new BadRequestException("Final PDF is not available for same-file reprint yet.");
+    }
+
+    if (typeof sourceBook.pageCount !== "number" || sourceBook.pageCount < 1) {
+      throw new BadRequestException(
+        "Authoritative page count is required before reprint payment can start."
+      );
+    }
+
+    if (params.copies < REPRINT_MIN_COPIES) {
+      throw new BadRequestException("Minimum 25 copies required for reprints.");
+    }
+
+    if (!REPRINT_ALLOWED_BOOK_SIZES.has(params.bookSize)) {
+      throw new BadRequestException("Unsupported book size for same-file reprint.");
+    }
+
+    if (!REPRINT_ALLOWED_PAPER_COLORS.has(params.paperColor)) {
+      throw new BadRequestException("Unsupported paper color for same-file reprint.");
+    }
+
+    if (!REPRINT_ALLOWED_LAMINATIONS.has(params.lamination)) {
+      throw new BadRequestException("Unsupported lamination for same-file reprint.");
+    }
+
+    const configuredA5Cost = await this.resolveConfiguredReprintCostPerPage();
+    const unitCostPerPage = this.resolveReprintCostPerPage(params.bookSize, configuredA5Cost);
+    const amount = this.toCurrency(params.copies * sourceBook.pageCount * unitCostPerPage);
     const reference = this.generateReference("rp");
 
     const payment = await this.prisma.payment.create({
       data: {
         provider,
         type: PaymentType.REPRINT,
-        amount: order.totalAmount,
-        currency: order.currency,
+        amount,
+        currency: DEFAULT_CURRENCY,
         status: PaymentStatus.PENDING,
         providerRef: reference,
-        orderId: order.id,
         userId: params.userId,
+        payerEmail: sourceBook.user.email,
+        metadata: {
+          sourceBookId: sourceBook.id,
+          sourceOrderId: sourceBook.orderId,
+          orderType: "REPRINT_SAME",
+          copies: params.copies,
+          bookSize: params.bookSize,
+          paperColor: params.paperColor,
+          lamination: params.lamination,
+          pageCount: sourceBook.pageCount,
+          unitCostPerPage,
+          finalPdfUrl: sourceBook.finalPdfUrl,
+        },
       } as Prisma.PaymentUncheckedCreateInput,
     });
 
     return this.delegateInitialize(provider, {
-      email: order.user.email,
-      amount: Number(order.totalAmount),
+      email: sourceBook.user.email,
+      amount,
       reference,
       callbackUrl: params.callbackUrl,
       paymentId: payment.id,
-      orderId: order.id,
     });
   }
 
@@ -1662,8 +1759,8 @@ export class PaymentsService {
    *   Payment → User (pending) → Order → Book
    * and sends a signup link email as a network fallback.
    *
-   * For pre-created payments (extra pages, reprint), this updates the
-   * existing pending record to SUCCESS without creating checkout entities.
+   * For pre-created payments this updates the existing pending record to
+   * SUCCESS, then runs any follow-up fulfillment required for that payment type.
    */
   private async createPaymentFromWebhook(data: {
     provider: PaymentProvider;
@@ -1720,6 +1817,33 @@ export class PaymentsService {
 
       if (claimed.count === 0) {
         this.logger.log(`Payment ${data.providerRef} claimed by another process — skipping`);
+        return;
+      }
+
+      const shouldCreateReprintEntities =
+        existingPayment.type === PaymentType.REPRINT && !existingPayment.orderId;
+
+      if (shouldCreateReprintEntities) {
+        const reprintResult = await this.createReprintEntitiesFromMetadata({
+          paymentId: existingPayment.id,
+          userId: existingPayment.userId,
+          payerEmail: data.payerEmail ?? existingPayment.payerEmail,
+          metadata: mergedMetadata,
+          amount: data.amount,
+          currency: data.currency,
+        });
+
+        if (reprintResult) {
+          await this.sendOnlinePaymentAdminEmail({
+            orderNumber: reprintResult.orderNumber,
+            packageName: reprintResult.packageName,
+            amountPaid: reprintResult.amountPaid,
+            addons: reprintResult.addons,
+            payerEmail: reprintResult.email,
+            provider: data.provider,
+            reference: data.providerRef,
+          });
+        }
         return;
       }
 
@@ -2101,138 +2225,411 @@ export class PaymentsService {
     const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
     const signupTokenExpiry = new Date(Date.now() + MAX_SIGNUP_TOKEN_HOURS * 60 * 60 * 1000);
 
-    return this.prisma.$transaction(async (tx) => {
-      let user = params.existingUserId
-        ? await tx.user.findUnique({
-            where: { id: params.existingUserId },
-          })
-        : null;
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        let user = params.existingUserId
+          ? await tx.user.findUnique({
+              where: { id: params.existingUserId },
+            })
+          : null;
 
-      if (!user && params.payerEmail) {
-        user = await tx.user.findUnique({
-          where: { email: params.payerEmail.trim().toLowerCase() },
+        const normalizedEmail =
+          user?.email?.trim().toLowerCase() || params.payerEmail?.trim().toLowerCase();
+        if (!normalizedEmail) return null;
+
+        await this.assertCheckoutIdentityConflict({
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          tx,
         });
-      }
 
-      const normalizedEmail =
-        params.payerEmail?.trim().toLowerCase() || user?.email?.trim().toLowerCase();
-      if (!normalizedEmail) return null;
-
-      const fullName = this.pickDisplayName(
-        checkout.fullName || user?.firstName || undefined,
-        normalizedEmail
-      );
-      const splitName = this.splitFullName(fullName);
-
-      let signupToken: string | null = null;
-
-      if (!user) {
-        signupToken = this.generateSecureToken();
-        user = await tx.user.create({
-          data: {
-            email: normalizedEmail,
-            firstName: splitName.firstName,
-            lastName: splitName.lastName,
-            phoneNumber: normalizedPhone,
-            phoneNumberNormalized: normalizedPhoneLookup,
-            preferredLanguage: locale,
-            isVerified: false,
-            verificationToken: signupToken,
-            tokenExpiry: signupTokenExpiry,
-          },
-        });
-      } else {
-        const needsSignupToken = !user.password || !user.isVerified;
-        if (needsSignupToken) {
-          signupToken = this.generateSecureToken();
+        if (!user) {
+          user = await tx.user.findFirst({
+            where: {
+              email: {
+                equals: normalizedEmail,
+                mode: "insensitive",
+              },
+            },
+          });
         }
 
-        user = await tx.user.update({
-          where: { id: user.id },
+        const fullName = this.pickDisplayName(
+          checkout.fullName ||
+            [user?.firstName, user?.lastName]
+              .filter((value): value is string => Boolean(value))
+              .join(" ") ||
+            undefined,
+          normalizedEmail
+        );
+        const splitName = this.splitFullName(fullName);
+
+        let signupToken: string | null = null;
+
+        if (!user) {
+          signupToken = this.generateSecureToken();
+          user = await tx.user.create({
+            data: {
+              email: normalizedEmail,
+              firstName: splitName.firstName,
+              lastName: splitName.lastName,
+              phoneNumber: normalizedPhone,
+              phoneNumberNormalized: normalizedPhoneLookup,
+              preferredLanguage: locale,
+              isVerified: false,
+              verificationToken: signupToken,
+              tokenExpiry: signupTokenExpiry,
+            },
+          });
+        } else {
+          const needsSignupToken = !user.password || !user.isVerified;
+          if (needsSignupToken) {
+            signupToken = this.generateSecureToken();
+          }
+
+          user = await tx.user.update({
+            where: { id: user.id },
+            data: {
+              firstName: user.firstName || splitName.firstName,
+              lastName: user.lastName ?? splitName.lastName,
+              phoneNumber: user.phoneNumber || normalizedPhone,
+              phoneNumberNormalized: user.phoneNumberNormalized || normalizedPhoneLookup,
+              preferredLanguage: locale,
+              ...(needsSignupToken
+                ? {
+                    verificationToken: signupToken,
+                    tokenExpiry: signupTokenExpiry,
+                  }
+                : {}),
+            },
+          });
+        }
+
+        const orderNumber = await this.generateOrderNumber(tx);
+        const totalAmount = this.toCurrency(checkout.totalPrice ?? params.amount);
+        const initialAmount = this.toCurrency(params.amount);
+        const appliedCoupon = await this.resolveAppliedCouponForOrder(tx, checkout, initialAmount);
+        const discountAmount = appliedCoupon?.discountAmount ?? 0;
+
+        const order = await tx.order.create({
           data: {
-            firstName: user.firstName || splitName.firstName,
-            lastName: user.lastName ?? splitName.lastName,
-            phoneNumber: user.phoneNumber || normalizedPhone,
-            phoneNumberNormalized: user.phoneNumberNormalized || normalizedPhoneLookup,
-            preferredLanguage: locale,
-            ...(needsSignupToken
-              ? {
-                  verificationToken: signupToken,
-                  tokenExpiry: signupTokenExpiry,
-                }
-              : {}),
+            orderNumber,
+            userId: user.id,
+            packageId: pkg.id,
+            orderType: "STANDARD",
+            packagePriceSnap: Number(pkg.basePrice),
+            hasCoverDesign: checkout.hasCover ?? true,
+            hasFormatting: checkout.hasFormatting ?? true,
+            bookSize: checkout.bookSize ?? "A5",
+            paperColor: checkout.paperColor ?? "white",
+            lamination: checkout.lamination ?? "gloss",
+            status: OrderStatus.PAID,
+            initialAmount,
+            extraAmount: 0,
+            couponId: appliedCoupon?.id ?? null,
+            discountAmount,
+            totalAmount: Math.max(totalAmount, initialAmount),
+            currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
+          } as Prisma.OrderUncheckedCreateInput,
+        });
+
+        await this.createOrderAddonsFromMetadata(tx, order.id, checkout);
+
+        // Resolve addon names for confirmation display
+        const addonNames = await this.resolveAddonNamesFromMetadata(tx, checkout);
+
+        const book = await tx.book.create({
+          data: {
+            orderId: order.id,
+            userId: user.id,
+            status: BookStatus.PAYMENT_RECEIVED,
+            productionStatus: BookStatus.PAYMENT_RECEIVED,
+            productionStatusUpdatedAt: new Date(),
+            pageSize: checkout.bookSize ?? "A5",
           },
         });
+
+        await tx.auditLog.createMany({
+          data: [
+            {
+              userId: user.id,
+              action: "ORDER_STATUS_REACHED",
+              entityType: "ORDER_TRACKING",
+              entityId: order.id,
+              details: {
+                source: "order",
+                status: OrderStatus.PAID,
+                reachedAt: order.createdAt.toISOString(),
+                label: "Paid",
+              },
+            },
+            {
+              userId: user.id,
+              action: "ORDER_STATUS_REACHED",
+              entityType: "ORDER_TRACKING",
+              entityId: order.id,
+              details: {
+                source: "book",
+                status: BookStatus.PAYMENT_RECEIVED,
+                reachedAt: book.createdAt.toISOString(),
+                label: "Payment Received",
+              },
+            },
+          ],
+        });
+
+        await tx.payment.update({
+          where: { id: params.paymentId },
+          data: {
+            userId: user.id,
+            orderId: order.id,
+          },
+        });
+
+        await this.notificationsService.createOrderStatusNotification(
+          {
+            userId: user.id,
+            orderId: order.id,
+            orderNumber,
+            status: OrderStatus.PAID,
+            source: "order",
+            bookId: book.id,
+          },
+          tx
+        );
+
+        return {
+          userId: user.id,
+          orderId: order.id,
+          email: user.email,
+          name: user.firstName,
+          locale: this.resolveLocale(user.preferredLanguage),
+          signupToken,
+          phone: user.phoneNumber ?? null,
+          orderNumber,
+          packageName: pkg.name,
+          amountPaid: this.formatNaira(params.amount),
+          addons: addonNames,
+        };
+      });
+    } catch (error) {
+      if (this.isPrismaUniqueViolationForField(error, "phoneNumberNormalized")) {
+        throw new ConflictException(PHONE_ALREADY_IN_USE_MESSAGE);
+      }
+
+      throw error;
+    }
+  }
+
+  private async assertCheckoutIdentityConflict(params: {
+    email: string;
+    phone: string | null;
+    tx?: Prisma.TransactionClient | PrismaService;
+    allowUserId?: string | null;
+  }): Promise<void> {
+    const normalizedEmail = params.email.trim().toLowerCase();
+    const normalizedPhone = normalizePhoneNumber(params.phone);
+
+    if (!normalizedEmail || !normalizedPhone) {
+      return;
+    }
+
+    const db = params.tx ?? this.prisma;
+    const [emailUser, phoneUsers] = await Promise.all([
+      db.user.findFirst({
+        where: {
+          email: {
+            equals: normalizedEmail,
+            mode: "insensitive",
+          },
+        },
+        select: {
+          id: true,
+          email: true,
+        },
+      }),
+      db.user.findMany({
+        where: {
+          phoneNumberNormalized: normalizedPhone,
+        },
+        select: {
+          id: true,
+          email: true,
+        },
+        take: 3,
+      }),
+    ]);
+
+    const emailOwnerId = emailUser && emailUser.id !== params.allowUserId ? emailUser.id : null;
+    const conflictingPhoneUsers = phoneUsers.filter((user) => user.id !== params.allowUserId);
+
+    if (conflictingPhoneUsers.length === 0) {
+      return;
+    }
+
+    if (emailOwnerId && conflictingPhoneUsers.every((user) => user.id === emailOwnerId)) {
+      return;
+    }
+
+    if (emailOwnerId) {
+      throw new ConflictException(EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE);
+    }
+
+    throw new ConflictException(PHONE_ALREADY_IN_USE_MESSAGE);
+  }
+
+  private async createReprintEntitiesFromMetadata(params: {
+    paymentId: string;
+    userId: string | null;
+    payerEmail: string | null;
+    metadata: Record<string, unknown> | null;
+    amount: number;
+    currency: string;
+  }): Promise<{
+    email: string;
+    orderNumber: string;
+    packageName: string;
+    amountPaid: string;
+    addons: string[];
+  } | null> {
+    if (!params.userId) {
+      throw new ConflictException("Authenticated reprint payments require a linked user.");
+    }
+
+    const reprint = this.extractReprintMetadata(params.metadata);
+    if (!reprint) {
+      this.logger.warn(
+        `Webhook payment ${params.paymentId}: reprint metadata is incomplete, skipping order creation`
+      );
+      return null;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const sourceBook = await tx.book.findUnique({
+        where: { id: reprint.sourceBookId },
+        select: {
+          id: true,
+          orderId: true,
+          userId: true,
+          title: true,
+          coverImageUrl: true,
+          pageCount: true,
+          wordCount: true,
+          estimatedPages: true,
+          fontFamily: true,
+          fontSize: true,
+          finalPdfUrl: true,
+          user: {
+            select: {
+              email: true,
+            },
+          },
+          order: {
+            select: {
+              id: true,
+              packageId: true,
+              packagePriceSnap: true,
+              package: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!sourceBook || sourceBook.userId !== params.userId) {
+        throw new ForbiddenException("Source book is no longer available for reprint fulfillment.");
+      }
+
+      if (reprint.sourceOrderId && sourceBook.orderId !== reprint.sourceOrderId) {
+        throw new ConflictException("Reprint payment metadata does not match the source order.");
+      }
+
+      const finalPdfUrl = reprint.finalPdfUrl ?? sourceBook.finalPdfUrl;
+      if (!finalPdfUrl) {
+        throw new ConflictException("Final PDF is required to fulfill a same-file reprint.");
+      }
+
+      const pageCount = reprint.pageCount ?? sourceBook.pageCount ?? null;
+      if (typeof pageCount !== "number" || pageCount < 1) {
+        throw new ConflictException(
+          "Authoritative page count is required for reprint fulfillment."
+        );
       }
 
       const orderNumber = await this.generateOrderNumber(tx);
-      const totalAmount = this.toCurrency(checkout.totalPrice ?? params.amount);
-      const initialAmount = this.toCurrency(params.amount);
-      const appliedCoupon = await this.resolveAppliedCouponForOrder(tx, checkout, initialAmount);
-      const discountAmount = appliedCoupon?.discountAmount ?? 0;
+      const amount = this.toCurrency(params.amount);
+      const now = new Date();
 
       const order = await tx.order.create({
         data: {
           orderNumber,
-          userId: user.id,
-          packageId: pkg.id,
-          orderType: "STANDARD",
-          packagePriceSnap: Number(pkg.basePrice),
-          hasCoverDesign: checkout.hasCover ?? true,
-          hasFormatting: checkout.hasFormatting ?? true,
-          bookSize: checkout.bookSize ?? "A5",
-          paperColor: checkout.paperColor ?? "white",
-          lamination: checkout.lamination ?? "gloss",
-          status: OrderStatus.PAID,
-          initialAmount,
+          userId: sourceBook.userId,
+          packageId: sourceBook.order.packageId,
+          orderType: OrderType.REPRINT_SAME,
+          originalBookId: sourceBook.id,
+          skipFormatting: true,
+          copies: reprint.copies,
+          packagePriceSnap: Number(sourceBook.order.packagePriceSnap),
+          hasCoverDesign: false,
+          hasFormatting: false,
+          bookSize: reprint.bookSize,
+          paperColor: reprint.paperColor,
+          lamination: reprint.lamination,
+          status: OrderStatus.IN_PRODUCTION,
+          initialAmount: amount,
           extraAmount: 0,
-          couponId: appliedCoupon?.id ?? null,
-          discountAmount,
-          totalAmount: Math.max(totalAmount, initialAmount),
+          discountAmount: 0,
+          totalAmount: amount,
           currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
         } as Prisma.OrderUncheckedCreateInput,
       });
 
-      await this.createOrderAddonsFromMetadata(tx, order.id, checkout);
-
-      // Resolve addon names for confirmation display
-      const addonNames = await this.resolveAddonNamesFromMetadata(tx, checkout);
-
       const book = await tx.book.create({
         data: {
           orderId: order.id,
-          userId: user.id,
-          status: BookStatus.PAYMENT_RECEIVED,
-          productionStatus: BookStatus.PAYMENT_RECEIVED,
-          productionStatusUpdatedAt: new Date(),
-          pageSize: checkout.bookSize ?? "A5",
+          userId: sourceBook.userId,
+          status: BookStatus.IN_PRODUCTION,
+          productionStatus: BookStatus.IN_PRODUCTION,
+          productionStatusUpdatedAt: now,
+          title: sourceBook.title,
+          coverImageUrl: sourceBook.coverImageUrl,
+          pageCount,
+          wordCount: sourceBook.wordCount,
+          estimatedPages: sourceBook.estimatedPages,
+          fontFamily: sourceBook.fontFamily,
+          fontSize: sourceBook.fontSize,
+          pageSize: reprint.bookSize,
+          finalPdfUrl,
         },
       });
 
       await tx.auditLog.createMany({
         data: [
           {
-            userId: user.id,
+            userId: sourceBook.userId,
             action: "ORDER_STATUS_REACHED",
             entityType: "ORDER_TRACKING",
             entityId: order.id,
             details: {
               source: "order",
-              status: OrderStatus.PAID,
+              status: OrderStatus.IN_PRODUCTION,
               reachedAt: order.createdAt.toISOString(),
-              label: "Paid",
+              label: "In Production",
             },
           },
           {
-            userId: user.id,
+            userId: sourceBook.userId,
             action: "ORDER_STATUS_REACHED",
             entityType: "ORDER_TRACKING",
             entityId: order.id,
             details: {
               source: "book",
-              status: BookStatus.PAYMENT_RECEIVED,
+              status: BookStatus.IN_PRODUCTION,
               reachedAt: book.createdAt.toISOString(),
-              label: "Payment Received",
+              label: "In Production",
             },
           },
         ],
@@ -2241,17 +2638,17 @@ export class PaymentsService {
       await tx.payment.update({
         where: { id: params.paymentId },
         data: {
-          userId: user.id,
+          userId: sourceBook.userId,
           orderId: order.id,
         },
       });
 
       await this.notificationsService.createOrderStatusNotification(
         {
-          userId: user.id,
+          userId: sourceBook.userId,
           orderId: order.id,
           orderNumber,
-          status: OrderStatus.PAID,
+          status: OrderStatus.IN_PRODUCTION,
           source: "order",
           bookId: book.id,
         },
@@ -2259,17 +2656,11 @@ export class PaymentsService {
       );
 
       return {
-        userId: user.id,
-        orderId: order.id,
-        email: user.email,
-        name: user.firstName,
-        locale: this.resolveLocale(user.preferredLanguage),
-        signupToken,
-        phone: user.phoneNumber ?? null,
+        email: params.payerEmail ?? sourceBook.user.email,
         orderNumber,
-        packageName: pkg.name,
+        packageName: sourceBook.order.package.name,
         amountPaid: this.formatNaira(params.amount),
-        addons: addonNames,
+        addons: [],
       };
     });
   }
@@ -2450,6 +2841,41 @@ export class PaymentsService {
       discountAmount: this.asNumber(merged.discountAmount),
       totalPrice: this.asNumber(merged.totalPrice),
       addons,
+    };
+  }
+
+  private extractReprintMetadata(metadata: Record<string, unknown> | null): ReprintMetadata | null {
+    if (!metadata || typeof metadata !== "object") return null;
+
+    const sourceBookId = this.asString(metadata.sourceBookId);
+    const copies = this.asInteger(metadata.copies);
+    const bookSize = this.asString(metadata.bookSize);
+    const paperColor = this.asString(metadata.paperColor);
+    const lamination = this.asString(metadata.lamination);
+
+    if (
+      !sourceBookId ||
+      typeof copies !== "number" ||
+      copies < REPRINT_MIN_COPIES ||
+      !bookSize ||
+      !REPRINT_ALLOWED_BOOK_SIZES.has(bookSize) ||
+      !paperColor ||
+      !REPRINT_ALLOWED_PAPER_COLORS.has(paperColor) ||
+      !lamination ||
+      !REPRINT_ALLOWED_LAMINATIONS.has(lamination)
+    ) {
+      return null;
+    }
+
+    return {
+      sourceBookId,
+      sourceOrderId: this.asString(metadata.sourceOrderId) ?? null,
+      copies,
+      bookSize,
+      paperColor,
+      lamination,
+      pageCount: this.asInteger(metadata.pageCount) ?? null,
+      finalPdfUrl: this.asString(metadata.finalPdfUrl) ?? null,
     };
   }
 
@@ -3436,6 +3862,28 @@ export class PaymentsService {
     return false;
   }
 
+  private isPrismaUniqueViolationForField(error: unknown, field: string): boolean {
+    if (!this.isPrismaUniqueViolation(error)) {
+      return false;
+    }
+
+    if (
+      !error ||
+      typeof error !== "object" ||
+      !("meta" in error) ||
+      !(error as { meta?: { target?: unknown } }).meta
+    ) {
+      return false;
+    }
+
+    const target = (error as { meta?: { target?: unknown } }).meta?.target;
+    if (Array.isArray(target)) {
+      return target.some((value) => value === field);
+    }
+
+    return typeof target === "string" && target.includes(field);
+  }
+
   private asString(value: unknown): string | undefined {
     if (typeof value !== "string") return undefined;
     const normalized = value.trim();
@@ -3744,6 +4192,32 @@ export class PaymentsService {
    * Delegate payment initialization to the correct provider.
    * Used internally by payExtraPages and payReprint.
    */
+  private async resolveConfiguredReprintCostPerPage(): Promise<number> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: {
+        key: REPRINT_COST_PER_PAGE_SETTING_KEY,
+      },
+      select: {
+        value: true,
+      },
+    });
+
+    const parsed = this.toCurrency(setting?.value);
+    return parsed > 0 ? parsed : DEFAULT_REPRINT_COST_PER_PAGE_A5;
+  }
+
+  private resolveReprintCostPerPage(bookSize: string, configuredA5Cost: number): number {
+    if (bookSize === "A4") {
+      return this.toCurrency(configuredA5Cost * 2);
+    }
+
+    if (bookSize === "A6") {
+      return this.toCurrency(configuredA5Cost / 2);
+    }
+
+    return this.toCurrency(configuredA5Cost);
+  }
+
   private async delegateInitialize(
     provider: PaymentProvider,
     params: {
@@ -3752,7 +4226,7 @@ export class PaymentsService {
       reference: string;
       callbackUrl?: string;
       paymentId: string;
-      orderId: string;
+      orderId?: string;
     }
   ) {
     switch (provider) {
@@ -3764,7 +4238,7 @@ export class PaymentsService {
           callbackUrl: params.callbackUrl,
           metadata: {
             paymentId: params.paymentId,
-            orderId: params.orderId,
+            ...(params.orderId ? { orderId: params.orderId } : {}),
           },
         });
         return {

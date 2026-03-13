@@ -11,6 +11,7 @@ let currentSearchParams = new URLSearchParams([["package", "first-draft"]]);
 const mockUsePackages = jest.fn();
 const mockUseAddons = jest.fn();
 const mockValidateCouponCode = jest.fn();
+const paymentMethodModalMock = jest.fn();
 
 jest.mock("next/navigation", () => ({
   useSearchParams: () => currentSearchParams,
@@ -47,7 +48,10 @@ jest.mock("@/components/checkout/AddonCard", () => ({
 }));
 
 jest.mock("@/components/checkout/PaymentMethodModal", () => ({
-  PaymentMethodModal: () => null,
+  PaymentMethodModal: (props: unknown) => {
+    paymentMethodModalMock(props);
+    return null;
+  },
 }));
 
 const PACKAGE = {
@@ -103,6 +107,7 @@ describe("CheckoutView coupon display", () => {
       refetch: refetchMock,
     });
     mockValidateCouponCode.mockReset();
+    paymentMethodModalMock.mockReset();
 
     const store = usePricingStore.getState();
     store.reset();
@@ -162,5 +167,34 @@ describe("CheckoutView coupon display", () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  it("preserves revise-and-reprint context in checkout links and payment metadata", async () => {
+    currentSearchParams = new URLSearchParams([
+      ["package", "first-draft"],
+      ["orderType", "REPRINT_REVISED"],
+      ["sourceBookId", "cmbook1"],
+    ]);
+
+    renderWithProviders();
+
+    await waitFor(() => {
+      expect(paymentMethodModalMock).toHaveBeenCalled();
+    });
+
+    expect(paymentMethodModalMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({
+        paymentMetadata: expect.objectContaining({
+          orderType: "REPRINT_REVISED",
+          sourceBookId: "cmbook1",
+        }),
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "addons_back_to_pricing_aria" }));
+
+    expect(pushMock).toHaveBeenCalledWith(
+      "/pricing?orderType=REPRINT_REVISED&sourceBookId=cmbook1"
+    );
   });
 });
