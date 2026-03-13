@@ -117,29 +117,27 @@ export class ProductionDelayService {
   async resolveStatus(
     executor: ProductionDelayReadExecutor = this.prisma
   ): Promise<ProductionDelayStatusResolution> {
-    const [settings, activeEvent, affectedBookRows] = await Promise.all([
-      executor.systemSetting.findMany({
-        where: {
-          key: { in: [...PRODUCTION_DELAY_STATUS_SETTING_KEYS] },
-        },
-        select: {
-          key: true,
-          value: true,
-        },
-      }),
-      executor.productionDelayEvent.findFirst({
-        where: {
-          status: "ACTIVE",
-        },
-        orderBy: [{ activatedAt: "desc" }, { id: "desc" }],
-        select: ACTIVE_DELAY_EVENT_SELECT,
-      }),
-      executor.book.findMany({
-        where: this.buildAffectedBooksWhere(),
-        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-        select: AFFECTED_BOOK_SELECT,
-      }) as Promise<AffectedBookRow[]>,
-    ]);
+    const settings = await executor.systemSetting.findMany({
+      where: {
+        key: { in: [...PRODUCTION_DELAY_STATUS_SETTING_KEYS] },
+      },
+      select: {
+        key: true,
+        value: true,
+      },
+    });
+    const activeEvent = await executor.productionDelayEvent.findFirst({
+      where: {
+        status: "ACTIVE",
+      },
+      orderBy: [{ activatedAt: "desc" }, { id: "desc" }],
+      select: ACTIVE_DELAY_EVENT_SELECT,
+    });
+    const affectedBookRows = (await executor.book.findMany({
+      where: this.buildAffectedBooksWhere(),
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: AFFECTED_BOOK_SELECT,
+    })) as AffectedBookRow[];
 
     const settingMap = new Map(settings.map((row) => [row.key, row.value]));
     const threshold = this.parsePositiveIntegerSetting(

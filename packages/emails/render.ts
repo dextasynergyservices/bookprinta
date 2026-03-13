@@ -9,6 +9,7 @@ import { BankTransferAdminEmail } from "./emails/BankTransferAdminEmail.tsx";
 import { BankTransferUserEmail } from "./emails/BankTransferUserEmail.tsx";
 import { ContactAdminEmail } from "./emails/ContactAdminEmail.tsx";
 import { ContactConfirmationEmail } from "./emails/ContactConfirmationEmail.tsx";
+import { ManuscriptRejectedEmail } from "./emails/ManuscriptRejectedEmail.tsx";
 import { PasswordResetEmail } from "./emails/PasswordResetEmail.tsx";
 import { ProductionDelayEmail } from "./emails/ProductionDelayEmail.tsx";
 import { QuoteAdminNotificationEmail } from "./emails/QuoteAdminNotificationEmail.tsx";
@@ -108,6 +109,14 @@ export interface RenderProductionDelayProps {
   locale?: Locale;
   userName: string;
   affectedBooks: string[];
+  dashboardUrl: string;
+}
+
+export interface RenderManuscriptRejectedProps {
+  locale?: Locale;
+  userName: string;
+  bookTitle: string;
+  rejectionReason: string;
   dashboardUrl: string;
 }
 
@@ -266,6 +275,17 @@ export async function renderProductionDelayEmail(
   return {
     html,
     subject: getEmailSubject("production_delay", locale),
+  };
+}
+
+export async function renderManuscriptRejectedEmail(
+  props: RenderManuscriptRejectedProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(ManuscriptRejectedEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("manuscript_rejected", locale),
   };
 }
 
