@@ -82,30 +82,28 @@ export class ResourcesService {
   async listPublicCategories(): Promise<PublicResourceCategoriesResponse> {
     const now = new Date();
 
-    const [categories, publishedCountByCategory] = await Promise.all([
-      this.prisma.resourceCategory.findMany({
-        where: { isActive: true },
-        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          description: true,
-          sortOrder: true,
-          isActive: true,
-        },
-      }),
-      this.prisma.blogPost.groupBy({
-        by: ["categoryId"],
-        where: {
-          isPublished: true,
-          publishedAt: { not: null, lte: now },
-          categoryId: { not: null },
-          category: { is: { isActive: true } },
-        },
-        _count: { _all: true },
-      }),
-    ]);
+    const categories = await this.prisma.resourceCategory.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        sortOrder: true,
+        isActive: true,
+      },
+    });
+    const publishedCountByCategory = await this.prisma.blogPost.groupBy({
+      by: ["categoryId"],
+      where: {
+        isPublished: true,
+        publishedAt: { not: null, lte: now },
+        categoryId: { not: null },
+        category: { is: { isActive: true } },
+      },
+      _count: { _all: true },
+    });
 
     const countMap = new Map<string, number>();
     for (const row of publishedCountByCategory) {

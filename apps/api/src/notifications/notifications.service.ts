@@ -140,18 +140,16 @@ export class NotificationsService {
     const pageSize = query.limit ?? 20;
     const skip = (page - 1) * pageSize;
 
-    const [rows, totalItems] = await Promise.all([
-      this.prisma.notification.findMany({
-        where: { userId },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        skip,
-        take: pageSize,
-        select: NOTIFICATION_SELECT,
-      }),
-      this.prisma.notification.count({
-        where: { userId },
-      }),
-    ]);
+    const rows = await this.prisma.notification.findMany({
+      where: { userId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip,
+      take: pageSize,
+      select: NOTIFICATION_SELECT,
+    });
+    const totalItems = await this.prisma.notification.count({
+      where: { userId },
+    });
 
     const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
 

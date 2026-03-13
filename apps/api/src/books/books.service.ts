@@ -1,5 +1,18 @@
+import { randomUUID } from "node:crypto";
+import type { Locale } from "@bookprinta/emails";
+import { renderManuscriptRejectedEmail } from "@bookprinta/emails/render";
 import type {
+  AdminBookDetail,
+  AdminBookDownloadFileType,
+  AdminBookHtmlUploadBodyInput,
+  AdminBookHtmlUploadResponse,
   AdminBookProductionStatusResponse,
+  AdminBooksListQuery,
+  AdminBooksListResponse,
+  AdminRejectBookInput,
+  AdminRejectBookResponse,
+  AdminUpdateBookStatusInput,
+  AdminUpdateBookStatusResponse,
   ApproveBookInput,
   BookApproveResponse,
   BookDetailResponse,
@@ -24,9 +37,13 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { Resend } from "resend";
+import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { FilesService } from "../files/files.service.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { type FileType, type JobStatus, PaymentProvider } from "../generated/prisma/enums.js";
@@ -37,10 +54,47 @@ import {
   resolveReviewLifecycleStatus,
 } from "../reviews/review-eligibility.js";
 import { RolloutService } from "../rollout/rollout.service.js";
+import {
+  canRejectAdminBook,
+  canUploadAdminHtmlFallback,
+  humanizeAdminBookStatus,
+  resolveAdminBookStatusProjection,
+  resolveNextAllowedBookStatuses,
+} from "./admin-book-workflow.js";
 import { BooksPipelineService } from "./books-pipeline.service.js";
 import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
 
 const BOOK_DETAIL_JOB_STATUSES: JobStatus[] = ["QUEUED", "PROCESSING", "FAILED"];
+const ADMIN_BOOK_SORTABLE_FIELDS: AdminBooksListResponse["sortableFields"] = [
+  "title",
+  "authorName",
+  "displayStatus",
+  "orderNumber",
+  "uploadedAt",
+];
+const ADMIN_BOOK_TRACKING_ENTITY_TYPE = "ORDER_TRACKING";
+const ADMIN_BOOK_TRACKING_ACTION = "ORDER_STATUS_REACHED";
+const ADMIN_BOOK_TRACKING_SOURCE = "book";
+const ADMIN_HTML_UPLOAD_FOLDER_ROOT = "bookprinta/admin/books";
+const DEFAULT_FROM_EMAIL = "BookPrinta <info@bookprinta.com>";
+const DEFAULT_DASHBOARD_PATH = "/dashboard/books";
+const MANUSCRIPT_REJECTED_TITLE_KEY = "notifications.manuscript_rejected.title";
+const MANUSCRIPT_REJECTED_MESSAGE_KEY = "notifications.manuscript_rejected.message";
+const MANUSCRIPT_REJECTED_FALLBACK_TITLE = "Manuscript needs revision";
+const RAW_DOWNLOAD_FILE_TYPE: FileType = "RAW_MANUSCRIPT";
+const CLEANED_DOWNLOAD_FILE_TYPE: FileType = "CLEANED_HTML";
+const FINAL_PDF_DOWNLOAD_FILE_TYPE: FileType = "FINAL_PDF";
+const ADMIN_FILE_VERSION_SELECT = {
+  id: true,
+  fileType: true,
+  url: true,
+  fileName: true,
+  fileSize: true,
+  mimeType: true,
+  version: true,
+  createdBy: true,
+  createdAt: true,
+} as const;
 
 const BOOK_DETAIL_SELECT = {
   id: true,
@@ -92,6 +146,70 @@ const BOOK_DETAIL_SELECT = {
 
 type BookDetailRow = Prisma.BookGetPayload<{ select: typeof BOOK_DETAIL_SELECT }>;
 
+const ADMIN_BOOK_LIST_SELECT = {
+  id: true,
+  title: true,
+  status: true,
+  productionStatus: true,
+  createdAt: true,
+  user: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      preferredLanguage: true,
+    },
+  },
+  order: {
+    select: {
+      id: true,
+      orderNumber: true,
+      status: true,
+    },
+  },
+  files: {
+    where: {
+      fileType: RAW_DOWNLOAD_FILE_TYPE,
+    },
+    orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+    take: 1,
+    select: {
+      createdAt: true,
+    },
+  },
+} satisfies Prisma.BookSelect;
+
+type AdminBookListRow = Prisma.BookGetPayload<{ select: typeof ADMIN_BOOK_LIST_SELECT }>;
+
+const ADMIN_BOOK_DETAIL_SELECT = {
+  ...BOOK_DETAIL_SELECT,
+  version: true,
+  rejectedBy: true,
+  user: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      preferredLanguage: true,
+    },
+  },
+  order: {
+    select: {
+      id: true,
+      orderNumber: true,
+      status: true,
+    },
+  },
+  files: {
+    orderBy: [{ createdAt: "desc" }, { version: "desc" }],
+    select: ADMIN_FILE_VERSION_SELECT,
+  },
+} satisfies Prisma.BookSelect;
+
+type AdminBookDetailRow = Prisma.BookGetPayload<{ select: typeof ADMIN_BOOK_DETAIL_SELECT }>;
+
 type UserPreviewAsset = {
   bookId: string;
   status: BookStatus;
@@ -100,8 +218,15 @@ type UserPreviewAsset = {
   mimeType: string;
 };
 
+type AdminDownloadAsset = {
+  buffer: Buffer;
+  fileName: string;
+  mimeType: string;
+};
+
 @Injectable()
 export class BooksService {
+  private readonly logger = new Logger(BooksService.name);
   private static readonly EXTRA_PAGE_PRICE_NGN = 10;
   private static readonly DEFAULT_REPRINT_COST_PER_PAGE_A5 = 10;
   private static readonly REPRINT_COST_PER_PAGE_SETTING_KEY = "quote_cost_per_page";
@@ -144,6 +269,9 @@ export class BooksService {
     "COMPLETED",
   ]);
   private static readonly ACTIVE_JOB_STATUSES = new Set(["QUEUED", "PROCESSING"]);
+  private readonly resend: Resend | null;
+  private readonly frontendBaseUrl: string;
+  private readonly fromEmail: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -151,8 +279,17 @@ export class BooksService {
     private readonly booksPipeline: BooksPipelineService,
     private readonly manuscriptAnalysis: ManuscriptAnalysisService,
     private readonly notifications: NotificationsService,
-    private readonly rollout: RolloutService
-  ) {}
+    private readonly rollout: RolloutService,
+    @Optional() private readonly cloudinary?: CloudinaryService
+  ) {
+    this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+    this.frontendBaseUrl = this.resolveFrontendBaseUrl();
+    this.fromEmail =
+      process.env.ADMIN_FROM_EMAIL ||
+      process.env.CONTACT_FROM_EMAIL ||
+      process.env.DEFAULT_FROM_EMAIL ||
+      DEFAULT_FROM_EMAIL;
+  }
 
   private readonly timelineStages: BookProgressStage[] = [
     "PAYMENT_RECEIVED",
@@ -332,6 +469,15 @@ export class BooksService {
         estimatedPages,
         pageSize,
         fontSize,
+        ...(book.status === "REJECTED"
+          ? {
+              rejectionReason: null,
+              rejectedAt: null,
+              rejectedBy: null,
+              productionStatus: null,
+              productionStatusUpdatedAt: null,
+            }
+          : {}),
       },
     });
 
@@ -449,6 +595,560 @@ export class BooksService {
         createdBy: file.createdBy ?? null,
         createdAt: file.createdAt.toISOString(),
       })),
+    };
+  }
+
+  async findAdminBooks(query: AdminBooksListQuery): Promise<AdminBooksListResponse> {
+    const limit = query.limit ?? 20;
+    const sortBy = query.sortBy ?? "uploadedAt";
+    const sortDirection = query.sortDirection ?? "desc";
+    const rows = await this.prisma.book.findMany({
+      where: this.buildAdminBookListWhere(query.status),
+      select: ADMIN_BOOK_LIST_SELECT,
+    });
+
+    const items = rows
+      .map((row) => this.serializeAdminBookListItem(row))
+      .sort((left, right) =>
+        this.compareAdminBookListItems(left, right, {
+          sortBy,
+          sortDirection,
+        })
+      );
+
+    const startIndex = query.cursor
+      ? Math.max(0, items.findIndex((item) => item.id === query.cursor) + 1)
+      : 0;
+    const pagedItems = items.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < items.length;
+
+    return {
+      items: pagedItems,
+      nextCursor: hasMore ? (pagedItems.at(-1)?.id ?? null) : null,
+      hasMore,
+      totalItems: items.length,
+      limit,
+      sortBy,
+      sortDirection,
+      sortableFields: [...ADMIN_BOOK_SORTABLE_FIELDS],
+    };
+  }
+
+  async findAdminBookById(bookId: string): Promise<AdminBookDetail> {
+    const row = (await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: ADMIN_BOOK_DETAIL_SELECT,
+    })) as AdminBookDetailRow | null;
+
+    if (!row) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    const projection = resolveAdminBookStatusProjection({
+      status: row.status,
+      productionStatus: row.productionStatus,
+    });
+    const statusControl = this.buildAdminBookStatusControl({
+      status: row.status,
+      productionStatus: row.productionStatus,
+      version: row.version,
+    });
+    const uploadedAt = this.resolveUploadedAtFromFiles(row.files);
+    const timelineUpdatedAt =
+      row.productionStatusUpdatedAt ?? row.rejectedAt ?? row.updatedAt ?? row.createdAt;
+
+    return {
+      id: row.id,
+      orderId: row.orderId,
+      status: row.status,
+      productionStatus: row.productionStatus,
+      displayStatus: projection.displayStatus,
+      statusSource: projection.statusSource,
+      title: row.title ?? null,
+      coverImageUrl: row.coverImageUrl ?? null,
+      latestProcessingError: this.resolveLatestProcessingError(row.jobs),
+      rejectionReason: row.rejectionReason ?? null,
+      rejectedAt: row.rejectedAt?.toISOString() ?? null,
+      rejectedBy: row.rejectedBy ?? null,
+      pageCount: row.pageCount,
+      wordCount: row.wordCount,
+      estimatedPages: row.estimatedPages,
+      fontFamily: row.fontFamily ?? null,
+      fontSize: row.fontSize,
+      pageSize: row.pageSize ?? null,
+      currentHtmlUrl: row.currentHtmlUrl ?? null,
+      previewPdfUrl: row.previewPdfUrl ?? null,
+      finalPdfUrl: row.finalPdfUrl ?? null,
+      uploadedAt,
+      version: row.version,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      rollout: this.rollout.resolveBookRolloutState(row),
+      processing: this.resolveProcessingState({
+        bookStatus: row.status,
+        currentHtmlUrl: row.currentHtmlUrl ?? null,
+        pageCount: row.pageCount,
+        finalPdfUrl: row.finalPdfUrl ?? null,
+        updatedAt: row.updatedAt,
+        jobs: row.jobs,
+      }),
+      timeline: this.buildProgressTimeline({
+        currentStatus: projection.displayStatus,
+        createdAt: row.createdAt,
+        updatedAt: timelineUpdatedAt,
+      }),
+      author: this.serializeAdminBookAuthor(row.user),
+      order: {
+        id: row.order.id,
+        orderNumber: row.order.orderNumber,
+        status: row.order.status,
+        detailUrl: `/admin/orders/${row.order.id}`,
+      },
+      files: row.files.map((file) => this.serializeBookFileVersion(file)),
+      statusControl,
+    };
+  }
+
+  async updateAdminBookStatus(
+    bookId: string,
+    input: AdminUpdateBookStatusInput,
+    adminId: string
+  ): Promise<AdminUpdateBookStatusResponse> {
+    if (input.nextStatus === "REJECTED") {
+      throw new BadRequestException(
+        "Use the manuscript rejection endpoint to reject a manuscript with a required reason."
+      );
+    }
+
+    const current = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        orderId: true,
+        userId: true,
+        title: true,
+        status: true,
+        productionStatus: true,
+        version: true,
+      },
+    });
+
+    if (!current) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    const currentProjection = resolveAdminBookStatusProjection({
+      status: current.status,
+      productionStatus: current.productionStatus,
+    });
+    const nextAllowedStatuses = resolveNextAllowedBookStatuses(currentProjection.displayStatus);
+    if (!nextAllowedStatuses.includes(input.nextStatus)) {
+      throw new BadRequestException(
+        `Book cannot move from ${humanizeAdminBookStatus(currentProjection.displayStatus)} to ${humanizeAdminBookStatus(input.nextStatus)}.`
+      );
+    }
+
+    const previousLifecycleStatus = resolveReviewLifecycleStatus({
+      manuscriptStatus: current.status,
+      productionStatus: current.productionStatus,
+    });
+    const shouldCreateReviewRequest =
+      input.nextStatus === "DELIVERED" && !isReviewEligibleLifecycleStatus(previousLifecycleStatus);
+    const reason = input.reason?.trim() || null;
+    const note = input.note?.trim() || null;
+    const recordedAt = new Date();
+
+    const { updated, audit } = await this.prisma.$transaction(async (tx) => {
+      const updatedCount = await tx.book.updateMany({
+        where: {
+          id: current.id,
+          version: input.expectedVersion,
+        },
+        data: {
+          productionStatus: input.nextStatus,
+          productionStatusUpdatedAt: recordedAt,
+          version: {
+            increment: 1,
+          },
+        },
+      });
+
+      if (updatedCount.count === 0) {
+        throw new ConflictException("Book was updated by another admin. Refresh and try again.");
+      }
+
+      const updatedBook = await tx.book.findUnique({
+        where: { id: current.id },
+        select: {
+          id: true,
+          orderId: true,
+          userId: true,
+          title: true,
+          status: true,
+          productionStatus: true,
+          version: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!updatedBook) {
+        throw new NotFoundException(`Book "${bookId}" not found`);
+      }
+
+      const auditLog = await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_BOOK_STATUS_UPDATED",
+          entityType: "BOOK",
+          entityId: current.id,
+          details: {
+            previousStatus: currentProjection.displayStatus,
+            nextStatus: input.nextStatus,
+            note,
+            reason,
+            expectedVersion: input.expectedVersion,
+            bookVersion: updatedBook.version,
+            statusSource: currentProjection.statusSource,
+          },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: ADMIN_BOOK_TRACKING_ACTION,
+          entityType: ADMIN_BOOK_TRACKING_ENTITY_TYPE,
+          entityId: current.orderId,
+          details: {
+            source: ADMIN_BOOK_TRACKING_SOURCE,
+            status: input.nextStatus,
+            reachedAt: recordedAt.toISOString(),
+            label: humanizeAdminBookStatus(input.nextStatus),
+          },
+        },
+      });
+
+      if (shouldCreateReviewRequest) {
+        await this.notifications.createReviewRequestNotification(
+          {
+            userId: current.userId,
+            orderId: current.orderId,
+            bookId: current.id,
+            bookTitle: current.title ?? "Your book",
+          },
+          tx
+        );
+      }
+
+      return {
+        updated: updatedBook,
+        audit: auditLog,
+      };
+    });
+
+    const projection = resolveAdminBookStatusProjection({
+      status: updated.status,
+      productionStatus: updated.productionStatus,
+    });
+
+    return {
+      bookId: updated.id,
+      previousStatus: currentProjection.displayStatus,
+      nextStatus: input.nextStatus,
+      displayStatus: projection.displayStatus,
+      statusSource: projection.statusSource,
+      bookVersion: updated.version,
+      updatedAt: updated.updatedAt.toISOString(),
+      audit: this.serializeAdminAuditEntry(audit, adminId),
+    };
+  }
+
+  async rejectAdminBook(
+    bookId: string,
+    input: AdminRejectBookInput,
+    adminId: string
+  ): Promise<AdminRejectBookResponse> {
+    const current = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        orderId: true,
+        userId: true,
+        title: true,
+        status: true,
+        productionStatus: true,
+        version: true,
+        user: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+            preferredLanguage: true,
+          },
+        },
+      },
+    });
+
+    if (!current) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    if (current.status === "REJECTED") {
+      throw new BadRequestException("This manuscript has already been rejected.");
+    }
+
+    if (
+      !canRejectAdminBook({
+        status: current.status,
+        productionStatus: current.productionStatus,
+      })
+    ) {
+      throw new BadRequestException(
+        "This manuscript can no longer be rejected at its current stage."
+      );
+    }
+
+    const rejectionReason = input.rejectionReason.trim();
+    const currentProjection = resolveAdminBookStatusProjection({
+      status: current.status,
+      productionStatus: current.productionStatus,
+    });
+    const recordedAt = new Date();
+    const bookTitle = current.title?.trim() || "Your book";
+
+    const { updated, audit } = await this.prisma.$transaction(async (tx) => {
+      const updatedCount = await tx.book.updateMany({
+        where: {
+          id: current.id,
+          version: input.expectedVersion,
+        },
+        data: {
+          status: "REJECTED",
+          productionStatus: null,
+          productionStatusUpdatedAt: null,
+          rejectionReason,
+          rejectedAt: recordedAt,
+          rejectedBy: adminId,
+          version: {
+            increment: 1,
+          },
+        },
+      });
+
+      if (updatedCount.count === 0) {
+        throw new ConflictException("Book was updated by another admin. Refresh and try again.");
+      }
+
+      const updatedBook = await tx.book.findUnique({
+        where: { id: current.id },
+        select: {
+          id: true,
+          version: true,
+          rejectedAt: true,
+          rejectionReason: true,
+        },
+      });
+
+      if (!updatedBook) {
+        throw new NotFoundException(`Book "${bookId}" not found`);
+      }
+
+      const auditLog = await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_BOOK_REJECTED",
+          entityType: "BOOK",
+          entityId: current.id,
+          details: {
+            previousStatus: currentProjection.displayStatus,
+            nextStatus: "REJECTED",
+            reason: rejectionReason,
+            expectedVersion: input.expectedVersion,
+            bookVersion: updatedBook.version,
+          },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: ADMIN_BOOK_TRACKING_ACTION,
+          entityType: ADMIN_BOOK_TRACKING_ENTITY_TYPE,
+          entityId: current.orderId,
+          details: {
+            source: ADMIN_BOOK_TRACKING_SOURCE,
+            status: "REJECTED",
+            reachedAt: recordedAt.toISOString(),
+            label: humanizeAdminBookStatus("REJECTED"),
+          },
+        },
+      });
+
+      await this.notifications.createSystemNotification(
+        {
+          userId: current.userId,
+          orderId: current.orderId,
+          bookId: current.id,
+          titleKey: MANUSCRIPT_REJECTED_TITLE_KEY,
+          messageKey: MANUSCRIPT_REJECTED_MESSAGE_KEY,
+          params: {
+            bookTitle,
+          },
+          action: {
+            kind: "navigate",
+            href: DEFAULT_DASHBOARD_PATH,
+          },
+          presentation: {
+            tone: "warning",
+          },
+          fallbackTitle: MANUSCRIPT_REJECTED_FALLBACK_TITLE,
+          fallbackMessage: `"${bookTitle}" was returned for revision. Open your dashboard to review the manuscript notes.`,
+        },
+        tx
+      );
+
+      return {
+        updated: updatedBook,
+        audit: auditLog,
+      };
+    });
+
+    await this.sendManuscriptRejectedEmail({
+      email: current.user.email,
+      preferredLanguage: current.user.preferredLanguage,
+      userName: this.resolveUserFullName(current.user),
+      bookTitle,
+      rejectionReason,
+    });
+
+    return {
+      bookId: current.id,
+      previousStatus: currentProjection.displayStatus,
+      nextStatus: "REJECTED",
+      displayStatus: "REJECTED",
+      statusSource: "manuscript",
+      bookVersion: updated.version,
+      rejectionReason: updated.rejectionReason ?? rejectionReason,
+      rejectedAt: (updated.rejectedAt ?? recordedAt).toISOString(),
+      audit: this.serializeAdminAuditEntry(audit, adminId),
+    };
+  }
+
+  async requestAdminBookHtmlUpload(
+    bookId: string,
+    input: AdminBookHtmlUploadBodyInput,
+    adminId: string
+  ): Promise<AdminBookHtmlUploadResponse> {
+    if (input.action === "authorize") {
+      return this.authorizeAdminBookHtmlUpload(bookId, input, adminId);
+    }
+
+    return this.finalizeAdminBookHtmlUpload(bookId, input, adminId);
+  }
+
+  async downloadAdminBookFile(
+    bookId: string,
+    fileType: AdminBookDownloadFileType
+  ): Promise<AdminDownloadAsset> {
+    const targetFileType =
+      fileType === "raw"
+        ? RAW_DOWNLOAD_FILE_TYPE
+        : fileType === "cleaned"
+          ? CLEANED_DOWNLOAD_FILE_TYPE
+          : FINAL_PDF_DOWNLOAD_FILE_TYPE;
+    const row = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        finalPdfUrl: true,
+        files: {
+          where: {
+            fileType: targetFileType,
+          },
+          orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: {
+            url: true,
+            fileName: true,
+            mimeType: true,
+          },
+        },
+      },
+    });
+
+    if (!row) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    const file = row.files[0] ?? null;
+    const downloadUrl = file?.url ?? (fileType === "final-pdf" ? row.finalPdfUrl : null);
+    if (!downloadUrl) {
+      throw new NotFoundException(
+        fileType === "raw"
+          ? "Original manuscript file is not available."
+          : fileType === "cleaned"
+            ? "Cleaned HTML file is not available."
+            : "Final clean PDF is not available yet."
+      );
+    }
+
+    return {
+      buffer: await this.fetchDownloadAssetBuffer(downloadUrl),
+      fileName: this.normalizeDownloadFileName(
+        file?.fileName,
+        this.buildFallbackDownloadFileName({
+          bookId: row.id,
+          fileType,
+          mimeType: file?.mimeType ?? null,
+        })
+      ),
+      mimeType:
+        file?.mimeType?.trim() ||
+        (fileType === "cleaned"
+          ? "text/html; charset=utf-8"
+          : fileType === "final-pdf"
+            ? "application/pdf"
+            : "application/octet-stream"),
+    };
+  }
+
+  async downloadAdminBookVersionFile(bookId: string, fileId: string): Promise<AdminDownloadAsset> {
+    const row = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        files: {
+          where: { id: fileId },
+          take: 1,
+          select: {
+            url: true,
+            fileName: true,
+            mimeType: true,
+          },
+        },
+      },
+    });
+
+    if (!row) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    const file = row.files[0];
+    if (!file) {
+      throw new NotFoundException(`Book file "${fileId}" not found`);
+    }
+
+    return {
+      buffer: await this.fetchDownloadAssetBuffer(file.url),
+      fileName: this.normalizeDownloadFileName(
+        file.fileName,
+        this.buildFallbackVersionDownloadFileName({
+          bookId: row.id,
+          fileId,
+          mimeType: file.mimeType,
+        })
+      ),
+      mimeType: file.mimeType?.trim() || "application/octet-stream",
     };
   }
 
@@ -759,6 +1459,653 @@ export class BooksService {
         jobId: queueResult.queueJobId,
       },
     };
+  }
+
+  private buildAdminBookListWhere(status?: AdminBooksListQuery["status"]): Prisma.BookWhereInput {
+    if (!status) {
+      return {};
+    }
+
+    return {
+      OR: [
+        { productionStatus: status },
+        {
+          productionStatus: null,
+          status,
+        },
+      ],
+    };
+  }
+
+  private serializeAdminBookListItem(
+    row: AdminBookListRow
+  ): AdminBooksListResponse["items"][number] {
+    const projection = resolveAdminBookStatusProjection({
+      status: row.status,
+      productionStatus: row.productionStatus,
+    });
+
+    return {
+      id: row.id,
+      title: row.title ?? null,
+      author: this.serializeAdminBookAuthor(row.user),
+      order: {
+        id: row.order.id,
+        orderNumber: row.order.orderNumber,
+        status: row.order.status,
+        detailUrl: `/admin/orders/${row.order.id}`,
+      },
+      status: row.status,
+      productionStatus: row.productionStatus,
+      displayStatus: projection.displayStatus,
+      statusSource: projection.statusSource,
+      uploadedAt: this.resolveUploadedAtFromFiles(row.files),
+      createdAt: row.createdAt.toISOString(),
+      detailUrl: `/admin/books/${row.id}`,
+    };
+  }
+
+  private compareAdminBookListItems(
+    left: AdminBooksListResponse["items"][number],
+    right: AdminBooksListResponse["items"][number],
+    params: {
+      sortBy: AdminBooksListQuery["sortBy"];
+      sortDirection: AdminBooksListQuery["sortDirection"];
+    }
+  ): number {
+    const direction = params.sortDirection === "asc" ? 1 : -1;
+
+    const compareString = (leftValue: string, rightValue: string): number => {
+      const result = leftValue.localeCompare(rightValue, undefined, { sensitivity: "base" });
+      return result !== 0 ? result * direction : left.id.localeCompare(right.id) * direction;
+    };
+
+    if (params.sortBy === "title") {
+      return compareString(left.title ?? "", right.title ?? "");
+    }
+
+    if (params.sortBy === "authorName") {
+      return compareString(left.author.fullName, right.author.fullName);
+    }
+
+    if (params.sortBy === "displayStatus") {
+      return compareString(left.displayStatus, right.displayStatus);
+    }
+
+    if (params.sortBy === "orderNumber") {
+      return compareString(left.order.orderNumber, right.order.orderNumber);
+    }
+
+    return compareString(left.uploadedAt ?? left.createdAt, right.uploadedAt ?? right.createdAt);
+  }
+
+  private buildAdminBookStatusControl(params: {
+    status: BookStatus;
+    productionStatus: BookStatus | null;
+    version: number;
+  }): AdminBookDetail["statusControl"] {
+    const projection = resolveAdminBookStatusProjection({
+      status: params.status,
+      productionStatus: params.productionStatus,
+    });
+
+    return {
+      currentStatus: projection.displayStatus,
+      statusSource: projection.statusSource,
+      expectedVersion: params.version,
+      nextAllowedStatuses: resolveNextAllowedBookStatuses(projection.displayStatus),
+      canRejectManuscript: canRejectAdminBook({
+        status: params.status,
+        productionStatus: params.productionStatus,
+      }),
+      canUploadHtmlFallback: canUploadAdminHtmlFallback({
+        status: params.status,
+        productionStatus: params.productionStatus,
+      }),
+    };
+  }
+
+  private serializeAdminBookAuthor(row: {
+    id: string;
+    firstName: string;
+    lastName: string | null;
+    email: string;
+    preferredLanguage: string;
+  }): AdminBookDetail["author"] {
+    return {
+      id: row.id,
+      fullName: this.resolveUserFullName(row),
+      email: row.email,
+      preferredLanguage: row.preferredLanguage,
+    };
+  }
+
+  private serializeBookFileVersion(row: {
+    id: string;
+    fileType: FileType;
+    url: string;
+    fileName: string | null;
+    fileSize: number | null;
+    mimeType: string | null;
+    version: number;
+    createdBy: string | null;
+    createdAt: Date;
+  }): AdminBookDetail["files"][number] {
+    return {
+      id: row.id,
+      fileType: row.fileType,
+      url: row.url,
+      fileName: row.fileName ?? null,
+      fileSize: row.fileSize,
+      mimeType: row.mimeType ?? null,
+      version: row.version,
+      createdBy: row.createdBy ?? null,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
+  private resolveUploadedAtFromFiles(
+    files: Array<{
+      createdAt: Date;
+      fileType?: FileType;
+    }>
+  ): string | null {
+    const rawFile = files.find(
+      (file) => file.fileType === undefined || file.fileType === "RAW_MANUSCRIPT"
+    );
+    return rawFile?.createdAt.toISOString() ?? null;
+  }
+
+  private async authorizeAdminBookHtmlUpload(
+    bookId: string,
+    input: Extract<AdminBookHtmlUploadBodyInput, { action: "authorize" }>,
+    adminId: string
+  ): Promise<Extract<AdminBookHtmlUploadResponse, { action: "authorize" }>> {
+    const cloudinary = this.getCloudinaryService();
+    const book = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        status: true,
+        productionStatus: true,
+        pageSize: true,
+        fontSize: true,
+        files: {
+          where: {
+            fileType: "RAW_MANUSCRIPT",
+          },
+          orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    if (!book) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    this.assertAdminHtmlFallbackAllowed(book);
+    this.assertAdminHtmlFallbackConfigured(book);
+
+    if (book.files.length === 0) {
+      throw new BadRequestException(
+        "Upload a raw manuscript before using the manual HTML fallback."
+      );
+    }
+
+    const publicId = `cleaned-html-${adminId}-${randomUUID().replace(/-/g, "")}`;
+    const folder = this.buildAdminHtmlUploadFolder(book.id);
+    const signature = cloudinary.generateSignature({
+      folder,
+      mimeType: input.mimeType,
+      publicId,
+      tags: [
+        "bookprinta",
+        `book:${book.id}`,
+        "source:admin-html-fallback",
+        "file-type:cleaned-html",
+      ],
+    });
+
+    return {
+      action: "authorize",
+      upload: {
+        ...signature,
+        resourceType: "raw",
+        publicId,
+      },
+    };
+  }
+
+  private async finalizeAdminBookHtmlUpload(
+    bookId: string,
+    input: Extract<AdminBookHtmlUploadBodyInput, { action: "finalize" }>,
+    adminId: string
+  ): Promise<Extract<AdminBookHtmlUploadResponse, { action: "finalize" }>> {
+    const book = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        status: true,
+        productionStatus: true,
+        pageSize: true,
+        fontSize: true,
+        version: true,
+        files: {
+          where: {
+            fileType: "RAW_MANUSCRIPT",
+          },
+          orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    if (!book) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    this.assertAdminHtmlFallbackAllowed(book);
+    this.assertAdminHtmlFallbackConfigured(book);
+
+    if (book.files.length === 0) {
+      throw new BadRequestException(
+        "Upload a raw manuscript before using the manual HTML fallback."
+      );
+    }
+
+    this.assertAllowedAdminHtmlUpload({
+      bookId: book.id,
+      secureUrl: input.secureUrl,
+      publicId: input.publicId,
+    });
+
+    const { file, updatedBook } = await this.prisma.$transaction(async (tx) => {
+      const updatedCount = await tx.book.updateMany({
+        where: {
+          id: book.id,
+          version: input.expectedVersion,
+        },
+        data: {
+          currentHtmlUrl: input.secureUrl,
+          version: {
+            increment: 1,
+          },
+        },
+      });
+
+      if (updatedCount.count === 0) {
+        throw new ConflictException("Book was updated by another admin. Refresh and try again.");
+      }
+
+      const latestHtml = await tx.file.findFirst({
+        where: {
+          bookId: book.id,
+          fileType: "CLEANED_HTML",
+        },
+        orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+        select: {
+          version: true,
+        },
+      });
+
+      const createdFile = await tx.file.create({
+        data: {
+          bookId: book.id,
+          fileType: "CLEANED_HTML",
+          url: input.secureUrl,
+          fileName: input.fileName,
+          fileSize: input.fileSize,
+          mimeType: input.mimeType,
+          version: (latestHtml?.version ?? 0) + 1,
+          createdBy: adminId,
+        },
+        select: ADMIN_FILE_VERSION_SELECT,
+      });
+
+      const nextBook = await tx.book.findUnique({
+        where: { id: book.id },
+        select: {
+          id: true,
+          status: true,
+          productionStatus: true,
+          version: true,
+        },
+      });
+
+      if (!nextBook) {
+        throw new NotFoundException(`Book "${bookId}" not found`);
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_BOOK_HTML_UPLOADED",
+          entityType: "BOOK",
+          entityId: book.id,
+          details: {
+            fileId: createdFile.id,
+            fileType: createdFile.fileType,
+            fileName: createdFile.fileName,
+            fileSize: createdFile.fileSize,
+            mimeType: createdFile.mimeType,
+            expectedVersion: input.expectedVersion,
+            bookVersion: nextBook.version,
+          },
+        },
+      });
+
+      return {
+        file: createdFile,
+        updatedBook: nextBook,
+      };
+    });
+
+    const queueResult = await this.booksPipeline.enqueuePageCountFromAiSuccess({
+      bookId: book.id,
+      trigger: "upload",
+      cleanedHtmlFileId: file.id,
+      cleanedHtmlUrl: file.url,
+      sourceAiJobRecordId: null,
+    });
+
+    const refreshed = await this.prisma.book.findUnique({
+      where: { id: book.id },
+      select: {
+        id: true,
+        status: true,
+        productionStatus: true,
+        version: true,
+      },
+    });
+
+    if (!refreshed) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    const projection = resolveAdminBookStatusProjection({
+      status: refreshed.status,
+      productionStatus: refreshed.productionStatus,
+    });
+
+    return {
+      action: "finalize",
+      bookId: refreshed.id,
+      file: {
+        ...this.serializeBookFileVersion(file),
+        fileType: "CLEANED_HTML",
+        mimeType: "text/html",
+      },
+      status: refreshed.status,
+      productionStatus: refreshed.productionStatus,
+      displayStatus: projection.displayStatus,
+      statusSource: projection.statusSource,
+      bookVersion: updatedBook.version,
+      queuedJob: {
+        queue: "page-count",
+        name: "count-pages",
+        jobId: queueResult.queueJobId,
+      },
+    };
+  }
+
+  private assertAdminHtmlFallbackAllowed(params: {
+    status: BookStatus;
+    productionStatus: BookStatus | null;
+  }): void {
+    if (!canUploadAdminHtmlFallback(params)) {
+      throw new BadRequestException("Manual HTML fallback is not available at the current stage.");
+    }
+  }
+
+  private assertAdminHtmlFallbackConfigured(params: {
+    pageSize: string | null;
+    fontSize: number | null;
+  }): void {
+    if (!this.resolvePageSize(params.pageSize) || !this.resolveFontSize(params.fontSize)) {
+      throw new BadRequestException(
+        "Book size and font size must be selected before uploading cleaned HTML."
+      );
+    }
+  }
+
+  private getCloudinaryService(): CloudinaryService {
+    if (!this.cloudinary) {
+      throw new ServiceUnavailableException("Cloudinary upload service is unavailable.");
+    }
+
+    return this.cloudinary;
+  }
+
+  private assertAllowedAdminHtmlUpload(params: {
+    bookId: string;
+    secureUrl: string;
+    publicId: string;
+  }): string {
+    let parsed: URL;
+
+    try {
+      parsed = new URL(params.secureUrl);
+    } catch {
+      throw new BadRequestException("HTML upload URL must be a valid secure Cloudinary URL");
+    }
+
+    if (parsed.protocol !== "https:" || parsed.hostname !== "res.cloudinary.com") {
+      throw new BadRequestException("HTML upload URL must be a valid secure Cloudinary URL");
+    }
+
+    const pathSegments = parsed.pathname.split("/").filter(Boolean);
+    const expectedCloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
+    if (expectedCloudName && pathSegments[0] !== expectedCloudName) {
+      throw new BadRequestException("HTML upload URL must belong to this Cloudinary account");
+    }
+
+    const extractedPublicId = this.extractCloudinaryPublicId(params.secureUrl);
+    if (!extractedPublicId) {
+      throw new BadRequestException("HTML upload URL must be a valid secure Cloudinary URL");
+    }
+
+    const expectedPublicId = `${this.buildAdminHtmlUploadFolder(params.bookId)}/${params.publicId}`;
+    if (extractedPublicId !== expectedPublicId) {
+      throw new BadRequestException("HTML upload metadata does not match the signed asset");
+    }
+
+    return extractedPublicId;
+  }
+
+  private extractCloudinaryPublicId(url: string): string | null {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname !== "res.cloudinary.com") return null;
+
+      const pathSegments = parsed.pathname.split("/").filter(Boolean);
+      const uploadIndex = pathSegments.indexOf("upload");
+      if (uploadIndex < 0) return null;
+
+      const afterUpload = pathSegments.slice(uploadIndex + 1);
+      const versionIndex = afterUpload.findIndex((segment) => /^v\d+$/.test(segment));
+      const assetSegments = versionIndex >= 0 ? afterUpload.slice(versionIndex + 1) : afterUpload;
+      if (assetSegments.length === 0) return null;
+
+      const lastSegment = assetSegments[assetSegments.length - 1];
+      assetSegments[assetSegments.length - 1] = lastSegment.replace(/\.[^.]+$/, "");
+      const publicId = assetSegments.join("/");
+      return publicId.length > 0 ? publicId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private buildAdminHtmlUploadFolder(bookId: string): string {
+    return `${ADMIN_HTML_UPLOAD_FOLDER_ROOT}/${bookId}/cleaned-html`;
+  }
+
+  private serializeAdminAuditEntry(
+    row: Pick<
+      Prisma.AuditLogGetPayload<object>,
+      "id" | "action" | "entityType" | "entityId" | "details" | "createdAt"
+    >,
+    recordedBy: string
+  ): AdminUpdateBookStatusResponse["audit"] {
+    const details = this.asRecord(row.details);
+    return {
+      auditId: row.id,
+      action: row.action,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      recordedAt: row.createdAt.toISOString(),
+      recordedBy,
+      note: this.toStringValue(details?.note) ?? null,
+      reason: this.toStringValue(details?.reason) ?? null,
+    };
+  }
+
+  private resolveUserFullName(user: { firstName: string; lastName: string | null }): string {
+    const firstName = user.firstName.trim();
+    const lastName = user.lastName?.trim() ?? "";
+    const fullName = [firstName, lastName]
+      .filter((part) => part.length > 0)
+      .join(" ")
+      .trim();
+    return fullName.length > 0 ? fullName : "BookPrinta Author";
+  }
+
+  private async sendManuscriptRejectedEmail(params: {
+    email: string;
+    preferredLanguage: string;
+    userName: string;
+    bookTitle: string;
+    rejectionReason: string;
+  }): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn("RESEND_API_KEY not set - manuscript rejection email skipped");
+      return;
+    }
+
+    if (!this.frontendBaseUrl) {
+      this.logger.warn("FRONTEND_URL not set - manuscript rejection email skipped");
+      return;
+    }
+
+    try {
+      const locale = this.resolveLocale(params.preferredLanguage);
+      const rendered = await renderManuscriptRejectedEmail({
+        locale,
+        userName: params.userName,
+        bookTitle: params.bookTitle,
+        rejectionReason: params.rejectionReason,
+        dashboardUrl: this.buildLocalizedDashboardUrl(locale),
+      });
+
+      const result = await this.resend.emails.send({
+        from: this.resolveFromEmail(),
+        to: params.email,
+        subject: rendered.subject,
+        html: rendered.html,
+      });
+
+      if (result.error) {
+        this.logger.error(
+          `Failed to send manuscript rejection email to ${params.email}: ${result.error.name} - ${result.error.message}`
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Manuscript rejection email send failed for ${params.email}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  private resolveLocale(value: string | null | undefined): Locale {
+    return value === "fr" || value === "es" ? value : "en";
+  }
+
+  private buildLocalizedDashboardUrl(locale: Locale): string {
+    return `${this.frontendBaseUrl}/${locale}${DEFAULT_DASHBOARD_PATH}`;
+  }
+
+  private resolveFromEmail(): string {
+    const normalized = this.fromEmail.trim();
+    return normalized.length > 0 ? normalized : DEFAULT_FROM_EMAIL;
+  }
+
+  private resolveFrontendBaseUrl(): string {
+    const raw =
+      process.env.FRONTEND_URL ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.NEXT_PUBLIC_WEB_URL ||
+      "";
+    const normalized = raw.trim().replace(/\/+$/, "");
+    if (!normalized) return "";
+    if (/^https?:\/\//i.test(normalized)) return normalized;
+    return `https://${normalized}`;
+  }
+
+  private normalizeDownloadFileName(fileName: string | null | undefined, fallback: string): string {
+    if (typeof fileName !== "string") {
+      return fallback;
+    }
+
+    const normalized = fileName.replace(/[\\/\r\n"]/g, "-").trim();
+    return normalized.length > 0 ? normalized : fallback;
+  }
+
+  private async fetchDownloadAssetBuffer(sourceUrl: string): Promise<Buffer> {
+    let upstreamResponse: Awaited<ReturnType<typeof fetch>>;
+    try {
+      upstreamResponse = await fetch(sourceUrl);
+    } catch {
+      throw new ServiceUnavailableException("Book file is temporarily unavailable.");
+    }
+
+    if (!upstreamResponse.ok) {
+      throw new ServiceUnavailableException("Book file is temporarily unavailable.");
+    }
+
+    return Buffer.from(await upstreamResponse.arrayBuffer());
+  }
+
+  private buildFallbackDownloadFileName(params: {
+    bookId: string;
+    fileType: AdminBookDownloadFileType;
+    mimeType: string | null;
+  }): string {
+    if (params.fileType === "cleaned") {
+      return `book-${params.bookId}-cleaned.html`;
+    }
+
+    if (params.fileType === "final-pdf") {
+      return `book-${params.bookId}-final.pdf`;
+    }
+
+    const extension = params.mimeType?.includes("pdf") ? "pdf" : "docx";
+    return `book-${params.bookId}-raw.${extension}`;
+  }
+
+  private buildFallbackVersionDownloadFileName(params: {
+    bookId: string;
+    fileId: string;
+    mimeType: string | null;
+  }): string {
+    if (params.mimeType?.includes("pdf")) {
+      return `book-${params.bookId}-${params.fileId}.pdf`;
+    }
+
+    if (params.mimeType?.includes("html")) {
+      return `book-${params.bookId}-${params.fileId}.html`;
+    }
+
+    if (params.mimeType?.includes("wordprocessingml")) {
+      return `book-${params.bookId}-${params.fileId}.docx`;
+    }
+
+    return `book-${params.bookId}-${params.fileId}.file`;
   }
 
   private resolveStageFromStatus(status: BookStatus): BookProgressStage {
@@ -1224,6 +2571,19 @@ export class BooksService {
     }
 
     return value as Record<string, unknown>;
+  }
+
+  private toStringValue(value: unknown): string | null {
+    if (typeof value === "string") {
+      const normalized = value.trim();
+      return normalized.length > 0 ? normalized : null;
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+
+    return null;
   }
 
   private readMoneyValue(value: unknown): number {

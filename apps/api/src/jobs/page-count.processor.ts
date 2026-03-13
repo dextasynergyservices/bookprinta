@@ -371,27 +371,25 @@ export class PageCountProcessor extends WorkerHost {
   }
 
   private async isCurrentPageCountRequest(payload: CountPagesPayload): Promise<boolean> {
-    const [book, latestCleanedHtml] = await Promise.all([
-      this.prisma.book.findUnique({
-        where: { id: payload.bookId },
-        select: {
-          pageSize: true,
-          fontSize: true,
-          currentHtmlUrl: true,
-        },
-      }),
-      this.prisma.file.findFirst({
-        where: {
-          bookId: payload.bookId,
-          fileType: "CLEANED_HTML",
-        },
-        orderBy: { version: "desc" },
-        select: {
-          id: true,
-          url: true,
-        },
-      }),
-    ]);
+    const book = await this.prisma.book.findUnique({
+      where: { id: payload.bookId },
+      select: {
+        pageSize: true,
+        fontSize: true,
+        currentHtmlUrl: true,
+      },
+    });
+    const latestCleanedHtml = await this.prisma.file.findFirst({
+      where: {
+        bookId: payload.bookId,
+        fileType: "CLEANED_HTML",
+      },
+      orderBy: { version: "desc" },
+      select: {
+        id: true,
+        url: true,
+      },
+    });
 
     const htmlMatchesCurrentBook = book?.currentHtmlUrl === payload.cleanedHtmlUrl;
     const htmlMatchesLatestFile =

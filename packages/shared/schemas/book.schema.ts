@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AdminAuditEntrySchema, AdminSortDirectionSchema } from "./admin.schema.ts";
 import { BookStatusSchema, OrderStatusSchema } from "./order.schema.ts";
 
 // ==========================================
@@ -331,3 +332,276 @@ export const BookDetailResponseSchema = z.object({
   timeline: z.array(BookTimelineItemSchema),
 });
 export type BookDetailResponse = z.infer<typeof BookDetailResponseSchema>;
+
+// ==========================================
+// Admin Book Schemas
+// ==========================================
+
+/**
+ * Computed admin-facing status derived as:
+ *   productionStatus ?? status
+ *
+ * This is the single status used for admin table filters, badges,
+ * and transition controls.
+ */
+export const AdminBookDisplayStatusSchema = BookStatusSchema;
+export type AdminBookDisplayStatus = z.infer<typeof AdminBookDisplayStatusSchema>;
+
+export const AdminBookStatusSourceSchema = z.enum(["manuscript", "production"]);
+export type AdminBookStatusSource = z.infer<typeof AdminBookStatusSourceSchema>;
+
+export const AdminBookSortFieldSchema = z.enum([
+  "title",
+  "authorName",
+  "displayStatus",
+  "orderNumber",
+  "uploadedAt",
+]);
+export type AdminBookSortField = z.infer<typeof AdminBookSortFieldSchema>;
+
+/**
+ * GET /api/v1/admin/books?cursor=&limit=&status=&sortBy=&sortDirection=
+ */
+export const AdminBooksListQuerySchema = z.object({
+  cursor: z.string().cuid().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  status: AdminBookDisplayStatusSchema.optional(),
+  sortBy: AdminBookSortFieldSchema.default("uploadedAt"),
+  sortDirection: AdminSortDirectionSchema.default("desc"),
+});
+export type AdminBooksListQuery = z.infer<typeof AdminBooksListQuerySchema>;
+
+export const AdminBookAuthorSummarySchema = z.object({
+  id: z.string().cuid(),
+  fullName: z.string().trim().min(1).max(200),
+  email: z.string().email(),
+  preferredLanguage: z.string().trim().min(2).max(10),
+});
+export type AdminBookAuthorSummary = z.infer<typeof AdminBookAuthorSummarySchema>;
+
+export const AdminBookOrderSummarySchema = z.object({
+  id: z.string().cuid(),
+  orderNumber: z.string().trim().min(1).max(120),
+  status: OrderStatusSchema,
+  detailUrl: z.string().trim().min(1),
+});
+export type AdminBookOrderSummary = z.infer<typeof AdminBookOrderSummarySchema>;
+
+export const AdminBooksListItemSchema = z.object({
+  id: z.string().cuid(),
+  title: z.string().trim().min(1).max(240).nullable(),
+  author: AdminBookAuthorSummarySchema,
+  order: AdminBookOrderSummarySchema,
+  status: BookStatusSchema,
+  productionStatus: BookStatusSchema.nullable(),
+  displayStatus: AdminBookDisplayStatusSchema,
+  statusSource: AdminBookStatusSourceSchema,
+  uploadedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  detailUrl: z.string().trim().min(1),
+});
+export type AdminBooksListItem = z.infer<typeof AdminBooksListItemSchema>;
+
+export const AdminBooksListResponseSchema = z.object({
+  items: z.array(AdminBooksListItemSchema),
+  nextCursor: z.string().cuid().nullable(),
+  hasMore: z.boolean(),
+  totalItems: z.number().int().min(0),
+  limit: z.number().int().min(1).max(50),
+  sortBy: AdminBookSortFieldSchema,
+  sortDirection: AdminSortDirectionSchema,
+  sortableFields: z.array(AdminBookSortFieldSchema),
+});
+export type AdminBooksListResponse = z.infer<typeof AdminBooksListResponseSchema>;
+
+export const AdminBookStatusControlSchema = z.object({
+  currentStatus: AdminBookDisplayStatusSchema,
+  statusSource: AdminBookStatusSourceSchema,
+  expectedVersion: z.number().int().min(1),
+  nextAllowedStatuses: z.array(BookStatusSchema),
+  canRejectManuscript: z.boolean(),
+  canUploadHtmlFallback: z.boolean(),
+});
+export type AdminBookStatusControl = z.infer<typeof AdminBookStatusControlSchema>;
+
+/**
+ * PATCH /api/v1/admin/books/:id/status
+ */
+export const AdminUpdateBookStatusSchema = z.object({
+  nextStatus: BookStatusSchema,
+  expectedVersion: z.number().int().min(1),
+  reason: z.string().trim().min(1).max(240).optional(),
+  note: z.string().trim().min(1).max(1000).optional(),
+});
+export type AdminUpdateBookStatusInput = z.infer<typeof AdminUpdateBookStatusSchema>;
+
+export const AdminUpdateBookStatusResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  previousStatus: BookStatusSchema,
+  nextStatus: BookStatusSchema,
+  displayStatus: AdminBookDisplayStatusSchema,
+  statusSource: AdminBookStatusSourceSchema,
+  bookVersion: z.number().int().min(1),
+  updatedAt: z.string().datetime(),
+  audit: AdminAuditEntrySchema,
+});
+export type AdminUpdateBookStatusResponse = z.infer<typeof AdminUpdateBookStatusResponseSchema>;
+
+/**
+ * POST /api/v1/admin/books/:id/reject
+ */
+export const AdminRejectBookSchema = z.object({
+  expectedVersion: z.number().int().min(1),
+  rejectionReason: z.string().trim().min(1).max(5000),
+});
+export type AdminRejectBookInput = z.infer<typeof AdminRejectBookSchema>;
+
+export const AdminRejectBookResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  previousStatus: BookStatusSchema,
+  nextStatus: z.literal("REJECTED"),
+  displayStatus: z.literal("REJECTED"),
+  statusSource: z.literal("manuscript"),
+  bookVersion: z.number().int().min(1),
+  rejectionReason: z.string().trim().min(1).max(5000),
+  rejectedAt: z.string().datetime(),
+  audit: AdminAuditEntrySchema,
+});
+export type AdminRejectBookResponse = z.infer<typeof AdminRejectBookResponseSchema>;
+
+export const ADMIN_BOOK_HTML_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+
+export const AdminBookHtmlUploadMimeTypeSchema = z.literal("text/html");
+export type AdminBookHtmlUploadMimeType = z.infer<typeof AdminBookHtmlUploadMimeTypeSchema>;
+
+export const AdminBookHtmlFileNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .regex(/\.html?$/i, {
+    message: "fileName must end with .html or .htm",
+  });
+export type AdminBookHtmlFileName = z.infer<typeof AdminBookHtmlFileNameSchema>;
+
+export const AdminBookHtmlFileMetadataSchema = z.object({
+  fileName: AdminBookHtmlFileNameSchema,
+  fileSize: z.number().int().min(1).max(ADMIN_BOOK_HTML_UPLOAD_MAX_BYTES),
+  mimeType: AdminBookHtmlUploadMimeTypeSchema,
+});
+export type AdminBookHtmlFileMetadata = z.infer<typeof AdminBookHtmlFileMetadataSchema>;
+
+export const AuthorizeAdminBookHtmlUploadBodySchema = AdminBookHtmlFileMetadataSchema.extend({
+  action: z.literal("authorize"),
+});
+export type AuthorizeAdminBookHtmlUploadBodyInput = z.infer<
+  typeof AuthorizeAdminBookHtmlUploadBodySchema
+>;
+
+export const FinalizeAdminBookHtmlUploadBodySchema = AdminBookHtmlFileMetadataSchema.extend({
+  action: z.literal("finalize"),
+  expectedVersion: z.number().int().min(1),
+  secureUrl: z.string().url(),
+  publicId: z.string().trim().min(1).max(255),
+});
+export type FinalizeAdminBookHtmlUploadBodyInput = z.infer<
+  typeof FinalizeAdminBookHtmlUploadBodySchema
+>;
+
+/**
+ * POST /api/v1/admin/books/:id/upload-html
+ *
+ * Two-step signed Cloudinary upload:
+ *  1. authorize -> returns raw signed upload payload
+ *  2. finalize  -> persists CLEANED_HTML metadata and resumes page-count / preview generation
+ */
+export const AdminBookHtmlUploadBodySchema = z.discriminatedUnion("action", [
+  AuthorizeAdminBookHtmlUploadBodySchema,
+  FinalizeAdminBookHtmlUploadBodySchema,
+]);
+export type AdminBookHtmlUploadBodyInput = z.infer<typeof AdminBookHtmlUploadBodySchema>;
+
+export const AdminBookHtmlSignedUploadSchema = z.object({
+  signature: z.string().min(1),
+  timestamp: z.number().int().positive(),
+  cloudName: z.string().min(1),
+  apiKey: z.string().min(1),
+  folder: z.string().min(1),
+  eager: z.string().min(1).optional(),
+  resourceType: z.literal("raw"),
+  publicId: z.string().min(1),
+  tags: z.array(z.string().min(1)).optional(),
+});
+export type AdminBookHtmlSignedUpload = z.infer<typeof AdminBookHtmlSignedUploadSchema>;
+
+export const AuthorizeAdminBookHtmlUploadResponseSchema = z.object({
+  action: z.literal("authorize"),
+  upload: AdminBookHtmlSignedUploadSchema,
+});
+export type AuthorizeAdminBookHtmlUploadResponse = z.infer<
+  typeof AuthorizeAdminBookHtmlUploadResponseSchema
+>;
+
+export const AdminBookPipelineQueuedJobSchema = z.object({
+  queue: z.literal("page-count"),
+  name: z.literal("count-pages"),
+  jobId: z.string().nullable(),
+});
+export type AdminBookPipelineQueuedJob = z.infer<typeof AdminBookPipelineQueuedJobSchema>;
+
+export const FinalizeAdminBookHtmlUploadResponseSchema = z.object({
+  action: z.literal("finalize"),
+  bookId: z.string().cuid(),
+  file: BookFileVersionSchema.extend({
+    fileType: z.literal("CLEANED_HTML"),
+    mimeType: AdminBookHtmlUploadMimeTypeSchema,
+  }),
+  status: BookStatusSchema,
+  productionStatus: BookStatusSchema.nullable(),
+  displayStatus: AdminBookDisplayStatusSchema,
+  statusSource: AdminBookStatusSourceSchema,
+  bookVersion: z.number().int().min(1),
+  queuedJob: AdminBookPipelineQueuedJobSchema,
+});
+export type FinalizeAdminBookHtmlUploadResponse = z.infer<
+  typeof FinalizeAdminBookHtmlUploadResponseSchema
+>;
+
+export const AdminBookHtmlUploadResponseSchema = z.discriminatedUnion("action", [
+  AuthorizeAdminBookHtmlUploadResponseSchema,
+  FinalizeAdminBookHtmlUploadResponseSchema,
+]);
+export type AdminBookHtmlUploadResponse = z.infer<typeof AdminBookHtmlUploadResponseSchema>;
+
+export const AdminBookDownloadFileTypeSchema = z.enum(["raw", "cleaned", "final-pdf"]);
+export type AdminBookDownloadFileType = z.infer<typeof AdminBookDownloadFileTypeSchema>;
+
+export const AdminBookDownloadParamsSchema = BookParamsSchema.extend({
+  fileType: AdminBookDownloadFileTypeSchema,
+});
+export type AdminBookDownloadParamsInput = z.infer<typeof AdminBookDownloadParamsSchema>;
+
+export const AdminBookVersionFileDownloadParamsSchema = BookParamsSchema.extend({
+  fileId: z.string().cuid(),
+});
+export type AdminBookVersionFileDownloadParamsInput = z.infer<
+  typeof AdminBookVersionFileDownloadParamsSchema
+>;
+
+/**
+ * GET /api/v1/admin/books/:id
+ */
+export const AdminBookDetailSchema = BookDetailResponseSchema.extend({
+  uploadedAt: z.string().datetime().nullable(),
+  productionStatus: BookStatusSchema.nullable(),
+  displayStatus: AdminBookDisplayStatusSchema,
+  statusSource: AdminBookStatusSourceSchema,
+  version: z.number().int().min(1),
+  rejectedBy: z.string().cuid().nullable(),
+  finalPdfUrl: z.string().url().nullable(),
+  author: AdminBookAuthorSummarySchema,
+  order: AdminBookOrderSummarySchema,
+  files: z.array(BookFileVersionSchema),
+  statusControl: AdminBookStatusControlSchema,
+});
+export type AdminBookDetail = z.infer<typeof AdminBookDetailSchema>;
