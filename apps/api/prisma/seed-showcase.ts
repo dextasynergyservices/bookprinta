@@ -414,11 +414,9 @@ async function seedEntries(
 }
 
 async function summarizeSeedResult() {
-  const [activeCategories, featuredEntries, totalEntries] = await Promise.all([
-    prisma.showcaseCategory.count({ where: { isActive: true } }),
-    prisma.authorShowcase.count({ where: { isFeatured: true } }),
-    prisma.authorShowcase.count(),
-  ]);
+  const activeCategories = await prisma.showcaseCategory.count({ where: { isActive: true } });
+  const featuredEntries = await prisma.authorShowcase.count({ where: { isFeatured: true } });
+  const totalEntries = await prisma.authorShowcase.count();
 
   console.log("\n✅ Showcase seed complete.");
   console.log(`  - Active categories: ${activeCategories}`);

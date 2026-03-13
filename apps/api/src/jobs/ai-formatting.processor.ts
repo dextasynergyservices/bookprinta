@@ -459,25 +459,23 @@ export class AiFormattingProcessor extends WorkerHost {
   }
 
   private async isCurrentFormatRequest(payload: FormatManuscriptPayload): Promise<boolean> {
-    const [book, latestRaw] = await Promise.all([
-      this.prisma.book.findUnique({
-        where: { id: payload.bookId },
-        select: {
-          pageSize: true,
-          fontSize: true,
-        },
-      }),
-      this.prisma.file.findFirst({
-        where: {
-          bookId: payload.bookId,
-          fileType: "RAW_MANUSCRIPT",
-        },
-        orderBy: { version: "desc" },
-        select: {
-          id: true,
-        },
-      }),
-    ]);
+    const book = await this.prisma.book.findUnique({
+      where: { id: payload.bookId },
+      select: {
+        pageSize: true,
+        fontSize: true,
+      },
+    });
+    const latestRaw = await this.prisma.file.findFirst({
+      where: {
+        bookId: payload.bookId,
+        fileType: "RAW_MANUSCRIPT",
+      },
+      orderBy: { version: "desc" },
+      select: {
+        id: true,
+      },
+    });
 
     return (
       book?.pageSize === payload.pageSize &&

@@ -15,29 +15,27 @@ export class MarketingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getAboutStats(): Promise<AboutStatsResponseDto> {
-    const [titlesPublished, ordersReceived, copiesAggregate] = await Promise.all([
-      this.prisma.book.count({
-        where: {
-          status: { in: PUBLISHED_BOOK_STATUSES },
-        },
-      }),
-      this.prisma.order.count({
-        where: {
-          status: { not: OrderStatus.CANCELLED },
-        },
-      }),
-      this.prisma.order.aggregate({
-        _sum: { copies: true },
-        where: {
-          status: { not: OrderStatus.CANCELLED },
-          book: {
-            is: {
-              status: { in: PUBLISHED_BOOK_STATUSES },
-            },
+    const titlesPublished = await this.prisma.book.count({
+      where: {
+        status: { in: PUBLISHED_BOOK_STATUSES },
+      },
+    });
+    const ordersReceived = await this.prisma.order.count({
+      where: {
+        status: { not: OrderStatus.CANCELLED },
+      },
+    });
+    const copiesAggregate = await this.prisma.order.aggregate({
+      _sum: { copies: true },
+      where: {
+        status: { not: OrderStatus.CANCELLED },
+        book: {
+          is: {
+            status: { in: PUBLISHED_BOOK_STATUSES },
           },
         },
-      }),
-    ]);
+      },
+    });
 
     return {
       titlesPublished,
