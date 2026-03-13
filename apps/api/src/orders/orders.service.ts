@@ -415,18 +415,16 @@ export class OrdersService {
     const pageSize = query.limit ?? 10;
     const skip = (page - 1) * pageSize;
 
-    const [rows, totalItems] = await Promise.all([
-      this.prisma.order.findMany({
-        where: { userId },
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: pageSize,
-        select: OrdersService.ORDER_LIST_SELECT,
-      }),
-      this.prisma.order.count({
-        where: { userId },
-      }),
-    ]);
+    const rows = await this.prisma.order.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: pageSize,
+      select: OrdersService.ORDER_LIST_SELECT,
+    });
+    const totalItems = await this.prisma.order.count({
+      where: { userId },
+    });
 
     const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
 
@@ -493,21 +491,19 @@ export class OrdersService {
     const where = this.buildAdminOrdersWhere(query);
     const orderBy = this.buildAdminOrdersOrderBy(query.sortBy, query.sortDirection);
 
-    const [rows, totalItems] = await Promise.all([
-      this.prisma.order.findMany({
-        where,
-        orderBy,
-        take: query.limit + 1,
-        ...(query.cursor
-          ? {
-              cursor: { id: query.cursor },
-              skip: 1,
-            }
-          : {}),
-        select: OrdersService.ORDER_ADMIN_LIST_SELECT,
-      }),
-      this.prisma.order.count({ where }),
-    ]);
+    const rows = await this.prisma.order.findMany({
+      where,
+      orderBy,
+      take: query.limit + 1,
+      ...(query.cursor
+        ? {
+            cursor: { id: query.cursor },
+            skip: 1,
+          }
+        : {}),
+      select: OrdersService.ORDER_ADMIN_LIST_SELECT,
+    });
+    const totalItems = await this.prisma.order.count({ where });
 
     const hasMore = rows.length > query.limit;
     const pageItems = hasMore ? rows.slice(0, query.limit) : rows;
