@@ -370,11 +370,11 @@ async function seedPosts(authorId: string, categoryIdsBySlug: Map<string, string
 }
 
 async function summarizeSeedResult() {
-  const [totalCategories, publishedPosts, totalPosts] = await Promise.all([
-    prisma.resourceCategory.count({ where: { isActive: true } }),
-    prisma.blogPost.count({ where: { isPublished: true, publishedAt: { not: null } } }),
-    prisma.blogPost.count(),
-  ]);
+  const totalCategories = await prisma.resourceCategory.count({ where: { isActive: true } });
+  const publishedPosts = await prisma.blogPost.count({
+    where: { isPublished: true, publishedAt: { not: null } },
+  });
+  const totalPosts = await prisma.blogPost.count();
 
   console.log("\n✅ Resources seed complete.");
   console.log(`  - Active categories: ${totalCategories}`);
