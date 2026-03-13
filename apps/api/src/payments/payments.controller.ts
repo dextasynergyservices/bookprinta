@@ -28,6 +28,7 @@ import { SkipThrottle, Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
 import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
+import { AdminPendingBankTransfersResponseDto } from "./dto/admin-payments.dto.js";
 import {
   ExtraPagesPaymentDto,
   InitializePaymentDto,
@@ -241,10 +242,14 @@ export class PaymentsController {
     description:
       "Returns all bank-transfer payments awaiting approval, sorted oldest first with SLA age metadata.",
   })
-  @ApiResponse({ status: 200, description: "Pending bank transfer payments" })
+  @ApiResponse({
+    status: 200,
+    description: "Pending bank transfer payments",
+    type: AdminPendingBankTransfersResponseDto,
+  })
   @ApiResponse({ status: 401, description: "Unauthorized — JWT required" })
   @ApiResponse({ status: 403, description: "Forbidden — admin role required" })
-  async listPendingBankTransfers() {
+  async listPendingBankTransfers(): Promise<AdminPendingBankTransfersResponseDto> {
     return this.paymentsService.listPendingBankTransfers();
   }
 

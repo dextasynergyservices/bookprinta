@@ -164,6 +164,16 @@
     "cta": "Telecharger le manuscrit revise",
     "support": "Si vous avez des questions sur ces commentaires, n'hesitez pas a nous contacter."
   },
+  "bank_transfer_rejected": {
+    "subject": "Mise a jour du virement bancaire - Commande #{orderNumber}",
+    "heading": "Votre virement bancaire necessite votre attention",
+    "body": "Nous n'avons pas pu approuver le virement bancaire soumis pour la commande #{orderNumber}.",
+    "reason": "Motif de notre equipe",
+    "order_number": "Numero de commande",
+    "payment_reference": "Reference de paiement",
+    "next_steps": "Veuillez consulter le motif ci-dessous et contacter l'assistance avant d'envoyer un nouveau virement.",
+    "support": "Si vous avez besoin d'aide pour resoudre ce paiement, repondez a cet email et notre equipe vous aidera."
+  },
   "bank_transfer_user": {
     "subject": "Paiement en cours de verification - Commande #{orderNumber}",
     "heading": "Nous avons recu votre paiement",

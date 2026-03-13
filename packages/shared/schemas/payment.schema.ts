@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { AdminAuditEntrySchema, AdminRefundTypeSchema } from "./admin.schema.ts";
+import {
+  AdminAuditEntrySchema,
+  AdminRefundTypeSchema,
+  AdminSortDirectionSchema,
+  IsoDateOnlySchema,
+} from "./admin.schema.ts";
 import { BookStatusSchema, OrderStatusSchema, RefundPolicySnapshotSchema } from "./order.schema.ts";
 
 // ==========================================
@@ -116,6 +121,20 @@ export type ReprintPaymentInput = z.infer<typeof ReprintPaymentSchema>;
 export const AdminRefundProcessingModeSchema = z.enum(["gateway", "manual"]);
 export type AdminRefundProcessingMode = z.infer<typeof AdminRefundProcessingModeSchema>;
 
+export const PendingBankTransferSlaStateSchema = z.enum(["green", "yellow", "red"]);
+export type PendingBankTransferSlaState = z.infer<typeof PendingBankTransferSlaStateSchema>;
+
+export const AdminPaymentSortFieldSchema = z.enum([
+  "orderReference",
+  "customerName",
+  "customerEmail",
+  "amount",
+  "provider",
+  "status",
+  "createdAt",
+]);
+export type AdminPaymentSortField = z.infer<typeof AdminPaymentSortFieldSchema>;
+
 export const AdminRefundRequestSchema = z
   .object({
     type: AdminRefundTypeSchema,
@@ -210,3 +229,118 @@ export const AdminRefundResponseSchema = z.object({
   audit: AdminAuditEntrySchema,
 });
 export type AdminRefundResponse = z.infer<typeof AdminRefundResponseSchema>;
+
+// ==========================================
+// Admin Payment Management Contracts
+// ==========================================
+
+export const AdminPaymentCustomerSummarySchema = z.object({
+  fullName: z.string().trim().min(1).max(200).nullable(),
+  email: z.string().email().nullable(),
+  phoneNumber: z.string().trim().min(1).max(40).nullable(),
+  preferredLanguage: z.string().trim().min(2).max(10).nullable(),
+});
+export type AdminPaymentCustomerSummary = z.infer<typeof AdminPaymentCustomerSummarySchema>;
+
+export const AdminPaymentRefundabilitySchema = z.object({
+  isRefundable: z.boolean(),
+  processingMode: AdminRefundProcessingModeSchema,
+  reason: z.string().trim().min(1).max(240).nullable(),
+  policySnapshot: RefundPolicySnapshotSchema.nullable(),
+  orderVersion: z.number().int().min(1).nullable(),
+  bookVersion: z.number().int().min(1).nullable(),
+});
+export type AdminPaymentRefundability = z.infer<typeof AdminPaymentRefundabilitySchema>;
+
+/**
+ * GET /api/v1/admin/payments?cursor=&limit=&status=&provider=&dateFrom=&dateTo=&q=&sortBy=&sortDirection=
+ */
+export const AdminPaymentsListQuerySchema = z
+  .object({
+    cursor: z.string().cuid().optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+    status: PaymentStatusSchema.optional(),
+    provider: PaymentProviderSchema.optional(),
+    dateFrom: IsoDateOnlySchema.optional(),
+    dateTo: IsoDateOnlySchema.optional(),
+    q: z.string().trim().max(200).optional(),
+    sortBy: AdminPaymentSortFieldSchema.default("createdAt"),
+    sortDirection: AdminSortDirectionSchema.default("desc"),
+  })
+  .superRefine((value, ctx) => {
+    if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateTo"],
+        message: "dateTo must be on or after dateFrom",
+      });
+    }
+  });
+export type AdminPaymentsListQuery = z.infer<typeof AdminPaymentsListQuerySchema>;
+
+export const AdminPaymentsListItemSchema = z.object({
+  id: z.string().cuid(),
+  orderReference: z.string().trim().min(1).max(120),
+  orderNumber: z.string().nullable(),
+  orderId: z.string().cuid().nullable(),
+  userId: z.string().cuid().nullable(),
+  customer: AdminPaymentCustomerSummarySchema,
+  provider: PaymentProviderSchema,
+  type: PaymentTypeSchema,
+  status: PaymentStatusSchema,
+  amount: z.number(),
+  currency: z.string().length(3),
+  providerRef: z.string().nullable(),
+  receiptUrl: z.string().url().nullable(),
+  payerName: z.string().trim().min(1).max(200).nullable(),
+  payerEmail: z.string().email().nullable(),
+  payerPhone: z.string().trim().min(1).max(40).nullable(),
+  adminNote: z.string().nullable(),
+  hasAdminNote: z.boolean(),
+  approvedAt: z.string().datetime().nullable(),
+  approvedBy: z.string().nullable(),
+  processedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  refundability: AdminPaymentRefundabilitySchema,
+});
+export type AdminPaymentsListItem = z.infer<typeof AdminPaymentsListItemSchema>;
+
+export const AdminPaymentsListResponseSchema = z.object({
+  items: z.array(AdminPaymentsListItemSchema),
+  nextCursor: z.string().cuid().nullable(),
+  hasMore: z.boolean(),
+  totalItems: z.number().int().min(0),
+  limit: z.number().int().min(1).max(50),
+  sortBy: AdminPaymentSortFieldSchema,
+  sortDirection: AdminSortDirectionSchema,
+  sortableFields: z.array(AdminPaymentSortFieldSchema),
+});
+export type AdminPaymentsListResponse = z.infer<typeof AdminPaymentsListResponseSchema>;
+
+export const AdminPendingBankTransferSlaSnapshotSchema = z.object({
+  ageMinutes: z.number().int().min(0),
+  state: PendingBankTransferSlaStateSchema,
+});
+export type AdminPendingBankTransferSlaSnapshot = z.infer<
+  typeof AdminPendingBankTransferSlaSnapshotSchema
+>;
+
+export const AdminPendingBankTransferItemSchema = AdminPaymentsListItemSchema.extend({
+  provider: z.literal("BANK_TRANSFER"),
+  status: z.literal("AWAITING_APPROVAL"),
+  slaSnapshot: AdminPendingBankTransferSlaSnapshotSchema,
+});
+export type AdminPendingBankTransferItem = z.infer<typeof AdminPendingBankTransferItemSchema>;
+
+/**
+ * GET /api/v1/payments/bank-transfer/pending
+ */
+export const AdminPendingBankTransfersResponseSchema = z.object({
+  items: z.array(AdminPendingBankTransferItemSchema),
+  totalItems: z.number().int().min(0),
+  refreshedAt: z.string().datetime(),
+});
+export type AdminPendingBankTransfersResponse = z.infer<
+  typeof AdminPendingBankTransfersResponseSchema
+>;
