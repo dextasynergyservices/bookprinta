@@ -1,3 +1,4 @@
+import { UnauthorizedException } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import { hashRefreshToken } from "../refresh-token.util.js";
 import { JwtRefreshStrategy } from "./jwt-refresh.strategy.js";
@@ -25,6 +26,7 @@ describe("JwtRefreshStrategy", () => {
           id: "user-1",
           email: "writer@example.com",
           role: "USER",
+          isActive: true,
           refreshToken: hashRefreshToken("refresh-token-value"),
           refreshTokenExp: new Date(Date.now() + 60_000),
         }),
@@ -54,6 +56,7 @@ describe("JwtRefreshStrategy", () => {
           id: "user-1",
           email: "writer@example.com",
           role: "USER",
+          isActive: true,
           refreshToken: legacyHash,
           refreshTokenExp: new Date(Date.now() + 60_000),
         }),
@@ -72,6 +75,40 @@ describe("JwtRefreshStrategy", () => {
       sub: "user-1",
       email: "writer@example.com",
       role: "USER",
+    });
+  });
+
+  it("revokes refresh tokens for deactivated accounts", async () => {
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "user-1",
+          email: "writer@example.com",
+          role: "USER",
+          isActive: false,
+          refreshToken: hashRefreshToken("refresh-token-value"),
+          refreshTokenExp: new Date(Date.now() + 60_000),
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+
+    const strategy = new JwtRefreshStrategy(prisma as never);
+
+    await expect(
+      strategy.validate({ cookies: { refresh_token: "refresh-token-value" } } as never, {
+        sub: "user-1",
+        email: "writer@example.com",
+        role: "USER",
+      })
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: {
+        refreshToken: null,
+        refreshTokenExp: null,
+      },
     });
   });
 });

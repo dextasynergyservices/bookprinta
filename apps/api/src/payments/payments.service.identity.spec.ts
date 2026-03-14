@@ -120,6 +120,7 @@ describe("PaymentsService identity conflicts", () => {
     prisma.user.findFirst.mockResolvedValue({
       id: "user_existing",
       email: "author@example.com",
+      isActive: true,
     });
     prisma.user.findMany.mockResolvedValue([
       {
@@ -159,6 +160,7 @@ describe("PaymentsService identity conflicts", () => {
     prisma.user.findFirst.mockResolvedValue({
       id: "user_email_owner",
       email: "author@example.com",
+      isActive: true,
     });
     prisma.user.findMany.mockResolvedValue([
       {
@@ -179,6 +181,31 @@ describe("PaymentsService identity conflicts", () => {
       })
     ).rejects.toThrow(
       "This email and phone number belong to different accounts. Sign in to the correct account or use a different phone number."
+    );
+
+    expect(paystackService.initialize).not.toHaveBeenCalled();
+  });
+
+  it("blocks payment initialization when the email belongs to a deactivated account", async () => {
+    const { service, prisma, paystackService } = createService();
+
+    prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    prisma.user.findFirst.mockResolvedValue({
+      id: "user_inactive_email_owner",
+      email: "author@example.com",
+      isActive: false,
+    });
+
+    await expect(
+      service.initialize({
+        provider: "PAYSTACK",
+        email: "author@example.com",
+        amount: 15000,
+        currency: "NGN",
+        metadata: {},
+      })
+    ).rejects.toThrow(
+      "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup."
     );
 
     expect(paystackService.initialize).not.toHaveBeenCalled();
@@ -241,6 +268,40 @@ describe("PaymentsService identity conflicts", () => {
         currency: "NGN",
       })
     ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(tx.user.create).not.toHaveBeenCalled();
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it("blocks webhook-time user linking when the checkout email belongs to a deactivated account", async () => {
+    const { service, prisma, tx } = createService();
+    const createCheckoutEntitiesFromMetadata = getCreateCheckoutEntitiesFromMetadata(service);
+
+    prisma.package.findFirst.mockResolvedValue({
+      id: "pkg_starter",
+      name: "Starter",
+      basePrice: 50000,
+    });
+    tx.user.findFirst.mockResolvedValue({
+      id: "user_inactive_email_owner",
+      email: "author@example.com",
+      isActive: false,
+    });
+
+    await expect(
+      createCheckoutEntitiesFromMetadata({
+        paymentId: "cmpay_identity_inactive",
+        payerEmail: "author@example.com",
+        metadata: {
+          fullName: "Author Example",
+          packageSlug: "starter",
+        },
+        amount: 25000,
+        currency: "NGN",
+      })
+    ).rejects.toThrow(
+      "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup."
+    );
 
     expect(tx.user.create).not.toHaveBeenCalled();
     expect(tx.user.update).not.toHaveBeenCalled();

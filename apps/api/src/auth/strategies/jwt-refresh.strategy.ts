@@ -50,6 +50,7 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, "jwt-refresh"
         id: true,
         email: true,
         role: true,
+        isActive: true,
         refreshToken: true,
         refreshTokenExp: true,
       },
@@ -57,6 +58,17 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, "jwt-refresh"
 
     if (!user || !user.refreshToken) {
       throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    if (!user.isActive) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          refreshToken: null,
+          refreshTokenExp: null,
+        },
+      });
+      throw new UnauthorizedException("Account is no longer active");
     }
 
     const refreshTokenDigest = hashRefreshToken(refreshToken);

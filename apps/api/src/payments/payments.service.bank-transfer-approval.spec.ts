@@ -28,6 +28,8 @@ function createService() {
 
   const tx = {
     user: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
@@ -127,6 +129,7 @@ describe("PaymentsService bank transfer approval", () => {
       phoneNumberNormalized: null,
       preferredLanguage: "en",
       password: null,
+      isActive: true,
       isVerified: false,
     });
     tx.user.update.mockImplementation(async ({ data }) => ({
@@ -138,6 +141,7 @@ describe("PaymentsService bank transfer approval", () => {
       phoneNumberNormalized: data.phoneNumberNormalized,
       preferredLanguage: data.preferredLanguage,
       password: null,
+      isActive: true,
       isVerified: false,
     }));
     tx.order.findUnique.mockResolvedValue({
@@ -268,6 +272,7 @@ describe("PaymentsService bank transfer approval", () => {
       phoneNumberNormalized: null,
       preferredLanguage: "en",
       password: null,
+      isActive: true,
       isVerified: false,
     });
     tx.user.update.mockImplementation(async ({ data }) => ({
@@ -279,6 +284,7 @@ describe("PaymentsService bank transfer approval", () => {
       phoneNumberNormalized: data.phoneNumberNormalized,
       preferredLanguage: data.preferredLanguage,
       password: null,
+      isActive: true,
       isVerified: false,
     }));
     tx.order.create.mockResolvedValue({
@@ -361,6 +367,65 @@ describe("PaymentsService bank transfer approval", () => {
     });
   });
 
+  it("rejects approval when a linked checkout user has been deactivated", async () => {
+    const { service, prisma, tx, signupNotificationsService } = createService();
+
+    prisma.payment.findUnique.mockResolvedValue({
+      id: "payment_inactive",
+      provider: PaymentProvider.BANK_TRANSFER,
+      status: PaymentStatus.AWAITING_APPROVAL,
+      payerEmail: "ada@example.com",
+      payerName: "Ada Okafor",
+      amount: 150000,
+      currency: "NGN",
+      providerRef: "BT-004",
+      metadata: {
+        locale: "en",
+        fullName: "Ada Okafor",
+      },
+      userId: "user_1",
+      orderId: "order_1",
+    });
+
+    tx.order.findUnique.mockResolvedValue({
+      id: "order_1",
+      userId: "user_1",
+      orderNumber: "BP-2026-0004",
+      totalAmount: 150000,
+      currency: "NGN",
+      package: {
+        name: "Legacy",
+      },
+      addons: [],
+    });
+    tx.user.findUnique.mockResolvedValue({
+      id: "user_1",
+      email: "ada@example.com",
+      firstName: "Ada",
+      lastName: "Okafor",
+      phoneNumber: null,
+      phoneNumberNormalized: null,
+      preferredLanguage: "en",
+      password: null,
+      isActive: false,
+      isVerified: false,
+    });
+
+    await expect(
+      service.approveBankTransfer({
+        paymentId: "payment_inactive",
+        adminId: "admin_4",
+        adminNote: "Inactive user should block approval",
+      })
+    ).rejects.toThrow(
+      "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup."
+    );
+
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(tx.payment.update).not.toHaveBeenCalled();
+    expect(signupNotificationsService.sendRegistrationLink).not.toHaveBeenCalled();
+  });
+
   it("creates the missing user and order before completing approval for a guest bank transfer", async () => {
     const { service, prisma, tx, signupNotificationsService, notificationsService } =
       createService();
@@ -399,6 +464,7 @@ describe("PaymentsService bank transfer approval", () => {
       phoneNumberNormalized: "+2348123456789",
       preferredLanguage: "en",
       password: null,
+      isActive: true,
       isVerified: false,
       verificationToken: "signup-token-guest",
       tokenExpiry: new Date("2026-03-14T12:00:00.000Z"),
@@ -444,6 +510,7 @@ describe("PaymentsService bank transfer approval", () => {
           firstName: "Guest",
           lastName: "Writer",
           preferredLanguage: "en",
+          isActive: true,
           verificationToken: expect.any(String),
           tokenExpiry: expect.any(Date),
         }),
