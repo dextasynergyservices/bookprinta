@@ -6,6 +6,7 @@
  */
 import { render } from "@react-email/components";
 import { BankTransferAdminEmail } from "./emails/BankTransferAdminEmail.tsx";
+import { BankTransferRejectedEmail } from "./emails/BankTransferRejectedEmail.tsx";
 import { BankTransferUserEmail } from "./emails/BankTransferUserEmail.tsx";
 import { ContactAdminEmail } from "./emails/ContactAdminEmail.tsx";
 import { ContactConfirmationEmail } from "./emails/ContactConfirmationEmail.tsx";
@@ -62,6 +63,14 @@ export interface RenderBankTransferAdminProps {
   orderNumber: string;
   receiptUrl: string;
   adminPanelUrl: string;
+}
+
+export interface RenderBankTransferRejectedProps {
+  locale?: Locale;
+  userName: string;
+  orderNumber: string;
+  paymentReference: string;
+  rejectionReason: string;
 }
 
 export interface RenderSignupLinkProps {
@@ -208,6 +217,19 @@ export async function renderBankTransferAdminEmail(
   return {
     html,
     subject: getEmailSubject("bank_transfer_admin", locale, {
+      orderNumber: props.orderNumber,
+    }),
+  };
+}
+
+export async function renderBankTransferRejectedEmail(
+  props: RenderBankTransferRejectedProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(BankTransferRejectedEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("bank_transfer_rejected", locale, {
       orderNumber: props.orderNumber,
     }),
   };

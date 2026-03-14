@@ -164,6 +164,16 @@
     "cta": "Upload Revised Manuscript",
     "support": "If you have questions about this feedback, please don't hesitate to reach out."
   },
+  "bank_transfer_rejected": {
+    "subject": "Bank Transfer Review Update - Order #{orderNumber}",
+    "heading": "Your bank transfer needs attention",
+    "body": "We could not approve the bank transfer submitted for order #{orderNumber}.",
+    "reason": "Reason from our team",
+    "order_number": "Order Number",
+    "payment_reference": "Payment Reference",
+    "next_steps": "Please review the reason below and contact support before sending a replacement transfer.",
+    "support": "If you need help resolving this payment, reply to this email and our team will assist you."
+  },
   "bank_transfer_user": {
     "subject": "Payment Being Verified - Order #{orderNumber}",
     "heading": "We Received Your Payment",

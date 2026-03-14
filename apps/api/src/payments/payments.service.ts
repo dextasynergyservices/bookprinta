@@ -3,10 +3,18 @@ import { randomBytes } from "node:crypto";
 import type { Locale } from "@bookprinta/emails";
 import {
   renderBankTransferAdminEmail,
+  renderBankTransferRejectedEmail,
   renderBankTransferUserEmail,
   renderRefundConfirmEmail,
 } from "@bookprinta/emails/render";
 import type {
+  AdminPaymentRefundability,
+  AdminPaymentSortField,
+  AdminPaymentsListItem,
+  AdminPaymentsListQuery,
+  AdminPaymentsListResponse,
+  AdminPendingBankTransferItem,
+  AdminPendingBankTransfersResponse,
   AdminRefundRequestInput,
   AdminRefundResponse,
   RefundPolicySnapshot,
@@ -51,6 +59,10 @@ import { StripeService } from "./services/stripe.service.js";
 const MAX_SIGNUP_TOKEN_HOURS = 24;
 const BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK = "+2348103208297";
 const EXTRA_PAGE_PRICE_NGN = 10;
+const DEFAULT_DASHBOARD_PATH = "/dashboard";
+const BANK_TRANSFER_REJECTED_TITLE_KEY = "notifications.bank_transfer_rejected.title";
+const BANK_TRANSFER_REJECTED_MESSAGE_KEY = "notifications.bank_transfer_rejected.message";
+const BANK_TRANSFER_REJECTED_FALLBACK_TITLE = "Bank transfer not approved";
 const REPRINT_MIN_COPIES = 25;
 const DEFAULT_REPRINT_COST_PER_PAGE_A5 = 10;
 const REPRINT_COST_PER_PAGE_SETTING_KEY = "quote_cost_per_page";
@@ -116,6 +128,97 @@ type NormalizedBankTransferInput = {
   orderId?: string;
   metadata?: Record<string, unknown>;
 };
+
+type CheckoutFinalizationInfo = {
+  userId: string;
+  orderId: string;
+  email: string;
+  name: string;
+  locale: Locale;
+  signupToken: string | null;
+  phone: string | null;
+  orderNumber: string;
+  packageName: string;
+  amountPaid: string;
+  addons: string[];
+};
+
+const ADMIN_PAYMENT_SORTABLE_FIELDS: AdminPaymentSortField[] = [
+  "orderReference",
+  "customerName",
+  "customerEmail",
+  "amount",
+  "provider",
+  "status",
+  "createdAt",
+];
+
+const ADMIN_PAYMENT_LIST_SELECT = {
+  id: true,
+  orderId: true,
+  userId: true,
+  provider: true,
+  type: true,
+  amount: true,
+  currency: true,
+  status: true,
+  providerRef: true,
+  processedAt: true,
+  receiptUrl: true,
+  payerName: true,
+  payerEmail: true,
+  payerPhone: true,
+  adminNote: true,
+  approvedAt: true,
+  approvedBy: true,
+  metadata: true,
+  createdAt: true,
+  updatedAt: true,
+  order: {
+    select: {
+      id: true,
+      orderNumber: true,
+      status: true,
+      version: true,
+      refundedAt: true,
+      totalAmount: true,
+      currency: true,
+      userId: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          phoneNumber: true,
+          preferredLanguage: true,
+        },
+      },
+      book: {
+        select: {
+          id: true,
+          status: true,
+          productionStatus: true,
+          version: true,
+        },
+      },
+    },
+  },
+  user: {
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      phoneNumber: true,
+      preferredLanguage: true,
+    },
+  },
+} as const;
+
+type AdminPaymentListRow = Prisma.PaymentGetPayload<{
+  select: typeof ADMIN_PAYMENT_LIST_SELECT;
+}>;
 
 // ──────────────────────────────────────────────
 // Orchestrator service for all payment operations.
@@ -647,40 +750,76 @@ export class PaymentsService {
     };
   }
 
-  async listPendingBankTransfers() {
-    const payments = await this.prisma.payment.findMany({
+  async listAdminPayments(query: AdminPaymentsListQuery): Promise<AdminPaymentsListResponse> {
+    const limit = query.limit ?? 20;
+    const sortBy = query.sortBy ?? "createdAt";
+    const sortDirection = query.sortDirection ?? "desc";
+    const where = this.buildAdminPaymentsWhere(query);
+    const rows = await this.prisma.payment.findMany({
+      where,
+      select: ADMIN_PAYMENT_LIST_SELECT,
+    });
+    const items = this.sortAdminPaymentItems(
+      rows.map((row) => this.serializeAdminPaymentListItem(row)),
+      sortBy,
+      sortDirection
+    );
+
+    let startIndex = 0;
+    if (query.cursor) {
+      const cursorIndex = items.findIndex((item) => item.id === query.cursor);
+      if (cursorIndex === -1) {
+        throw new BadRequestException("Invalid payments cursor");
+      }
+      startIndex = cursorIndex + 1;
+    }
+
+    const pageItems = items.slice(startIndex, startIndex + limit);
+    const nextCursor =
+      startIndex + limit < items.length && pageItems.length > 0
+        ? (pageItems[pageItems.length - 1]?.id ?? null)
+        : null;
+
+    return {
+      items: pageItems,
+      nextCursor,
+      hasMore: nextCursor !== null,
+      totalItems: items.length,
+      limit,
+      sortBy,
+      sortDirection,
+      sortableFields: [...ADMIN_PAYMENT_SORTABLE_FIELDS],
+    };
+  }
+
+  async listAdminPendingBankTransfers(): Promise<AdminPendingBankTransfersResponse> {
+    const rows = await this.prisma.payment.findMany({
       where: {
         provider: PaymentProvider.BANK_TRANSFER,
         status: PaymentStatus.AWAITING_APPROVAL,
       },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        providerRef: true,
-        payerName: true,
-        payerEmail: true,
-        payerPhone: true,
-        amount: true,
-        currency: true,
-        receiptUrl: true,
-        createdAt: true,
-      },
+      select: ADMIN_PAYMENT_LIST_SELECT,
     });
+    const items = this.sortAdminPaymentItems(
+      rows.map((row) => this.serializeAdminPaymentListItem(row)),
+      "createdAt",
+      "asc"
+    ).map((item) => ({
+      ...item,
+      provider: PaymentProvider.BANK_TRANSFER,
+      status: PaymentStatus.AWAITING_APPROVAL,
+      slaSnapshot: this.buildPendingBankTransferSlaSnapshot(item.createdAt),
+    })) as AdminPendingBankTransferItem[];
 
-    return payments.map((payment) => {
-      const ageMinutes = Math.max(
-        0,
-        Math.floor((Date.now() - payment.createdAt.getTime()) / 60000)
-      );
-      const slaColor = ageMinutes < 15 ? "green" : ageMinutes < 30 ? "yellow" : "red";
+    return {
+      items,
+      totalItems: items.length,
+      refreshedAt: new Date().toISOString(),
+    };
+  }
 
-      return {
-        ...payment,
-        amount: Number(payment.amount),
-        slaAgeMinutes: ageMinutes,
-        slaColor,
-      };
-    });
+  async listPendingBankTransfers(): Promise<AdminPendingBankTransfersResponse> {
+    return this.listAdminPendingBankTransfers();
   }
 
   async approveBankTransfer(params: { paymentId: string; adminId: string; adminNote?: string }) {
@@ -694,6 +833,7 @@ export class PaymentsService {
         payerName: true,
         amount: true,
         currency: true,
+        providerRef: true,
         metadata: true,
         userId: true,
         orderId: true,
@@ -708,38 +848,56 @@ export class PaymentsService {
       throw new BadRequestException("This payment is no longer awaiting approval");
     }
 
-    let signupInfo: {
-      email: string;
-      name: string;
-      locale: Locale;
-      signupToken: string | null;
-      phone: string | null;
-      orderNumber: string;
-      packageName: string;
-      amountPaid: string;
-      addons: string[];
-    } | null = null;
+    const normalizedAdminNote = params.adminNote?.trim() || null;
+    const signupInfo = await this.ensureBankTransferApprovalSignupInfo({
+      paymentId: payment.id,
+      payerEmail: payment.payerEmail,
+      payerName: payment.payerName,
+      amount: Number(payment.amount),
+      currency: payment.currency,
+      metadata: this.asRecord(payment.metadata),
+      userId: payment.userId,
+      orderId: payment.orderId,
+    });
 
-    if (!payment.userId || !payment.orderId) {
-      signupInfo = await this.createCheckoutEntitiesFromMetadata({
-        paymentId: payment.id,
-        payerEmail: payment.payerEmail,
-        metadata: this.asRecord(payment.metadata),
-        amount: Number(payment.amount),
-        currency: payment.currency,
-      });
+    if (!signupInfo) {
+      throw new BadRequestException(
+        "This bank transfer cannot be approved because the checkout context is incomplete."
+      );
     }
 
     const now = new Date();
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        status: PaymentStatus.SUCCESS,
-        processedAt: now,
-        approvedAt: now,
-        approvedBy: params.adminId,
-        adminNote: params.adminNote?.trim() || null,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: PaymentStatus.SUCCESS,
+          processedAt: now,
+          approvedAt: now,
+          approvedBy: params.adminId,
+          adminNote: normalizedAdminNote,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: params.adminId,
+          action: "ADMIN_BANK_TRANSFER_APPROVED",
+          entityType: "PAYMENT",
+          entityId: payment.id,
+          details: {
+            provider: payment.provider,
+            providerRef: payment.providerRef,
+            previousStatus: payment.status,
+            nextStatus: PaymentStatus.SUCCESS,
+            orderId: signupInfo.orderId,
+            orderNumber: signupInfo.orderNumber,
+            linkedUserId: signupInfo.userId,
+            signupLinkIssued: Boolean(signupInfo.signupToken),
+            adminNote: normalizedAdminNote,
+          },
+        },
+      });
     });
 
     if (signupInfo?.signupToken) {
@@ -769,9 +927,39 @@ export class PaymentsService {
   }
 
   async rejectBankTransfer(params: { paymentId: string; adminId: string; adminNote: string }) {
+    const rejectionReason = params.adminNote.trim();
+    if (!rejectionReason) {
+      throw new BadRequestException("Admin note is required to reject a bank transfer");
+    }
+
     const payment = await this.prisma.payment.findUnique({
       where: { id: params.paymentId },
-      select: { id: true, provider: true, status: true },
+      select: {
+        id: true,
+        provider: true,
+        status: true,
+        providerRef: true,
+        processedAt: true,
+        payerEmail: true,
+        payerName: true,
+        userId: true,
+        orderId: true,
+        metadata: true,
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+          },
+        },
+        user: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+            preferredLanguage: true,
+          },
+        },
+      },
     });
 
     if (!payment || payment.provider !== PaymentProvider.BANK_TRANSFER) {
@@ -782,14 +970,101 @@ export class PaymentsService {
       throw new BadRequestException("This payment is no longer awaiting approval");
     }
 
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        status: PaymentStatus.FAILED,
-        approvedBy: params.adminId,
-        adminNote: params.adminNote.trim(),
-      },
+    const recordedAt = new Date();
+    const processedAt = payment.processedAt ?? recordedAt;
+    const checkout = this.extractCheckoutMetadata(this.asRecord(payment.metadata));
+    const orderNumber =
+      payment.order?.orderNumber?.trim() || payment.providerRef?.trim() || payment.id;
+    const reference = payment.providerRef?.trim() || payment.id;
+    const recipientEmail =
+      payment.payerEmail?.trim().toLowerCase() || payment.user?.email?.trim().toLowerCase() || null;
+    const linkedUserName = payment.user
+      ? `${payment.user.firstName} ${payment.user.lastName ?? ""}`.trim()
+      : "";
+    const userName = recipientEmail
+      ? this.pickDisplayName(
+          payment.payerName?.trim() || checkout?.fullName?.trim() || linkedUserName || undefined,
+          recipientEmail
+        )
+      : payment.payerName?.trim() || checkout?.fullName?.trim() || linkedUserName || "Author";
+    const locale = this.resolveLocale(checkout?.locale ?? payment.user?.preferredLanguage);
+    const actionHref = payment.orderId
+      ? `/dashboard/orders/${payment.orderId}`
+      : DEFAULT_DASHBOARD_PATH;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: PaymentStatus.FAILED,
+          approvedBy: params.adminId,
+          adminNote: rejectionReason,
+          processedAt,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: params.adminId,
+          action: "ADMIN_BANK_TRANSFER_REJECTED",
+          entityType: "PAYMENT",
+          entityId: payment.id,
+          details: {
+            previousStatus: payment.status,
+            nextStatus: PaymentStatus.FAILED,
+            reason: rejectionReason,
+            processedAt: processedAt.toISOString(),
+            providerRef: payment.providerRef ?? null,
+            orderId: payment.orderId ?? null,
+            orderNumber,
+            linkedUserId: payment.userId ?? null,
+            emailTarget: recipientEmail,
+          },
+        },
+      });
+
+      if (payment.userId) {
+        await this.notificationsService.createSystemNotification(
+          {
+            userId: payment.userId,
+            orderId: payment.orderId ?? undefined,
+            titleKey: BANK_TRANSFER_REJECTED_TITLE_KEY,
+            messageKey: BANK_TRANSFER_REJECTED_MESSAGE_KEY,
+            params: {
+              orderNumber,
+              reference,
+            },
+            action: {
+              kind: "navigate",
+              href: actionHref,
+            },
+            presentation: {
+              tone: "warning",
+            },
+            fallbackTitle: BANK_TRANSFER_REJECTED_FALLBACK_TITLE,
+            fallbackMessage:
+              `Your bank transfer for order ${orderNumber} was not approved. ` +
+              `Check your email for the reason and next steps. Ref: ${reference}.`,
+          },
+          tx
+        );
+      }
     });
+
+    if (recipientEmail) {
+      const emailSent = await this.sendBankTransferRejectedEmail({
+        email: recipientEmail,
+        userName,
+        locale,
+        orderNumber,
+        paymentReference: reference,
+        rejectionReason,
+      });
+
+      if (!emailSent) {
+        this.logger.warn(`Bank transfer rejection email failed for payment ${payment.id}`);
+      }
+    }
 
     return {
       id: payment.id,
@@ -1763,24 +2038,176 @@ export class PaymentsService {
     });
   }
 
+  private async ensureBankTransferApprovalSignupInfo(params: {
+    paymentId: string;
+    payerEmail: string | null;
+    payerName: string | null;
+    amount: number;
+    currency: string;
+    metadata: Record<string, unknown> | null;
+    userId: string | null;
+    orderId: string | null;
+  }): Promise<CheckoutFinalizationInfo | null> {
+    let resolvedUserId = params.userId;
+    let resolvedOrderId = params.orderId;
+
+    if (resolvedOrderId && !resolvedUserId) {
+      const existingOrder = await this.prisma.order.findUnique({
+        where: { id: resolvedOrderId },
+        select: { userId: true },
+      });
+
+      if (existingOrder?.userId) {
+        resolvedUserId = existingOrder.userId;
+      } else {
+        resolvedOrderId = null;
+      }
+    }
+
+    if (resolvedUserId && resolvedOrderId) {
+      const linkedCheckout = await this.buildCheckoutFinalizationInfoForLinkedPayment({
+        paymentId: params.paymentId,
+        userId: resolvedUserId,
+        orderId: resolvedOrderId,
+        payerEmail: params.payerEmail,
+        payerName: params.payerName,
+        metadata: params.metadata,
+      });
+
+      if (linkedCheckout) {
+        return linkedCheckout;
+      }
+
+      resolvedOrderId = null;
+    }
+
+    return this.createCheckoutEntitiesFromMetadata({
+      paymentId: params.paymentId,
+      payerEmail: params.payerEmail,
+      metadata: params.metadata,
+      amount: params.amount,
+      currency: params.currency,
+      existingUserId: resolvedUserId,
+    });
+  }
+
+  private async buildCheckoutFinalizationInfoForLinkedPayment(params: {
+    paymentId: string;
+    userId: string;
+    orderId: string;
+    payerEmail: string | null;
+    payerName: string | null;
+    metadata: Record<string, unknown> | null;
+  }): Promise<CheckoutFinalizationInfo | null> {
+    const checkout = this.extractCheckoutMetadata(params.metadata);
+    const signupTokenExpiry = new Date(Date.now() + MAX_SIGNUP_TOKEN_HOURS * 60 * 60 * 1000);
+
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: params.orderId },
+        select: {
+          id: true,
+          userId: true,
+          orderNumber: true,
+          totalAmount: true,
+          currency: true,
+          package: {
+            select: {
+              name: true,
+            },
+          },
+          addons: {
+            select: {
+              addon: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!order) return null;
+
+      let user = await tx.user.findUnique({
+        where: { id: params.userId },
+      });
+
+      if (!user) return null;
+
+      if (order.userId !== user.id) {
+        throw new ConflictException("Payment is linked to a mismatched checkout owner.");
+      }
+
+      const locale = this.resolveLocale(checkout?.locale ?? user.preferredLanguage);
+      const displayEmail = params.payerEmail?.trim().toLowerCase() || user.email;
+      const fullName = this.pickDisplayName(
+        checkout?.fullName || params.payerName || `${user.firstName} ${user.lastName ?? ""}`.trim(),
+        displayEmail
+      );
+      const splitName = this.splitFullName(fullName);
+      const normalizedPhone = checkout?.phone?.trim() || user.phoneNumber || null;
+      const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
+      const needsSignupToken = !user.password || !user.isVerified;
+      let signupToken: string | null = null;
+
+      if (needsSignupToken) {
+        signupToken = this.generateSecureToken();
+      }
+
+      user = await tx.user.update({
+        where: { id: user.id },
+        data: {
+          firstName: user.firstName || splitName.firstName,
+          lastName: user.lastName ?? splitName.lastName,
+          phoneNumber: user.phoneNumber || normalizedPhone,
+          phoneNumberNormalized: user.phoneNumberNormalized || normalizedPhoneLookup,
+          preferredLanguage: locale,
+          ...(needsSignupToken
+            ? {
+                verificationToken: signupToken,
+                tokenExpiry: signupTokenExpiry,
+              }
+            : {}),
+        },
+      });
+
+      await tx.payment.update({
+        where: { id: params.paymentId },
+        data: {
+          userId: user.id,
+          orderId: order.id,
+        },
+      });
+
+      return {
+        userId: user.id,
+        orderId: order.id,
+        email: user.email,
+        name: user.firstName,
+        locale: this.resolveLocale(user.preferredLanguage),
+        signupToken,
+        phone: user.phoneNumber ?? null,
+        orderNumber: order.orderNumber,
+        packageName: order.package.name,
+        amountPaid: this.formatNaira(Number(order.totalAmount)),
+        addons: order.addons
+          .map((entry) => entry.addon.name)
+          .filter((value): value is string => value.trim().length > 0),
+      };
+    });
+  }
+
   private async createCheckoutEntitiesFromMetadata(params: {
     paymentId: string;
     payerEmail: string | null;
     metadata: Record<string, unknown> | null;
     amount: number;
     currency: string;
-  }): Promise<{
-    email: string;
-    name: string;
-    locale: Locale;
-    signupToken: string | null;
-    phone: string | null;
-    orderNumber: string;
-    packageName: string;
-    amountPaid: string;
-    addons: string[];
-  } | null> {
-    if (!params.payerEmail) return null;
+    existingUserId?: string | null;
+  }): Promise<CheckoutFinalizationInfo | null> {
+    if (!params.payerEmail && !params.existingUserId) return null;
 
     const checkout = this.extractCheckoutMetadata(params.metadata);
     if (!checkout) return null;
@@ -1794,29 +2221,48 @@ export class PaymentsService {
     }
 
     const locale = this.resolveLocale(checkout.locale);
-    const fullName = this.pickDisplayName(checkout.fullName, params.payerEmail);
-    const splitName = this.splitFullName(fullName);
-    const normalizedEmail = params.payerEmail.trim().toLowerCase();
     const normalizedPhone = checkout.phone?.trim() || null;
     const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
     const signupTokenExpiry = new Date(Date.now() + MAX_SIGNUP_TOKEN_HOURS * 60 * 60 * 1000);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        let user = params.existingUserId
+          ? await tx.user.findUnique({
+              where: { id: params.existingUserId },
+            })
+          : null;
+
+        const normalizedEmail =
+          user?.email?.trim().toLowerCase() || params.payerEmail?.trim().toLowerCase();
+        if (!normalizedEmail) return null;
+
         await this.assertCheckoutIdentityConflict({
           email: normalizedEmail,
           phone: normalizedPhone,
           tx,
         });
 
-        let user = await tx.user.findFirst({
-          where: {
-            email: {
-              equals: normalizedEmail,
-              mode: "insensitive",
+        if (!user) {
+          user = await tx.user.findFirst({
+            where: {
+              email: {
+                equals: normalizedEmail,
+                mode: "insensitive",
+              },
             },
-          },
-        });
+          });
+        }
+
+        const fullName = this.pickDisplayName(
+          checkout.fullName ||
+            [user?.firstName, user?.lastName]
+              .filter((value): value is string => Boolean(value))
+              .join(" ") ||
+            undefined,
+          normalizedEmail
+        );
+        const splitName = this.splitFullName(fullName);
 
         let signupToken: string | null = null;
 
@@ -1953,6 +2399,8 @@ export class PaymentsService {
         );
 
         return {
+          userId: user.id,
+          orderId: order.id,
           email: user.email,
           name: user.firstName,
           locale: this.resolveLocale(user.preferredLanguage),
@@ -2780,6 +3228,340 @@ export class PaymentsService {
         `Failed to send bank transfer admin email: ${sendResult.error.name} — ${sendResult.error.message}`
       );
     }
+  }
+
+  private async sendBankTransferRejectedEmail(params: {
+    email: string;
+    userName: string;
+    locale: Locale;
+    orderNumber: string;
+    paymentReference: string;
+    rejectionReason: string;
+  }): Promise<boolean> {
+    if (!this.resend) {
+      this.logger.warn("RESEND_API_KEY not set — bank transfer rejection email skipped");
+      return false;
+    }
+
+    const email = await renderBankTransferRejectedEmail({
+      locale: params.locale,
+      userName: params.userName,
+      orderNumber: params.orderNumber,
+      paymentReference: params.paymentReference,
+      rejectionReason: params.rejectionReason,
+    });
+
+    const sendResult = await this.resend.emails.send({
+      from: this.paymentsFromEmail,
+      to: params.email,
+      subject: email.subject,
+      html: email.html,
+    });
+
+    if (sendResult.error) {
+      this.logger.error(
+        `Failed to send bank transfer rejection email: ${sendResult.error.name} — ${sendResult.error.message}`
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private buildAdminPaymentsWhere(
+    query: Pick<AdminPaymentsListQuery, "status" | "provider" | "dateFrom" | "dateTo" | "q">
+  ): Prisma.PaymentWhereInput {
+    const where: Prisma.PaymentWhereInput = {};
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.provider) {
+      where.provider = query.provider;
+    }
+
+    if (query.dateFrom || query.dateTo) {
+      where.createdAt = {
+        ...(query.dateFrom ? { gte: this.parseDateOnlyStart(query.dateFrom) } : {}),
+        ...(query.dateTo ? { lt: this.parseDateOnlyExclusiveEnd(query.dateTo) } : {}),
+      };
+    }
+
+    const normalizedQuery = query.q?.trim();
+    if (normalizedQuery) {
+      where.OR = [
+        { id: { contains: normalizedQuery, mode: "insensitive" } },
+        { providerRef: { contains: normalizedQuery, mode: "insensitive" } },
+        { payerName: { contains: normalizedQuery, mode: "insensitive" } },
+        { payerEmail: { contains: normalizedQuery, mode: "insensitive" } },
+        { payerPhone: { contains: normalizedQuery, mode: "insensitive" } },
+        {
+          order: {
+            is: {
+              orderNumber: {
+                contains: normalizedQuery,
+                mode: "insensitive",
+              },
+            },
+          },
+        },
+        {
+          order: {
+            is: {
+              user: {
+                is: {
+                  OR: [
+                    { email: { contains: normalizedQuery, mode: "insensitive" } },
+                    { firstName: { contains: normalizedQuery, mode: "insensitive" } },
+                    { lastName: { contains: normalizedQuery, mode: "insensitive" } },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        {
+          user: {
+            is: {
+              OR: [
+                { email: { contains: normalizedQuery, mode: "insensitive" } },
+                { firstName: { contains: normalizedQuery, mode: "insensitive" } },
+                { lastName: { contains: normalizedQuery, mode: "insensitive" } },
+              ],
+            },
+          },
+        },
+      ];
+    }
+
+    return where;
+  }
+
+  private serializeAdminPaymentListItem(row: AdminPaymentListRow): AdminPaymentsListItem {
+    const linkedUser = row.user ?? row.order?.user ?? null;
+    const checkout = this.extractCheckoutMetadata(this.asRecord(row.metadata));
+    const fallbackName = [linkedUser?.firstName, linkedUser?.lastName]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const customerName =
+      fallbackName || row.payerName?.trim() || checkout?.fullName?.trim() || null;
+    const customerEmail = linkedUser?.email?.trim() || row.payerEmail?.trim() || null;
+    const customerPhone =
+      linkedUser?.phoneNumber?.trim() || row.payerPhone?.trim() || checkout?.phone?.trim() || null;
+    const preferredLanguage = linkedUser?.preferredLanguage?.trim() || checkout?.locale || null;
+    const orderReference = row.order?.orderNumber?.trim() || row.providerRef?.trim() || row.id;
+
+    return {
+      id: row.id,
+      orderReference,
+      orderNumber: row.order?.orderNumber ?? null,
+      orderId: row.orderId,
+      userId: row.userId,
+      customer: {
+        fullName: customerName,
+        email: customerEmail,
+        phoneNumber: customerPhone,
+        preferredLanguage,
+      },
+      provider: row.provider,
+      type: row.type,
+      status: row.status,
+      amount: this.toCurrency(row.amount),
+      currency: row.currency,
+      providerRef: row.providerRef ?? null,
+      receiptUrl: row.receiptUrl ?? null,
+      payerName: row.payerName?.trim() || null,
+      payerEmail: row.payerEmail?.trim() || null,
+      payerPhone: row.payerPhone?.trim() || null,
+      adminNote: row.adminNote ?? null,
+      hasAdminNote: Boolean(row.adminNote?.trim()),
+      approvedAt: row.approvedAt?.toISOString() ?? null,
+      approvedBy: row.approvedBy ?? null,
+      processedAt: row.processedAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      refundability: this.buildAdminPaymentRefundability(row),
+    };
+  }
+
+  private buildAdminPaymentRefundability(row: AdminPaymentListRow): AdminPaymentRefundability {
+    const order = row.order;
+    const processingMode = this.resolveAdminRefundProcessingMode(row.provider);
+    const orderVersion = order?.version ?? null;
+    const bookVersion = order?.book?.version ?? null;
+
+    if (!order) {
+      return {
+        isRefundable: false,
+        processingMode,
+        reason: "This payment is not linked to an order.",
+        policySnapshot: null,
+        orderVersion,
+        bookVersion,
+      };
+    }
+
+    const policySnapshot = buildRefundPolicySnapshot({
+      orderTotalAmount: this.toCurrency(order.totalAmount),
+      orderStatus: order.status,
+      book: order.book
+        ? {
+            status: order.book.status,
+            productionStatus: order.book.productionStatus,
+          }
+        : null,
+    });
+
+    if (row.type === PaymentType.REFUND) {
+      return {
+        isRefundable: false,
+        processingMode,
+        reason: "Refund payments cannot be refunded again.",
+        policySnapshot,
+        orderVersion,
+        bookVersion,
+      };
+    }
+
+    if (row.provider === PaymentProvider.PAYPAL) {
+      return {
+        isRefundable: false,
+        processingMode,
+        reason: "PayPal refunds are not supported by the admin refund workflow yet.",
+        policySnapshot,
+        orderVersion,
+        bookVersion,
+      };
+    }
+
+    if (row.status !== PaymentStatus.SUCCESS) {
+      return {
+        isRefundable: false,
+        processingMode,
+        reason: "Only successful payments can be refunded.",
+        policySnapshot,
+        orderVersion,
+        bookVersion,
+      };
+    }
+
+    if (order.status === OrderStatus.REFUNDED || order.refundedAt) {
+      return {
+        isRefundable: false,
+        processingMode,
+        reason: "This order has already been refunded.",
+        policySnapshot,
+        orderVersion,
+        bookVersion,
+      };
+    }
+
+    if (!policySnapshot.eligible) {
+      return {
+        isRefundable: false,
+        processingMode,
+        reason: policySnapshot.policyMessage,
+        policySnapshot,
+        orderVersion,
+        bookVersion,
+      };
+    }
+
+    return {
+      isRefundable: true,
+      processingMode,
+      reason: null,
+      policySnapshot,
+      orderVersion,
+      bookVersion,
+    };
+  }
+
+  private sortAdminPaymentItems(
+    items: AdminPaymentsListItem[],
+    sortBy: AdminPaymentSortField,
+    sortDirection: "asc" | "desc"
+  ): AdminPaymentsListItem[] {
+    const direction = sortDirection === "asc" ? 1 : -1;
+    const sorted = [...items];
+
+    sorted.sort((left, right) => {
+      const primary = this.compareAdminPaymentValues(
+        this.getAdminPaymentSortValue(left, sortBy),
+        this.getAdminPaymentSortValue(right, sortBy)
+      );
+      if (primary !== 0) return primary * direction;
+
+      const createdAtComparison = this.compareAdminPaymentValues(
+        Date.parse(left.createdAt),
+        Date.parse(right.createdAt)
+      );
+      if (createdAtComparison !== 0) return createdAtComparison * direction;
+
+      return this.compareAdminPaymentValues(left.id, right.id) * direction;
+    });
+
+    return sorted;
+  }
+
+  private getAdminPaymentSortValue(
+    item: AdminPaymentsListItem,
+    sortBy: AdminPaymentSortField
+  ): number | string {
+    switch (sortBy) {
+      case "orderReference":
+        return item.orderReference.toLowerCase();
+      case "customerName":
+        return (item.customer.fullName ?? item.payerName ?? "").toLowerCase();
+      case "customerEmail":
+        return (item.customer.email ?? item.payerEmail ?? "").toLowerCase();
+      case "amount":
+        return item.amount;
+      case "provider":
+        return item.provider;
+      case "status":
+        return item.status;
+      default:
+        return Date.parse(item.createdAt);
+    }
+  }
+
+  private compareAdminPaymentValues(left: number | string, right: number | string): number {
+    if (typeof left === "number" && typeof right === "number") {
+      return left === right ? 0 : left > right ? 1 : -1;
+    }
+
+    return String(left).localeCompare(String(right), undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+  }
+
+  private buildPendingBankTransferSlaSnapshot(
+    createdAtIso: string
+  ): AdminPendingBankTransferItem["slaSnapshot"] {
+    const ageMinutes = Math.max(0, Math.floor((Date.now() - Date.parse(createdAtIso)) / 60_000));
+    return {
+      ageMinutes,
+      state: ageMinutes < 15 ? "green" : ageMinutes < 30 ? "yellow" : "red",
+    };
+  }
+
+  private resolveAdminRefundProcessingMode(
+    provider: PaymentProvider
+  ): AdminPaymentRefundability["processingMode"] {
+    return provider === PaymentProvider.BANK_TRANSFER ? "manual" : "gateway";
+  }
+
+  private parseDateOnlyStart(value: string): Date {
+    return new Date(`${value}T00:00:00.000Z`);
+  }
+
+  private parseDateOnlyExclusiveEnd(value: string): Date {
+    const start = this.parseDateOnlyStart(value);
+    return new Date(start.getTime() + 24 * 60 * 60 * 1000);
   }
 
   private async sendOnlinePaymentAdminEmail(params: {

@@ -5,6 +5,7 @@ export { EmailHeading } from "./components/EmailHeading.tsx";
 // Shared components
 export { EmailLayout } from "./components/EmailLayout.tsx";
 export { BankTransferAdminEmail } from "./emails/BankTransferAdminEmail.tsx";
+export { BankTransferRejectedEmail } from "./emails/BankTransferRejectedEmail.tsx";
 export { BankTransferUserEmail } from "./emails/BankTransferUserEmail.tsx";
 export { BookStatusEmail } from "./emails/BookStatusEmail.tsx";
 export { ContactAdminEmail } from "./emails/ContactAdminEmail.tsx";
