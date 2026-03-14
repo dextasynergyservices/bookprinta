@@ -2,15 +2,23 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
-import { AdminRefundPaymentDto, AdminRefundPaymentResponseDto } from "./dto/admin-payments.dto.js";
+import {
+  AdminPaymentsListQueryDto,
+  AdminPaymentsListResponseDto,
+  AdminPendingBankTransfersResponseDto,
+  AdminRefundPaymentDto,
+  AdminRefundPaymentResponseDto,
+} from "./dto/admin-payments.dto.js";
 import { PaymentsService } from "./payments.service.js";
 
 @ApiTags("Admin Payments")
@@ -20,6 +28,40 @@ import { PaymentsService } from "./payments.service.js";
 @ApiBearerAuth("access-token")
 export class AdminPaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "List admin payments",
+    description:
+      "Returns payments for the admin payment management table with filtering, stable sorting, cursor pagination, and refund/action metadata.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Admin payments list",
+    type: AdminPaymentsListResponseDto,
+  })
+  async listPayments(
+    @Query() query: AdminPaymentsListQueryDto
+  ): Promise<AdminPaymentsListResponseDto> {
+    return this.paymentsService.listAdminPayments(query);
+  }
+
+  @Get("pending-bank-transfers")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "List pending bank transfers",
+    description:
+      "Returns all bank transfer payments awaiting approval, sorted oldest first with SLA snapshot metadata for the admin dashboard.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Pending bank transfer SLA feed",
+    type: AdminPendingBankTransfersResponseDto,
+  })
+  async listPendingBankTransfers(): Promise<AdminPendingBankTransfersResponseDto> {
+    return this.paymentsService.listAdminPendingBankTransfers();
+  }
 
   @Post(":paymentId/approve-transfer")
   @HttpCode(HttpStatus.OK)
