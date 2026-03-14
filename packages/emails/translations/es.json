@@ -164,6 +164,16 @@
     "cta": "Subir manuscrito revisado",
     "support": "Si tienes preguntas sobre estos comentarios, no dudes en contactarnos."
   },
+  "bank_transfer_rejected": {
+    "subject": "Actualizacion de la transferencia bancaria - Pedido #{orderNumber}",
+    "heading": "Tu transferencia bancaria necesita atencion",
+    "body": "No pudimos aprobar la transferencia bancaria enviada para el pedido #{orderNumber}.",
+    "reason": "Motivo de nuestro equipo",
+    "order_number": "Numero de pedido",
+    "payment_reference": "Referencia de pago",
+    "next_steps": "Por favor revisa el motivo de abajo y contacta a soporte antes de enviar una nueva transferencia.",
+    "support": "Si necesitas ayuda para resolver este pago, responde a este correo y nuestro equipo te ayudara."
+  },
   "bank_transfer_user": {
     "subject": "Pago en verificacion - Pedido #{orderNumber}",
     "heading": "Recibimos tu pago",

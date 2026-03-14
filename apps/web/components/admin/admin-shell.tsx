@@ -2,8 +2,18 @@
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { NotificationPanel } from "@/components/dashboard/notification-panel";
 import { useAdminIdleLogout } from "@/hooks/use-admin-idle-logout";
+import { useAdminNotificationUnreadCount } from "@/hooks/use-admin-notifications";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useLenis } from "@/hooks/use-lenis";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -28,11 +38,21 @@ export function AdminShell({ children, onNotificationsClick }: AdminShellProps) 
   const { lenis } = useLenis();
   const pathname = usePathname();
   const prefersReducedMotion = useReducedMotion();
+  const { unreadCount } = useAdminNotificationUnreadCount();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const notificationsWrapperRef = useRef<HTMLDivElement | null>(null);
+  const notificationsPanelId = useId();
+  const notificationsPanelTitleId = useId();
+  const notificationsPanelDescriptionId = useId();
   const toggleDesktopSidebar = useCallback(() => {
     setIsDesktopSidebarCollapsed((previous) => !previous);
   }, []);
+  const handleNotificationsClick = useCallback(() => {
+    setIsNotificationsOpen((previous) => !previous);
+    onNotificationsClick?.();
+  }, [onNotificationsClick]);
   const desktopSidebarWidth = useMemo(
     () => (isDesktopSidebarCollapsed ? ADMIN_SIDEBAR_COLLAPSED_WIDTH : ADMIN_SIDEBAR_WIDTH),
     [isDesktopSidebarCollapsed]
@@ -71,6 +91,7 @@ export function AdminShell({ children, onNotificationsClick }: AdminShellProps) 
     }
 
     setIsMobileDrawerOpen(false);
+    setIsNotificationsOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -89,6 +110,31 @@ export function AdminShell({ children, onNotificationsClick }: AdminShellProps) 
       lenis.start();
     };
   }, [isMobileDrawerOpen, lenis, prefersReducedMotion]);
+
+  useEffect(() => {
+    if (!isNotificationsOpen) {
+      return;
+    }
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (notificationsWrapperRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsNotificationsOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [isNotificationsOpen]);
 
   return (
     <div
@@ -145,11 +191,24 @@ export function AdminShell({ children, onNotificationsClick }: AdminShellProps) 
 
       <div className="relative z-10 min-h-screen lg:pl-[var(--admin-sidebar-width)] lg:transition-[padding] lg:duration-200 lg:ease-out">
         <div className="flex min-h-screen flex-col">
-          <AdminHeader
-            onOpenMobileMenu={() => setIsMobileDrawerOpen(true)}
-            isMobileMenuOpen={isMobileDrawerOpen}
-            onNotificationsClick={onNotificationsClick}
-          />
+          <div ref={notificationsWrapperRef} className="relative">
+            <AdminHeader
+              onOpenMobileMenu={() => setIsMobileDrawerOpen(true)}
+              isMobileMenuOpen={isMobileDrawerOpen}
+              onNotificationsClick={handleNotificationsClick}
+              isNotificationsOpen={isNotificationsOpen}
+              notificationsPanelId={notificationsPanelId}
+            />
+
+            <NotificationPanel
+              isOpen={isNotificationsOpen}
+              onClose={() => setIsNotificationsOpen(false)}
+              panelId={notificationsPanelId}
+              panelTitleId={notificationsPanelTitleId}
+              panelDescriptionId={notificationsPanelDescriptionId}
+              unreadCount={unreadCount}
+            />
+          </div>
 
           <main
             id="main-content"
