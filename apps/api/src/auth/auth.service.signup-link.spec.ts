@@ -1,5 +1,5 @@
 /// <reference types="jest" />
-import { NotFoundException } from "@nestjs/common";
+import { NotFoundException, UnauthorizedException } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import { AuthService } from "./auth.service.js";
 
@@ -11,6 +11,7 @@ type MutableUserState = {
   lastName: string | null;
   phoneNumber: string | null;
   preferredLanguage: "en" | "fr" | "es";
+  isActive: boolean;
   isVerified: boolean;
   password: string | null;
   verificationCode: string | null;
@@ -29,6 +30,17 @@ function getAuthServicePrivate(service: AuthService) {
   return service as unknown as AuthServicePrivate;
 }
 
+function expectDeactivatedAuthError(error: unknown) {
+  expect(error).toBeInstanceOf(UnauthorizedException);
+  expect((error as UnauthorizedException).getResponse()).toEqual(
+    expect.objectContaining({
+      message:
+        "This account has been deactivated. Please contact support or an administrator for assistance.",
+      errorCode: "AUTH_ACCOUNT_DEACTIVATED",
+    })
+  );
+}
+
 function buildService(initialState: Partial<MutableUserState> = {}) {
   const userState: MutableUserState = {
     id: "user_signup_1",
@@ -38,6 +50,7 @@ function buildService(initialState: Partial<MutableUserState> = {}) {
     lastName: "Okafor",
     phoneNumber: "+2348012345678",
     preferredLanguage: "en",
+    isActive: true,
     isVerified: false,
     password: null,
     verificationCode: null,
@@ -154,6 +167,62 @@ describe("AuthService signup link lifecycle", () => {
   afterEach(() => {
     process.env = originalEnv;
     jest.restoreAllMocks();
+  });
+
+  it("blocks inactive accounts across signup-link and verification flows", async () => {
+    const { service, signupNotificationsService, userState } = buildService({
+      isActive: false,
+    });
+
+    const assertDeactivated = async (execute: () => Promise<unknown>) => {
+      try {
+        await execute();
+        throw new Error("Expected inactive account flow to be rejected.");
+      } catch (error) {
+        expectDeactivatedAuthError(error);
+      }
+    };
+
+    if (!userState.verificationToken) {
+      throw new Error("Expected an existing signup token for the inactive account test.");
+    }
+
+    const signupToken = userState.verificationToken;
+
+    await assertDeactivated(() =>
+      service.getSignupContext({
+        token: signupToken,
+      } as never)
+    );
+    await assertDeactivated(() =>
+      service.finishSignup({
+        token: signupToken,
+        password: "Password123!",
+        confirmPassword: "Password123!",
+      } as never)
+    );
+    await assertDeactivated(() =>
+      service.verifyEmail({
+        email: userState.email,
+        code: "123456",
+      } as never)
+    );
+    await assertDeactivated(() =>
+      service.verifyEmailLink({
+        token: signupToken,
+      } as never)
+    );
+
+    await expect(
+      service.resendSignupLink({
+        email: userState.email,
+      } as never)
+    ).resolves.toEqual({
+      message: "If the email exists, a new signup link has been sent.",
+    });
+
+    expect(signupNotificationsService.sendRegistrationLink).not.toHaveBeenCalled();
+    expect(signupNotificationsService.sendVerificationChallenge).not.toHaveBeenCalled();
   });
 
   it("resendSignupLink rotates approval-issued signup tokens and invalidates the previous /signup/finish link", async () => {

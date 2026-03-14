@@ -50,6 +50,8 @@ export type AdminNavSection = {
   items: AdminNavItem[];
 };
 
+const LOCALE_PREFIX_PATTERN = /^\/(?:en|fr|es)(?=\/|$)/;
+
 const TOP_LEVEL_ADMIN_ROLES = ["SUPER_ADMIN", "ADMIN"] as const satisfies readonly AdminRole[];
 const OPERATIONS_ADMIN_ROLES = [
   "SUPER_ADMIN",
@@ -65,12 +67,12 @@ const ANALYTICS_ADMIN_ROLES = [
 
 export const ADMIN_NAV_ITEMS: readonly AdminNavItem[] = [
   {
-    segment: null,
-    href: "/admin",
+    segment: "analytics",
+    href: "/admin/analytics",
     labelKey: "analytics",
     sectionLabelKey: "section_overview",
     icon: BarChart3,
-    matchMode: "exact",
+    matchMode: "prefix",
     allowedRoles: ANALYTICS_ADMIN_ROLES,
   },
   {
@@ -107,7 +109,7 @@ export const ADMIN_NAV_ITEMS: readonly AdminNavItem[] = [
     sectionLabelKey: "section_operations",
     icon: Users,
     matchMode: "prefix",
-    allowedRoles: OPERATIONS_ADMIN_ROLES,
+    allowedRoles: TOP_LEVEL_ADMIN_ROLES,
   },
   {
     segment: "quotes",
@@ -174,15 +176,24 @@ export const ADMIN_NAV_ITEMS: readonly AdminNavItem[] = [
   },
 ] as const;
 
+export function normalizeAdminPathname(pathname: string): string {
+  if (!pathname) return "/";
+
+  const strippedPathname = pathname.replace(LOCALE_PREFIX_PATTERN, "") || "/";
+  return strippedPathname.startsWith("/") ? strippedPathname : `/${strippedPathname}`;
+}
+
 export function isAdminNavItemActive(
   pathname: string,
   item: Pick<AdminNavItem, "href" | "matchMode">
 ) {
+  const normalizedPathname = normalizeAdminPathname(pathname);
+
   if (item.matchMode === "exact") {
-    return pathname === item.href;
+    return normalizedPathname === item.href;
   }
 
-  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+  return normalizedPathname === item.href || normalizedPathname.startsWith(`${item.href}/`);
 }
 
 export function getAdminNavigationForRole(role: string | null | undefined): AdminNavItem[] {
@@ -221,8 +232,9 @@ export function getActiveAdminNavigationItem(pathname: string): AdminNavItem | n
 export function canAdminAccessPath(role: string | null | undefined, pathname: string): boolean {
   if (!isAdminRole(role)) return false;
 
+  const normalizedPathname = normalizeAdminPathname(pathname);
   const activeItem = getActiveAdminNavigationItem(pathname);
-  if (!activeItem) return pathname.startsWith("/admin");
+  if (!activeItem) return normalizedPathname.startsWith("/admin");
 
   return activeItem.allowedRoles.includes(role);
 }

@@ -1,6 +1,17 @@
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import * as bcrypt from "bcrypt";
 import { AuthService } from "./auth.service.js";
+
+function expectDeactivatedAuthError(error: unknown) {
+  expect(error).toBeInstanceOf(UnauthorizedException);
+  expect((error as UnauthorizedException).getResponse()).toEqual(
+    expect.objectContaining({
+      message:
+        "This account has been deactivated. Please contact support or an administrator for assistance.",
+      errorCode: "AUTH_ACCOUNT_DEACTIVATED",
+    })
+  );
+}
 
 describe("AuthService login instrumentation", () => {
   const originalEnv = { ...process.env };
@@ -73,6 +84,7 @@ describe("AuthService login instrumentation", () => {
       firstName: "Writer",
       lastName: "Example",
       password: storedPasswordHash,
+      isActive: true,
       isVerified: true,
     });
     prisma.user.update.mockResolvedValue({});
@@ -173,6 +185,7 @@ describe("AuthService login instrumentation", () => {
         firstName: "Phone",
         lastName: "User",
         password: storedPasswordHash,
+        isActive: true,
         isVerified: true,
       },
     ]);
@@ -223,6 +236,7 @@ describe("AuthService login instrumentation", () => {
       role: "ADMIN",
       firstName: "  Ada   ",
       lastName: "  Okafor  ",
+      isActive: true,
     });
 
     await expect(service.getSessionUser("user-session-1")).resolves.toEqual({
@@ -242,8 +256,76 @@ describe("AuthService login instrumentation", () => {
         firstName: true,
         lastName: true,
         role: true,
+        isActive: true,
       },
     });
+  });
+
+  it("rejects login attempts for deactivated accounts", async () => {
+    const { prisma, pinoLogger, service } = buildService();
+    const storedPasswordHash = await bcrypt.hash("Password123!", 4);
+
+    prisma.user.findFirst.mockResolvedValue({
+      id: "user-inactive-1",
+      email: "inactive@example.com",
+      role: "USER",
+      firstName: "Inactive",
+      lastName: "Writer",
+      password: storedPasswordHash,
+      isActive: false,
+      isVerified: true,
+    });
+
+    jest.spyOn(global, "fetch").mockResolvedValue({
+      json: async () => ({ success: true, score: 0.96 }),
+    } as Response);
+
+    try {
+      await service.login(
+        {
+          identifier: "inactive@example.com",
+          password: "Password123!",
+          recaptchaToken: "recaptcha-token",
+        } as never,
+        {
+          correlationId: "corr-inactive-login",
+          clientRecaptchaDurationMs: 177,
+        }
+      );
+      throw new Error("Expected inactive account login to be rejected.");
+    } catch (error) {
+      expectDeactivatedAuthError(error);
+    }
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(pinoLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlationId: "corr-inactive-login",
+        outcome: "failure",
+        errorCode: "AUTH_ACCOUNT_DEACTIVATED",
+      }),
+      "Auth login timing"
+    );
+  });
+
+  it("rejects inactive session lookups", async () => {
+    const { prisma, service } = buildService();
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: "user-session-2",
+      email: "inactive@example.com",
+      role: "EDITOR",
+      firstName: "Inactive",
+      lastName: "Editor",
+      isActive: false,
+    });
+
+    try {
+      await service.getSessionUser("user-session-2");
+      throw new Error("Expected inactive session lookup to be rejected.");
+    } catch (error) {
+      expectDeactivatedAuthError(error);
+    }
   });
 
   it.each([
@@ -271,6 +353,7 @@ describe("AuthService login instrumentation", () => {
       firstName: role,
       lastName: "User",
       password: storedPasswordHash,
+      isActive: true,
       isVerified: true,
     });
     prisma.user.update.mockResolvedValue({});
