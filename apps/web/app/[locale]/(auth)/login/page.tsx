@@ -7,12 +7,14 @@ import { motion } from "framer-motion";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
-import { type FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useGoogleReCaptcha } from "react-google-recaptcha-v3";
 import { toast } from "sonner";
+import { getDefaultAdminHref } from "@/components/admin/admin-navigation";
 import { RecaptchaProvider } from "@/components/shared/RecaptchaProvider";
-import { Link, usePathname, useRouter } from "@/lib/i18n/navigation";
+import { AUTH_SESSION_QUERY_KEY, useAuthSession } from "@/hooks/use-auth-session";
+import { getPathname, Link, usePathname, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
@@ -116,10 +118,12 @@ function resolveRetryAfterSeconds(response: Response, payload: LoginErrorRespons
 
 function LoginPageInner() {
   const t = useTranslations("auth");
+  const locale = useLocale();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const { user, isAuthenticated, isLoading, isFetching } = useAuthSession();
   const { executeRecaptcha } = useGoogleReCaptcha();
 
   const [identifier, setIdentifier] = useState("");
@@ -141,8 +145,28 @@ function LoginPageInner() {
     return isEmailIdentifier(trimmed) ? trimmed.toLowerCase() : trimmed;
   }, [identifier]);
   const resetStatus = searchParams.get("reset");
+  const nextPath = searchParams.get("next");
+  const safeNextPath = nextPath?.startsWith("/") && !nextPath.startsWith("//") ? nextPath : null;
   const canSubmit = !isSubmitting;
   const canResendLink = isUnverifiedError && Boolean(resendEmail) && !isResendingLink;
+
+  const navigateAfterLogin = useCallback(
+    (role: string | null | undefined) => {
+      const href = isAdminRole(role) ? getDefaultAdminHref(role) : safeNextPath || "/dashboard";
+      const target = getPathname({ href, locale });
+
+      // Use a single hard redirect after login so the protected route boots with
+      // the freshly issued HttpOnly cookies instead of depending on client-router
+      // state or a stale in-flight session query.
+      if (typeof window !== "undefined") {
+        window.location.replace(target);
+        return;
+      }
+
+      router.replace(target);
+    },
+    [locale, router, safeNextPath]
+  );
 
   const validateIdentifier = (value: string) => {
     const normalizedValue = value.trim();
@@ -174,6 +198,12 @@ function LoginPageInner() {
     toast.success(t("reset_password_login_success_toast"));
     router.replace(pathname);
   }, [pathname, resetStatus, router, t]);
+
+  useEffect(() => {
+    if (isLoading || isFetching || !isAuthenticated || !user?.role || isSubmitting) return;
+
+    navigateAfterLogin(user.role);
+  }, [isAuthenticated, isFetching, isLoading, isSubmitting, navigateAfterLogin, user?.role]);
 
   useEffect(() => {
     if (rateLimitSeconds <= 0) return;
@@ -268,14 +298,11 @@ function LoginPageInner() {
       if (response.ok) {
         const payload = (await response.json().catch(() => null)) as LoginResponse | null;
         const role = payload?.user?.role;
-        const nextPath = searchParams.get("next");
-        const safeNextPath =
-          nextPath?.startsWith("/") && !nextPath.startsWith("//") ? nextPath : null;
-
+        await queryClient.cancelQueries({ queryKey: AUTH_SESSION_QUERY_KEY });
         if (payload?.user) {
-          queryClient.setQueryData(["auth", "session"], payload.user);
+          queryClient.setQueryData(AUTH_SESSION_QUERY_KEY, payload.user);
         } else {
-          queryClient.invalidateQueries({ queryKey: ["auth", "session"] });
+          queryClient.invalidateQueries({ queryKey: AUTH_SESSION_QUERY_KEY });
         }
 
         toast.success(t("login_success_toast"));
@@ -296,7 +323,7 @@ function LoginPageInner() {
           errorCode: null,
           serverCorrelationId,
         });
-        router.replace(isAdminRole(role) ? "/admin" : safeNextPath || "/dashboard");
+        navigateAfterLogin(role);
         return;
       }
 

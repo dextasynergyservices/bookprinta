@@ -162,6 +162,7 @@ model User {
   phoneNumber       String?
   phoneNumberNormalized String?        @unique
   role              UserRole       @default(USER)
+  isActive          Boolean        @default(true)
 
   // Auth: "Pay First, Signup Later" flow
   isVerified        Boolean        @default(false)

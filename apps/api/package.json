@@ -30,7 +30,8 @@
     "db:seed:quote-settings": "bun run prisma/seed-quote-settings.ts",
     "db:seed:resources": "bun run prisma/seed-resources.ts",
     "db:seed:showcase": "bun run prisma/seed-showcase.ts",
-    "db:backfill:phone-normalized": "bun run prisma/backfill-phone-number-normalized.ts"
+    "db:backfill:phone-normalized": "bun run prisma/backfill-phone-number-normalized.ts",
+    "db:backfill:user-is-active": "bun run prisma/backfill-user-is-active.ts"
   },
   "prisma": {
     "seed": "bun run prisma/seed.ts"

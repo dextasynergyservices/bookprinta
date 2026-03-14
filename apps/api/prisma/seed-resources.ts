@@ -282,6 +282,7 @@ async function ensureSeedAuthor() {
       firstName: seedAuthor.firstName,
       lastName: seedAuthor.lastName,
       role: "ADMIN",
+      isActive: true,
       isVerified: true,
     },
     create: {
@@ -289,6 +290,7 @@ async function ensureSeedAuthor() {
       firstName: seedAuthor.firstName,
       lastName: seedAuthor.lastName,
       role: "ADMIN",
+      isActive: true,
       isVerified: true,
       preferredLanguage: "en",
     },
