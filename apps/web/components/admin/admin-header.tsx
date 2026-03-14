@@ -18,6 +18,8 @@ type AdminHeaderProps = {
   onOpenMobileMenu?: () => void;
   isMobileMenuOpen?: boolean;
   onNotificationsClick?: () => void;
+  isNotificationsOpen?: boolean;
+  notificationsPanelId?: string;
 };
 
 const CONTROL_BUTTON_CLASS_NAME =
@@ -27,6 +29,8 @@ export function AdminHeader({
   onOpenMobileMenu,
   isMobileMenuOpen = false,
   onNotificationsClick,
+  isNotificationsOpen = false,
+  notificationsPanelId,
 }: AdminHeaderProps) {
   const tAdmin = useTranslations("admin");
   const pathname = usePathname();
@@ -93,6 +97,9 @@ export function AdminHeader({
       <button
         type="button"
         aria-label={notificationLabel}
+        aria-haspopup="dialog"
+        aria-expanded={isNotificationsOpen}
+        aria-controls={isNotificationsOpen ? notificationsPanelId : undefined}
         onClick={() => {
           onNotificationsClick?.();
         }}
