@@ -147,6 +147,8 @@ describe("AuthService signup link lifecycle", () => {
       JWT_SECRET: "test-secret",
       NODE_ENV: "test",
       FRONTEND_URL: "http://localhost:3000",
+      CONTACT_FROM_EMAIL: "BookPrinta <info@bookprinta.com>",
+      ADMIN_FROM_EMAIL: "BookPrinta <admin@bookprinta.com>",
     };
     jest.restoreAllMocks();
   });
@@ -183,6 +185,7 @@ describe("AuthService signup link lifecycle", () => {
         email: "ada@example.com",
         token: "signup-token-new",
         locale: "en",
+        fromEmail: "BookPrinta <info@bookprinta.com>",
         orderNumber: "BP-2026-0101",
         packageName: "Legacy",
       }),
@@ -246,6 +249,7 @@ describe("AuthService signup link lifecycle", () => {
         email: "ada@example.com",
         verificationCode: "123456",
         verificationToken: "signup-token-old",
+        fromEmail: "BookPrinta <info@bookprinta.com>",
       })
     );
 
@@ -327,6 +331,7 @@ describe("AuthService signup link lifecycle", () => {
         email: "ada@example.com",
         verificationCode: "222222",
         verificationToken: "signup-token-verify-new",
+        fromEmail: "BookPrinta <info@bookprinta.com>",
       })
     );
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Mail, UserPlus } from "lucide-react";
+import { AlertTriangle, Mail, UserPlus } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -9,7 +9,17 @@ import { ResendSignupLinkForm } from "@/components/checkout/ResendSignupLinkForm
 import { Link, useRouter } from "@/lib/i18n/navigation";
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
+
 type OnlineProvider = "PAYSTACK" | "STRIPE" | "PAYPAL";
+
+type VerifySignupDelivery = {
+  status: "DELIVERED" | "PARTIAL" | "FAILED";
+  emailDelivered: boolean;
+  whatsappDelivered: boolean;
+  attemptCount: number;
+  lastAttemptAt?: string | null;
+  retryEligible: boolean;
+};
 
 type VerifyResponse = {
   status: string;
@@ -24,6 +34,7 @@ type VerifyResponse = {
   packageName?: string | null;
   amountPaid?: string | null;
   addons?: string[];
+  signupDelivery?: VerifySignupDelivery | null;
 };
 
 function getApiV1BaseUrl() {
@@ -45,6 +56,66 @@ function normalizeProvider(provider: string | null | undefined): OnlineProvider 
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseBooleanFlag(value: string | null): boolean | null {
+  if (value === "1") return true;
+  if (value === "0") return false;
+  return null;
+}
+
+function appendPaymentReferenceParams(
+  params: URLSearchParams,
+  provider: OnlineProvider,
+  reference: string
+) {
+  params.set("provider", provider);
+
+  if (provider === "PAYSTACK") {
+    params.set("reference", reference);
+    return;
+  }
+
+  if (provider === "STRIPE") {
+    params.set("session_id", reference);
+    return;
+  }
+
+  params.set("token", reference);
+}
+
+function appendSignupDeliveryParams(
+  params: URLSearchParams,
+  signupDelivery: VerifySignupDelivery | null | undefined
+) {
+  if (!signupDelivery) return;
+
+  params.set("signupDeliveryStatus", signupDelivery.status);
+  params.set("signupDeliveryEmail", signupDelivery.emailDelivered ? "1" : "0");
+  params.set("signupDeliveryWhatsApp", signupDelivery.whatsappDelivered ? "1" : "0");
+  params.set("signupDeliveryAttempts", String(signupDelivery.attemptCount));
+  if (signupDelivery.lastAttemptAt) {
+    params.set("signupDeliveryLastAttemptAt", signupDelivery.lastAttemptAt);
+  }
+  params.set("signupDeliveryRetryEligible", signupDelivery.retryEligible ? "1" : "0");
+}
+
+function getSignupDeliveryFromSearchParams(
+  searchParams: ReturnType<typeof useSearchParams>
+): VerifySignupDelivery | null {
+  const status = searchParams.get("signupDeliveryStatus");
+  if (status !== "DELIVERED" && status !== "PARTIAL" && status !== "FAILED") {
+    return null;
+  }
+
+  return {
+    status,
+    emailDelivered: parseBooleanFlag(searchParams.get("signupDeliveryEmail")) ?? false,
+    whatsappDelivered: parseBooleanFlag(searchParams.get("signupDeliveryWhatsApp")) ?? false,
+    attemptCount: Number(searchParams.get("signupDeliveryAttempts") ?? "0") || 0,
+    lastAttemptAt: searchParams.get("signupDeliveryLastAttemptAt"),
+    retryEligible: parseBooleanFlag(searchParams.get("signupDeliveryRetryEligible")) ?? false,
+  };
 }
 
 function AnimatedCheckmark() {
@@ -109,12 +180,15 @@ function PaymentConfirmedContent() {
   const packageName = useMemo(() => searchParams.get("package") ?? "", [searchParams]);
   const amount = useMemo(() => searchParams.get("amount") ?? "", [searchParams]);
   const signupUrl = useMemo(() => searchParams.get("signupUrl") ?? "", [searchParams]);
+  const signupDelivery = useMemo(
+    () => getSignupDeliveryFromSearchParams(searchParams),
+    [searchParams]
+  );
   const addonsRaw = useMemo(() => searchParams.get("addons"), [searchParams]);
   const addons = useMemo(() => {
-    const raw = addonsRaw;
-    if (!raw) return [] as string[];
+    if (!addonsRaw) return [] as string[];
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(addonsRaw);
       return Array.isArray(parsed) ? (parsed as string[]) : [];
     } catch {
       return [] as string[];
@@ -122,10 +196,11 @@ function PaymentConfirmedContent() {
   }, [addonsRaw]);
 
   const [verificationNotice, setVerificationNotice] = useState("");
+  const [hasResentSignupLink, setHasResentSignupLink] = useState(false);
 
   useEffect(() => {
     if (!provider || !reference) return;
-    if (signupUrl) return;
+    if (signupUrl && signupDelivery) return;
 
     let cancelled = false;
 
@@ -150,6 +225,7 @@ function PaymentConfirmedContent() {
 
           if (data.signupUrl) {
             const params = new URLSearchParams();
+            appendPaymentReferenceParams(params, provider, reference);
             if (data.email) params.set("email", data.email);
             if (data.orderNumber) params.set("ref", data.orderNumber);
             if (data.packageName) params.set("package", data.packageName);
@@ -158,6 +234,7 @@ function PaymentConfirmedContent() {
               params.set("addons", JSON.stringify(data.addons));
             }
             params.set("signupUrl", data.signupUrl);
+            appendSignupDeliveryParams(params, data.signupDelivery);
             router.replace(`/payment/confirmation?${params.toString()}`);
             return;
           }
@@ -185,10 +262,37 @@ function PaymentConfirmedContent() {
     return () => {
       cancelled = true;
     };
-  }, [provider, reference, router, signupUrl, t]);
+  }, [provider, reference, router, signupDelivery, signupUrl, t]);
 
   const hasOrderDetails = orderRef || packageName || amount || addons.length > 0;
-  const [hasResentSignupLink, setHasResentSignupLink] = useState(false);
+  const isSignupDeliveryFailed = signupDelivery?.status === "FAILED";
+  const isWhatsAppFallbackDelivery =
+    signupDelivery?.status === "PARTIAL" &&
+    signupDelivery.whatsappDelivered &&
+    !signupDelivery.emailDelivered;
+
+  const deliveryCardClass =
+    isSignupDeliveryFailed || isWhatsAppFallbackDelivery
+      ? "mt-6 rounded-2xl border border-[#f59e0b]/30 bg-[#f59e0b]/8 px-5 py-4"
+      : "mt-6 rounded-2xl border border-[#007eff]/20 bg-[#007eff]/5 px-5 py-4";
+  const deliveryTitleClass =
+    isSignupDeliveryFailed || isWhatsAppFallbackDelivery
+      ? "font-sans text-sm font-semibold text-[#fbbf24]"
+      : "font-sans text-sm font-semibold text-[#007eff]";
+  const deliveryTitle = isSignupDeliveryFailed
+    ? t("payment_confirmed_delivery_failed_title")
+    : isWhatsAppFallbackDelivery
+      ? t("payment_confirmed_delivery_whatsapp_title")
+      : t("payment_confirmed_check_email");
+  const deliveryNote = isSignupDeliveryFailed
+    ? signupDelivery && signupDelivery.attemptCount > 1
+      ? t("payment_confirmed_delivery_failed_retry_note", {
+          count: signupDelivery.attemptCount,
+        })
+      : t("payment_confirmed_delivery_failed_note")
+    : isWhatsAppFallbackDelivery
+      ? t("payment_confirmed_delivery_whatsapp_note")
+      : t("payment_confirmed_check_email_note");
 
   return (
     <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6 md:py-14 lg:px-8">
@@ -231,7 +335,7 @@ function PaymentConfirmedContent() {
           </motion.p>
         ) : null}
 
-        {hasOrderDetails && (
+        {hasOrderDetails ? (
           <motion.div
             className="mt-6 rounded-2xl border border-[#2A2A2A] bg-black px-5 py-4"
             initial={{ opacity: 0, y: 16 }}
@@ -239,54 +343,61 @@ function PaymentConfirmedContent() {
             transition={{ duration: 0.5, delay: 0.5, ease: EASE_OUT }}
           >
             <dl className="space-y-2 font-sans text-sm">
-              {orderRef && (
+              {orderRef ? (
                 <div className="flex justify-between">
                   <dt className="text-white/50">{t("payment_confirmed_order_ref")}</dt>
                   <dd className="font-semibold text-white">{orderRef}</dd>
                 </div>
-              )}
-              {packageName && (
+              ) : null}
+              {packageName ? (
                 <div className="flex justify-between">
                   <dt className="text-white/50">{t("payment_confirmed_package")}</dt>
                   <dd className="font-semibold text-white">{packageName}</dd>
                 </div>
-              )}
-              {amount && (
+              ) : null}
+              {amount ? (
                 <div className="flex justify-between">
                   <dt className="text-white/50">{t("payment_confirmed_amount")}</dt>
                   <dd className="font-semibold text-[#9fd0ff]">{amount}</dd>
                 </div>
-              )}
-              {addons.length > 0 && (
+              ) : null}
+              {addons.length > 0 ? (
                 <div className="flex justify-between">
                   <dt className="text-white/50">{t("payment_confirmed_addons")}</dt>
                   <dd className="text-right font-semibold text-white">{addons.join(", ")}</dd>
                 </div>
-              )}
+              ) : null}
             </dl>
           </motion.div>
-        )}
+        ) : null}
 
         <motion.div
-          className="mt-6 rounded-2xl border border-[#007eff]/20 bg-[#007eff]/5 px-5 py-4"
+          className={deliveryCardClass}
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.65, ease: EASE_OUT }}
         >
           <div className="flex items-start gap-3">
-            <Mail className="mt-0.5 size-5 shrink-0 text-[#007eff]" aria-hidden="true" />
+            {isSignupDeliveryFailed || isWhatsAppFallbackDelivery ? (
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-[#fbbf24]" aria-hidden="true" />
+            ) : (
+              <Mail className="mt-0.5 size-5 shrink-0 text-[#007eff]" aria-hidden="true" />
+            )}
             <div>
-              <p className="font-sans text-sm font-semibold text-[#007eff]">
-                {t("payment_confirmed_check_email")}
-              </p>
-              {email && (
+              <p className={deliveryTitleClass}>{deliveryTitle}</p>
+              {email ? (
                 <p className="mt-1 font-sans text-sm text-white/70">
-                  {t("payment_confirmed_sent_to", { email })}
+                  {isSignupDeliveryFailed || isWhatsAppFallbackDelivery
+                    ? t("payment_confirmed_attempted_email", { email })
+                    : t("payment_confirmed_sent_to", { email })}
                 </p>
-              )}
-              <p className="mt-1 font-sans text-sm text-white/50">
-                {t("payment_confirmed_check_email_note")}
-              </p>
+              ) : null}
+              <p className="mt-1 font-sans text-sm text-white/50">{deliveryNote}</p>
+              {signupUrl && (isSignupDeliveryFailed || isWhatsAppFallbackDelivery) ? (
+                <p className="mt-2 font-sans text-sm text-white/60">
+                  {t("payment_confirmed_direct_signup_note")}
+                </p>
+              ) : null}
             </div>
           </div>
         </motion.div>
@@ -301,7 +412,7 @@ function PaymentConfirmedContent() {
           </Suspense>
         </motion.div>
 
-        {signupUrl && !hasResentSignupLink && (
+        {signupUrl ? (
           <motion.div
             className="mt-7"
             initial={{ opacity: 0, y: 16 }}
@@ -316,9 +427,9 @@ function PaymentConfirmedContent() {
               {t("payment_confirmed_complete_signup")}
             </a>
           </motion.div>
-        )}
+        ) : null}
 
-        {signupUrl && hasResentSignupLink && (
+        {signupUrl && hasResentSignupLink ? (
           <motion.p
             className="mt-4 font-sans text-xs text-white/55"
             initial={{ opacity: 0, y: 10 }}
@@ -327,7 +438,7 @@ function PaymentConfirmedContent() {
           >
             {t("payment_confirmation_resend_success")}
           </motion.p>
-        )}
+        ) : null}
 
         <motion.div
           className="mt-5 flex flex-col gap-3 md:flex-row"

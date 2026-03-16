@@ -11,6 +11,46 @@ async function gotoDashboard(page: Page, path = DASHBOARD_PATH) {
   await page.goto(path, { waitUntil: "domcontentloaded" });
 }
 
+function createDashboardOverviewResponse(params: {
+  unreadCount: number;
+  hasProductionDelayBanner?: boolean;
+}) {
+  return {
+    activeBook: null,
+    recentOrders: [],
+    notifications: {
+      unreadCount: params.unreadCount,
+      hasProductionDelayBanner: params.hasProductionDelayBanner ?? false,
+    },
+    profile: {
+      isProfileComplete: true,
+      preferredLanguage: "en",
+    },
+    pendingActions: {
+      total: 0,
+      items: [],
+    },
+  };
+}
+
+function createProfileResponse() {
+  return {
+    bio: null,
+    profileImageUrl: null,
+    whatsAppNumber: null,
+    websiteUrl: null,
+    purchaseLinks: [],
+    socialLinks: [],
+    isProfileComplete: true,
+    preferredLanguage: "en",
+    notificationPreferences: {
+      email: true,
+      whatsApp: true,
+      inApp: true,
+    },
+  };
+}
+
 async function mockDashboardApis(
   page: Page,
   { unreadCount = 3, hasAnyPrintedBook = false }: MockDashboardApiOptions = {}
@@ -23,7 +63,11 @@ async function mockDashboardApis(
         user: {
           id: "test-user-id",
           email: "author@example.com",
+          firstName: "Amina",
+          lastName: "Yusuf",
           role: "USER",
+          displayName: "Amina Yusuf",
+          initials: "AY",
         },
       }),
     });
@@ -45,11 +89,53 @@ async function mockDashboardApis(
     });
   });
 
+  await page.route("**/api/v1/dashboard/overview", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        createDashboardOverviewResponse({
+          unreadCount,
+        })
+      ),
+    });
+  });
+
+  await page.route("**/api/v1/users/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createProfileResponse()),
+    });
+  });
+
+  await page.route("**/api/v1/notifications?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [],
+        pagination: {
+          page: 1,
+          pageSize: 20,
+          totalItems: 0,
+          totalPages: 0,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        },
+      }),
+    });
+  });
+
   await page.route("**/api/v1/reviews/my", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ hasAnyPrintedBook }),
+      body: JSON.stringify({
+        hasEligibleBooks: hasAnyPrintedBook,
+        hasPendingReviews: false,
+        books: [],
+      }),
     });
   });
 }
@@ -189,7 +275,7 @@ test.describe("Dashboard Quality Gates", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await mockDashboardApis(page, { hasAnyPrintedBook: false, unreadCount: 8 });
 
-    await gotoDashboard(page, `${DASHBOARD_PATH}/books`);
+    await gotoDashboard(page);
     await waitForDashboardReady(page, { expectDesktopNav: true });
 
     await expect(page.getByRole("button", { name: "Open sidebar menu" })).toHaveCount(0);
@@ -198,16 +284,16 @@ test.describe("Dashboard Quality Gates", () => {
     const skipLink = page.getByRole("link", { name: "Skip to main content" });
     await expect(skipLink).toBeVisible();
 
-    const myBooksLink = page.getByRole("link", { name: "My Books" }).first();
+    const dashboardLink = page.getByRole("link", { name: "Dashboard" }).first();
     if (browserName === "webkit") {
-      await myBooksLink.focus();
+      await dashboardLink.focus();
     } else {
-      await tabUntilFocused(page, myBooksLink);
+      await tabUntilFocused(page, dashboardLink);
     }
-    await expect(myBooksLink).toBeFocused();
-    await expect(myBooksLink).toHaveClass(/focus-visible:outline-2/);
+    await expect(dashboardLink).toBeFocused();
+    await expect(dashboardLink).toHaveClass(/focus-visible:outline-2/);
 
-    const activeLinkColors = await myBooksLink.evaluate((node) => {
+    const activeLinkColors = await dashboardLink.evaluate((node) => {
       const styles = getComputedStyle(node);
       return {
         foreground: styles.color,

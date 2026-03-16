@@ -10,6 +10,7 @@ import type {
   OrderDetailResponse,
   OrderInvoiceArchiveResponse,
   OrderStatus,
+  OrdersListQueryInput,
   OrdersListResponse,
   OrderTrackingResponse,
   TrackingSource,
@@ -35,7 +36,6 @@ import {
   resolveNextAllowedOrderStatuses,
 } from "./admin-order-workflow.js";
 import type { AdminOrdersListQueryDto, AdminUpdateOrderStatusDto } from "./dto/admin-order.dto.js";
-import type { OrdersListQueryDto } from "./dto/order.dto.js";
 import { renderOrderInvoiceHtml } from "./order-invoice.template.js";
 
 type TrackingEventRow = {
@@ -410,7 +410,7 @@ export class OrdersService {
     "COMPLETED",
   ];
 
-  async findUserOrders(userId: string, query: OrdersListQueryDto): Promise<OrdersListResponse> {
+  async findUserOrders(userId: string, query: OrdersListQueryInput): Promise<OrdersListResponse> {
     const page = query.page ?? 1;
     const pageSize = query.limit ?? 10;
     const skip = (page - 1) * pageSize;

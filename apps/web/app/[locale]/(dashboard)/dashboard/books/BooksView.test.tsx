@@ -270,6 +270,7 @@ jest.mock("next/navigation", () => ({
       if (key === "bookId") return currentBookId;
       return currentSearchParams.get(key) ?? null;
     },
+    toString: () => new URLSearchParams(Array.from(currentSearchParams.entries())).toString(),
   }),
 }));
 

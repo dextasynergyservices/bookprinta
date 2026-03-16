@@ -19,6 +19,8 @@ const txOrderUpdate = jest.fn();
 const mockPrismaService = {
   book: {
     findFirst: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn(),
     update: jest.fn(),
   },
   order: {
@@ -323,6 +325,80 @@ describe("BooksService", () => {
       ).rejects.toThrow("Automated manuscript processing is not enabled in this environment yet.");
 
       expect(mockFilesService.uploadFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("findUserBooks", () => {
+    it("lists the authenticated user's books with dashboard summary metadata", async () => {
+      mockPrismaService.book.findMany.mockResolvedValue([
+        {
+          id: "cm1111111111111111111111111",
+          orderId: "cm2222222222222222222222222",
+          status: "PREVIEW_READY",
+          productionStatus: "REVIEW",
+          title: "The Lagos Chronicle",
+          coverImageUrl: null,
+          rejectionReason: null,
+          pageCount: 180,
+          wordCount: 52000,
+          estimatedPages: 176,
+          fontSize: 12,
+          pageSize: "A5",
+          currentHtmlUrl: "https://cdn.example.com/books/current.html",
+          previewPdfUrl: "https://cdn.example.com/books/preview.pdf",
+          finalPdfUrl: null,
+          order: {
+            status: "PREVIEW_READY",
+          },
+          jobs: [],
+          createdAt: new Date("2026-03-01T08:00:00.000Z"),
+          updatedAt: new Date("2026-03-10T08:00:00.000Z"),
+        },
+      ]);
+      mockPrismaService.book.count.mockResolvedValue(1);
+
+      const result = await service.findUserBooks("user_1", {
+        page: 1,
+        limit: 10,
+      });
+
+      expect(mockPrismaService.book.findMany).toHaveBeenCalledWith({
+        where: { userId: "user_1" },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        skip: 0,
+        take: 10,
+        select: expect.any(Object),
+      });
+      expect(result).toEqual({
+        items: [
+          expect.objectContaining({
+            id: "cm1111111111111111111111111",
+            orderId: "cm2222222222222222222222222",
+            title: "The Lagos Chronicle",
+            status: "PREVIEW_READY",
+            productionStatus: "REVIEW",
+            orderStatus: "PREVIEW_READY",
+            currentStage: "REVIEW",
+            pageCount: 180,
+            wordCount: 52000,
+            estimatedPages: 176,
+            fontSize: 12,
+            pageSize: "A5",
+            previewPdfUrlPresent: true,
+            finalPdfUrlPresent: false,
+            workspaceUrl: "/dashboard/books?bookId=cm1111111111111111111111111",
+            trackingUrl: "/dashboard/orders/cm2222222222222222222222222",
+          }),
+        ],
+        pagination: {
+          page: 1,
+          pageSize: 10,
+          totalItems: 1,
+          totalPages: 1,
+          hasPreviousPage: false,
+          hasNextPage: false,
+        },
+      });
     });
   });
 

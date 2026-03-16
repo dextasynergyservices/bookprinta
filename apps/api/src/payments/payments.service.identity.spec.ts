@@ -117,6 +117,11 @@ describe("PaymentsService identity conflicts", () => {
     const { service, prisma, paystackService } = createService();
 
     prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    prisma.package.findFirst.mockResolvedValue({
+      id: "pkg_starter",
+      name: "Starter",
+      basePrice: 50000,
+    });
     prisma.user.findFirst.mockResolvedValue({
       id: "user_existing",
       email: "author@example.com",
@@ -140,6 +145,7 @@ describe("PaymentsService identity conflicts", () => {
       currency: "NGN",
       metadata: {
         phone: "+2348012345678",
+        packageSlug: "starter",
       },
     });
 
@@ -184,6 +190,34 @@ describe("PaymentsService identity conflicts", () => {
     expect(paystackService.initialize).not.toHaveBeenCalled();
   });
 
+  it("blocks payment initialization when checkout metadata is missing a valid package", async () => {
+    const { service, prisma, paystackService } = createService();
+
+    prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    prisma.user.findFirst.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.package.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.initialize({
+        provider: "PAYSTACK",
+        email: "author@example.com",
+        amount: 15000,
+        currency: "NGN",
+        metadata: {
+          phone: "+2348012345678",
+          packageSlug: "",
+          packageId: "",
+          packageName: "",
+        },
+      })
+    ).rejects.toThrow(
+      "Checkout package is missing or invalid. Return to pricing and select a package again."
+    );
+
+    expect(paystackService.initialize).not.toHaveBeenCalled();
+  });
+
   it("blocks bank transfer submission when the phone already belongs to another account", async () => {
     const { service, prisma } = createService();
 
@@ -209,6 +243,35 @@ describe("PaymentsService identity conflicts", () => {
     ).rejects.toThrow(
       "This phone number is already linked to another account. Use another phone number or sign in to your existing account."
     );
+  });
+
+  it("blocks bank transfer submission when checkout metadata is missing a valid package", async () => {
+    const { service, prisma } = createService();
+
+    prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    prisma.user.findFirst.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.package.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.submitBankTransfer({
+        payerName: "Author Example",
+        payerEmail: "new@example.com",
+        payerPhone: "+2348012345678",
+        amount: 15000,
+        currency: "NGN",
+        receiptUrl: "https://example.com/receipt.png",
+        metadata: {
+          packageSlug: "",
+          packageId: "",
+          packageName: "",
+        },
+      })
+    ).rejects.toThrow(
+      "Checkout package is missing or invalid. Return to pricing and select a package again."
+    );
+
+    expect(prisma.payment.create).not.toHaveBeenCalled();
   });
 
   it("re-runs the phone conflict check before webhook-time user creation", async () => {

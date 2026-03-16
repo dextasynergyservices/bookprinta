@@ -9,6 +9,15 @@ import { Link, useRouter } from "@/lib/i18n/navigation";
 type VerificationState = "loading" | "waiting" | "cancelled" | "error";
 type OnlineProvider = "PAYSTACK" | "STRIPE" | "PAYPAL";
 
+type VerifySignupDelivery = {
+  status: "DELIVERED" | "PARTIAL" | "FAILED";
+  emailDelivered: boolean;
+  whatsappDelivered: boolean;
+  attemptCount: number;
+  lastAttemptAt?: string | null;
+  retryEligible: boolean;
+};
+
 type VerifyResponse = {
   status: string;
   reference: string;
@@ -22,6 +31,7 @@ type VerifyResponse = {
   packageName?: string | null;
   amountPaid?: string | null;
   addons?: string[];
+  signupDelivery?: VerifySignupDelivery | null;
 };
 
 function getApiV1BaseUrl() {
@@ -43,6 +53,42 @@ function normalizeProvider(provider: string | null | undefined): OnlineProvider 
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function appendPaymentReferenceParams(
+  params: URLSearchParams,
+  provider: OnlineProvider,
+  reference: string
+) {
+  params.set("provider", provider);
+
+  if (provider === "PAYSTACK") {
+    params.set("reference", reference);
+    return;
+  }
+
+  if (provider === "STRIPE") {
+    params.set("session_id", reference);
+    return;
+  }
+
+  params.set("token", reference);
+}
+
+function appendSignupDeliveryParams(
+  params: URLSearchParams,
+  signupDelivery: VerifySignupDelivery | null | undefined
+) {
+  if (!signupDelivery) return;
+
+  params.set("signupDeliveryStatus", signupDelivery.status);
+  params.set("signupDeliveryEmail", signupDelivery.emailDelivered ? "1" : "0");
+  params.set("signupDeliveryWhatsApp", signupDelivery.whatsappDelivered ? "1" : "0");
+  params.set("signupDeliveryAttempts", String(signupDelivery.attemptCount));
+  if (signupDelivery.lastAttemptAt) {
+    params.set("signupDeliveryLastAttemptAt", signupDelivery.lastAttemptAt);
+  }
+  params.set("signupDeliveryRetryEligible", signupDelivery.retryEligible ? "1" : "0");
 }
 
 export function redirectToUrl(url: string) {
@@ -131,6 +177,7 @@ function PaymentReturnPageContent() {
 
           if (data.signupUrl) {
             const params = new URLSearchParams();
+            appendPaymentReferenceParams(params, provider, reference);
             if (data.email) params.set("email", data.email);
             if (data.orderNumber) params.set("ref", data.orderNumber);
             if (data.packageName) params.set("package", data.packageName);
@@ -139,6 +186,7 @@ function PaymentReturnPageContent() {
               params.set("addons", JSON.stringify(data.addons));
             }
             if (data.signupUrl) params.set("signupUrl", data.signupUrl);
+            appendSignupDeliveryParams(params, data.signupDelivery);
             router.push(`/payment/confirmation?${params.toString()}`);
             return;
           }

@@ -25,6 +25,11 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/components/ui/table";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useOrders } from "@/hooks/useOrders";
+import {
+  formatDashboardCurrency,
+  formatDashboardDate,
+  toDashboardStatusLabel,
+} from "@/lib/dashboard/dashboard-formatters";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { OrdersListItem } from "@/types/orders";
@@ -57,37 +62,14 @@ const TABLE_SKELETON_ROW_KEYS = Array.from(
   (_unused, index) => `orders-table-row-skeleton-${index + 1}`
 );
 
-const LOCALE_FORMAT_TAGS: Record<string, string> = {
-  en: "en-NG",
-  fr: "fr-FR",
-  es: "es-ES",
-};
-
-function resolveIntlLocale(locale: string): string {
-  return LOCALE_FORMAT_TAGS[locale] ?? "en-NG";
-}
-
-function toStatusLabel(value: string | null | undefined): string | null {
-  if (!value) return null;
-
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 function formatOrderDate(value: string | null, locale: string, fallback: string): string {
-  if (!value) return fallback;
-
-  const parsedDate = new Date(value);
-  if (Number.isNaN(parsedDate.getTime())) return fallback;
-
-  return new Intl.DateTimeFormat(resolveIntlLocale(locale), {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(parsedDate);
+  return (
+    formatDashboardDate(value, locale, {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }) ?? fallback
+  );
 }
 
 function formatOrderTotal(
@@ -101,17 +83,9 @@ function formatOrderTotal(
   const currencyCode = (currency || "NGN").toUpperCase();
 
   try {
-    return new Intl.NumberFormat(resolveIntlLocale(locale), {
-      style: "currency",
-      currency: currencyCode,
-      maximumFractionDigits: 0,
-    }).format(amount);
+    return formatDashboardCurrency(amount, locale, currencyCode);
   } catch {
-    return new Intl.NumberFormat(resolveIntlLocale(locale), {
-      style: "currency",
-      currency: "NGN",
-      maximumFractionDigits: 0,
-    }).format(amount);
+    return formatDashboardCurrency(amount, locale);
   }
 }
 
@@ -182,7 +156,7 @@ function OrdersDesktopTable({
             orderStatus={row.original.orderStatus}
             bookStatus={row.original.bookStatus}
             label={
-              toStatusLabel(row.original.bookStatus ?? row.original.orderStatus) ??
+              toDashboardStatusLabel(row.original.bookStatus ?? row.original.orderStatus) ??
               tDashboard("orders_unknown_status")
             }
           />
@@ -351,7 +325,7 @@ function OrdersMobileCards({
                 orderStatus={order.orderStatus}
                 bookStatus={order.bookStatus}
                 label={
-                  toStatusLabel(order.bookStatus ?? order.orderStatus) ??
+                  toDashboardStatusLabel(order.bookStatus ?? order.orderStatus) ??
                   tDashboard("orders_unknown_status")
                 }
               />

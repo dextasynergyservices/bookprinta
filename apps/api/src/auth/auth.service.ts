@@ -1202,9 +1202,9 @@ export class AuthService {
 
   private resolveFromEmail(): string {
     const configured =
-      process.env.ADMIN_FROM_EMAIL ||
       process.env.CONTACT_FROM_EMAIL ||
       process.env.DEFAULT_FROM_EMAIL ||
+      process.env.ADMIN_FROM_EMAIL ||
       "BookPrinta <info@bookprinta.com>";
 
     const normalized = configured.trim();

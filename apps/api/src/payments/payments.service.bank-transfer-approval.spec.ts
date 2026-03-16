@@ -28,6 +28,8 @@ function createService() {
 
   const tx = {
     user: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),

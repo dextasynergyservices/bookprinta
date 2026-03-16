@@ -192,19 +192,15 @@ export function CheckoutView() {
     return `/pricing?${params.toString()}`;
   }, [checkoutSourceBookId, isReviseReprintCheckout]);
 
-  const paymentMetadata = useMemo(() => {
-    const metadata = toPaymentMetadata();
-
-    if (!isReviseReprintCheckout || !checkoutSourceBookId) {
-      return metadata;
-    }
-
-    return {
-      ...metadata,
-      orderType: "REPRINT_REVISED" as const,
-      sourceBookId: checkoutSourceBookId,
-    };
-  }, [checkoutSourceBookId, isReviseReprintCheckout, toPaymentMetadata]);
+  const basePaymentMetadata = toPaymentMetadata();
+  const paymentMetadata =
+    isReviseReprintCheckout && checkoutSourceBookId
+      ? {
+          ...basePaymentMetadata,
+          orderType: "REPRINT_REVISED" as const,
+          sourceBookId: checkoutSourceBookId,
+        }
+      : basePaymentMetadata;
 
   const couponMutation = useMutation({
     mutationFn: validateCouponCode,
