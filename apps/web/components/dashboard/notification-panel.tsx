@@ -14,6 +14,10 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  DashboardErrorState,
+  NotificationItemSkeleton,
+} from "@/components/dashboard/dashboard-async-primitives";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   useMarkAllNotificationsRead,
@@ -120,8 +124,20 @@ function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
 
 function NotificationLoadingState({ label }: { label: string }) {
   return (
-    <div aria-live="polite" className="flex min-h-72 items-center justify-center px-6 py-12">
-      <p className="text-center font-sans text-sm text-[#A9A9A9]">{label}</p>
+    <div
+      aria-live="polite"
+      aria-busy="true"
+      className="min-h-72 px-1 py-3"
+      data-testid="notification-panel-loading"
+    >
+      <p className="sr-only">{label}</p>
+      <div className="grid gap-3">
+        {["notif-skeleton-1", "notif-skeleton-2", "notif-skeleton-3", "notif-skeleton-4"].map(
+          (key) => (
+            <NotificationItemSkeleton key={key} />
+          )
+        )}
+      </div>
     </div>
   );
 }
@@ -259,6 +275,7 @@ export function NotificationPanel({
   onOpenReviewDialog,
 }: NotificationPanelProps) {
   const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
   const t = useTranslations();
   const locale = useLocale();
   const router = useRouter();
@@ -266,7 +283,9 @@ export function NotificationPanel({
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [pendingNotificationId, setPendingNotificationId] = useState<string | null>(null);
-  const { items, isInitialLoading, isError } = useNotificationsList({ isOpen });
+  const { items, isInitialLoading, isError, isFetching, refetch } = useNotificationsList({
+    isOpen,
+  });
   const { markAsRead } = useMarkNotificationRead();
   const { markAllAsRead, isPending: isMarkAllPending } = useMarkAllNotificationsRead();
   const hasUnreadItems = unreadCount > 0 || items.some((item) => !item.isRead);
@@ -456,7 +475,17 @@ export function NotificationPanel({
                 ) : null}
 
                 {!isInitialLoading && isError && items.length === 0 ? (
-                  <NotificationEmptyState label={tDashboard("notifications_unavailable")} />
+                  <DashboardErrorState
+                    className="min-h-72 rounded-[24px]"
+                    title={tDashboard("notifications")}
+                    description={tDashboard("notifications_unavailable")}
+                    retryLabel={tCommon("retry")}
+                    loadingLabel={tCommon("loading")}
+                    onRetry={() => {
+                      void refetch();
+                    }}
+                    isRetrying={isFetching}
+                  />
                 ) : null}
 
                 {!isInitialLoading && !isError && items.length === 0 ? (

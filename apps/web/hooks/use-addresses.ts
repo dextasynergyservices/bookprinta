@@ -17,6 +17,7 @@ import {
   normalizeUpdateAddressPayload,
 } from "@/lib/api/addresses-contract";
 import { throwApiError } from "@/lib/api-error";
+import { dashboardLiveQueryOptions } from "@/lib/dashboard/query-defaults";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -196,11 +197,7 @@ export function useAddresses() {
       sentryEndpoint: "/api/v1/addresses",
     },
     queryFn: ({ signal }) => fetchAddresses({ signal }),
-    staleTime: 0,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    ...dashboardLiveQueryOptions,
   });
 
   const data = query.data ?? createEmptyAddressesResponse();

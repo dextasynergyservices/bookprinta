@@ -79,6 +79,7 @@ const TRANSLATIONS: Record<string, string> = {
   profile_load_error_description:
     "We couldn't load your profile details right now. Please try again.",
   profile_retry: "Retry",
+  retry: "Try Again",
 };
 
 function interpolate(template: string, values?: Record<string, unknown>) {
@@ -334,5 +335,20 @@ describe("ProfileSettingsProfilePanel", () => {
     expect(
       screen.getByPlaceholderText("Share your author story in a few lines")
     ).toBeInTheDocument();
+  });
+
+  it("renders the shared profile skeleton while the profile query is loading", () => {
+    useMyProfileMock.mockReturnValue({
+      profile: null,
+      isLoading: true,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { container } = render(<ProfileSettingsProfilePanel />);
+
+    expect(container.firstChild).toHaveAttribute("data-testid", "profile-settings-profile-panel");
+    expect(container.querySelector('[data-dashboard-skeleton="profile"]')).toBeInTheDocument();
   });
 });

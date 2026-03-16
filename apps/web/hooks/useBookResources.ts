@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
+import { dashboardHistoryQueryOptions } from "@/lib/dashboard/query-defaults";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -208,9 +209,7 @@ export function useBookPreview({ bookId, enabled = false }: UseBookResourceParam
         signal,
       });
     },
-    staleTime: 60_000,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
+    ...dashboardHistoryQueryOptions,
     enabled: enabled && Boolean(resolvedBookId),
     refetchOnWindowFocus: false,
   });
@@ -241,9 +240,7 @@ export function useBookFiles({ bookId, enabled = false }: UseBookResourceParams)
         signal,
       });
     },
-    staleTime: 60_000,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
+    ...dashboardHistoryQueryOptions,
     enabled: enabled && Boolean(resolvedBookId),
     refetchOnWindowFocus: false,
   });

@@ -425,4 +425,51 @@ describe("DashboardOverviewDeferredSections", () => {
       screen.getByRole("link", { name: "order_tracking_refund_policy_modal_contact" })
     ).toHaveAttribute("href", "https://wa.me/2348103208297");
   });
+
+  it("renders shaped skeletons for nested overview activity loading states", () => {
+    useNotificationsListMock.mockReturnValue({
+      items: [],
+      isInitialLoading: true,
+      isFetching: true,
+      isError: false,
+      refetch: jest.fn(),
+    });
+    useBookFilesMock.mockReturnValue({
+      data: {
+        bookId: "cmbook11111111111111111111111",
+        files: [],
+      },
+      isPending: true,
+      isError: false,
+    });
+    useBookPreviewMock.mockReturnValue({
+      data: null,
+      isPending: true,
+      isError: false,
+    });
+
+    const { container } = render(
+      <DashboardOverviewDeferredSections
+        activeBook={createActiveBook()}
+        recentOrders={[]}
+        notifications={{
+          unreadCount: 2,
+          hasProductionDelayBanner: false,
+        }}
+        profile={{
+          isProfileComplete: true,
+          preferredLanguage: "en",
+        }}
+        pendingActions={{
+          total: 0,
+          items: [],
+        }}
+      />
+    );
+
+    expect(
+      container.querySelectorAll('[data-dashboard-skeleton="notification-item"]').length
+    ).toBeGreaterThan(0);
+    expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
+  });
 });

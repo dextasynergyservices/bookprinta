@@ -148,6 +148,23 @@ describe("ReviewsView", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders shared review card skeletons while the review query is loading", () => {
+    useReviewStateMock.mockReturnValue({
+      books: [],
+      isLoading: true,
+      isFetching: true,
+      isError: false,
+      isFallback: false,
+      refetch: jest.fn(),
+    });
+
+    const { container } = render(<ReviewsView />);
+
+    expect(
+      container.querySelectorAll('[data-dashboard-skeleton="book-card"]').length
+    ).toBeGreaterThan(0);
+  });
+
   it("renders an error state and retries loading", async () => {
     const user = userEvent.setup();
     const refetch = jest.fn().mockResolvedValue(undefined);

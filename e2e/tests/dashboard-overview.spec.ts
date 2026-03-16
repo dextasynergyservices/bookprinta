@@ -316,13 +316,11 @@ test.describe("Dashboard overview action paths", () => {
     await waitForOverviewReady(page);
 
     await expect(page.locator('[data-order-type="REPRINT_SAME"]')).toContainText("REPRINT");
-    await Promise.all([
-      page.waitForURL(/\/dashboard\/reviews$/),
-      page
-        .getByRole("link", {
-          name: "Reviews. Check review-ready books and submit feedback on delivered projects.",
-        })
-        .click(),
-    ]);
+    await page
+      .getByRole("link", {
+        name: "Reviews. Check review-ready books and submit feedback on delivered projects.",
+      })
+      .click();
+    await expect(page).toHaveURL(/\/dashboard\/reviews$/, { timeout: 15_000 });
   });
 });

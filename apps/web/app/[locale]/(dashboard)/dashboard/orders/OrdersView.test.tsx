@@ -342,6 +342,9 @@ describe("Dashboard orders route integration", () => {
     fetchMock.mockImplementationOnce(() => pendingRequest.promise);
 
     const { container } = renderOrdersView();
+    expect(
+      container.querySelectorAll('[data-dashboard-skeleton="order-row"]').length
+    ).toBeGreaterThan(0);
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
 
     pendingRequest.resolve(

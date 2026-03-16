@@ -1,18 +1,10 @@
 "use client";
 
-import {
-  AlertCircle,
-  ArrowLeft,
-  CircleDollarSign,
-  Copy,
-  LifeBuoy,
-  Receipt,
-  Share2,
-  Truck,
-} from "lucide-react";
+import { ArrowLeft, CircleDollarSign, Copy, LifeBuoy, Receipt, Share2, Truck } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { type ComponentType, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { DashboardRefundPolicyDialog } from "@/components/dashboard/dashboard-refund-policy-dialog";
 import {
   type OrderJourneyStep,
@@ -518,27 +510,17 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
         ? tracking.error.message
         : tDashboard("order_tracking_error_description");
     return (
-      <section className="rounded-2xl border border-[#ef4444]/45 bg-[#111111] p-6">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="mt-0.5 size-5 shrink-0 text-[#ef4444]" aria-hidden="true" />
-          <div className="min-w-0">
-            <h2 className="font-display text-xl font-semibold text-white">
-              {tDashboard("order_tracking_error_title")}
-            </h2>
-            <p className="font-sans mt-1 text-sm text-[#d0d0d0]">{errorMessage}</p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => tracking.refetch()}
-              disabled={tracking.isFetching}
-              className="font-sans mt-4 min-h-11 rounded-full border-[#2A2A2A] bg-[#000000] px-5 text-white hover:bg-[#151515]"
-            >
-              {tracking.isFetching ? tCommon("loading") : tDashboard("order_tracking_retry")}
-            </Button>
-          </div>
-        </div>
-      </section>
+      <DashboardErrorState
+        className="rounded-[32px]"
+        title={tDashboard("order_tracking_error_title")}
+        description={errorMessage}
+        retryLabel={tCommon("retry")}
+        loadingLabel={tCommon("loading")}
+        onRetry={() => {
+          void tracking.refetch();
+        }}
+        isRetrying={tracking.isFetching}
+      />
     );
   }
 

@@ -27,6 +27,11 @@ import Image from "next/image";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useId, useState } from "react";
 import { toast } from "sonner";
+import {
+  DashboardErrorState,
+  DashboardSkeletonBlock,
+  NotificationItemSkeleton,
+} from "@/components/dashboard/dashboard-async-primitives";
 import { useNotificationsList } from "@/hooks/use-dashboard-shell-data";
 import { useBookFiles, useBookPreview } from "@/hooks/useBookResources";
 import {
@@ -216,6 +221,22 @@ function resolveNextMilestoneKey(params: {
   return "overview_workspace_handoff_processing";
 }
 
+function OverviewDocumentsLoadingState() {
+  return (
+    <div className="mt-5 grid gap-3 md:grid-cols-3">
+      {["doc-skeleton-1", "doc-skeleton-2", "doc-skeleton-3"].map((key) => (
+        <article key={key} className="rounded-[24px] border border-white/10 bg-[#09090B] p-4">
+          <DashboardSkeletonBlock className="size-11 rounded-full" />
+          <DashboardSkeletonBlock className="mt-4 h-6 w-32 rounded-full" />
+          <DashboardSkeletonBlock className="mt-3 h-4 w-full rounded-full" />
+          <DashboardSkeletonBlock className="mt-2 h-4 w-2/3 rounded-full" />
+          <DashboardSkeletonBlock className="mt-4 h-11 w-full rounded-full" />
+        </article>
+      ))}
+    </div>
+  );
+}
+
 type DashboardOverviewDeferredSectionsProps = {
   activeBook: UserBookListItem | null;
   recentOrders: OrdersListItem[];
@@ -232,6 +253,7 @@ export function DashboardOverviewDeferredSections({
   pendingActions,
 }: DashboardOverviewDeferredSectionsProps) {
   const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
   const t = useTranslations();
   const locale = useLocale();
   const activeBookTitleId = useId();
@@ -308,7 +330,7 @@ export function DashboardOverviewDeferredSections({
       : previewQuery.isError
         ? tDashboard("overview_documents_unavailable")
         : previewQuery.isPending
-          ? tDashboard("loading")
+          ? tCommon("loading")
           : tDashboard("overview_documents_preview_pending");
   const finalDocumentNote =
     finalFile !== null
@@ -316,7 +338,7 @@ export function DashboardOverviewDeferredSections({
       : filesQuery.isError
         ? tDashboard("overview_documents_unavailable")
         : filesQuery.isPending && activeBook?.finalPdfUrlPresent
-          ? tDashboard("loading")
+          ? tCommon("loading")
           : tDashboard("overview_documents_final_pending");
   const nextMilestoneKey =
     activeBook && workspaceSummary
@@ -326,6 +348,12 @@ export function DashboardOverviewDeferredSections({
         })
       : null;
   const recentActivityItems = notificationsFeed.items.slice(0, ACTIVITY_FEED_PAGE_SIZE);
+  const shouldShowDocumentsLoadingState =
+    activeBook !== null &&
+    filesQuery.isPending &&
+    filesQuery.data.files.length === 0 &&
+    previewDocumentHref === null &&
+    finalFile === null;
   const reprintReadyOrders = recentOrders
     .filter(
       (order) =>
@@ -622,93 +650,97 @@ export function DashboardOverviewDeferredSections({
                 </Link>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-3">
-                <article className="rounded-[24px] border border-white/10 bg-[#09090B] p-4">
-                  <span
-                    aria-hidden="true"
-                    className="inline-flex size-11 items-center justify-center rounded-full border border-[#007eff]/20 bg-[#07101A] text-[#9FD0FF]"
-                  >
-                    <FileText className="size-4" aria-hidden="true" />
-                  </span>
-                  <h4 className="font-display mt-4 text-xl font-semibold text-white">
-                    {tDashboard("overview_documents_preview_title")}
-                  </h4>
-                  <p className="mt-2 min-h-12 font-sans text-sm leading-6 text-[#B8B8B8]">
-                    {previewDocumentNote}
-                  </p>
-                  {previewDocumentHref ? (
-                    <a
-                      href={previewDocumentHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+              {shouldShowDocumentsLoadingState ? (
+                <OverviewDocumentsLoadingState />
+              ) : (
+                <div className="mt-5 grid gap-3 md:grid-cols-3">
+                  <article className="rounded-[24px] border border-white/10 bg-[#09090B] p-4">
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex size-11 items-center justify-center rounded-full border border-[#007eff]/20 bg-[#07101A] text-[#9FD0FF]"
                     >
-                      {tDashboard("overview_documents_open")}
-                    </a>
-                  ) : (
-                    <span className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-white/10 bg-[#060606] px-4 py-2 text-sm font-semibold text-[#747474]">
-                      {tDashboard("overview_documents_pending")}
+                      <FileText className="size-4" aria-hidden="true" />
                     </span>
-                  )}
-                </article>
+                    <h4 className="font-display mt-4 text-xl font-semibold text-white">
+                      {tDashboard("overview_documents_preview_title")}
+                    </h4>
+                    <p className="mt-2 min-h-12 font-sans text-sm leading-6 text-[#B8B8B8]">
+                      {previewDocumentNote}
+                    </p>
+                    {previewDocumentHref ? (
+                      <a
+                        href={previewDocumentHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                      >
+                        {tDashboard("overview_documents_open")}
+                      </a>
+                    ) : (
+                      <span className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-white/10 bg-[#060606] px-4 py-2 text-sm font-semibold text-[#747474]">
+                        {tDashboard("overview_documents_pending")}
+                      </span>
+                    )}
+                  </article>
 
-                <article className="rounded-[24px] border border-white/10 bg-[#09090B] p-4">
-                  <span
-                    aria-hidden="true"
-                    className="inline-flex size-11 items-center justify-center rounded-full border border-[#007eff]/20 bg-[#07101A] text-[#9FD0FF]"
-                  >
-                    <FileText className="size-4" aria-hidden="true" />
-                  </span>
-                  <h4 className="font-display mt-4 text-xl font-semibold text-white">
-                    {tDashboard("overview_documents_final_title")}
-                  </h4>
-                  <p className="mt-2 min-h-12 font-sans text-sm leading-6 text-[#B8B8B8]">
-                    {finalDocumentNote}
-                  </p>
-                  {finalFile ? (
-                    <a
-                      href={finalFile.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                  <article className="rounded-[24px] border border-white/10 bg-[#09090B] p-4">
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex size-11 items-center justify-center rounded-full border border-[#007eff]/20 bg-[#07101A] text-[#9FD0FF]"
                     >
-                      {tDashboard("overview_documents_open")}
-                    </a>
-                  ) : (
-                    <span className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-white/10 bg-[#060606] px-4 py-2 text-sm font-semibold text-[#747474]">
-                      {tDashboard("overview_documents_pending")}
+                      <FileText className="size-4" aria-hidden="true" />
                     </span>
-                  )}
-                </article>
+                    <h4 className="font-display mt-4 text-xl font-semibold text-white">
+                      {tDashboard("overview_documents_final_title")}
+                    </h4>
+                    <p className="mt-2 min-h-12 font-sans text-sm leading-6 text-[#B8B8B8]">
+                      {finalDocumentNote}
+                    </p>
+                    {finalFile ? (
+                      <a
+                        href={finalFile.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                      >
+                        {tDashboard("overview_documents_open")}
+                      </a>
+                    ) : (
+                      <span className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-white/10 bg-[#060606] px-4 py-2 text-sm font-semibold text-[#747474]">
+                        {tDashboard("overview_documents_pending")}
+                      </span>
+                    )}
+                  </article>
 
-                <article className="rounded-[24px] border border-white/10 bg-[#09090B] p-4">
-                  <span
-                    aria-hidden="true"
-                    className="inline-flex size-11 items-center justify-center rounded-full border border-[#007eff]/20 bg-[#07101A] text-[#9FD0FF]"
-                  >
-                    <Receipt className="size-4" aria-hidden="true" />
-                  </span>
-                  <h4 className="font-display mt-4 text-xl font-semibold text-white">
-                    {tDashboard("overview_documents_invoice_title")}
-                  </h4>
-                  <p className="mt-2 min-h-12 font-sans text-sm leading-6 text-[#B8B8B8]">
-                    {tDashboard("overview_documents_invoice_ready")}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleDownloadInvoice();
-                    }}
-                    disabled={isDownloadingInvoice}
-                    className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#007eff]/35 bg-[#071320] px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#3398ff] hover:bg-[#0d1b2d] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
-                  >
-                    <Download className="mr-2 size-4" aria-hidden="true" />
-                    {isDownloadingInvoice
-                      ? tDashboard("order_journey_download_invoice_loading")
-                      : tDashboard("order_journey_download_invoice")}
-                  </button>
-                </article>
-              </div>
+                  <article className="rounded-[24px] border border-white/10 bg-[#09090B] p-4">
+                    <span
+                      aria-hidden="true"
+                      className="inline-flex size-11 items-center justify-center rounded-full border border-[#007eff]/20 bg-[#07101A] text-[#9FD0FF]"
+                    >
+                      <Receipt className="size-4" aria-hidden="true" />
+                    </span>
+                    <h4 className="font-display mt-4 text-xl font-semibold text-white">
+                      {tDashboard("overview_documents_invoice_title")}
+                    </h4>
+                    <p className="mt-2 min-h-12 font-sans text-sm leading-6 text-[#B8B8B8]">
+                      {tDashboard("overview_documents_invoice_ready")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleDownloadInvoice();
+                      }}
+                      disabled={isDownloadingInvoice}
+                      className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#007eff]/35 bg-[#071320] px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#3398ff] hover:bg-[#0d1b2d] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      <Download className="mr-2 size-4" aria-hidden="true" />
+                      {isDownloadingInvoice
+                        ? tDashboard("order_journey_download_invoice_loading")
+                        : tDashboard("order_journey_download_invoice")}
+                    </button>
+                  </article>
+                </div>
+              )}
             </div>
           </>
         ) : (
@@ -806,23 +838,27 @@ export function DashboardOverviewDeferredSections({
 
             {notificationsFeed.isInitialLoading ? (
               <div className="mt-5 grid gap-3">
-                {[0, 1, 2].map((index) => (
-                  <div
-                    key={`overview-activity-loading-${index}`}
-                    className="rounded-[22px] border border-white/10 bg-[#09090B] p-4"
-                  >
-                    <div className="h-4 w-36 animate-pulse rounded bg-[#1E1E1E]" />
-                    <div className="mt-3 h-3 w-full animate-pulse rounded bg-[#1E1E1E]" />
-                    <div className="mt-2 h-3 w-24 animate-pulse rounded bg-[#1E1E1E]" />
-                  </div>
-                ))}
+                {["activity-skeleton-1", "activity-skeleton-2", "activity-skeleton-3"].map(
+                  (key) => (
+                    <NotificationItemSkeleton
+                      key={key}
+                      className="rounded-[22px] border-white/10 bg-[#09090B]"
+                    />
+                  )
+                )}
               </div>
             ) : notificationsFeed.isError ? (
-              <div className="mt-5 rounded-[22px] border border-[#ef4444]/30 bg-[#160d0d] px-4 py-4">
-                <p className="font-sans text-sm text-[#F3B2B2]">
-                  {tDashboard("notifications_unavailable")}
-                </p>
-              </div>
+              <DashboardErrorState
+                className="mt-5 min-h-[220px] rounded-[22px]"
+                title={tDashboard("overview_activity_feed_title")}
+                description={tDashboard("notifications_unavailable")}
+                retryLabel={tCommon("retry")}
+                loadingLabel={tCommon("loading")}
+                onRetry={() => {
+                  void notificationsFeed.refetch();
+                }}
+                isRetrying={notificationsFeed.isFetching}
+              />
             ) : recentActivityItems.length > 0 ? (
               <div className="mt-5 grid gap-3">
                 {recentActivityItems.map((item) => {

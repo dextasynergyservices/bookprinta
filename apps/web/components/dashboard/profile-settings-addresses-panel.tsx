@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { AddressCard } from "@/components/dashboard/address-card";
 import { AddressFormPanel } from "@/components/dashboard/address-form-panel";
 import { AddressListSkeleton } from "@/components/dashboard/address-list-skeleton";
+import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { DeleteAddressDialog } from "@/components/dashboard/delete-address-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +20,7 @@ import {
 
 export function ProfileSettingsAddressesPanel() {
   const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
   const { addresses, error, isError, isFetching, isLoading, refetch } = useAddresses();
   const { createAddress, isPending: isCreating } = useCreateAddress();
   const { updateAddress, isPending: isUpdating } = useUpdateAddress();
@@ -115,25 +117,20 @@ export function ProfileSettingsAddressesPanel() {
         {isLoading && addresses.length === 0 ? <AddressListSkeleton /> : null}
 
         {isError ? (
-          <section className="rounded-[32px] border border-[#2A2A2A] bg-[#111111] p-5">
-            <h2 className="font-sans text-sm font-medium text-white">
-              {tDashboard("addresses_load_error_title")}
-            </h2>
-            <p className="font-sans mt-2 text-sm leading-6 text-[#A3A3A3]">
-              {error instanceof Error
+          <DashboardErrorState
+            className="rounded-[32px]"
+            title={tDashboard("addresses_load_error_title")}
+            description={
+              error instanceof Error
                 ? error.message
-                : tDashboard("addresses_load_error_description")}
-            </p>
-            <Button
-              type="button"
-              onClick={() => {
-                void refetch();
-              }}
-              className="font-sans mt-4 min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
-            >
-              {tDashboard("addresses_retry")}
-            </Button>
-          </section>
+                : tDashboard("addresses_load_error_description")
+            }
+            retryLabel={tCommon("retry")}
+            loadingLabel={tCommon("loading")}
+            onRetry={() => {
+              void refetch();
+            }}
+          />
         ) : null}
 
         {!isLoading && !isError && addresses.length === 0 ? (

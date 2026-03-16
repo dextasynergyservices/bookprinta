@@ -1,10 +1,11 @@
 "use client";
 
 import type { DashboardPendingAction, UserBookListItem } from "@bookprinta/shared";
-import { ArrowRight, Bell, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 import { useId } from "react";
+import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { Button } from "@/components/ui/button";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useDashboardOverviewPageData } from "@/hooks/useDashboardOverviewPageData";
@@ -16,15 +17,14 @@ import {
   Metric,
   PAGE_AMBIENT_STYLE,
   PRIMARY_BUTTON_CLASS,
-  SECONDARY_BUTTON_CLASS,
   SECTION_REVEAL_CLASS,
   SURFACE,
 } from "./dashboard-overview-shared";
 
 function DashboardOverviewDeferredSectionsLoading() {
-  const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
 
-  return <DashboardOverviewDeferredSkeleton label={tDashboard("loading")} />;
+  return <DashboardOverviewDeferredSkeleton label={tCommon("loading")} />;
 }
 
 const DashboardOverviewDeferredSections = dynamic(
@@ -117,11 +117,11 @@ function resolveNextAction(
 }
 
 function DashboardOverviewSkeleton() {
-  const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
 
   return (
     <section aria-busy="true" aria-live="polite" className="relative min-w-0">
-      <p className="sr-only">{tDashboard("loading")}</p>
+      <p className="sr-only">{tCommon("loading")}</p>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
@@ -132,7 +132,7 @@ function DashboardOverviewSkeleton() {
           <div className={cn(SURFACE, "h-[24rem] animate-pulse bg-[#101010]")} />
           <div className={cn(SURFACE, "h-[20rem] animate-pulse bg-[#101010]")} />
         </div>
-        <DashboardOverviewDeferredSkeleton label={tDashboard("loading")} announce={false} />
+        <DashboardOverviewDeferredSkeleton label={tCommon("loading")} announce={false} />
       </div>
     </section>
   );
@@ -140,6 +140,7 @@ function DashboardOverviewSkeleton() {
 
 export function DashboardOverviewView() {
   const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
   const { user } = useAuthSession();
   const overviewQuery = useDashboardOverviewPageData();
   const heroTitleId = useId();
@@ -153,31 +154,16 @@ export function DashboardOverviewView() {
 
   if (overviewQuery.isError) {
     return (
-      <section className={cn(SURFACE, "mx-auto max-w-3xl text-center")} role="alert">
-        <div
-          aria-hidden="true"
-          className="mx-auto inline-flex size-14 items-center justify-center rounded-full border border-[#007eff]/20 bg-[#07101a] text-[#9FD0FF] shadow-[0_10px_30px_rgba(0,126,255,0.18)]"
-        >
-          <Bell className="size-5" aria-hidden="true" />
-        </div>
-        <h1 className="font-display mt-5 text-3xl font-semibold tracking-tight text-white">
-          {tDashboard("overview_error_title")}
-        </h1>
-        <p className="mx-auto mt-3 max-w-xl font-serif text-base leading-7 text-[#B8B8B8]">
-          {tDashboard("overview_error_description")}
-        </p>
-        <div className="mt-6">
-          <Button
-            type="button"
-            onClick={() => {
-              void overviewQuery.refetch();
-            }}
-            className={SECONDARY_BUTTON_CLASS}
-          >
-            {tDashboard("overview_retry")}
-          </Button>
-        </div>
-      </section>
+      <DashboardErrorState
+        className="mx-auto max-w-3xl rounded-[32px]"
+        title={tDashboard("overview_error_title")}
+        description={tDashboard("overview_error_description")}
+        retryLabel={tCommon("retry")}
+        loadingLabel={tCommon("loading")}
+        onRetry={() => {
+          void overviewQuery.refetch();
+        }}
+      />
     );
   }
 

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { normalizeDashboardOverviewPayload } from "@/lib/api/dashboard-overview-contract";
 import { throwApiError } from "@/lib/api-error";
+import { dashboardStatusPollingQueryOptions } from "@/lib/dashboard/query-defaults";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -54,11 +55,8 @@ export function useDashboardOverview({ enabled = true }: { enabled?: boolean } =
       sentryEndpoint: "/api/v1/dashboard/overview",
     },
     queryFn: ({ signal }) => fetchDashboardOverview({ signal }),
-    staleTime: 30_000,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
+    ...dashboardStatusPollingQueryOptions,
     enabled,
-    refetchOnWindowFocus: true,
   });
 
   const data = query.data ?? normalizeDashboardOverviewPayload(null);

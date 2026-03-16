@@ -1,4 +1,5 @@
 import { renderHook } from "@testing-library/react";
+import { DASHBOARD_POLL_INTERVAL_MS } from "@/lib/dashboard/query-defaults";
 import { bookProgressQueryKeys, useBookProgress } from "./useBookProgress";
 
 const useQueryMock = jest.fn();
@@ -34,7 +35,7 @@ describe("useBookProgress query options", () => {
     const options = useQueryMock.mock.calls[0]?.[0] as QueryOptionsShape;
     expect(options.queryKey).toEqual(bookProgressQueryKeys.detail(bookId));
     expect(options.enabled).toBe(true);
-    expect(options.refetchInterval).toBe(30_000);
+    expect(options.refetchInterval).toBe(DASHBOARD_POLL_INTERVAL_MS);
     expect(options.refetchOnWindowFocus).toBe(true);
   });
 

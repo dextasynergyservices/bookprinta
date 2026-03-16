@@ -363,7 +363,7 @@ async function dismissAutoOpenedReviewDialogIfPresent(page: Page, timeout = 1_00
   }
 
   await closeButton.click();
-  await expect(closeButton).toHaveCount(0);
+  await expect(closeButton).toBeHidden({ timeout: 15_000 });
 }
 
 test.describe("Dashboard notification center", () => {

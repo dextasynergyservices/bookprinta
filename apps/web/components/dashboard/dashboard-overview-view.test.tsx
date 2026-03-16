@@ -10,7 +10,14 @@ const useBookPreviewMock = jest.fn();
 
 jest.mock("next-intl", () => ({
   useLocale: () => "en",
-  useTranslations: () => (key: string) => key,
+  useTranslations: (namespace?: string) => (key: string) => {
+    if (namespace === "common") {
+      if (key === "retry") return "Try Again";
+      if (key === "loading") return "Loading...";
+    }
+
+    return key;
+  },
 }));
 
 jest.mock("next/dynamic", () => () => {
@@ -99,7 +106,7 @@ describe("DashboardOverviewView", () => {
 
     render(<DashboardOverviewView />);
 
-    expect(screen.getByText("loading")).toBeInTheDocument();
+    expect(screen.getByText("Loading...")).toBeInTheDocument();
     expect(screen.queryByText("overview_editorial_title")).not.toBeInTheDocument();
   });
 
@@ -268,7 +275,7 @@ describe("DashboardOverviewView", () => {
 
     render(<DashboardOverviewView />);
 
-    fireEvent.click(screen.getByRole("button", { name: "overview_retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

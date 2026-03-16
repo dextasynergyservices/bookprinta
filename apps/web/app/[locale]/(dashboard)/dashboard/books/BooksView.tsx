@@ -1,10 +1,11 @@
 "use client";
 
-import { AlertCircle, BookOpen } from "lucide-react";
+import { BookOpen } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookProgressTracker } from "@/components/dashboard/book-progress-tracker";
+import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { ManuscriptPreviewPanel } from "@/components/dashboard/manuscript-preview-panel";
 import { ManuscriptUploadFlow } from "@/components/dashboard/manuscript-upload-flow";
 import { ReprintSameModal } from "@/components/dashboard/reprint-same-modal";
@@ -230,25 +231,14 @@ function BooksErrorState({
   isRetrying,
 }: BooksErrorStateProps) {
   return (
-    <section className="rounded-2xl border border-[#ef4444]/45 bg-[#111111] p-6">
-      <div className="flex items-start gap-3">
-        <AlertCircle className="mt-0.5 size-5 shrink-0 text-[#ef4444]" aria-hidden="true" />
-        <div className="min-w-0">
-          <h2 className="font-display text-xl font-semibold text-white">{title}</h2>
-          <p className="font-sans mt-1 text-sm text-[#d0d0d0]">{description}</p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={isRetrying}
-            className="font-sans mt-4 min-h-11 rounded-full border-[#2A2A2A] bg-[#000000] px-5 text-white hover:bg-[#151515]"
-          >
-            {isRetrying ? loadingLabel : retryLabel}
-          </Button>
-        </div>
-      </div>
-    </section>
+    <DashboardErrorState
+      title={title}
+      description={description}
+      retryLabel={retryLabel}
+      loadingLabel={loadingLabel}
+      onRetry={onRetry}
+      isRetrying={isRetrying}
+    />
   );
 }
 
@@ -1421,7 +1411,7 @@ export function BooksView() {
         <BooksErrorState
           title={tDashboard("book_progress_error_title")}
           description={tDashboard("book_progress_error_description")}
-          retryLabel={tDashboard("book_progress_retry")}
+          retryLabel={tCommon("retry")}
           loadingLabel={tCommon("loading")}
           onRetry={() => refetchOrders()}
           isRetrying={isOrdersFetching}
@@ -1441,7 +1431,7 @@ export function BooksView() {
         <BooksErrorState
           title={tDashboard("book_progress_error_title")}
           description={errorMessage}
-          retryLabel={tDashboard("book_progress_retry")}
+          retryLabel={tCommon("retry")}
           loadingLabel={tCommon("loading")}
           onRetry={() => refetch()}
           isRetrying={isFetching}
