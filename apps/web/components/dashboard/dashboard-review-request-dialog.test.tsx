@@ -26,10 +26,24 @@ jest.mock("sonner", () => ({
 }));
 
 describe("DashboardReviewRequestDialog", () => {
+  const bookTitle = "The Lagos Chronicle";
   const target: ReviewRequestDialogTarget = {
     bookId: "cm1111111111111111111111111",
-    bookTitle: "The Lagos Chronicle",
+    bookTitle,
   };
+  let reviewBooks: Array<{
+    bookId: string;
+    title: string;
+    coverImageUrl: null;
+    lifecycleStatus: string;
+    reviewStatus: "PENDING" | "REVIEWED";
+    review: null | {
+      rating: number;
+      comment: string | null;
+      isPublic: boolean;
+      createdAt: string;
+    };
+  }>;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -48,45 +62,54 @@ describe("DashboardReviewRequestDialog", () => {
       })),
     });
 
-    useReviewStateMock.mockReturnValue({
-      books: [
-        {
-          bookId: target.bookId,
-          title: target.bookTitle,
-          coverImageUrl: null,
-          lifecycleStatus: "DELIVERED",
-          reviewStatus: "PENDING",
-          review: null,
-        },
-      ],
+    reviewBooks = [
+      {
+        bookId: target.bookId,
+        title: bookTitle,
+        coverImageUrl: null,
+        lifecycleStatus: "DELIVERED",
+        reviewStatus: "PENDING",
+        review: null,
+      },
+    ];
+    useReviewStateMock.mockImplementation(() => ({
+      books: reviewBooks,
       isLoading: false,
-    });
+    }));
     useCreateReviewMock.mockReturnValue({
       submitReview: submitReviewMock,
       isPending: false,
     });
-    submitReviewMock.mockResolvedValue({
-      book: {
-        bookId: target.bookId,
-        title: target.bookTitle,
-        coverImageUrl: null,
-        lifecycleStatus: "DELIVERED",
-        reviewStatus: "REVIEWED",
-        review: {
-          rating: 4,
-          comment: "Excellent support.",
-          isPublic: false,
-          createdAt: "2026-03-07T12:00:00.000Z",
-        },
-      },
-    });
+    submitReviewMock.mockImplementation(
+      async ({ bookId, rating, comment }: { bookId: string; rating: number; comment?: string }) => {
+        reviewBooks = [
+          {
+            bookId,
+            title: bookTitle,
+            coverImageUrl: null,
+            lifecycleStatus: "DELIVERED",
+            reviewStatus: "REVIEWED",
+            review: {
+              rating,
+              comment: comment ?? null,
+              isPublic: false,
+              createdAt: "2026-03-07T12:00:00.000Z",
+            },
+          },
+        ];
+
+        return {
+          book: reviewBooks[0],
+        };
+      }
+    );
   });
 
   afterEach(() => {
     jest.useRealTimers();
   });
 
-  it("submits a review, shows the success state, and auto-closes after 2 seconds", async () => {
+  it("submits a review, keeps the success state during the review refresh, and auto-closes after 2 seconds", async () => {
     jest.useFakeTimers();
     const onOpenChange = jest.fn();
     const onReviewSubmitted = jest.fn();
@@ -121,6 +144,7 @@ describe("DashboardReviewRequestDialog", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "review_thanks" })).toBeInTheDocument();
     });
+    expect(screen.queryByText("already_submitted")).not.toBeInTheDocument();
 
     act(() => {
       jest.advanceTimersByTime(2000);

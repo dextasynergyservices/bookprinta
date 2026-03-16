@@ -36,6 +36,19 @@ type VerifyPayload = {
   verified: boolean;
   signupUrl?: string | null;
   awaitingWebhook?: boolean;
+  email?: string | null;
+  orderNumber?: string | null;
+  packageName?: string | null;
+  amountPaid?: string | null;
+  addons?: string[];
+  signupDelivery?: {
+    status: "DELIVERED" | "PARTIAL" | "FAILED";
+    emailDelivered: boolean;
+    whatsappDelivered: boolean;
+    attemptCount: number;
+    lastAttemptAt?: string | null;
+    retryEligible: boolean;
+  } | null;
 };
 
 function mockVerifyResponse(payload: VerifyPayload) {
@@ -116,6 +129,19 @@ describe("PaymentReturnPage", () => {
           verified: true,
           signupUrl: "https://bookprinta.com/en/signup/finish?token=ready_token",
           awaitingWebhook: false,
+          email: "author@example.com",
+          orderNumber: "BP-2026-0042",
+          packageName: "Legacy",
+          amountPaid: "₦50,000",
+          addons: ["ISBN Registration"],
+          signupDelivery: {
+            status: "FAILED",
+            emailDelivered: false,
+            whatsappDelivered: false,
+            attemptCount: 2,
+            lastAttemptAt: "2026-03-14T12:00:00.000Z",
+            retryEligible: true,
+          },
         })
       );
 
@@ -125,6 +151,14 @@ describe("PaymentReturnPage", () => {
     expect(fetchMock).toHaveBeenCalled();
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 3_500 });
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith(
+        expect.stringContaining("/payment/confirmation?provider=PAYSTACK&reference=ps_delayed_123")
+      )
+    );
+    expect(pushMock).toHaveBeenCalledWith(expect.stringContaining("signupDeliveryStatus=FAILED"));
+    expect(pushMock).toHaveBeenCalledWith(expect.stringContaining("signupDeliveryAttempts=2"));
+    expect(pushMock).toHaveBeenCalledWith(expect.stringContaining("email=author%40example.com"));
   });
 
   it("shows cancelled state and does not call verify when callback has cancelled=true", async () => {

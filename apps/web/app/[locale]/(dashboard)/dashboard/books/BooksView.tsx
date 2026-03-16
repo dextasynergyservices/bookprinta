@@ -1,10 +1,11 @@
 "use client";
 
-import { AlertCircle, BookOpen } from "lucide-react";
+import { BookOpen } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookProgressTracker } from "@/components/dashboard/book-progress-tracker";
+import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { ManuscriptPreviewPanel } from "@/components/dashboard/manuscript-preview-panel";
 import { ManuscriptUploadFlow } from "@/components/dashboard/manuscript-upload-flow";
 import { ReprintSameModal } from "@/components/dashboard/reprint-same-modal";
@@ -25,6 +26,20 @@ import {
   usePaymentGateways,
   verifyPayment,
 } from "@/hooks/usePayments";
+import {
+  BOOK_PROGRESS_STAGE_LABEL_KEYS,
+  normalizeWorkspaceStatusToken,
+  resolveBillingGateState,
+  resolveFormattingSnapshotLabel,
+  resolveReviewSnapshotLabel,
+  resolveWorkspaceState,
+} from "@/lib/dashboard/book-workspace-summary";
+import {
+  formatDashboardCurrency,
+  formatDashboardInteger,
+  resolveDashboardLocaleTag,
+  toDashboardStatusLabel,
+} from "@/lib/dashboard/dashboard-formatters";
 import { Link, usePathname, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -33,20 +48,6 @@ import {
   type BookProgressTimelineStep,
   type BookRolloutBlockedFeature,
 } from "@/types/book-progress";
-
-const STAGE_LABEL_KEYS: Record<BookProgressStage, string> = {
-  PAYMENT_RECEIVED: "book_progress_stage_payment_received",
-  DESIGNING: "book_progress_stage_designing",
-  DESIGNED: "book_progress_stage_designed",
-  FORMATTING: "book_progress_stage_formatting",
-  FORMATTED: "book_progress_stage_formatted",
-  REVIEW: "book_progress_stage_review",
-  APPROVED: "book_progress_stage_approved",
-  PRINTING: "book_progress_stage_printing",
-  PRINTED: "book_progress_stage_printed",
-  SHIPPING: "book_progress_stage_shipping",
-  DELIVERED: "book_progress_stage_delivered",
-};
 
 const STATE_LABEL_KEYS: Record<BookProgressTimelineStep["state"], string> = {
   completed: "book_progress_state_completed",
@@ -70,13 +71,6 @@ const WORKSPACE_REPRINT_BOOK_STATUSES = new Set(["DELIVERED", "COMPLETED"]);
 const WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES = new Set(["FORMATTING_REVIEW", "REJECTED"]);
 type TranslationValues = Record<string, string | number | Date>;
 type DashboardTranslator = (key: string, values?: TranslationValues) => string;
-type WorkspaceState =
-  | "processing"
-  | "blocked"
-  | "payment_pending"
-  | "unlocked"
-  | "approved"
-  | "action_required";
 
 function toSentenceCase(value: string): string {
   if (!value) return value;
@@ -113,22 +107,6 @@ function resolveLinkedBookId(orders: { bookId: string | null }[]): string | null
   return null;
 }
 
-function toStatusLabel(value: string | null | undefined): string | null {
-  if (!value) return null;
-
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function resolveLocaleTag(locale: string): string {
-  if (locale === "fr") return "fr-FR";
-  if (locale === "es") return "es-ES";
-  return "en-NG";
-}
-
 function resolveReprintInlineMessageKey(disableReason: string | null | undefined): string {
   switch (disableReason) {
     case "FINAL_PDF_MISSING":
@@ -137,18 +115,12 @@ function resolveReprintInlineMessageKey(disableReason: string | null | undefined
       return "reprint_same_unavailable_inline_generic";
   }
 }
-
-function formatInteger(value: number, locale: string): string {
-  return new Intl.NumberFormat(resolveLocaleTag(locale)).format(value);
-}
-
-function formatCurrency(value: number, locale: string, currency = "NGN"): string {
-  return new Intl.NumberFormat(resolveLocaleTag(locale), {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+const STAGE_LABEL_KEYS: Record<BookProgressStage, string> = BOOK_PROGRESS_STAGE_LABEL_KEYS;
+const toStatusLabel = toDashboardStatusLabel;
+const resolveLocaleTag = resolveDashboardLocaleTag;
+const formatInteger = formatDashboardInteger;
+const formatCurrency = formatDashboardCurrency;
+const normalizeStatusToken = normalizeWorkspaceStatusToken;
 
 function formatSignedInteger(value: number, locale: string): string {
   const absolute = formatInteger(Math.abs(value), locale);
@@ -188,12 +160,6 @@ function formatDateTime(value: string | null, locale: string): string | null {
   }).format(parsed);
 }
 
-function normalizeStatusToken(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized.toUpperCase() : null;
-}
-
 function resolveExtraPagesProvider(
   gateways: PaymentGateway[] | undefined
 ): Extract<OnlinePaymentProvider, "PAYSTACK" | "STRIPE"> | null {
@@ -205,119 +171,6 @@ function resolveExtraPagesProvider(
   }
 
   return null;
-}
-
-function resolveWorkspaceState(params: {
-  orderStatus: string | null;
-  bookStatus: string | null;
-  pageCount: number | null;
-  isOrderLoading: boolean;
-  latestExtraPaymentStatus: string | null;
-  forceProcessing?: boolean;
-}): WorkspaceState {
-  const {
-    orderStatus,
-    bookStatus,
-    pageCount,
-    isOrderLoading,
-    latestExtraPaymentStatus,
-    forceProcessing,
-  } = params;
-  const normalizedOrderStatus = normalizeStatusToken(orderStatus);
-  const normalizedBookStatus = normalizeStatusToken(bookStatus);
-  const normalizedExtraPaymentStatus = normalizeStatusToken(latestExtraPaymentStatus);
-
-  if (forceProcessing) return "processing";
-  if (normalizedBookStatus && WORKSPACE_APPROVED_BOOK_STATUSES.has(normalizedBookStatus))
-    return "approved";
-  if (normalizedBookStatus && WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES.has(normalizedBookStatus)) {
-    return "action_required";
-  }
-  if (typeof pageCount !== "number") return "processing";
-  if (isOrderLoading) return "processing";
-  if (normalizedOrderStatus === "PENDING_EXTRA_PAYMENT") {
-    if (
-      normalizedExtraPaymentStatus === "PENDING" ||
-      normalizedExtraPaymentStatus === "PROCESSING" ||
-      normalizedExtraPaymentStatus === "INITIATED" ||
-      normalizedExtraPaymentStatus === "SUCCESS"
-    ) {
-      return "payment_pending";
-    }
-
-    return "blocked";
-  }
-  if (normalizedBookStatus === "PREVIEW_READY") return "unlocked";
-  return "processing";
-}
-
-function resolveBillingGateState(params: {
-  orderStatus: string | null;
-  bookStatus: string | null;
-  pageCount: number | null;
-  isOrderLoading: boolean;
-  latestExtraPaymentStatus: string | null;
-  forceProcessing?: boolean;
-}): "processing" | "payment_required" | "ready" | "approved" | "action_required" {
-  const workspaceState = resolveWorkspaceState(params);
-
-  if (workspaceState === "approved") return "approved";
-  if (workspaceState === "unlocked") return "ready";
-  if (workspaceState === "action_required") return "action_required";
-  if (workspaceState === "blocked" || workspaceState === "payment_pending")
-    return "payment_required";
-  return "processing";
-}
-
-function resolveFormattingSnapshotLabel(params: {
-  tDashboard: DashboardTranslator;
-  bookStatus: string | null;
-  currentHtmlUrl: string | null;
-  processingActive: boolean;
-  forceProcessing?: boolean;
-}): string {
-  const normalizedBookStatus = normalizeStatusToken(params.bookStatus);
-
-  if (params.forceProcessing || params.processingActive) {
-    return params.tDashboard("book_progress_meta_state_processing");
-  }
-
-  if (normalizedBookStatus && WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES.has(normalizedBookStatus)) {
-    return params.tDashboard("book_progress_meta_state_action_required");
-  }
-
-  if (params.currentHtmlUrl) {
-    return params.tDashboard("book_progress_meta_state_ready");
-  }
-
-  return params.tDashboard("book_progress_meta_state_pending");
-}
-
-function resolveReviewSnapshotLabel(params: {
-  tDashboard: DashboardTranslator;
-  bookStatus: string | null;
-  pageCount: number | null;
-  forceProcessing?: boolean;
-}): string {
-  const normalizedBookStatus = normalizeStatusToken(params.bookStatus);
-
-  if (params.forceProcessing) {
-    return params.tDashboard("book_progress_meta_state_processing");
-  }
-
-  if (normalizedBookStatus && WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES.has(normalizedBookStatus)) {
-    return params.tDashboard("book_progress_meta_state_action_required");
-  }
-
-  if (
-    typeof params.pageCount === "number" ||
-    normalizedBookStatus === "PREVIEW_READY" ||
-    (normalizedBookStatus && WORKSPACE_APPROVED_BOOK_STATUSES.has(normalizedBookStatus))
-  ) {
-    return params.tDashboard("book_progress_meta_state_ready");
-  }
-
-  return params.tDashboard("book_progress_meta_state_pending");
 }
 
 function BookProgressSkeleton({ title, description }: { title: string; description: string }) {
@@ -378,25 +231,14 @@ function BooksErrorState({
   isRetrying,
 }: BooksErrorStateProps) {
   return (
-    <section className="rounded-2xl border border-[#ef4444]/45 bg-[#111111] p-6">
-      <div className="flex items-start gap-3">
-        <AlertCircle className="mt-0.5 size-5 shrink-0 text-[#ef4444]" aria-hidden="true" />
-        <div className="min-w-0">
-          <h2 className="font-display text-xl font-semibold text-white">{title}</h2>
-          <p className="font-sans mt-1 text-sm text-[#d0d0d0]">{description}</p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={isRetrying}
-            className="font-sans mt-4 min-h-11 rounded-full border-[#2A2A2A] bg-[#000000] px-5 text-white hover:bg-[#151515]"
-          >
-            {isRetrying ? loadingLabel : retryLabel}
-          </Button>
-        </div>
-      </div>
-    </section>
+    <DashboardErrorState
+      title={title}
+      description={description}
+      retryLabel={retryLabel}
+      loadingLabel={loadingLabel}
+      onRetry={onRetry}
+      isRetrying={isRetrying}
+    />
   );
 }
 
@@ -1569,7 +1411,7 @@ export function BooksView() {
         <BooksErrorState
           title={tDashboard("book_progress_error_title")}
           description={tDashboard("book_progress_error_description")}
-          retryLabel={tDashboard("book_progress_retry")}
+          retryLabel={tCommon("retry")}
           loadingLabel={tCommon("loading")}
           onRetry={() => refetchOrders()}
           isRetrying={isOrdersFetching}
@@ -1589,7 +1431,7 @@ export function BooksView() {
         <BooksErrorState
           title={tDashboard("book_progress_error_title")}
           description={errorMessage}
-          retryLabel={tDashboard("book_progress_retry")}
+          retryLabel={tCommon("retry")}
           loadingLabel={tCommon("loading")}
           onRetry={() => refetch()}
           isRetrying={isFetching}

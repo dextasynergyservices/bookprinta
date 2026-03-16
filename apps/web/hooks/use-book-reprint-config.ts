@@ -4,6 +4,10 @@ import type { BookReprintConfigResponse } from "@bookprinta/shared";
 import { useQuery } from "@tanstack/react-query";
 import { normalizeBookReprintConfigPayload } from "@/lib/api/book-reprint-contract";
 import { throwApiError } from "@/lib/api-error";
+import {
+  DASHBOARD_STATUS_STALE_TIME_MS,
+  dashboardBaseQueryOptions,
+} from "@/lib/dashboard/query-defaults";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -123,9 +127,8 @@ export function useBookReprintConfig({ bookId, enabled = true }: UseBookReprintC
         signal,
       });
     },
-    staleTime: 15_000,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
+    ...dashboardBaseQueryOptions,
+    staleTime: DASHBOARD_STATUS_STALE_TIME_MS,
     enabled: enabled && Boolean(resolvedBookId),
     refetchOnWindowFocus: true,
   });

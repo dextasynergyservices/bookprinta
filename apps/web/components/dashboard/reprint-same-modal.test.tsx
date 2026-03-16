@@ -42,6 +42,8 @@ const DASHBOARD_TRANSLATIONS: Record<string, string> = {
   reprint_same_load_error_description:
     "We couldn't load this reprint configuration right now. Try again in a moment.",
   reprint_same_retry: "Try Again",
+  retry: "Try Again",
+  loading: "Loading...",
   reprint_same_unavailable_title: "Reprint Same is unavailable",
   reprint_same_unavailable_final_pdf:
     "This book does not have a final print-ready PDF available yet, so the same-file reprint flow cannot start.",
@@ -353,6 +355,35 @@ describe("ReprintSameModal", () => {
       "href",
       "/contact"
     );
+  });
+
+  it("uses the shared dashboard error state and retries when config loading fails", async () => {
+    const user = userEvent.setup();
+    const onRetry = jest.fn();
+
+    render(
+      <ReprintSameModal
+        open
+        onOpenChange={jest.fn()}
+        bookTitle="The Last Story"
+        config={null}
+        isLoading={false}
+        isError
+        errorMessage="Reprint config unavailable"
+        onRetry={onRetry}
+      />
+    );
+
+    expect(screen.getByText("Unable to load reprint settings")).toBeInTheDocument();
+    expect(screen.getByText("Reprint config unavailable")).toBeInTheDocument();
+    expect(
+      screen
+        .getByTestId("reprint-same-modal-shell")
+        .querySelector("[data-dashboard-error-state='true']")
+    ).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Try Again" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("starts an authenticated inline reprint payment with the selected settings", async () => {

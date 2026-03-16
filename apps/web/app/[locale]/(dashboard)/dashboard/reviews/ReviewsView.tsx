@@ -1,10 +1,13 @@
 "use client";
 
 import type { ReviewBook } from "@bookprinta/shared";
-import { AlertCircle, ImageIcon, MessageSquareText, Star } from "lucide-react";
+import { ImageIcon, MessageSquareText, Star } from "lucide-react";
 import Image, { type ImageLoaderProps } from "next/image";
 import { useLocale, useTranslations } from "next-intl";
-import { Button } from "@/components/ui/button";
+import {
+  BookCardSkeleton,
+  DashboardErrorState,
+} from "@/components/dashboard/dashboard-async-primitives";
 import { useReviewState } from "@/hooks/use-dashboard-shell-data";
 import { cn } from "@/lib/utils";
 
@@ -71,21 +74,7 @@ function ReviewsLoadingState() {
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {REVIEW_CARD_SKELETON_KEYS.map((key) => (
-        <div
-          key={key}
-          className="overflow-hidden rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4"
-        >
-          <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-4">
-            <div className="aspect-[3/4] rounded-[20px] bg-[#1A1A1A]" />
-            <div className="space-y-3">
-              <div className="h-5 w-2/3 rounded-full bg-[#1F1F1F]" />
-              <div className="h-4 w-1/2 rounded-full bg-[#191919]" />
-              <div className="h-6 w-24 rounded-full bg-[#142338]" />
-              <div className="h-4 w-full rounded-full bg-[#171717]" />
-              <div className="h-4 w-3/4 rounded-full bg-[#151515]" />
-            </div>
-          </div>
-        </div>
+        <BookCardSkeleton key={key} />
       ))}
     </div>
   );
@@ -114,29 +103,14 @@ function ReviewsErrorState({ onRetry, isRetrying }: { onRetry: () => void; isRet
   const tCommon = useTranslations("common");
 
   return (
-    <section className="rounded-2xl border border-[#ef4444]/45 bg-[#111111] p-6">
-      <div className="flex items-start gap-3">
-        <AlertCircle className="mt-0.5 size-5 shrink-0 text-[#ef4444]" aria-hidden="true" />
-        <div className="min-w-0">
-          <h2 className="font-display text-xl font-semibold text-white">
-            {tDashboard("reviews_error_title")}
-          </h2>
-          <p className="font-sans mt-1 text-sm text-[#d0d0d0]">
-            {tDashboard("reviews_error_description")}
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={isRetrying}
-            className="font-sans mt-4 min-h-11 rounded-full border-[#2A2A2A] bg-[#000000] px-5 text-white hover:bg-[#151515]"
-          >
-            {isRetrying ? tCommon("loading") : tCommon("retry")}
-          </Button>
-        </div>
-      </div>
-    </section>
+    <DashboardErrorState
+      title={tDashboard("reviews_error_title")}
+      description={tDashboard("reviews_error_description")}
+      retryLabel={tCommon("retry")}
+      loadingLabel={tCommon("loading")}
+      onRetry={onRetry}
+      isRetrying={isRetrying}
+    />
   );
 }
 

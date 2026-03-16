@@ -4,6 +4,7 @@ import { BooksController } from "./books.controller.js";
 import { BooksService } from "./books.service.js";
 
 const booksServiceMock = {
+  findUserBooks: jest.fn(),
   getUserBookReprintConfig: jest.fn(),
 };
 
@@ -75,5 +76,38 @@ describe("BooksController", () => {
       "cmuser111111111111111111111111",
       params.id
     );
+  });
+
+  it("delegates GET /books to the service for the current user", async () => {
+    booksServiceMock.findUserBooks.mockResolvedValue({
+      items: [],
+      pagination: {
+        page: 1,
+        pageSize: 10,
+        totalItems: 0,
+        totalPages: 0,
+        hasPreviousPage: false,
+        hasNextPage: false,
+      },
+    });
+
+    await expect(
+      controller.findMyBooks("cmuser111111111111111111111111", { page: 1, limit: 10 })
+    ).resolves.toEqual({
+      items: [],
+      pagination: {
+        page: 1,
+        pageSize: 10,
+        totalItems: 0,
+        totalPages: 0,
+        hasPreviousPage: false,
+        hasNextPage: false,
+      },
+    });
+
+    expect(booksServiceMock.findUserBooks).toHaveBeenCalledWith("cmuser111111111111111111111111", {
+      page: 1,
+      limit: 10,
+    });
   });
 });

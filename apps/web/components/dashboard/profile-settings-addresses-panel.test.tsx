@@ -56,6 +56,7 @@ const TRANSLATIONS: Record<string, string> = {
   addresses_load_error_description:
     "We couldn't load your saved addresses right now. Please try again.",
   addresses_retry: "Retry",
+  retry: "Try Again",
   addresses_empty_title: "No saved addresses yet",
   addresses_empty_description:
     "Add a delivery address now so you are ready when shipping becomes available.",

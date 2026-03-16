@@ -25,6 +25,7 @@ const TRANSLATIONS: Record<string, string> = {
   settings_load_error_description:
     "We couldn't load your account settings right now. Please try again.",
   settings_retry: "Retry",
+  retry: "Try Again",
   settings_password_title: "Change Password",
   settings_password_description: "Update your password for future sign-ins.",
   settings_password_current_label: "Current Password",
@@ -281,5 +282,20 @@ describe("ProfileSettingsSettingsPanel", () => {
       "w-full"
     );
     expect(screen.getByRole("button", { name: "Change language" })).toBeInTheDocument();
+  });
+
+  it("renders the settings skeleton while the profile query is loading", () => {
+    useMyProfileMock.mockReturnValue({
+      profile: null,
+      isLoading: true,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    });
+
+    const { container } = render(<ProfileSettingsSettingsPanel />);
+
+    expect(container.firstChild).toHaveAttribute("data-testid", "profile-settings-settings-panel");
+    expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
   });
 });

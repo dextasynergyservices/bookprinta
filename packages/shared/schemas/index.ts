@@ -4,6 +4,7 @@ export * from "./admin.schema.ts";
 export * from "./auth.schema.ts";
 export * from "./book.schema.ts";
 export * from "./coupon.schema.ts";
+export * from "./dashboard.schema.ts";
 export * from "./notification.schema.ts";
 export * from "./order.schema.ts";
 export * from "./package.schema.ts";

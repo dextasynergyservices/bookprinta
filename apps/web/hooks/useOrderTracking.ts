@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { normalizeBookProgressPayload } from "@/lib/api/book-progress-contract";
 import { throwApiError } from "@/lib/api-error";
+import { dashboardStatusPollingQueryOptions } from "@/lib/dashboard/query-defaults";
 import {
   BOOK_PROGRESS_STAGES,
   type BookProcessingState,
@@ -200,12 +201,8 @@ export function useOrderTracking({ orderId, enabled = true }: UseOrderTrackingPa
         signal,
       });
     },
-    staleTime: 15_000,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
+    ...dashboardStatusPollingQueryOptions,
     enabled: enabled && Boolean(resolvedOrderId),
-    refetchInterval: 30_000,
-    refetchOnWindowFocus: true,
   });
 
   const data = query.data ?? fallbackData;

@@ -7,6 +7,7 @@ import {
   type NotificationMarkAllReadResponse,
   type NotificationMarkReadResponse,
   type NotificationPresentation,
+  type NotificationsListQueryInput,
   type NotificationsListResponse,
   type NotificationTemplateParams,
   type NotificationType,
@@ -16,7 +17,6 @@ import {
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import type { NotificationsListQueryDto } from "./dto/notification.dto.js";
 
 const NOTIFICATION_SELECT = {
   id: true,
@@ -134,7 +134,7 @@ export class NotificationsService {
 
   async findUserNotifications(
     userId: string,
-    query: NotificationsListQueryDto
+    query: NotificationsListQueryInput
   ): Promise<NotificationsListResponse> {
     const page = query.page ?? 1;
     const pageSize = query.limit ?? 20;

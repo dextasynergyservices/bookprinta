@@ -17,6 +17,10 @@ import { useTranslations } from "next-intl";
 import type { ChangeEvent, FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  DashboardErrorState,
+  ProfileSkeleton,
+} from "@/components/dashboard/dashboard-async-primitives";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -117,12 +121,9 @@ function areProfileDraftsEqual(left: ProfileDraft, right: ProfileDraft) {
   return JSON.stringify(stripDraftIds(left)) === JSON.stringify(stripDraftIds(right));
 }
 
-function createLoadingBlocks() {
-  return Array.from({ length: 4 }, (_unused, index) => `profile-loading-block-${index + 1}`);
-}
-
 export function ProfileSettingsProfilePanel() {
   const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
   const prefersReducedMotion = useReducedMotion();
   const { profile, isLoading, isError, error, refetch } = useMyProfile();
   const { updateProfile, isPending: isSaving } = useUpdateMyProfile();
@@ -213,7 +214,6 @@ export function ProfileSettingsProfilePanel() {
     [draft, serverSnapshot]
   );
   const isBusy = isSaving || isUploadingImage || isDeletingImage;
-  const loadingBlocks = useMemo(() => createLoadingBlocks(), []);
 
   const updateDraftField = <TKey extends keyof Omit<ProfileDraft, "purchaseLinks" | "socialLinks">>(
     key: TKey,
@@ -443,49 +443,30 @@ export function ProfileSettingsProfilePanel() {
 
   if (isLoading && !profile) {
     return (
-      <section
+      <ProfileSkeleton
         data-testid="profile-settings-profile-panel"
-        className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]"
-        aria-labelledby="profile-settings-heading"
-      >
-        <div className="rounded-[32px] border border-[#2A2A2A] bg-[#111111] p-5">
-          <div className="mx-auto h-44 w-44 animate-pulse rounded-full bg-[#1C1C1C]" />
-        </div>
-        <div className="grid gap-4">
-          {loadingBlocks.map((key) => (
-            <div
-              key={key}
-              className="h-32 animate-pulse rounded-[32px] border border-[#2A2A2A] bg-[#111111]"
-            />
-          ))}
-        </div>
-      </section>
+        role="status"
+        aria-live="polite"
+        aria-label={tCommon("loading")}
+      />
     );
   }
 
   if (isError || !profile) {
     return (
-      <section
+      <DashboardErrorState
         data-testid="profile-settings-profile-panel"
-        className="rounded-[32px] border border-[#2A2A2A] bg-[#111111] p-5"
-        aria-labelledby="profile-settings-heading"
-      >
-        <h2 id="profile-settings-heading" className="font-sans text-sm font-medium text-white">
-          {tDashboard("profile_load_error_title")}
-        </h2>
-        <p className="font-sans mt-2 text-sm leading-6 text-[#A3A3A3]">
-          {error instanceof Error ? error.message : tDashboard("profile_load_error_description")}
-        </p>
-        <Button
-          type="button"
-          onClick={() => {
-            void refetch();
-          }}
-          className="font-sans mt-4 min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
-        >
-          {tDashboard("profile_retry")}
-        </Button>
-      </section>
+        className="rounded-[32px]"
+        title={tDashboard("profile_load_error_title")}
+        description={
+          error instanceof Error ? error.message : tDashboard("profile_load_error_description")
+        }
+        retryLabel={tCommon("retry")}
+        loadingLabel={tCommon("loading")}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
     );
   }
 

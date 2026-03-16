@@ -69,6 +69,46 @@ function createNotification(overrides: Partial<MockNotification>): MockNotificat
   };
 }
 
+function createDashboardOverviewResponse(params: {
+  unreadCount: number;
+  hasProductionDelayBanner: boolean;
+}) {
+  return {
+    activeBook: null,
+    recentOrders: [],
+    notifications: {
+      unreadCount: params.unreadCount,
+      hasProductionDelayBanner: params.hasProductionDelayBanner,
+    },
+    profile: {
+      isProfileComplete: true,
+      preferredLanguage: "en",
+    },
+    pendingActions: {
+      total: 0,
+      items: [],
+    },
+  };
+}
+
+function createProfileResponse() {
+  return {
+    bio: null,
+    profileImageUrl: null,
+    whatsAppNumber: null,
+    websiteUrl: null,
+    purchaseLinks: [],
+    socialLinks: [],
+    isProfileComplete: true,
+    preferredLanguage: "en",
+    notificationPreferences: {
+      email: true,
+      whatsApp: true,
+      inApp: true,
+    },
+  };
+}
+
 async function mockDashboardApis(
   page: Page,
   {
@@ -80,16 +120,13 @@ async function mockDashboardApis(
   let currentNotifications = notifications.map((notification) => ({ ...notification }));
   const queuedUnreadCounts = [...(unreadCountSequence ?? [])];
   const submittedReviews: Array<{ bookId: string; rating: number; comment?: string }> = [];
-  let reviewedBooks: Array<{
-    bookId: string;
-    rating: number;
-    comment: string | null;
-    isPublic: boolean;
-    createdAt: string;
-  }> = [];
-  let pendingBooks = pendingReviewBookIds.map((bookId) => ({
+  let reviewBooks = pendingReviewBookIds.map((bookId) => ({
     bookId,
-    status: "PRINTED",
+    title: "The Lagos Chronicle",
+    coverImageUrl: null,
+    lifecycleStatus: "PRINTED",
+    reviewStatus: "PENDING",
+    review: null,
   }));
 
   await page.route("**/api/v1/auth/me", async (route) => {
@@ -100,7 +137,11 @@ async function mockDashboardApis(
         user: {
           id: "test-user-id",
           email: "author@example.com",
+          firstName: "Amina",
+          lastName: "Yusuf",
           role: "USER",
+          displayName: "Amina Yusuf",
+          initials: "AY",
         },
       }),
     });
@@ -124,6 +165,30 @@ async function mockDashboardApis(
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ unreadCount }),
+    });
+  });
+
+  await page.route("**/api/v1/dashboard/overview", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(
+        createDashboardOverviewResponse({
+          unreadCount: currentNotifications.filter((notification) => !notification.isRead).length,
+          hasProductionDelayBanner: currentNotifications.some(
+            (notification) =>
+              notification.data.presentation?.persistentBanner === "production_delay"
+          ),
+        })
+      ),
+    });
+  });
+
+  await page.route("**/api/v1/users/me/profile", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(createProfileResponse()),
     });
   });
 
@@ -198,9 +263,9 @@ async function mockDashboardApis(
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        hasAnyPrintedBook: pendingBooks.length > 0 || reviewedBooks.length > 0,
-        reviewedBooks,
-        pendingBooks,
+        hasEligibleBooks: reviewBooks.length > 0,
+        hasPendingReviews: reviewBooks.some((book) => book.reviewStatus === "PENDING"),
+        books: reviewBooks,
       }),
     });
   });
@@ -214,25 +279,39 @@ async function mockDashboardApis(
 
     submittedReviews.push(body);
 
+    const currentBook =
+      reviewBooks.find((book) => book.bookId === body.bookId) ??
+      ({
+        bookId: body.bookId,
+        title: "The Lagos Chronicle",
+        coverImageUrl: null,
+        lifecycleStatus: "DELIVERED",
+      } as const);
+
     const review = {
       bookId: body.bookId,
-      rating: body.rating,
-      comment: body.comment ?? null,
-      isPublic: true,
-      createdAt: "2026-03-07T11:00:00.000Z",
+      title: currentBook.title,
+      coverImageUrl: currentBook.coverImageUrl,
+      lifecycleStatus: currentBook.lifecycleStatus,
+      reviewStatus: "REVIEWED" as const,
+      review: {
+        rating: body.rating,
+        comment: body.comment ?? null,
+        isPublic: true,
+        createdAt: "2026-03-07T11:00:00.000Z",
+      },
     };
 
-    reviewedBooks = [
+    reviewBooks = [
       review,
-      ...reviewedBooks.filter((existingReview) => existingReview.bookId !== body.bookId),
+      ...reviewBooks.filter((existingReview) => existingReview.bookId !== body.bookId),
     ];
-    pendingBooks = pendingBooks.filter((book) => book.bookId !== body.bookId);
 
     await route.fulfill({
       status: 201,
       contentType: "application/json",
       body: JSON.stringify({
-        review,
+        book: review,
       }),
     });
   });
@@ -253,13 +332,38 @@ async function waitForDashboardReady(page: Page) {
 
 async function openNotificationPanel(page: Page) {
   const trigger = page.getByRole("button", { name: /Open notifications|Close notifications/ });
-  await trigger.focus();
-  await page.keyboard.press("Enter");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await dismissAutoOpenedReviewDialogIfPresent(page, attempt === 0 ? 250 : 1_500);
+
+    try {
+      await trigger.click({ timeout: 5_000 });
+      break;
+    } catch (error) {
+      if (attempt === 1) {
+        throw error;
+      }
+    }
+  }
 
   const panel = page.locator("[data-notification-panel-surface='true']");
   await expect(panel).toBeVisible({ timeout: 15_000 });
 
   return panel;
+}
+
+async function dismissAutoOpenedReviewDialogIfPresent(page: Page, timeout = 1_000) {
+  const closeButton = page.getByRole("button", { name: "Close review dialog" });
+  const isDialogVisible = await closeButton
+    .waitFor({ state: "visible", timeout })
+    .then(() => true)
+    .catch(() => false);
+
+  if (!isDialogVisible) {
+    return;
+  }
+
+  await closeButton.click();
+  await expect(closeButton).toBeHidden({ timeout: 15_000 });
 }
 
 test.describe("Dashboard notification center", () => {
@@ -277,6 +381,7 @@ test.describe("Dashboard notification center", () => {
 
     await gotoDashboard(page);
     await waitForDashboardReady(page);
+    await dismissAutoOpenedReviewDialogIfPresent(page);
     await expect(page.locator("[data-notification-badge='true']")).toHaveText("1", {
       timeout: 15_000,
     });
@@ -371,6 +476,9 @@ test.describe("Dashboard notification center", () => {
   test("1280px: desktop dropdown opens review flow and submits a review", async ({ page }) => {
     test.slow();
     await page.setViewportSize({ width: 1280, height: 900 });
+    await page.addInitScript((bookId: string) => {
+      window.sessionStorage.setItem(`dashboard_review_dialog_dismissed:${bookId}`, "1");
+    }, REVIEW_BOOK_ID);
     const apiState = await mockDashboardApis(page, {
       notifications: [
         createNotification({
@@ -408,8 +516,9 @@ test.describe("Dashboard notification center", () => {
     await reviewNotification.focus();
     await page.keyboard.press("Enter");
 
-    await expect(page.getByText("How was your experience?")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("The Lagos Chronicle", { exact: true })).toBeVisible();
+    const reviewDialog = page.getByRole("dialog", { name: "How was your experience?" });
+    await expect(reviewDialog).toBeVisible({ timeout: 15_000 });
+    await expect(reviewDialog.getByText("The Lagos Chronicle", { exact: true })).toBeVisible();
 
     await page.getByRole("radio", { name: "5 star rating" }).click();
     await page
@@ -417,7 +526,11 @@ test.describe("Dashboard notification center", () => {
       .fill("Sharp print quality and smooth updates.");
     await page.getByRole("button", { name: "Submit Review" }).click();
 
-    await expect(page.getByText("How was your experience?")).toHaveCount(0);
+    const reviewSuccessHeading = page.getByRole("heading", {
+      name: "Thank you for your feedback!",
+    });
+    await expect(reviewSuccessHeading).toBeVisible({ timeout: 15_000 });
+    await expect(reviewSuccessHeading).toHaveCount(0, { timeout: 15_000 });
     await expect(page.locator("[data-notification-badge='true']")).toHaveCount(0);
     expect(apiState.getSubmittedReviews()).toEqual([
       {

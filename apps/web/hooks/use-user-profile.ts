@@ -26,6 +26,7 @@ import {
   normalizeUpdateMyProfilePayload,
 } from "@/lib/api/users-contract";
 import { throwApiError } from "@/lib/api-error";
+import { dashboardLiveQueryOptions } from "@/lib/dashboard/query-defaults";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -347,11 +348,7 @@ export function useMyProfile() {
       sentryEndpoint: "/api/v1/users/me/profile",
     },
     queryFn: ({ signal }) => fetchMyProfile({ signal }),
-    staleTime: 0,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    ...dashboardLiveQueryOptions,
   });
 
   return {

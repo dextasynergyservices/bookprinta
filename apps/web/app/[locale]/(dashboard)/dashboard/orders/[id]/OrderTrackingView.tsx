@@ -1,18 +1,11 @@
 "use client";
 
-import {
-  AlertCircle,
-  ArrowLeft,
-  CircleDollarSign,
-  Copy,
-  LifeBuoy,
-  Receipt,
-  Share2,
-  Truck,
-} from "lucide-react";
+import { ArrowLeft, CircleDollarSign, Copy, LifeBuoy, Receipt, Share2, Truck } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { type ComponentType, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
+import { DashboardRefundPolicyDialog } from "@/components/dashboard/dashboard-refund-policy-dialog";
 import {
   type OrderJourneyStep,
   type OrderJourneyStepKey,
@@ -21,13 +14,6 @@ import {
 } from "@/components/dashboard/order-journey-tracker";
 import { ReprintSameModal } from "@/components/dashboard/reprint-same-modal";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
 import { useOrderDetail } from "@/hooks/useOrderDetail";
 import { useOrderTracking } from "@/hooks/useOrderTracking";
@@ -296,7 +282,6 @@ function MetadataItem({
 
 export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
   const tDashboard = useTranslations("dashboard");
-  const tRefund = useTranslations("legal_refund");
   const tCommon = useTranslations("common");
   const locale = useLocale();
   const [isDownloadingInvoice, setIsDownloadingInvoice] = useState(false);
@@ -525,27 +510,17 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
         ? tracking.error.message
         : tDashboard("order_tracking_error_description");
     return (
-      <section className="rounded-2xl border border-[#ef4444]/45 bg-[#111111] p-6">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="mt-0.5 size-5 shrink-0 text-[#ef4444]" aria-hidden="true" />
-          <div className="min-w-0">
-            <h2 className="font-display text-xl font-semibold text-white">
-              {tDashboard("order_tracking_error_title")}
-            </h2>
-            <p className="font-sans mt-1 text-sm text-[#d0d0d0]">{errorMessage}</p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => tracking.refetch()}
-              disabled={tracking.isFetching}
-              className="font-sans mt-4 min-h-11 rounded-full border-[#2A2A2A] bg-[#000000] px-5 text-white hover:bg-[#151515]"
-            >
-              {tracking.isFetching ? tCommon("loading") : tDashboard("order_tracking_retry")}
-            </Button>
-          </div>
-        </div>
-      </section>
+      <DashboardErrorState
+        className="rounded-[32px]"
+        title={tDashboard("order_tracking_error_title")}
+        description={errorMessage}
+        retryLabel={tCommon("retry")}
+        loadingLabel={tCommon("loading")}
+        onRetry={() => {
+          void tracking.refetch();
+        }}
+        isRetrying={tracking.isFetching}
+      />
     );
   }
 
@@ -718,93 +693,7 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
         </p>
       </section>
 
-      <Dialog open={isRefundPolicyOpen} onOpenChange={setIsRefundPolicyOpen}>
-        <DialogContent className="max-h-[85dvh] max-w-2xl overflow-y-auto border-[#2A2A2A] bg-[#111111] p-5 text-white sm:p-6">
-          <DialogHeader className="space-y-2 text-left">
-            <DialogTitle className="font-display text-2xl font-semibold tracking-tight text-white">
-              {tDashboard("order_tracking_refund_policy_modal_title")}
-            </DialogTitle>
-            <DialogDescription className="font-sans text-sm text-[#d0d0d0]">
-              {tDashboard("order_tracking_refund_policy_modal_subtitle")}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <p className="font-sans text-xs text-[#8f8f8f]">{tRefund("updated")}</p>
-            <p className="font-sans text-sm text-[#d8d8d8]">
-              {tDashboard("order_tracking_refund_policy_modal_intro")}
-            </p>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-[#2A2A2A]">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2">
-              <p className="font-sans text-[11px] font-semibold tracking-[0.08em] text-[#9d9d9d] uppercase">
-                {tDashboard("order_tracking_refund_policy_stage_header")}
-              </p>
-              <p className="font-sans text-[11px] font-semibold tracking-[0.08em] text-[#9d9d9d] uppercase">
-                {tDashboard("order_tracking_refund_policy_amount_header")}
-              </p>
-            </div>
-            <div className="space-y-0 divide-y divide-[#2A2A2A]">
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3">
-                <p className="font-sans text-sm text-[#d8d8d8]">
-                  {tDashboard("order_tracking_refund_policy_rule_before_processing")}
-                </p>
-                <p className="font-sans text-sm font-semibold text-[#007eff]">
-                  {tDashboard("order_tracking_refund_policy_rule_before_processing_amount")}
-                </p>
-              </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3">
-                <p className="font-sans text-sm text-[#d8d8d8]">
-                  {tDashboard("order_tracking_refund_policy_rule_ai_processing")}
-                </p>
-                <p className="font-sans text-sm font-semibold text-[#facc15]">
-                  {tDashboard("order_tracking_refund_policy_rule_ai_processing_amount")}
-                </p>
-              </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3">
-                <p className="font-sans text-sm text-[#d8d8d8]">
-                  {tDashboard("order_tracking_refund_policy_rule_after_approval")}
-                </p>
-                <p className="font-sans text-sm font-semibold text-[#ef4444]">
-                  {tDashboard("order_tracking_refund_policy_rule_after_approval_amount")}
-                </p>
-              </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3">
-                <p className="font-sans text-sm text-[#d8d8d8]">
-                  {tDashboard("order_tracking_refund_policy_rule_after_printing")}
-                </p>
-                <p className="font-sans text-sm font-semibold text-[#ef4444]">
-                  {tDashboard("order_tracking_refund_policy_rule_after_printing_amount")}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <p className="font-sans text-sm text-[#d0d0d0]">
-            {tDashboard("order_tracking_refund_policy_modal_support")}
-          </p>
-
-          <div className="flex flex-wrap gap-2">
-            <a
-              href="https://wa.me/2348103208297"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-sans inline-flex min-h-11 items-center justify-center rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-[#0066d1] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
-            >
-              {tDashboard("order_tracking_refund_policy_modal_contact")}
-            </a>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsRefundPolicyOpen(false)}
-              className="font-sans min-h-11 rounded-full border-[#2A2A2A] bg-[#000000] px-5 text-sm text-white hover:border-[#007eff] hover:bg-[#151515]"
-            >
-              {tDashboard("order_tracking_refund_policy_modal_close")}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DashboardRefundPolicyDialog open={isRefundPolicyOpen} onOpenChange={setIsRefundPolicyOpen} />
 
       <ReprintSameModal
         open={isReprintSameModalOpen}

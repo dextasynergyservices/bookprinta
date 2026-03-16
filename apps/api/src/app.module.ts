@@ -10,6 +10,7 @@ import { BooksModule } from "./books/books.module.js";
 import { CloudinaryModule } from "./cloudinary/cloudinary.module.js";
 import { ContactModule } from "./contact/contact.module.js";
 import { CouponsModule } from "./coupons/coupons.module.js";
+import { DashboardModule } from "./dashboard/dashboard.module.js";
 import { FilesModule } from "./files/files.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { JobsModule } from "./jobs/jobs.module.js";
@@ -120,6 +121,9 @@ import { UsersModule } from "./users/users.module.js";
 
     // Authenticated order endpoints (history, detail, tracking)
     OrdersModule,
+
+    // Authenticated dashboard overview endpoint for the main user dashboard page
+    DashboardModule,
 
     // Authenticated book endpoints (detail, status timeline, lifecycle metadata)
     BooksModule,

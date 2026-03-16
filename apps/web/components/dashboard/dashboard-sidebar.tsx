@@ -69,9 +69,10 @@ export function DashboardSidebar({
     isError: isReviewEligibilityError,
     isFallback: isReviewEligibilityFallback,
   } = useReviewState();
+  const isReviewEligibilityUnavailable = isReviewEligibilityError || isReviewEligibilityFallback;
   const reviewsLockedTooltip = isReviewEligibilityLoading
     ? tDashboard("reviews_eligibility_loading")
-    : isReviewEligibilityError || isReviewEligibilityFallback
+    : isReviewEligibilityUnavailable
       ? tDashboard("reviews_eligibility_unavailable")
       : tDashboard("reviews_disabled_tooltip");
   const canCollapseDesktop = !onNavigate && typeof onToggleCollapse === "function";
@@ -129,10 +130,17 @@ export function DashboardSidebar({
             {SIDEBAR_ITEMS.map((item) => {
               const isActive = isItemActive(pathname, item);
               const isReviewsItem = item.labelKey === "reviews";
-              const isReviewsLocked = isReviewsItem && !hasAnyEligibleBook;
+              const isReviewsLocked =
+                isReviewsItem &&
+                !isReviewEligibilityLoading &&
+                !isReviewEligibilityUnavailable &&
+                !hasAnyEligibleBook;
+              const shouldShowReviewsAvailabilityTooltip =
+                isReviewsItem &&
+                (isReviewsLocked || isReviewEligibilityLoading || isReviewEligibilityUnavailable);
               const Icon = item.icon;
               const itemLabel = tDashboard(item.labelKey);
-              const tooltipLabel = isReviewsLocked
+              const tooltipLabel = shouldShowReviewsAvailabilityTooltip
                 ? `${itemLabel} - ${reviewsLockedTooltip}`
                 : isCollapsed
                   ? itemLabel
