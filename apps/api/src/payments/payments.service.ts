@@ -70,6 +70,8 @@ const PHONE_ALREADY_IN_USE_MESSAGE =
   "This phone number is already linked to another account. Use another phone number or sign in to your existing account.";
 const EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE =
   "This email and phone number belong to different accounts. Sign in to the correct account or use a different phone number.";
+const DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE =
+  "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup.";
 const REPRINT_ALLOWED_BOOK_SIZES = new Set(["A4", "A5", "A6"]);
 const REPRINT_ALLOWED_PAPER_COLORS = new Set(["white", "cream"]);
 const REPRINT_ALLOWED_LAMINATIONS = new Set(["matt", "gloss"]);
@@ -2165,6 +2167,9 @@ export class PaymentsService {
       });
 
       if (!user) return null;
+      if (!user.isActive) {
+        throw new ConflictException(DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE);
+      }
 
       if (order.userId !== user.id) {
         throw new ConflictException("Payment is linked to a mismatched checkout owner.");
@@ -2284,6 +2289,10 @@ export class PaymentsService {
           });
         }
 
+        if (user && !user.isActive) {
+          throw new ConflictException(DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE);
+        }
+
         const fullName = this.pickDisplayName(
           checkout.fullName ||
             [user?.firstName, user?.lastName]
@@ -2306,6 +2315,7 @@ export class PaymentsService {
               phoneNumber: normalizedPhone,
               phoneNumberNormalized: normalizedPhoneLookup,
               preferredLanguage: locale,
+              isActive: true,
               isVerified: false,
               verificationToken: signupToken,
               tokenExpiry: signupTokenExpiry,
@@ -2459,36 +2469,41 @@ export class PaymentsService {
   }): Promise<void> {
     const normalizedEmail = params.email.trim().toLowerCase();
     const normalizedPhone = normalizePhoneNumber(params.phone);
+    if (!normalizedEmail) return;
 
-    if (!normalizedEmail || !normalizedPhone) {
+    const db = params.tx ?? this.prisma;
+    const emailUser = await db.user.findFirst({
+      where: {
+        email: {
+          equals: normalizedEmail,
+          mode: "insensitive",
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        isActive: true,
+      },
+    });
+
+    if (emailUser && emailUser.id !== params.allowUserId && !emailUser.isActive) {
+      throw new ConflictException(DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE);
+    }
+
+    if (!normalizedPhone) {
       return;
     }
 
-    const db = params.tx ?? this.prisma;
-    const [emailUser, phoneUsers] = await Promise.all([
-      db.user.findFirst({
-        where: {
-          email: {
-            equals: normalizedEmail,
-            mode: "insensitive",
-          },
-        },
-        select: {
-          id: true,
-          email: true,
-        },
-      }),
-      db.user.findMany({
-        where: {
-          phoneNumberNormalized: normalizedPhone,
-        },
-        select: {
-          id: true,
-          email: true,
-        },
-        take: 3,
-      }),
-    ]);
+    const phoneUsers = await db.user.findMany({
+      where: {
+        phoneNumberNormalized: normalizedPhone,
+      },
+      select: {
+        id: true,
+        email: true,
+      },
+      take: 3,
+    });
 
     const emailOwnerId = emailUser && emailUser.id !== params.allowUserId ? emailUser.id : null;
     const conflictingPhoneUsers = phoneUsers.filter((user) => user.id !== params.allowUserId);
@@ -4287,6 +4302,7 @@ export class PaymentsService {
             email: true,
             firstName: true,
             phoneNumber: true,
+            isActive: true,
             verificationToken: true,
             tokenExpiry: true,
             preferredLanguage: true,
@@ -4332,6 +4348,7 @@ export class PaymentsService {
     const tokenExpired = Boolean(
       payment.user?.tokenExpiry && payment.user.tokenExpiry < new Date()
     );
+    const userInactive = payment.user?.isActive === false;
     const locale = this.resolveLocale(payment.user?.preferredLanguage);
 
     if (options.retryFailedDelivery && snapshot?.status === "FAILED") {
@@ -4339,6 +4356,8 @@ export class PaymentsService {
         this.logger.warn(
           `Signup link retry skipped for payment ${reference}: verification token missing`
         );
+      } else if (userInactive) {
+        this.logger.warn(`Signup link retry skipped for payment ${reference}: user is inactive`);
       } else if (tokenExpired) {
         this.logger.warn(
           `Signup link retry skipped for payment ${reference}: verification token expired`
@@ -4373,7 +4392,7 @@ export class PaymentsService {
       }
     }
 
-    if (!token || tokenExpired) {
+    if (!token || tokenExpired || userInactive) {
       return {
         signupUrl: null,
         signupDelivery: this.toPublicSignupLinkDeliveryStatus(snapshot),

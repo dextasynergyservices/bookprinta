@@ -1,0 +1,88 @@
+import { Body, Controller, Get, Header, Param, Patch, Query, UseGuards } from "@nestjs/common";
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
+import {
+  AdminUpdateUserDto,
+  AdminUpdateUserResponseDto,
+  AdminUserDetailDto,
+  AdminUsersListQueryDto,
+  AdminUsersListResponseDto,
+} from "./dto/index.js";
+import { UsersService } from "./users.service.js";
+
+@ApiTags("Admin Users")
+@Controller("admin/users")
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+@ApiBearerAuth("access-token")
+export class AdminUsersController {
+  constructor(private readonly usersService: UsersService) {}
+
+  @Get()
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "List users for the admin panel",
+    description:
+      "Returns a cursor-paginated user management list with search, role/verification filters, and stable sorting.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Admin users list retrieved successfully",
+    type: AdminUsersListResponseDto,
+  })
+  async findAdminUsers(@Query() query: AdminUsersListQueryDto): Promise<AdminUsersListResponseDto> {
+    return this.usersService.findAdminUsers(query);
+  }
+
+  @Get(":id")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Get admin user detail",
+    description:
+      "Returns the full admin user detail payload including profile information plus orders, books, and payments history.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "User CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Admin user detail retrieved successfully",
+    type: AdminUserDetailDto,
+  })
+  @ApiResponse({ status: 404, description: "User not found" })
+  async findAdminUserById(@Param("id") userId: string): Promise<AdminUserDetailDto> {
+    return this.usersService.findAdminUserById(userId);
+  }
+
+  @Patch(":id")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Update an admin-managed user",
+    description:
+      "Updates role, verification state, or active state, and records an audit trail with previous and next values.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "User CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Admin user updated successfully",
+    type: AdminUpdateUserResponseDto,
+  })
+  @ApiResponse({ status: 400, description: "Invalid or empty user update payload" })
+  @ApiResponse({ status: 404, description: "User not found" })
+  async updateAdminUser(
+    @Param("id") userId: string,
+    @Body() dto: AdminUpdateUserDto,
+    @CurrentUser("sub") adminId: string
+  ): Promise<AdminUpdateUserResponseDto> {
+    return this.usersService.updateAdminUser(userId, dto, adminId);
+  }
+}

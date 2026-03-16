@@ -1,4 +1,12 @@
 import { z } from "zod";
+import { AdminAuditEntrySchema, AdminSortDirectionSchema } from "./admin.schema.ts";
+import {
+  BookStatusSchema,
+  OrderPackageSummarySchema,
+  OrderStatusSchema,
+  OrderTypeSchema,
+} from "./order.schema.ts";
+import { PaymentProviderSchema, PaymentStatusSchema, PaymentTypeSchema } from "./payment.schema.ts";
 
 // ==========================================
 // User / Profile / Settings Schemas — Source of Truth
@@ -10,6 +18,9 @@ const MAX_URL_LENGTH = 2048;
 const MAX_PHONE_LENGTH = 40;
 const STRONG_PASSWORD_REGEX =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/;
+
+export const UserRoleSchema = z.enum(["USER", "ADMIN", "SUPER_ADMIN", "EDITOR", "MANAGER"]);
+export type UserRoleValue = z.infer<typeof UserRoleSchema>;
 
 export const SupportedLanguageSchema = z.enum(["en", "fr", "es"]);
 export type SupportedLanguage = z.infer<typeof SupportedLanguageSchema>;
@@ -301,3 +312,174 @@ export const UpdateMyNotificationPreferencesResponseSchema = z
 export type UpdateMyNotificationPreferencesResponse = z.infer<
   typeof UpdateMyNotificationPreferencesResponseSchema
 >;
+
+// ==========================================
+// Admin User Management Contracts
+// ==========================================
+
+const AdminUserQueryBooleanSchema = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+
+  return value;
+}, z.boolean());
+
+export const AdminUserSortFieldSchema = z.enum([
+  "fullName",
+  "email",
+  "role",
+  "isVerified",
+  "createdAt",
+]);
+export type AdminUserSortField = z.infer<typeof AdminUserSortFieldSchema>;
+
+export const AdminUsersListQuerySchema = z.object({
+  cursor: z.string().cuid().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  q: z.string().trim().max(200).optional(),
+  role: UserRoleSchema.optional(),
+  isVerified: AdminUserQueryBooleanSchema.optional(),
+  sortBy: AdminUserSortFieldSchema.default("createdAt"),
+  sortDirection: AdminSortDirectionSchema.default("desc"),
+});
+export type AdminUsersListQuery = z.infer<typeof AdminUsersListQuerySchema>;
+
+export const AdminUsersListItemSchema = z.object({
+  id: z.string().cuid(),
+  fullName: z.string().trim().min(1).max(200),
+  email: z.string().email(),
+  role: UserRoleSchema,
+  isVerified: z.boolean(),
+  isActive: z.boolean(),
+  createdAt: z.string().datetime(),
+  detailUrl: z.string().trim().min(1),
+});
+export type AdminUsersListItem = z.infer<typeof AdminUsersListItemSchema>;
+
+export const AdminUsersListResponseSchema = z.object({
+  items: z.array(AdminUsersListItemSchema),
+  nextCursor: z.string().cuid().nullable(),
+  hasMore: z.boolean(),
+  totalItems: z.number().int().min(0),
+  limit: z.number().int().min(1).max(50),
+  sortBy: AdminUserSortFieldSchema,
+  sortDirection: AdminSortDirectionSchema,
+  sortableFields: z.array(AdminUserSortFieldSchema),
+});
+export type AdminUsersListResponse = z.infer<typeof AdminUsersListResponseSchema>;
+
+export const AdminUserOrderSummarySchema = z.object({
+  id: z.string().cuid(),
+  orderNumber: z.string().trim().min(1).max(120),
+  orderType: OrderTypeSchema,
+  orderStatus: OrderStatusSchema,
+  bookStatus: BookStatusSchema.nullable(),
+  package: OrderPackageSummarySchema,
+  totalAmount: z.number().nonnegative(),
+  currency: z.string().length(3),
+  createdAt: z.string().datetime(),
+  detailUrl: z.string().trim().min(1),
+});
+export type AdminUserOrderSummary = z.infer<typeof AdminUserOrderSummarySchema>;
+
+export const AdminUserBookSummarySchema = z.object({
+  id: z.string().cuid(),
+  title: z.string().trim().min(1).max(240).nullable(),
+  status: BookStatusSchema,
+  productionStatus: BookStatusSchema.nullable(),
+  orderId: z.string().cuid(),
+  orderNumber: z.string().trim().min(1).max(120),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  detailUrl: z.string().trim().min(1),
+  orderDetailUrl: z.string().trim().min(1),
+});
+export type AdminUserBookSummary = z.infer<typeof AdminUserBookSummarySchema>;
+
+export const AdminUserPaymentSummarySchema = z.object({
+  id: z.string().cuid(),
+  orderId: z.string().cuid().nullable(),
+  orderNumber: z.string().trim().min(1).max(120).nullable(),
+  provider: PaymentProviderSchema,
+  type: PaymentTypeSchema,
+  status: PaymentStatusSchema,
+  amount: z.number(),
+  currency: z.string().length(3),
+  providerRef: z.string().nullable(),
+  receiptUrl: z.string().url().nullable(),
+  approvedAt: z.string().datetime().nullable(),
+  processedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  orderDetailUrl: z.string().trim().min(1).nullable(),
+});
+export type AdminUserPaymentSummary = z.infer<typeof AdminUserPaymentSummarySchema>;
+
+export const AdminUserProfileSchema = z.object({
+  id: z.string().cuid(),
+  firstName: z.string().trim().min(1).max(120),
+  lastName: z.string().trim().min(1).max(120).nullable(),
+  fullName: z.string().trim().min(1).max(200),
+  email: z.string().email(),
+  phoneNumber: z.string().trim().min(1).max(MAX_PHONE_LENGTH).nullable(),
+  role: UserRoleSchema,
+  isVerified: z.boolean(),
+  isActive: z.boolean(),
+  preferredLanguage: SupportedLanguageSchema,
+  bio: UserProfileBioSchema.nullable(),
+  profileImageUrl: UserProfileImageUrlSchema.nullable(),
+  whatsAppNumber: UserWhatsAppNumberSchema.nullable(),
+  websiteUrl: UserWebsiteUrlSchema.nullable(),
+  purchaseLinks: PurchaseLinksSchema,
+  socialLinks: SocialLinksSchema,
+  isProfileComplete: z.boolean(),
+  notificationPreferences: UserNotificationPreferencesSchema,
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AdminUserProfile = z.infer<typeof AdminUserProfileSchema>;
+
+export const AdminUserDetailSchema = z.object({
+  profile: AdminUserProfileSchema,
+  orders: z.array(AdminUserOrderSummarySchema),
+  books: z.array(AdminUserBookSummarySchema),
+  payments: z.array(AdminUserPaymentSummarySchema),
+});
+export type AdminUserDetail = z.infer<typeof AdminUserDetailSchema>;
+
+export const AdminUserStateSnapshotSchema = z.object({
+  role: UserRoleSchema,
+  isVerified: z.boolean(),
+  isActive: z.boolean(),
+});
+export type AdminUserStateSnapshot = z.infer<typeof AdminUserStateSnapshotSchema>;
+
+export const AdminUpdateUserSchema = z
+  .object({
+    role: UserRoleSchema.optional(),
+    isVerified: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.role !== undefined || value.isVerified !== undefined || value.isActive !== undefined,
+    {
+      message: "At least one user field must be provided",
+    }
+  );
+export type AdminUpdateUserInput = z.infer<typeof AdminUpdateUserSchema>;
+
+export const AdminUpdateUserResponseSchema = z.object({
+  userId: z.string().cuid(),
+  previousState: AdminUserStateSnapshotSchema,
+  currentState: AdminUserStateSnapshotSchema,
+  updatedAt: z.string().datetime(),
+  audit: AdminAuditEntrySchema,
+});
+export type AdminUpdateUserResponse = z.infer<typeof AdminUpdateUserResponseSchema>;

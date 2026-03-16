@@ -17,31 +17,33 @@ export function AdminAuthGate({ children }: AdminAuthGateProps) {
   const pathname = usePathname();
   const { user, isAuthenticated, isLoading, isFetching, refetch } = useAuthSession();
   const [hasRetriedSession, setHasRetriedSession] = useState(false);
+  const resolvedPathname = pathname || getDefaultAdminHref(user?.role);
+  const isSessionPending = isLoading || (!isAuthenticated && isFetching);
   const hasAdminRole = isAuthenticated && isAdminRole(user?.role);
-  const hasRouteAccess = hasAdminRole && canAdminAccessPath(user?.role, pathname);
+  const hasRouteAccess = hasAdminRole && canAdminAccessPath(user?.role, resolvedPathname);
 
   useEffect(() => {
-    if (isLoading || isFetching || isAuthenticated || hasRetriedSession) return;
+    if (isSessionPending || isAuthenticated || hasRetriedSession) return;
 
     setHasRetriedSession(true);
     void refetch();
-  }, [hasRetriedSession, isAuthenticated, isFetching, isLoading, refetch]);
+  }, [hasRetriedSession, isAuthenticated, isSessionPending, refetch]);
 
   useEffect(() => {
-    if (isLoading || isFetching) return;
+    if (isSessionPending) return;
     if (!isAuthenticated && !hasRetriedSession) return;
     if (!isAuthenticated || !isAdminRole(user?.role)) {
-      const nextPath = pathname || "/admin";
+      const nextPath = resolvedPathname || "/admin";
       router.replace(`/login?next=${encodeURIComponent(nextPath)}`);
       return;
     }
 
-    if (!canAdminAccessPath(user.role, pathname)) {
+    if (!canAdminAccessPath(user.role, resolvedPathname)) {
       router.replace(getDefaultAdminHref(user.role));
     }
-  }, [hasRetriedSession, isAuthenticated, isFetching, isLoading, pathname, router, user?.role]);
+  }, [hasRetriedSession, isAuthenticated, isSessionPending, resolvedPathname, router, user?.role]);
 
-  if (isLoading || isFetching || !hasRouteAccess) {
+  if (isSessionPending || !hasRouteAccess) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black px-4 text-center text-white">
         <p className="font-sans text-sm font-medium tracking-wide text-[#ededed]">

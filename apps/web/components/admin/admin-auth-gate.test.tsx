@@ -48,6 +48,34 @@ describe("AdminAuthGate", () => {
     expect(screen.queryByText("Protected admin content")).not.toBeInTheDocument();
   });
 
+  it("keeps rendering for authenticated admins during background session refetches", () => {
+    usePathnameMock.mockReturnValue("/en/admin");
+    useAuthSessionMock.mockReturnValue({
+      user: {
+        id: "super-admin-1",
+        email: "super@example.com",
+        firstName: "Super",
+        lastName: "Admin",
+        role: "SUPER_ADMIN",
+        displayName: "Super Admin",
+        initials: "SA",
+      },
+      isAuthenticated: true,
+      isLoading: false,
+      isFetching: true,
+      refetch: jest.fn(),
+    });
+
+    render(
+      <AdminAuthGate>
+        <div>Protected admin content</div>
+      </AdminAuthGate>
+    );
+
+    expect(screen.getByText("Protected admin content")).toBeInTheDocument();
+    expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
+
   it("retries the session once and then redirects unauthenticated users to login", async () => {
     const refetchMock = jest.fn();
 
@@ -140,6 +168,34 @@ describe("AdminAuthGate", () => {
         role: "EDITOR",
         displayName: "Editor User",
         initials: "EU",
+      },
+      isAuthenticated: true,
+      isLoading: false,
+      isFetching: false,
+      refetch: jest.fn(),
+    });
+
+    render(
+      <AdminAuthGate>
+        <div>Protected admin content</div>
+      </AdminAuthGate>
+    );
+
+    expect(screen.getByText("Protected admin content")).toBeInTheDocument();
+    expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
+
+  it("renders children for locale-prefixed admin routes", () => {
+    usePathnameMock.mockReturnValue("/fr/admin");
+    useAuthSessionMock.mockReturnValue({
+      user: {
+        id: "admin-1",
+        email: "admin@example.com",
+        firstName: "Admin",
+        lastName: "User",
+        role: "ADMIN",
+        displayName: "Admin User",
+        initials: "AU",
       },
       isAuthenticated: true,
       isLoading: false,
