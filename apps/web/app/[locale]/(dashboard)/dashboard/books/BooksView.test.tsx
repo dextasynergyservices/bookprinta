@@ -31,6 +31,7 @@ const TRANSLATIONS: Record<string, string> = {
   book_progress_error_description:
     "We couldn't load your book progress right now. Please try again.",
   book_progress_retry: "Retry",
+  retry: "Try Again",
   book_progress_empty_title: "Select a book to view progress",
   book_progress_empty_description:
     "Choose an order with a linked book to see its production pipeline.",
@@ -270,6 +271,7 @@ jest.mock("next/navigation", () => ({
       if (key === "bookId") return currentBookId;
       return currentSearchParams.get(key) ?? null;
     },
+    toString: () => new URLSearchParams(Array.from(currentSearchParams.entries())).toString(),
   }),
 }));
 
@@ -708,7 +710,7 @@ describe("BooksView route integration", () => {
     expect(screen.getByText("Unable to load book progress")).toBeInTheDocument();
     expect(screen.getByText("Book not found")).toBeInTheDocument();
 
-    const retryButton = screen.getByRole("button", { name: "Retry" });
+    const retryButton = screen.getByRole("button", { name: "Try Again" });
     retryButton.focus();
     await user.keyboard("{Enter}");
     expect(refetch).toHaveBeenCalledTimes(1);

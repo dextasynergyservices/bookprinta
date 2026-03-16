@@ -32,6 +32,8 @@ import type {
   ReprintBookSize,
   UpdateAdminBookProductionStatusInput,
   UpdateBookSettingsInput,
+  UserBooksListQueryInput,
+  UserBooksListResponse,
 } from "@bookprinta/shared";
 import {
   BadRequestException,
@@ -145,6 +147,53 @@ const BOOK_DETAIL_SELECT = {
 } satisfies Prisma.BookSelect;
 
 type BookDetailRow = Prisma.BookGetPayload<{ select: typeof BOOK_DETAIL_SELECT }>;
+
+const USER_BOOK_LIST_SELECT = {
+  id: true,
+  orderId: true,
+  status: true,
+  productionStatus: true,
+  title: true,
+  coverImageUrl: true,
+  rejectionReason: true,
+  pageCount: true,
+  wordCount: true,
+  estimatedPages: true,
+  fontSize: true,
+  pageSize: true,
+  currentHtmlUrl: true,
+  previewPdfUrl: true,
+  finalPdfUrl: true,
+  order: {
+    select: {
+      status: true,
+    },
+  },
+  jobs: {
+    where: {
+      status: {
+        in: BOOK_DETAIL_JOB_STATUSES,
+      },
+    },
+    orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }],
+    take: 3,
+    select: {
+      type: true,
+      status: true,
+      attempts: true,
+      maxRetries: true,
+      error: true,
+      payload: true,
+      result: true,
+      createdAt: true,
+      startedAt: true,
+    },
+  },
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.BookSelect;
+
+type UserBookListRow = Prisma.BookGetPayload<{ select: typeof USER_BOOK_LIST_SELECT }>;
 
 const ADMIN_BOOK_LIST_SELECT = {
   id: true,
@@ -498,6 +547,39 @@ export class BooksService {
       fontSize,
       wordCount,
       estimatedPages,
+    };
+  }
+
+  async findUserBooks(
+    userId: string,
+    query: Partial<UserBooksListQueryInput> = {}
+  ): Promise<UserBooksListResponse> {
+    const page = query.page ?? 1;
+    const pageSize = query.limit ?? 10;
+    const skip = (page - 1) * pageSize;
+
+    const rows = (await this.prisma.book.findMany({
+      where: { userId },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      skip,
+      take: pageSize,
+      select: USER_BOOK_LIST_SELECT,
+    })) as UserBookListRow[];
+    const totalItems = await this.prisma.book.count({
+      where: { userId },
+    });
+    const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+
+    return {
+      items: rows.map((row) => this.serializeUserBookListItem(row)),
+      pagination: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+        hasPreviousPage: page > 1,
+        hasNextPage: page < totalPages,
+      },
     };
   }
 
@@ -1502,6 +1584,46 @@ export class BooksService {
       uploadedAt: this.resolveUploadedAtFromFiles(row.files),
       createdAt: row.createdAt.toISOString(),
       detailUrl: `/admin/books/${row.id}`,
+    };
+  }
+
+  private serializeUserBookListItem(row: UserBookListRow): UserBooksListResponse["items"][number] {
+    const productionStatus = this.resolveProductionStatus({
+      productionStatus: row.productionStatus,
+      manuscriptStatus: row.status,
+    });
+
+    return {
+      id: row.id,
+      orderId: row.orderId,
+      title: row.title ?? null,
+      status: row.status,
+      productionStatus,
+      orderStatus: row.order.status,
+      currentStage: this.resolveStageFromStatus(productionStatus),
+      coverImageUrl: row.coverImageUrl ?? null,
+      latestProcessingError: this.resolveLatestProcessingError(row.jobs),
+      rejectionReason: row.rejectionReason ?? null,
+      pageCount: row.pageCount,
+      wordCount: row.wordCount,
+      estimatedPages: row.estimatedPages,
+      fontSize: this.resolveFontSize(row.fontSize),
+      pageSize: this.resolvePageSize(row.pageSize ?? null),
+      previewPdfUrlPresent: typeof row.previewPdfUrl === "string" && row.previewPdfUrl.length > 0,
+      finalPdfUrlPresent: typeof row.finalPdfUrl === "string" && row.finalPdfUrl.length > 0,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      workspaceUrl: `/dashboard/books?bookId=${row.id}`,
+      trackingUrl: `/dashboard/orders/${row.orderId}`,
+      rollout: this.rollout.resolveBookRolloutState(row),
+      processing: this.resolveProcessingState({
+        bookStatus: row.status,
+        currentHtmlUrl: row.currentHtmlUrl ?? null,
+        pageCount: row.pageCount,
+        finalPdfUrl: row.finalPdfUrl ?? null,
+        updatedAt: row.updatedAt,
+        jobs: row.jobs,
+      }),
     };
   }
 

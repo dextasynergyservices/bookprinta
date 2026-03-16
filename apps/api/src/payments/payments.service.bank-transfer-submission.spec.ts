@@ -20,6 +20,13 @@ function createService() {
     paymentGateway: {
       findUnique: jest.fn(),
     },
+    user: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    package: {
+      findFirst: jest.fn(),
+    },
     payment: {
       create: jest.fn(),
     },
@@ -59,6 +66,11 @@ describe("PaymentsService bank transfer submission", () => {
     const servicePrivate = getPaymentsServicePrivate(service);
 
     prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    prisma.package.findFirst.mockResolvedValue({
+      id: "pkg_legacy",
+      name: "Legacy",
+      basePrice: 125000,
+    });
     prisma.payment.create.mockResolvedValue({
       id: "payment_1",
       status: PaymentStatus.AWAITING_APPROVAL,
@@ -84,6 +96,7 @@ describe("PaymentsService bank transfer submission", () => {
       receiptUrl: "https://example.com/receipts/bt-2026-0001.jpg",
       metadata: {
         locale: "fr",
+        packageSlug: "legacy",
         packageName: "Legacy",
         addons: [{ name: "ISBN Registration" }, { name: "Express Formatting" }],
       },
@@ -103,6 +116,7 @@ describe("PaymentsService bank transfer submission", () => {
         payerPhone: "+2348012345678",
         metadata: expect.objectContaining({
           locale: "fr",
+          packageSlug: "legacy",
           packageName: "Legacy",
           fullName: "Ada Okafor",
           phone: "+2348012345678",

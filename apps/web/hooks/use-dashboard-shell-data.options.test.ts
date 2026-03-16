@@ -1,4 +1,5 @@
 import { renderHook } from "@testing-library/react";
+import { DASHBOARD_POLL_INTERVAL_MS } from "@/lib/dashboard/query-defaults";
 import {
   DASHBOARD_UNREAD_COUNT_QUERY_KEY,
   dashboardNotificationsQueryKeys,
@@ -40,7 +41,7 @@ describe("use-dashboard-shell-data query options", () => {
 
     const options = useQueryMock.mock.calls[0]?.[0] as QueryOptionsShape;
     expect(options.queryKey).toEqual(DASHBOARD_UNREAD_COUNT_QUERY_KEY);
-    expect(options.refetchInterval).toBe(30_000);
+    expect(options.refetchInterval).toBe(DASHBOARD_POLL_INTERVAL_MS);
     expect(options.refetchOnWindowFocus).toBe(true);
   });
 
@@ -59,7 +60,7 @@ describe("use-dashboard-shell-data query options", () => {
     const options = useQueryMock.mock.calls[0]?.[0] as QueryOptionsShape;
     expect(options.queryKey).toEqual(dashboardNotificationsQueryKeys.list(1, 20));
     expect(options.enabled).toBe(true);
-    expect(options.refetchInterval).toBe(30_000);
+    expect(options.refetchInterval).toBe(DASHBOARD_POLL_INTERVAL_MS);
     expect(options.refetchOnWindowFocus).toBe(true);
   });
 });

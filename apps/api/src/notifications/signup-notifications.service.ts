@@ -12,10 +12,18 @@ const DEFAULT_FROM_EMAIL = "BookPrinta <info@bookprinta.com>";
 type DeliveryResult = {
   emailDelivered: boolean;
   whatsappDelivered: boolean;
+  emailFailureReason?: string | null;
+  whatsappFailureReason?: string | null;
+  attemptedAt?: string;
 };
 
 type DeliveryOptions = {
   requireDelivery?: boolean;
+};
+
+type ChannelDeliveryResult = {
+  delivered: boolean;
+  failureReason: string | null;
 };
 
 @Injectable()
@@ -45,9 +53,9 @@ export class SignupNotificationsService {
       process.env.INFOBIP_WHATSAPP_NUMBER ||
       "";
     this.fallbackFromEmail =
-      process.env.ADMIN_FROM_EMAIL ||
       process.env.CONTACT_FROM_EMAIL ||
       process.env.DEFAULT_FROM_EMAIL ||
+      process.env.ADMIN_FROM_EMAIL ||
       DEFAULT_FROM_EMAIL;
   }
 
@@ -66,16 +74,25 @@ export class SignupNotificationsService {
     },
     options: DeliveryOptions = {}
   ): Promise<DeliveryResult> {
-    const [emailDelivered, whatsappDelivered] = await Promise.all([
+    const attemptedAt = new Date().toISOString();
+    const [emailResult, whatsappResult] = await Promise.all([
       this.sendRegistrationLinkEmail(params),
       this.sendRegistrationLinkWhatsApp(params),
     ]);
+    const emailDelivered = emailResult.delivered;
+    const whatsappDelivered = whatsappResult.delivered;
 
     if (options.requireDelivery && !emailDelivered && !whatsappDelivered) {
       throw new Error("Unable to deliver signup link via email or WhatsApp");
     }
 
-    return { emailDelivered, whatsappDelivered };
+    return {
+      emailDelivered,
+      whatsappDelivered,
+      emailFailureReason: emailResult.failureReason,
+      whatsappFailureReason: whatsappResult.failureReason,
+      attemptedAt,
+    };
   }
 
   async sendVerificationChallenge(
@@ -90,16 +107,25 @@ export class SignupNotificationsService {
     },
     options: DeliveryOptions = {}
   ): Promise<DeliveryResult> {
-    const [emailDelivered, whatsappDelivered] = await Promise.all([
+    const attemptedAt = new Date().toISOString();
+    const [emailResult, whatsappResult] = await Promise.all([
       this.sendVerificationChallengeEmail(params),
       this.sendVerificationChallengeWhatsApp(params),
     ]);
+    const emailDelivered = emailResult.delivered;
+    const whatsappDelivered = whatsappResult.delivered;
 
     if ((options.requireDelivery ?? true) && !emailDelivered && !whatsappDelivered) {
       throw new Error("Unable to deliver verification challenge via email or WhatsApp");
     }
 
-    return { emailDelivered, whatsappDelivered };
+    return {
+      emailDelivered,
+      whatsappDelivered,
+      emailFailureReason: emailResult.failureReason,
+      whatsappFailureReason: whatsappResult.failureReason,
+      attemptedAt,
+    };
   }
 
   async sendWelcomeEmail(params: {
@@ -162,10 +188,13 @@ export class SignupNotificationsService {
     packageName?: string;
     amountPaid?: string;
     addons?: string[];
-  }): Promise<boolean> {
+  }): Promise<ChannelDeliveryResult> {
     if (!this.resend) {
       this.logger.warn("RESEND_API_KEY not set — signup link email skipped");
-      return false;
+      return {
+        delivered: false,
+        failureReason: "RESEND_API_KEY not set",
+      };
     }
 
     const signupUrl = this.buildSignupFinishUrl(params.token, params.locale);
@@ -191,15 +220,24 @@ export class SignupNotificationsService {
         this.logger.error(
           `Failed to send signup link email: ${sendResult.error.name} — ${sendResult.error.message}`
         );
-        return false;
+        return {
+          delivered: false,
+          failureReason: `${sendResult.error.name}: ${sendResult.error.message}`,
+        };
       }
 
-      return true;
+      return {
+        delivered: true,
+        failureReason: null,
+      };
     } catch (error) {
       this.logger.error(
         `Signup link email send failed: ${error instanceof Error ? error.message : String(error)}`
       );
-      return false;
+      return {
+        delivered: false,
+        failureReason: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -208,18 +246,29 @@ export class SignupNotificationsService {
     name: string;
     token: string;
     locale: Locale;
-  }): Promise<boolean> {
-    if (!params.phoneNumber?.trim()) return false;
+  }): Promise<ChannelDeliveryResult> {
+    if (!params.phoneNumber?.trim()) {
+      return {
+        delivered: false,
+        failureReason: "Phone number not provided",
+      };
+    }
 
     if (!this.infobipBaseUrl || !this.infobipApiKey || !this.infobipWhatsAppFrom) {
       this.logMissingInfobipConfig("signup link");
-      return false;
+      return {
+        delivered: false,
+        failureReason: "Infobip WhatsApp config missing",
+      };
     }
 
     const to = this.normalizeWhatsAppPhone(params.phoneNumber);
     if (!to) {
       this.logger.warn("Invalid phone number for signup link WhatsApp delivery");
-      return false;
+      return {
+        delivered: false,
+        failureReason: "Invalid phone number",
+      };
     }
 
     const signupUrl = this.buildSignupFinishUrl(params.token, params.locale);
@@ -230,7 +279,11 @@ export class SignupNotificationsService {
       signupUrl,
     });
 
-    return this.sendInfobipTextMessage(to, text, "signup link");
+    const delivered = await this.sendInfobipTextMessage(to, text, "signup link");
+    return {
+      delivered,
+      failureReason: delivered ? null : "Infobip WhatsApp delivery failed",
+    };
   }
 
   private async sendVerificationChallengeEmail(params: {
@@ -240,10 +293,13 @@ export class SignupNotificationsService {
     verificationToken: string;
     locale: Locale;
     fromEmail: string;
-  }): Promise<boolean> {
+  }): Promise<ChannelDeliveryResult> {
     if (!this.resend) {
       this.logger.warn("RESEND_API_KEY not set — signup verification email skipped");
-      return false;
+      return {
+        delivered: false,
+        failureReason: "RESEND_API_KEY not set",
+      };
     }
 
     const verificationUrl = this.buildVerificationUrl(params.verificationToken, params.locale);
@@ -266,15 +322,24 @@ export class SignupNotificationsService {
         this.logger.error(
           `Failed to send signup verification email: ${result.error.name} — ${result.error.message}`
         );
-        return false;
+        return {
+          delivered: false,
+          failureReason: `${result.error.name}: ${result.error.message}`,
+        };
       }
 
-      return true;
+      return {
+        delivered: true,
+        failureReason: null,
+      };
     } catch (error) {
       this.logger.error(
         `Signup verification email send failed: ${error instanceof Error ? error.message : String(error)}`
       );
-      return false;
+      return {
+        delivered: false,
+        failureReason: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -284,18 +349,29 @@ export class SignupNotificationsService {
     verificationCode: string;
     verificationToken: string;
     locale: Locale;
-  }): Promise<boolean> {
-    if (!params.phoneNumber?.trim()) return false;
+  }): Promise<ChannelDeliveryResult> {
+    if (!params.phoneNumber?.trim()) {
+      return {
+        delivered: false,
+        failureReason: "Phone number not provided",
+      };
+    }
 
     if (!this.infobipBaseUrl || !this.infobipApiKey || !this.infobipWhatsAppFrom) {
       this.logMissingInfobipConfig("signup verification");
-      return false;
+      return {
+        delivered: false,
+        failureReason: "Infobip WhatsApp config missing",
+      };
     }
 
     const to = this.normalizeWhatsAppPhone(params.phoneNumber);
     if (!to) {
       this.logger.warn("Invalid phone number for signup verification WhatsApp delivery");
-      return false;
+      return {
+        delivered: false,
+        failureReason: "Invalid phone number",
+      };
     }
 
     const verificationUrl = this.buildVerificationUrl(params.verificationToken, params.locale);
@@ -307,7 +383,11 @@ export class SignupNotificationsService {
       verificationUrl,
     });
 
-    return this.sendInfobipTextMessage(to, text, "signup verification");
+    const delivered = await this.sendInfobipTextMessage(to, text, "signup verification");
+    return {
+      delivered,
+      failureReason: delivered ? null : "Infobip WhatsApp delivery failed",
+    };
   }
 
   private async sendInfobipTextMessage(to: string, text: string, kind: string): Promise<boolean> {

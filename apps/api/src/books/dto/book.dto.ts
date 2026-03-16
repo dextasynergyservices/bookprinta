@@ -25,6 +25,8 @@ import {
   BookSettingsResponseSchema,
   UpdateAdminBookProductionStatusSchema,
   UpdateBookSettingsSchema,
+  UserBooksListQuerySchema,
+  UserBooksListResponseSchema,
 } from "@bookprinta/shared";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
@@ -78,8 +80,14 @@ const AdminBookHtmlUploadResponseDtoSchema = z
 /** :id route param for /books/:id */
 export class BookParamsDto extends createZodDto(BookParamsSchema) {}
 
+/** GET /api/v1/books query params */
+export class UserBooksListQueryDto extends createZodDto(UserBooksListQuerySchema) {}
+
 /** Response for GET /api/v1/books/:id */
 export class BookDetailResponseDto extends createZodDto(BookDetailResponseSchema) {}
+
+/** Response for GET /api/v1/books */
+export class UserBooksListResponseDto extends createZodDto(UserBooksListResponseSchema) {}
 
 /** Embedded rollout state returned inside GET /api/v1/books/:id */
 export class BookRolloutStateDto extends createZodDto(BookRolloutStateSchema) {}

@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   ServiceUnavailableException,
   StreamableFile,
@@ -41,6 +42,8 @@ import {
   BookReprocessResponseDto,
   BookSettingsResponseDto,
   UpdateBookSettingsDto,
+  UserBooksListQueryDto,
+  UserBooksListResponseDto,
 } from "./dto/book.dto.js";
 
 @ApiTags("Books")
@@ -49,6 +52,32 @@ import {
 @ApiBearerAuth("access-token")
 export class BooksController {
   constructor(private readonly booksService: BooksService) {}
+
+  /**
+   * GET /api/v1/books
+   * Authenticated user's books, paginated and most recently updated first.
+   */
+  @Get()
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "List current user's books",
+    description:
+      "Returns the authenticated user's books with lifecycle status, processing summary, " +
+      "and direct dashboard navigation URLs for the workspace and linked order tracking view.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Book list retrieved successfully",
+    type: UserBooksListResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  async findMyBooks(
+    @CurrentUser("sub") userId: string,
+    @Query() query: UserBooksListQueryDto
+  ): Promise<UserBooksListResponseDto> {
+    return this.booksService.findUserBooks(userId, query);
+  }
 
   /**
    * PATCH /api/v1/books/:id/settings

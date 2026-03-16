@@ -39,6 +39,7 @@ const TRANSLATIONS: Record<string, string> = {
   order_tracking_error_title: "Unable to load order tracking",
   order_tracking_error_description: "Could not load",
   order_tracking_retry: "Retry",
+  retry: "Try Again",
   order_tracking_last_updated: "Last updated: {updatedAt}",
   order_tracking_last_updated_unavailable: "Unknown",
   order_tracking_payment_status: "Payment Status",
@@ -236,7 +237,7 @@ describe("OrderTrackingView route integration", () => {
     render(<OrderTrackingView orderId="ord_1" />);
     expect(screen.getByText("Unable to load order tracking")).toBeInTheDocument();
     expect(screen.getByText("Order not found")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Try Again" }));
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 

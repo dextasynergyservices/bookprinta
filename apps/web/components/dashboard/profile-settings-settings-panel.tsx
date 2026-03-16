@@ -7,6 +7,10 @@ import { useTranslations } from "next-intl";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+  DashboardErrorState,
+  DashboardSkeletonBlock,
+} from "@/components/dashboard/dashboard-async-primitives";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -44,10 +48,6 @@ function areNotificationPreferencesEqual(
   );
 }
 
-function createLoadingBlocks() {
-  return Array.from({ length: 3 }, (_unused, index) => `settings-loading-block-${index + 1}`);
-}
-
 function resolveLanguageLabel(locale: string, tDashboard: (key: string) => string) {
   switch (locale) {
     case "fr":
@@ -59,8 +59,66 @@ function resolveLanguageLabel(locale: string, tDashboard: (key: string) => strin
   }
 }
 
+function SettingsPanelSkeleton({ label }: { label: string }) {
+  return (
+    <section
+      data-testid="profile-settings-settings-panel"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label={label}
+      className="grid gap-4"
+    >
+      <div className="rounded-[32px] border border-[#2A2A2A] bg-[#111111] p-5">
+        <DashboardSkeletonBlock className="h-4 w-36 rounded-full" />
+        <DashboardSkeletonBlock className="mt-3 h-4 w-60 rounded-full" />
+        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+          {["pwd-skeleton-1", "pwd-skeleton-2", "pwd-skeleton-3"].map((key) => (
+            <div key={key} className="space-y-3">
+              <DashboardSkeletonBlock className="h-4 w-28 rounded-full" />
+              <DashboardSkeletonBlock className="h-11 w-full rounded-full" />
+            </div>
+          ))}
+        </div>
+        <DashboardSkeletonBlock className="mt-5 h-12 w-full rounded-full" />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        <div className="rounded-[32px] border border-[#2A2A2A] bg-[#111111] p-5">
+          <DashboardSkeletonBlock className="h-4 w-40 rounded-full" />
+          <DashboardSkeletonBlock className="mt-3 h-4 w-64 rounded-full" />
+          <div className="mt-6 rounded-[24px] border border-[#2A2A2A] bg-[#0B0B0B] px-4 py-4">
+            <DashboardSkeletonBlock className="h-3 w-24 rounded-full" />
+            <DashboardSkeletonBlock className="mt-3 h-4 w-28 rounded-full" />
+          </div>
+        </div>
+
+        <div className="rounded-[32px] border border-[#2A2A2A] bg-[#111111] p-5">
+          <DashboardSkeletonBlock className="h-4 w-48 rounded-full" />
+          <DashboardSkeletonBlock className="mt-3 h-4 w-72 rounded-full" />
+          <div className="mt-5 space-y-3">
+            {["pref-skeleton-1", "pref-skeleton-2", "pref-skeleton-3"].map((key) => (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-4 rounded-[24px] border border-[#2A2A2A] bg-[#0B0B0B] px-4 py-4"
+              >
+                <div className="min-w-0 flex-1 space-y-2">
+                  <DashboardSkeletonBlock className="h-4 w-36 rounded-full" />
+                  <DashboardSkeletonBlock className="h-4 w-full rounded-full" />
+                </div>
+                <DashboardSkeletonBlock className="h-7 w-12 rounded-full" />
+              </div>
+            ))}
+          </div>
+          <DashboardSkeletonBlock className="mt-5 h-12 w-full rounded-full" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function ProfileSettingsSettingsPanel() {
   const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
   const prefersReducedMotion = useReducedMotion();
   const { profile, isLoading, isError, error, refetch } = useMyProfile();
   const { changePassword, isPending: isChangingPassword } = useChangeMyPassword();
@@ -81,7 +139,6 @@ export function ProfileSettingsSettingsPanel() {
   const notificationDraftRef = useRef(notificationDraft);
   const notificationSnapshotRef = useRef(notificationSnapshot);
   const hasHydratedNotificationPreferencesRef = useRef(false);
-  const loadingBlocks = useMemo(() => createLoadingBlocks(), []);
 
   useEffect(() => {
     notificationDraftRef.current = notificationDraft;
@@ -221,40 +278,24 @@ export function ProfileSettingsSettingsPanel() {
   };
 
   if (isLoading && !profile) {
-    return (
-      <section data-testid="profile-settings-settings-panel" className="grid gap-4">
-        {loadingBlocks.map((key) => (
-          <div
-            key={key}
-            className="h-36 animate-pulse rounded-[32px] border border-[#2A2A2A] bg-[#111111]"
-          />
-        ))}
-      </section>
-    );
+    return <SettingsPanelSkeleton label={tCommon("loading")} />;
   }
 
   if (isError || !profile) {
     return (
-      <section
+      <DashboardErrorState
         data-testid="profile-settings-settings-panel"
-        className="rounded-[32px] border border-[#2A2A2A] bg-[#111111] p-5"
-      >
-        <h2 className="font-sans text-sm font-medium text-white">
-          {tDashboard("settings_load_error_title")}
-        </h2>
-        <p className="font-sans mt-2 text-sm leading-6 text-[#A3A3A3]">
-          {error instanceof Error ? error.message : tDashboard("settings_load_error_description")}
-        </p>
-        <Button
-          type="button"
-          onClick={() => {
-            void refetch();
-          }}
-          className="font-sans mt-4 min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
-        >
-          {tDashboard("settings_retry")}
-        </Button>
-      </section>
+        className="rounded-[32px]"
+        title={tDashboard("settings_load_error_title")}
+        description={
+          error instanceof Error ? error.message : tDashboard("settings_load_error_description")
+        }
+        retryLabel={tCommon("retry")}
+        loadingLabel={tCommon("loading")}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
     );
   }
 

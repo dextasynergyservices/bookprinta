@@ -34,6 +34,46 @@ export class InitializePaymentResponseDto {
 }
 
 /** Response returned by POST /api/v1/payments/verify/:reference. */
+export class VerifyPaymentSignupDeliveryDto {
+  @ApiProperty({
+    description: "Signup-link delivery state for the newly created account.",
+    enum: ["DELIVERED", "PARTIAL", "FAILED"],
+    example: "FAILED",
+  })
+  status!: string;
+
+  @ApiProperty({
+    description: "True when email delivery succeeded.",
+    example: false,
+  })
+  emailDelivered!: boolean;
+
+  @ApiProperty({
+    description: "True when WhatsApp delivery succeeded.",
+    example: true,
+  })
+  whatsappDelivered!: boolean;
+
+  @ApiProperty({
+    description: "How many automatic delivery attempts have been made so far.",
+    example: 2,
+  })
+  attemptCount!: number;
+
+  @ApiPropertyOptional({
+    description: "Timestamp of the most recent delivery attempt.",
+    example: "2026-03-14T12:00:00.000Z",
+    nullable: true,
+  })
+  lastAttemptAt!: string | null;
+
+  @ApiProperty({
+    description: "True when the backend can still perform another guarded automatic retry.",
+    example: true,
+  })
+  retryEligible!: boolean;
+}
+
 export class VerifyPaymentResponseDto {
   @ApiProperty({
     description: "Payment status from the provider",
@@ -113,6 +153,13 @@ export class VerifyPaymentResponseDto {
     type: [String],
   })
   addons?: string[];
+
+  @ApiPropertyOptional({
+    description: "Structured signup-link delivery status for new-user payments.",
+    type: VerifyPaymentSignupDeliveryDto,
+    nullable: true,
+  })
+  signupDelivery?: VerifyPaymentSignupDeliveryDto | null;
 }
 
 /** Response returned by POST /api/v1/payments/bank-transfer. */

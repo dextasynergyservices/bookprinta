@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
+import { dashboardHistoryQueryOptions } from "@/lib/dashboard/query-defaults";
 import { ordersQueryKeys } from "./useOrders";
 
 function getApiV1BaseUrl() {
@@ -269,9 +270,7 @@ export function useOrderDetail({ orderId, enabled = true }: UseOrderDetailParams
         signal,
       });
     },
-    staleTime: 60_000,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
+    ...dashboardHistoryQueryOptions,
     enabled: enabled && Boolean(resolvedOrderId),
   });
 

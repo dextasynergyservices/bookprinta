@@ -3,6 +3,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { normalizeOrdersListPayload } from "@/lib/api/orders-contract";
 import { throwApiError } from "@/lib/api-error";
+import { dashboardHistoryQueryOptions } from "@/lib/dashboard/query-defaults";
 import type { OrdersListNormalizedResponse } from "@/types/orders";
 
 function getApiV1BaseUrl() {
@@ -130,9 +131,7 @@ export function useOrders({ page, pageSize, enabled = true }: UseOrdersParams = 
         signal,
       }),
     placeholderData: keepPreviousData,
-    staleTime: 60_000,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
+    ...dashboardHistoryQueryOptions,
     enabled,
   });
 

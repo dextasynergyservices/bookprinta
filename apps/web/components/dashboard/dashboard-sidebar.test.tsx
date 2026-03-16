@@ -109,4 +109,27 @@ describe("DashboardSidebar", () => {
 
     expect(onOpenReviewDialog).not.toHaveBeenCalled();
   });
+
+  it("keeps the reviews link navigable when eligibility is temporarily unavailable", async () => {
+    const user = userEvent.setup();
+
+    useReviewStateMock.mockReturnValue({
+      hasAnyEligibleBook: false,
+      isLoading: false,
+      isError: false,
+      isFallback: true,
+    });
+
+    render(<DashboardSidebar />);
+
+    const reviewsLink = screen.getByRole("link", { name: "Reviews" });
+    expect(reviewsLink).not.toHaveAttribute("aria-disabled");
+    expect(reviewsLink).toHaveAttribute("href", "/dashboard/reviews");
+
+    await user.hover(reviewsLink);
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Reviews - Review eligibility is temporarily unavailable"
+    );
+  });
 });

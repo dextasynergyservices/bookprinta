@@ -165,9 +165,11 @@ export function DashboardReviewRequestDialog({
   const [hoveredRating, setHoveredRating] = useState<number | null>(null);
   const [comment, setComment] = useState("");
   const [viewState, setViewState] = useState<ReviewDialogViewState>("form");
+  const previousTargetBookIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!target) {
+      previousTargetBookIdRef.current = null;
       setRating(0);
       setHoveredRating(null);
       setComment("");
@@ -175,11 +177,19 @@ export function DashboardReviewRequestDialog({
       return;
     }
 
+    const targetChanged = previousTargetBookIdRef.current !== target.bookId;
+    previousTargetBookIdRef.current = target.bookId;
     const existingReview = books.find((book) => book.bookId === target.bookId)?.review;
     setRating(existingReview?.rating ?? 0);
     setHoveredRating(null);
     setComment(existingReview?.comment ?? "");
-    setViewState("form");
+    setViewState((current) => {
+      if (targetChanged) {
+        return "form";
+      }
+
+      return current === "success" ? current : "form";
+    });
   }, [books, target]);
 
   useEffect(() => {
