@@ -197,4 +197,33 @@ describe("CheckoutView coupon display", () => {
       "/pricing?orderType=REPRINT_REVISED&sourceBookId=cmbook1"
     );
   });
+
+  it("recomputes payment metadata after syncing the URL-selected package into the pricing store", async () => {
+    const store = usePricingStore.getState();
+    store.reset();
+    store.setHasCoverDesign(true);
+    store.setHasFormatting(true);
+    store.setBookSize("A5");
+    store.setPaperColor("white");
+    store.setLamination("gloss");
+
+    renderWithProviders();
+
+    await waitFor(() => {
+      expect(paymentMethodModalMock).toHaveBeenCalled();
+      expect(paymentMethodModalMock.mock.lastCall?.[0]).toEqual(
+        expect.objectContaining({
+          packageName: "First Draft",
+          amount: 100_000,
+          paymentMetadata: expect.objectContaining({
+            packageId: "pkg_1",
+            packageSlug: "first-draft",
+            packageName: "First Draft",
+            basePrice: 100_000,
+            totalPrice: 100_000,
+          }),
+        })
+      );
+    });
+  });
 });

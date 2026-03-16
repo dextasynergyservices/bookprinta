@@ -117,9 +117,15 @@ describe("PaymentsService identity conflicts", () => {
     const { service, prisma, paystackService } = createService();
 
     prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    prisma.package.findFirst.mockResolvedValue({
+      id: "pkg_starter",
+      name: "Starter",
+      basePrice: 50000,
+    });
     prisma.user.findFirst.mockResolvedValue({
       id: "user_existing",
       email: "author@example.com",
+      isActive: true,
     });
     prisma.user.findMany.mockResolvedValue([
       {
@@ -140,6 +146,7 @@ describe("PaymentsService identity conflicts", () => {
       currency: "NGN",
       metadata: {
         phone: "+2348012345678",
+        packageSlug: "starter",
       },
     });
 
@@ -159,6 +166,7 @@ describe("PaymentsService identity conflicts", () => {
     prisma.user.findFirst.mockResolvedValue({
       id: "user_email_owner",
       email: "author@example.com",
+      isActive: true,
     });
     prisma.user.findMany.mockResolvedValue([
       {
@@ -179,6 +187,59 @@ describe("PaymentsService identity conflicts", () => {
       })
     ).rejects.toThrow(
       "This email and phone number belong to different accounts. Sign in to the correct account or use a different phone number."
+    );
+
+    expect(paystackService.initialize).not.toHaveBeenCalled();
+  });
+
+  it("blocks payment initialization when checkout metadata is missing a valid package", async () => {
+    const { service, prisma, paystackService } = createService();
+
+    prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    prisma.user.findFirst.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.package.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.initialize({
+        provider: "PAYSTACK",
+        email: "author@example.com",
+        amount: 15000,
+        currency: "NGN",
+        metadata: {
+          phone: "+2348012345678",
+          packageSlug: "",
+          packageId: "",
+          packageName: "",
+        },
+      })
+    ).rejects.toThrow(
+      "Checkout package is missing or invalid. Return to pricing and select a package again."
+    );
+
+    expect(paystackService.initialize).not.toHaveBeenCalled();
+  });
+
+  it("blocks payment initialization when the email belongs to a deactivated account", async () => {
+    const { service, prisma, paystackService } = createService();
+
+    prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    prisma.user.findFirst.mockResolvedValue({
+      id: "user_inactive_email_owner",
+      email: "author@example.com",
+      isActive: false,
+    });
+
+    await expect(
+      service.initialize({
+        provider: "PAYSTACK",
+        email: "author@example.com",
+        amount: 15000,
+        currency: "NGN",
+        metadata: {},
+      })
+    ).rejects.toThrow(
+      "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup."
     );
 
     expect(paystackService.initialize).not.toHaveBeenCalled();
@@ -211,6 +272,35 @@ describe("PaymentsService identity conflicts", () => {
     );
   });
 
+  it("blocks bank transfer submission when checkout metadata is missing a valid package", async () => {
+    const { service, prisma } = createService();
+
+    prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    prisma.user.findFirst.mockResolvedValue(null);
+    prisma.user.findMany.mockResolvedValue([]);
+    prisma.package.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.submitBankTransfer({
+        payerName: "Author Example",
+        payerEmail: "new@example.com",
+        payerPhone: "+2348012345678",
+        amount: 15000,
+        currency: "NGN",
+        receiptUrl: "https://example.com/receipt.png",
+        metadata: {
+          packageSlug: "",
+          packageId: "",
+          packageName: "",
+        },
+      })
+    ).rejects.toThrow(
+      "Checkout package is missing or invalid. Return to pricing and select a package again."
+    );
+
+    expect(prisma.payment.create).not.toHaveBeenCalled();
+  });
+
   it("re-runs the phone conflict check before webhook-time user creation", async () => {
     const { service, prisma, tx } = createService();
     const createCheckoutEntitiesFromMetadata = getCreateCheckoutEntitiesFromMetadata(service);
@@ -241,6 +331,40 @@ describe("PaymentsService identity conflicts", () => {
         currency: "NGN",
       })
     ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(tx.user.create).not.toHaveBeenCalled();
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it("blocks webhook-time user linking when the checkout email belongs to a deactivated account", async () => {
+    const { service, prisma, tx } = createService();
+    const createCheckoutEntitiesFromMetadata = getCreateCheckoutEntitiesFromMetadata(service);
+
+    prisma.package.findFirst.mockResolvedValue({
+      id: "pkg_starter",
+      name: "Starter",
+      basePrice: 50000,
+    });
+    tx.user.findFirst.mockResolvedValue({
+      id: "user_inactive_email_owner",
+      email: "author@example.com",
+      isActive: false,
+    });
+
+    await expect(
+      createCheckoutEntitiesFromMetadata({
+        paymentId: "cmpay_identity_inactive",
+        payerEmail: "author@example.com",
+        metadata: {
+          fullName: "Author Example",
+          packageSlug: "starter",
+        },
+        amount: 25000,
+        currency: "NGN",
+      })
+    ).rejects.toThrow(
+      "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup."
+    );
 
     expect(tx.user.create).not.toHaveBeenCalled();
     expect(tx.user.update).not.toHaveBeenCalled();

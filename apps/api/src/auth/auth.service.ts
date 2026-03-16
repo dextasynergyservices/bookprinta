@@ -33,6 +33,9 @@ import type { JwtPayload, TokenPair } from "./interfaces/index.js";
 import { normalizePhoneNumber } from "./phone-number.util.js";
 import { hashRefreshToken } from "./refresh-token.util.js";
 
+const AUTH_ACCOUNT_DEACTIVATED_MESSAGE =
+  "This account has been deactivated. Please contact support or an administrator for assistance.";
+
 /**
  * Auth Service — Core authentication and authorization logic.
  *
@@ -96,11 +99,13 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { verificationToken: dto.token },
       select: {
+        id: true,
         email: true,
         firstName: true,
         lastName: true,
         phoneNumber: true,
         password: true,
+        isActive: true,
         isVerified: true,
         tokenExpiry: true,
       },
@@ -109,6 +114,8 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException("Invalid or expired signup link");
     }
+
+    await this.ensureAccountIsActive(user);
 
     if (user.tokenExpiry && user.tokenExpiry < new Date()) {
       throw new BadRequestException("Signup link has expired. Please request a new one.");
@@ -147,6 +154,7 @@ export class AuthService {
         preferredLanguage: true,
         phoneNumber: true,
         password: true,
+        isActive: true,
         isVerified: true,
         tokenExpiry: true,
       },
@@ -155,6 +163,8 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException("Invalid or expired signup link");
     }
+
+    await this.ensureAccountIsActive(user);
 
     // Check if token has expired
     if (user.tokenExpiry && user.tokenExpiry < new Date()) {
@@ -225,6 +235,7 @@ export class AuthService {
         firstName: true,
         lastName: true,
         preferredLanguage: true,
+        isActive: true,
         isVerified: true,
         verificationCode: true,
         tokenExpiry: true,
@@ -234,6 +245,8 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException("User not found");
     }
+
+    await this.ensureAccountIsActive(user);
 
     if (user.isVerified) {
       throw new ConflictException("Email already verified");
@@ -274,6 +287,7 @@ export class AuthService {
         firstName: true,
         lastName: true,
         preferredLanguage: true,
+        isActive: true,
         isVerified: true,
         password: true,
         tokenExpiry: true,
@@ -283,6 +297,8 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException("Invalid or expired verification link");
     }
+
+    await this.ensureAccountIsActive(user);
 
     if (user.isVerified) {
       throw new ConflictException("Email already verified");
@@ -391,6 +407,7 @@ export class AuthService {
       firstName: string;
       lastName: string | null;
       password: string | null;
+      isActive: boolean;
       isVerified: boolean;
     } | null = null;
 
@@ -448,6 +465,8 @@ export class AuthService {
           });
         }
       }
+
+      await this.ensureAccountIsActive(user);
 
       // Check if email is verified
       if (!user.isVerified) {
@@ -507,12 +526,15 @@ export class AuthService {
         firstName: true,
         lastName: true,
         role: true,
+        isActive: true,
       },
     });
 
     if (!user) {
       throw new UnauthorizedException("User not found");
     }
+
+    await this.ensureAccountIsActive(user);
 
     return this.serializeSafeUser(user);
   }
@@ -536,12 +558,16 @@ export class AuthService {
   async refresh(userId: string, email: string, role: UserRole): Promise<TokenPair> {
     const session = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { refreshTokenExp: true },
+      select: { id: true, isActive: true, refreshTokenExp: true },
     });
 
     if (!session?.refreshTokenExp) {
       throw new UnauthorizedException("Invalid refresh token");
     }
+
+    await this.ensureAccountIsActive(session, {
+      revokeRefreshToken: true,
+    });
 
     const refreshTokenExpiresAt = new Date(session.refreshTokenExp);
     const remainingMs = refreshTokenExpiresAt.getTime() - Date.now();
@@ -586,12 +612,13 @@ export class AuthService {
         email: true,
         firstName: true,
         preferredLanguage: true,
+        isActive: true,
         isVerified: true,
       },
     });
 
     // Always return success to prevent email enumeration
-    if (!user || !user.isVerified) {
+    if (!user || !user.isVerified || !user.isActive) {
       return { message: "If the email exists, a password reset link has been sent." };
     }
 
@@ -675,13 +702,14 @@ export class AuthService {
         firstName: true,
         phoneNumber: true,
         preferredLanguage: true,
+        isActive: true,
         isVerified: true,
         password: true,
       },
     });
 
     // Always return success to prevent email enumeration
-    if (!user) {
+    if (!user || !user.isActive) {
       return { message: "If the email exists, a new signup link has been sent." };
     }
 
@@ -1018,6 +1046,7 @@ export class AuthService {
     firstName: string;
     lastName: string | null;
     password: string | null;
+    isActive: boolean;
     isVerified: boolean;
   } | null> {
     const select = {
@@ -1027,6 +1056,7 @@ export class AuthService {
       firstName: true,
       lastName: true,
       password: true,
+      isActive: true,
       isVerified: true,
     } as const;
 
@@ -1052,6 +1082,7 @@ export class AuthService {
       firstName: string;
       lastName: string | null;
       password: string | null;
+      isActive: boolean;
       isVerified: boolean;
     } | null;
     userLookupDurationMs: number;
@@ -1084,6 +1115,7 @@ export class AuthService {
         firstName: true,
         lastName: true,
         password: true,
+        isActive: true,
         isVerified: true,
       },
     });
@@ -1145,21 +1177,47 @@ export class AuthService {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
   }
 
-  private async getValidResetTokenUser(token: string): Promise<{ id: string }> {
+  private async getValidResetTokenUser(token: string): Promise<{ id: string; isActive: boolean }> {
     const user = await this.prisma.user.findUnique({
       where: { resetToken: token },
-      select: { id: true, tokenExpiry: true },
+      select: { id: true, isActive: true, tokenExpiry: true },
     });
 
     if (!user) {
       throw new BadRequestException("Invalid or expired reset link");
     }
 
+    await this.ensureAccountIsActive(user);
+
     if (user.tokenExpiry && user.tokenExpiry < new Date()) {
       throw new BadRequestException("Reset link has expired. Please request a new one.");
     }
 
-    return { id: user.id };
+    return { id: user.id, isActive: user.isActive };
+  }
+
+  private async ensureAccountIsActive(
+    user: { id: string; isActive: boolean },
+    options: { revokeRefreshToken?: boolean } = {}
+  ): Promise<void> {
+    if (user.isActive) {
+      return;
+    }
+
+    if (options.revokeRefreshToken) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          refreshToken: null,
+          refreshTokenExp: null,
+        },
+      });
+    }
+
+    throw new UnauthorizedException({
+      message: AUTH_ACCOUNT_DEACTIVATED_MESSAGE,
+      errorCode: "AUTH_ACCOUNT_DEACTIVATED",
+    });
   }
 
   private async sendPasswordResetEmail(params: {
@@ -1202,9 +1260,9 @@ export class AuthService {
 
   private resolveFromEmail(): string {
     const configured =
-      process.env.ADMIN_FROM_EMAIL ||
       process.env.CONTACT_FROM_EMAIL ||
       process.env.DEFAULT_FROM_EMAIL ||
+      process.env.ADMIN_FROM_EMAIL ||
       "BookPrinta <info@bookprinta.com>";
 
     const normalized = configured.trim();

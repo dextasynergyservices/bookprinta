@@ -3,11 +3,19 @@ import { expect, type Page, test } from "@playwright/test";
 const ORDER_ID = "cmadminorder00000000000000001";
 const SECOND_ORDER_ID = "cmadminorder00000000000000002";
 const PAYMENT_ID = "cmadminpayment00000000000001";
+const USER_ID = "cmadminuser00000000000000001";
+const SECOND_USER_ID = "cmadminuser00000000000000002";
+const THIRD_USER_ID = "cmadminuser00000000000000003";
 const DEFAULT_FRONTEND_ORIGIN = "http://localhost:3000";
 
 type MockAdminApiOptions = {
   pageSize?: number;
   delayOrdersMs?: number;
+};
+
+type MockAdminUserApiOptions = {
+  pageSize?: number;
+  delayUsersMs?: number;
 };
 
 function buildCorsHeaders(pageOrigin?: string) {
@@ -307,6 +315,218 @@ function buildAdminOrderDetail() {
       nextAllowedStatuses: ["PREVIEW_READY", "ACTION_REQUIRED", "CANCELLED"],
     },
   };
+}
+
+function buildAdminUsersList() {
+  return [
+    {
+      id: USER_ID,
+      fullName: "Ada Okafor",
+      email: "ada@example.com",
+      role: "EDITOR",
+      isVerified: true,
+      isActive: true,
+      createdAt: "2026-03-12T14:45:00.000Z",
+      detailUrl: `/admin/users/${USER_ID}`,
+    },
+    {
+      id: SECOND_USER_ID,
+      fullName: "Grace Bello",
+      email: "grace@example.com",
+      role: "ADMIN",
+      isVerified: true,
+      isActive: true,
+      createdAt: "2026-03-11T12:00:00.000Z",
+      detailUrl: `/admin/users/${SECOND_USER_ID}`,
+    },
+    {
+      id: THIRD_USER_ID,
+      fullName: "John Duru",
+      email: "john@example.com",
+      role: "USER",
+      isVerified: false,
+      isActive: true,
+      createdAt: "2026-03-10T08:45:00.000Z",
+      detailUrl: `/admin/users/${THIRD_USER_ID}`,
+    },
+  ];
+}
+
+function buildAdminUserDetails() {
+  return {
+    [USER_ID]: {
+      profile: {
+        id: USER_ID,
+        firstName: "Ada",
+        lastName: "Okafor",
+        fullName: "Ada Okafor",
+        email: "ada@example.com",
+        phoneNumber: "+2348000000000",
+        role: "EDITOR",
+        isVerified: true,
+        isActive: true,
+        preferredLanguage: "en",
+        bio: "Author of literary fiction and essays.",
+        profileImageUrl: null,
+        whatsAppNumber: "+2348000000000",
+        websiteUrl: "https://ada.example.com",
+        purchaseLinks: [
+          {
+            label: "Storefront",
+            url: "https://store.example.com/ada",
+          },
+        ],
+        socialLinks: [
+          {
+            platform: "Instagram",
+            url: "https://instagram.com/ada",
+          },
+        ],
+        isProfileComplete: true,
+        notificationPreferences: {
+          email: true,
+          whatsApp: false,
+          inApp: true,
+        },
+        createdAt: "2026-03-10T09:30:00.000Z",
+        updatedAt: "2026-03-12T14:45:00.000Z",
+      },
+      orders: [
+        {
+          id: ORDER_ID,
+          orderNumber: "BP-2026-0001",
+          orderType: "STANDARD",
+          orderStatus: "FORMATTING",
+          bookStatus: "FORMATTING",
+          package: {
+            id: "cmpackage000000000000000001",
+            name: "Signature Memoir",
+            slug: "signature-memoir",
+          },
+          totalAmount: 100000,
+          currency: "NGN",
+          createdAt: "2026-03-10T09:30:00.000Z",
+          detailUrl: `/admin/orders/${ORDER_ID}`,
+        },
+      ],
+      books: [
+        {
+          id: "cmadminbook00000000000000001",
+          title: "The Lagos Chronicle",
+          status: "FORMATTING",
+          productionStatus: "FORMATTING_REVIEW",
+          orderId: ORDER_ID,
+          orderNumber: "BP-2026-0001",
+          createdAt: "2026-03-10T11:00:00.000Z",
+          updatedAt: "2026-03-12T08:30:00.000Z",
+          detailUrl: "/admin/books/cmadminbook00000000000000001",
+          orderDetailUrl: `/admin/orders/${ORDER_ID}`,
+        },
+      ],
+      payments: [
+        {
+          id: PAYMENT_ID,
+          orderId: ORDER_ID,
+          orderNumber: "BP-2026-0001",
+          provider: "PAYSTACK",
+          type: "ORDER_PAYMENT",
+          status: "SUCCESS",
+          amount: 100000,
+          currency: "NGN",
+          providerRef: "PSK-REF-001",
+          receiptUrl: "https://example.com/receipt.pdf",
+          approvedAt: "2026-03-10T10:10:00.000Z",
+          processedAt: "2026-03-10T10:08:00.000Z",
+          createdAt: "2026-03-10T10:05:00.000Z",
+          updatedAt: "2026-03-10T10:10:00.000Z",
+          orderDetailUrl: `/admin/orders/${ORDER_ID}`,
+        },
+      ],
+    },
+    [SECOND_USER_ID]: {
+      profile: {
+        id: SECOND_USER_ID,
+        firstName: "Grace",
+        lastName: "Bello",
+        fullName: "Grace Bello",
+        email: "grace@example.com",
+        phoneNumber: "+2348098765432",
+        role: "ADMIN",
+        isVerified: true,
+        isActive: true,
+        preferredLanguage: "en",
+        bio: null,
+        profileImageUrl: null,
+        whatsAppNumber: null,
+        websiteUrl: null,
+        purchaseLinks: [],
+        socialLinks: [],
+        isProfileComplete: false,
+        notificationPreferences: {
+          email: true,
+          whatsApp: true,
+          inApp: true,
+        },
+        createdAt: "2026-03-11T12:00:00.000Z",
+        updatedAt: "2026-03-12T12:15:00.000Z",
+      },
+      orders: [],
+      books: [],
+      payments: [],
+    },
+    [THIRD_USER_ID]: {
+      profile: {
+        id: THIRD_USER_ID,
+        firstName: "John",
+        lastName: "Duru",
+        fullName: "John Duru",
+        email: "john@example.com",
+        phoneNumber: "+2348076543210",
+        role: "USER",
+        isVerified: false,
+        isActive: true,
+        preferredLanguage: "en",
+        bio: null,
+        profileImageUrl: null,
+        whatsAppNumber: null,
+        websiteUrl: null,
+        purchaseLinks: [],
+        socialLinks: [],
+        isProfileComplete: false,
+        notificationPreferences: {
+          email: true,
+          whatsApp: false,
+          inApp: false,
+        },
+        createdAt: "2026-03-10T08:45:00.000Z",
+        updatedAt: "2026-03-10T08:45:00.000Z",
+      },
+      orders: [],
+      books: [],
+      payments: [],
+    },
+  };
+}
+
+function sortAdminUsers(
+  items: ReturnType<typeof buildAdminUsersList>,
+  sortBy: string,
+  sortDirection: "asc" | "desc"
+) {
+  return [...items].sort((left, right) => {
+    switch (sortBy) {
+      case "fullName":
+        return compareStrings(left.fullName, right.fullName, sortDirection);
+      case "email":
+        return compareStrings(left.email, right.email, sortDirection);
+      case "role":
+        return compareStrings(left.role, right.role, sortDirection);
+      case "isVerified":
+        return compareNumbers(Number(left.isVerified), Number(right.isVerified), sortDirection);
+      default:
+        return compareStrings(left.createdAt, right.createdAt, sortDirection);
+    }
+  });
 }
 
 async function mockAdminApis(page: Page, options: MockAdminApiOptions = {}) {
@@ -698,6 +918,223 @@ async function mockAdminApis(page: Page, options: MockAdminApiOptions = {}) {
   };
 }
 
+async function mockAdminUserApis(page: Page, options: MockAdminUserApiOptions = {}) {
+  let listItems = buildAdminUsersList();
+  let detailById = buildAdminUserDetails();
+  let lastUpdatePayload: Record<string, unknown> | null = null;
+  let lastAuditAction: string | null = null;
+
+  await page.route("**/auth/me*", async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await fulfillPreflight(page, route);
+      return;
+    }
+
+    await fulfillJson(page, route, {
+      user: {
+        id: "cmadmin000000000000000001",
+        email: "admin@example.com",
+        firstName: "Admin",
+        lastName: "User",
+        role: "SUPER_ADMIN",
+        displayName: "Admin User",
+        initials: "AU",
+      },
+    });
+  });
+
+  await page.route("**/auth/refresh*", async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await fulfillPreflight(page, route);
+      return;
+    }
+
+    await fulfillJson(page, route, {});
+  });
+
+  await page.route("**/notifications/unread-count*", async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await fulfillPreflight(page, route);
+      return;
+    }
+
+    await fulfillJson(page, route, { unreadCount: 0 });
+  });
+
+  await page.route("**/api/v1/admin/users?*", async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await fulfillPreflight(page, route);
+      return;
+    }
+
+    if (options.delayUsersMs) {
+      await sleep(options.delayUsersMs);
+    }
+
+    const url = new URL(route.request().url());
+    const query = (url.searchParams.get("q") ?? "").toLowerCase();
+    const role = url.searchParams.get("role");
+    const isVerified = url.searchParams.get("isVerified");
+    const cursor = url.searchParams.get("cursor");
+    const limit = Number(url.searchParams.get("limit") ?? "20");
+    const sortBy = url.searchParams.get("sortBy") ?? "createdAt";
+    const sortDirection = (url.searchParams.get("sortDirection") ?? "desc") as "asc" | "desc";
+
+    let filteredItems = [...listItems];
+
+    if (query) {
+      filteredItems = filteredItems.filter((item) =>
+        [item.fullName, item.email].join(" ").toLowerCase().includes(query)
+      );
+    }
+
+    if (role) {
+      filteredItems = filteredItems.filter((item) => item.role === role);
+    }
+
+    if (isVerified === "true" || isVerified === "false") {
+      filteredItems = filteredItems.filter((item) => item.isVerified === (isVerified === "true"));
+    }
+
+    filteredItems = sortAdminUsers(filteredItems, sortBy, sortDirection);
+
+    const pageSize = Math.max(1, options.pageSize ?? limit);
+    const startIndex = cursor
+      ? Math.max(
+          0,
+          (() => {
+            const index = filteredItems.findIndex((item) => item.id === cursor);
+            return index >= 0 ? index + 1 : 0;
+          })()
+        )
+      : 0;
+    const pageSlice = filteredItems.slice(startIndex, startIndex + pageSize + 1);
+    const hasMore = pageSlice.length > pageSize;
+    const pageItems = hasMore ? pageSlice.slice(0, pageSize) : pageSlice;
+
+    await fulfillJson(page, route, {
+      items: pageItems,
+      nextCursor:
+        hasMore && pageItems.length > 0 ? (pageItems[pageItems.length - 1]?.id ?? null) : null,
+      hasMore,
+      totalItems: filteredItems.length,
+      limit,
+      sortBy,
+      sortDirection,
+      sortableFields: ["fullName", "email", "role", "isVerified", "createdAt"],
+    });
+  });
+
+  await page.route(/\/api\/v1\/admin\/users\/[^/?]+$/, async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      await fulfillPreflight(page, route);
+      return;
+    }
+
+    const userId = new URL(route.request().url()).pathname.split("/").pop() ?? "";
+    const detail = detailById[userId as keyof typeof detailById];
+
+    if (!detail) {
+      await fulfillJson(page, route, { message: "User not found" }, 404);
+      return;
+    }
+
+    if (route.request().method() === "GET") {
+      await fulfillJson(page, route, detail);
+      return;
+    }
+
+    if (route.request().method() !== "PATCH") {
+      await route.fallback();
+      return;
+    }
+
+    lastUpdatePayload = route.request().postDataJSON() as Record<string, unknown>;
+
+    const previousState = {
+      role: detail.profile.role,
+      isVerified: detail.profile.isVerified,
+      isActive: detail.profile.isActive,
+    };
+    const currentState = {
+      role:
+        typeof lastUpdatePayload.role === "string"
+          ? String(lastUpdatePayload.role)
+          : detail.profile.role,
+      isVerified:
+        typeof lastUpdatePayload.isVerified === "boolean"
+          ? Boolean(lastUpdatePayload.isVerified)
+          : detail.profile.isVerified,
+      isActive:
+        typeof lastUpdatePayload.isActive === "boolean"
+          ? Boolean(lastUpdatePayload.isActive)
+          : detail.profile.isActive,
+    };
+
+    if (currentState.isActive === false && previousState.isActive) {
+      lastAuditAction = "ADMIN_USER_DEACTIVATED";
+    } else if (currentState.role !== previousState.role) {
+      lastAuditAction = "ADMIN_USER_ROLE_UPDATED";
+    } else if (currentState.isVerified !== previousState.isVerified) {
+      lastAuditAction = "ADMIN_USER_VERIFICATION_UPDATED";
+    } else {
+      lastAuditAction = "ADMIN_USER_UPDATED";
+    }
+
+    const recordedAt =
+      lastAuditAction === "ADMIN_USER_DEACTIVATED"
+        ? "2026-03-14T11:20:00.000Z"
+        : "2026-03-14T10:45:00.000Z";
+
+    detailById = {
+      ...detailById,
+      [userId]: {
+        ...detail,
+        profile: {
+          ...detail.profile,
+          role: currentState.role,
+          isVerified: currentState.isVerified,
+          isActive: currentState.isActive,
+          updatedAt: recordedAt,
+        },
+      },
+    };
+
+    listItems = listItems.map((item) =>
+      item.id === userId
+        ? {
+            ...item,
+            role: currentState.role,
+            isVerified: currentState.isVerified,
+            isActive: currentState.isActive,
+          }
+        : item
+    );
+
+    await fulfillJson(page, route, {
+      userId,
+      previousState,
+      currentState,
+      updatedAt: recordedAt,
+      audit: {
+        auditId: "cmaudit000000000000000101",
+        action: lastAuditAction,
+        entityType: "USER",
+        entityId: userId,
+        recordedAt,
+        recordedBy: "cmadmin000000000000000001",
+        note: null,
+        reason: null,
+      },
+    });
+  });
+
+  return {
+    getLastUpdatePayload: () => lastUpdatePayload,
+    getLastAuditAction: () => lastAuditAction,
+  };
+}
+
 function isMobileViewport(page: Page) {
   return (page.viewportSize()?.width ?? 0) < 768;
 }
@@ -860,5 +1297,91 @@ test.describe("Admin Orders", () => {
     const viewportWidth = page.viewportSize()?.width ?? 375;
     const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
     expect(scrollWidth).toBeLessThanOrEqual(viewportWidth + 1);
+  });
+});
+
+test.describe("Admin Users", () => {
+  test("searches users, filters by role, and opens the detail workspace", async ({ page }) => {
+    await mockAdminUserApis(page);
+
+    await page.goto("/admin/users", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByRole("heading", { name: "Users" }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page.getByRole("textbox", { name: "Search" }).fill("ada@example.com");
+    await expect(page).toHaveURL(/q=ada%40example\.com/);
+
+    await page.getByRole("combobox", { name: "Role" }).selectOption("EDITOR");
+    await expect(page).toHaveURL(/role=EDITOR/);
+
+    await page.getByRole("combobox", { name: "Verification" }).selectOption("true");
+    await expect(page).toHaveURL(/isVerified=true/);
+
+    if (isMobileViewport(page)) {
+      const card = page.locator("article").filter({ hasText: "Ada Okafor" });
+      await expect(card).toHaveCount(1);
+      await expect(page.locator("article").filter({ hasText: "Grace Bello" })).toHaveCount(0);
+      await expect(page.locator("article").filter({ hasText: "John Duru" })).toHaveCount(0);
+      await card.getByRole("link", { name: /Manage User/ }).click();
+    } else {
+      const table = page.getByRole("table");
+      const userRow = table.getByRole("row").filter({ hasText: "Ada Okafor" });
+      await expect(userRow).toHaveCount(1);
+      await expect(table.getByRole("row").filter({ hasText: "Grace Bello" })).toHaveCount(0);
+      await expect(table.getByRole("row").filter({ hasText: "John Duru" })).toHaveCount(0);
+      await userRow.getByRole("link", { name: /Manage User/ }).click();
+    }
+
+    await expect(page).toHaveURL(new RegExp(`/admin/users/${USER_ID}$`));
+    await expect(page.getByRole("heading", { name: "Ada Okafor" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole("heading", { name: "Order History" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Payment History" })).toBeVisible();
+  });
+
+  test("changes role and deactivates the account while surfacing audit trail updates", async ({
+    page,
+  }) => {
+    const api = await mockAdminUserApis(page);
+
+    await page.goto(`/admin/users/${USER_ID}`, { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByRole("heading", { name: "Ada Okafor" })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole("heading", { name: "Account Controls" })).toBeVisible();
+
+    await page.getByRole("combobox", { name: "Role" }).selectOption("ADMIN");
+    await page.getByRole("button", { name: "Save Changes" }).click();
+
+    await expect.poll(() => api.getLastUpdatePayload()?.role).toBe("ADMIN");
+    await expect.poll(() => api.getLastAuditAction()).toBe("ADMIN_USER_ROLE_UPDATED");
+
+    await expect(page.getByText("User updated", { exact: true })).toBeVisible();
+    const latestAudit = page.locator('div[aria-live="polite"]').filter({
+      hasText: "Latest Audit Entry",
+    });
+    await expect(latestAudit).toContainText("Latest Audit Entry");
+    await expect(latestAudit).toContainText("Admin User Role Updated");
+    await expect(page.getByRole("combobox", { name: "Role" })).toHaveValue("ADMIN");
+
+    const deactivateSwitch = page.getByRole("switch", { name: "Deactivate Account" });
+    await deactivateSwitch.click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Deactivate This Account" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Deactivate User" }).click();
+
+    await expect.poll(() => api.getLastUpdatePayload()?.isActive).toBe(false);
+    await expect.poll(() => api.getLastAuditAction()).toBe("ADMIN_USER_DEACTIVATED");
+
+    await expect(page.getByText("User deactivated", { exact: true })).toBeVisible();
+    await expect(latestAudit).toContainText("Admin User Deactivated");
+    await expect(deactivateSwitch).toHaveAttribute("aria-checked", "true");
+    await expect(deactivateSwitch).toBeDisabled();
+    await expect(page.getByText("Inactive", { exact: true })).toBeVisible();
   });
 });

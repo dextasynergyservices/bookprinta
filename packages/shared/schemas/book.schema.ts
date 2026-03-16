@@ -304,6 +304,58 @@ export const BookTimelineItemSchema = z.object({
 export type BookTimelineItem = z.infer<typeof BookTimelineItemSchema>;
 
 /**
+ * GET /api/v1/books?page=1&limit=10
+ */
+export const UserBooksListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+export type UserBooksListQueryInput = z.infer<typeof UserBooksListQuerySchema>;
+
+export const UserBooksPaginationSchema = z.object({
+  page: z.number().int().min(1),
+  pageSize: z.number().int().min(1),
+  totalItems: z.number().int().min(0),
+  totalPages: z.number().int().min(0),
+  hasPreviousPage: z.boolean(),
+  hasNextPage: z.boolean(),
+});
+export type UserBooksPagination = z.infer<typeof UserBooksPaginationSchema>;
+
+export const UserBookListItemSchema = z.object({
+  id: z.string().cuid(),
+  orderId: z.string().cuid(),
+  title: BookTitleSchema.nullable(),
+  status: BookStatusSchema,
+  productionStatus: BookStatusSchema,
+  orderStatus: OrderStatusSchema,
+  currentStage: BookProgressStageSchema,
+  coverImageUrl: z.string().nullable(),
+  latestProcessingError: z.string().nullable(),
+  rejectionReason: z.string().nullable(),
+  pageCount: z.number().int().nullable(),
+  wordCount: z.number().int().nullable(),
+  estimatedPages: z.number().int().nullable(),
+  fontSize: BookFontSizeSchema.nullable(),
+  pageSize: BookPageSizeSchema.nullable(),
+  previewPdfUrlPresent: z.boolean(),
+  finalPdfUrlPresent: z.boolean(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  workspaceUrl: z.string().trim().min(1),
+  trackingUrl: z.string().trim().min(1),
+  rollout: BookRolloutStateSchema,
+  processing: BookProcessingStateSchema,
+});
+export type UserBookListItem = z.infer<typeof UserBookListItemSchema>;
+
+export const UserBooksListResponseSchema = z.object({
+  items: z.array(UserBookListItemSchema),
+  pagination: UserBooksPaginationSchema,
+});
+export type UserBooksListResponse = z.infer<typeof UserBooksListResponseSchema>;
+
+/**
  * GET /api/v1/books/:id
  */
 export const BookDetailResponseSchema = z.object({

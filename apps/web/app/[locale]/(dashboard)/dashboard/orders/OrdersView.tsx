@@ -8,9 +8,13 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { motion } from "framer-motion";
-import { AlertCircle, ChevronLeft, ChevronRight, PackageSearch } from "lucide-react";
+import { ChevronLeft, ChevronRight, PackageSearch } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
+import {
+  DashboardErrorState,
+  OrderRowSkeleton,
+} from "@/components/dashboard/dashboard-async-primitives";
 import {
   DashboardResponsiveDataRegion,
   DashboardTableViewport,
@@ -25,6 +29,11 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/components/ui/table";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useOrders } from "@/hooks/useOrders";
+import {
+  formatDashboardCurrency,
+  formatDashboardDate,
+  toDashboardStatusLabel,
+} from "@/lib/dashboard/dashboard-formatters";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import type { OrdersListItem } from "@/types/orders";
@@ -56,38 +65,16 @@ const TABLE_SKELETON_ROW_KEYS = Array.from(
   { length: SKELETON_TABLE_ROW_COUNT },
   (_unused, index) => `orders-table-row-skeleton-${index + 1}`
 );
-
-const LOCALE_FORMAT_TAGS: Record<string, string> = {
-  en: "en-NG",
-  fr: "fr-FR",
-  es: "es-ES",
-};
-
-function resolveIntlLocale(locale: string): string {
-  return LOCALE_FORMAT_TAGS[locale] ?? "en-NG";
-}
-
-function toStatusLabel(value: string | null | undefined): string | null {
-  if (!value) return null;
-
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
+const TABLE_SKELETON_COLSPAN = TABLE_SKELETON_COLUMN_KEYS.length;
 
 function formatOrderDate(value: string | null, locale: string, fallback: string): string {
-  if (!value) return fallback;
-
-  const parsedDate = new Date(value);
-  if (Number.isNaN(parsedDate.getTime())) return fallback;
-
-  return new Intl.DateTimeFormat(resolveIntlLocale(locale), {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(parsedDate);
+  return (
+    formatDashboardDate(value, locale, {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }) ?? fallback
+  );
 }
 
 function formatOrderTotal(
@@ -101,17 +88,9 @@ function formatOrderTotal(
   const currencyCode = (currency || "NGN").toUpperCase();
 
   try {
-    return new Intl.NumberFormat(resolveIntlLocale(locale), {
-      style: "currency",
-      currency: currencyCode,
-      maximumFractionDigits: 0,
-    }).format(amount);
+    return formatDashboardCurrency(amount, locale, currencyCode);
   } catch {
-    return new Intl.NumberFormat(resolveIntlLocale(locale), {
-      style: "currency",
-      currency: "NGN",
-      maximumFractionDigits: 0,
-    }).format(amount);
+    return formatDashboardCurrency(amount, locale);
   }
 }
 
@@ -182,7 +161,7 @@ function OrdersDesktopTable({
             orderStatus={row.original.orderStatus}
             bookStatus={row.original.bookStatus}
             label={
-              toStatusLabel(row.original.bookStatus ?? row.original.orderStatus) ??
+              toDashboardStatusLabel(row.original.bookStatus ?? row.original.orderStatus) ??
               tDashboard("orders_unknown_status")
             }
           />
@@ -286,23 +265,8 @@ function OrdersDesktopTable({
           <TableBody aria-hidden="true">
             {TABLE_TRANSITION_SKELETON_KEYS.map((skeletonRowKey) => (
               <tr key={skeletonRowKey} className="border-t border-[#2A2A2A]">
-                <TableCell className="px-4 py-4">
-                  <div className="h-4 w-28 animate-pulse rounded bg-[#2A2A2A]" />
-                </TableCell>
-                <TableCell className="px-4 py-4">
-                  <div className="h-4 w-32 animate-pulse rounded bg-[#2A2A2A]" />
-                </TableCell>
-                <TableCell className="px-4 py-4">
-                  <div className="h-6 w-24 animate-pulse rounded-full bg-[#2A2A2A]" />
-                </TableCell>
-                <TableCell className="px-4 py-4">
-                  <div className="h-4 w-24 animate-pulse rounded bg-[#2A2A2A]" />
-                </TableCell>
-                <TableCell className="px-4 py-4 text-right">
-                  <div className="ml-auto h-4 w-20 animate-pulse rounded bg-[#2A2A2A]" />
-                </TableCell>
-                <TableCell className="px-4 py-4 text-right">
-                  <div className="ml-auto h-10 w-28 animate-pulse rounded-full bg-[#2A2A2A]" />
+                <TableCell colSpan={TABLE_SKELETON_COLSPAN} className="px-4 py-4">
+                  <OrderRowSkeleton />
                 </TableCell>
               </tr>
             ))}
@@ -351,7 +315,7 @@ function OrdersMobileCards({
                 orderStatus={order.orderStatus}
                 bookStatus={order.bookStatus}
                 label={
-                  toStatusLabel(order.bookStatus ?? order.orderStatus) ??
+                  toDashboardStatusLabel(order.bookStatus ?? order.orderStatus) ??
                   tDashboard("orders_unknown_status")
                 }
               />
@@ -409,19 +373,7 @@ function OrdersMobileCards({
 
       {transitioning
         ? MOBILE_TRANSITION_SKELETON_KEYS.map((skeletonKey) => (
-            <div
-              key={skeletonKey}
-              aria-hidden="true"
-              className="rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4"
-            >
-              <div className="h-4 w-28 animate-pulse rounded bg-[#2A2A2A]" />
-              <div className="mt-3 h-4 w-2/3 animate-pulse rounded bg-[#2A2A2A]" />
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div className="h-4 w-full animate-pulse rounded bg-[#2A2A2A]" />
-                <div className="h-4 w-full animate-pulse rounded bg-[#2A2A2A]" />
-              </div>
-              <div className="mt-4 h-11 w-full animate-pulse rounded-full bg-[#2A2A2A]" />
-            </div>
+            <OrderRowSkeleton key={skeletonKey} />
           ))
         : null}
     </>
@@ -432,22 +384,7 @@ function OrdersMobileSkeleton() {
   return (
     <>
       {MOBILE_SKELETON_KEYS.map((skeletonKey) => (
-        <div
-          key={skeletonKey}
-          aria-hidden="true"
-          className="rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="h-4 w-28 animate-pulse rounded bg-[#2A2A2A]" />
-            <div className="h-6 w-20 animate-pulse rounded-full bg-[#2A2A2A]" />
-          </div>
-          <div className="mt-4 space-y-3">
-            <div className="h-4 w-full animate-pulse rounded bg-[#2A2A2A]" />
-            <div className="h-4 w-4/5 animate-pulse rounded bg-[#2A2A2A]" />
-            <div className="h-4 w-3/4 animate-pulse rounded bg-[#2A2A2A]" />
-          </div>
-          <div className="mt-4 h-11 w-full animate-pulse rounded-full bg-[#2A2A2A]" />
-        </div>
+        <OrderRowSkeleton key={skeletonKey} />
       ))}
     </>
   );
@@ -470,11 +407,9 @@ function OrdersTableSkeleton() {
         <TableBody>
           {TABLE_SKELETON_ROW_KEYS.map((rowKey) => (
             <tr key={rowKey} className="border-b border-[#2A2A2A]">
-              {TABLE_SKELETON_COLUMN_KEYS.map((columnKey) => (
-                <TableCell key={`${rowKey}-${columnKey}`} className="px-4 py-4">
-                  <div className="h-4 w-24 animate-pulse rounded bg-[#2A2A2A]" />
-                </TableCell>
-              ))}
+              <TableCell colSpan={TABLE_SKELETON_COLSPAN} className="px-4 py-4">
+                <OrderRowSkeleton />
+              </TableCell>
             </tr>
           ))}
         </TableBody>
@@ -518,29 +453,14 @@ function OrdersErrorState({ message, onRetry, isRetrying }: OrdersErrorStateProp
   const tCommon = useTranslations("common");
 
   return (
-    <section className="rounded-2xl border border-[#ef4444]/45 bg-[#111111] p-6">
-      <div className="flex items-start gap-3">
-        <AlertCircle className="mt-0.5 size-5 shrink-0 text-[#ef4444]" aria-hidden="true" />
-        <div className="min-w-0">
-          <h2 className="font-display text-xl font-semibold text-white">
-            {tDashboard("orders_error_title")}
-          </h2>
-          <p className="font-sans mt-1 text-sm text-[#d0d0d0]">
-            {message || tDashboard("orders_error_description")}
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={isRetrying}
-            className="font-sans mt-4 min-h-11 rounded-full border-[#2A2A2A] bg-[#000000] px-5 text-white hover:bg-[#151515]"
-          >
-            {isRetrying ? tCommon("loading") : tCommon("retry")}
-          </Button>
-        </div>
-      </div>
-    </section>
+    <DashboardErrorState
+      title={tDashboard("orders_error_title")}
+      description={message || tDashboard("orders_error_description")}
+      retryLabel={tCommon("retry")}
+      loadingLabel={tCommon("loading")}
+      onRetry={onRetry}
+      isRetrying={isRetrying}
+    />
   );
 }
 

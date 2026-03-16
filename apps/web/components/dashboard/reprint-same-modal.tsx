@@ -7,6 +7,7 @@ import { BookOpen, Check, Layers, LoaderCircle, Minus, Plus, Sparkles, X } from 
 import { useLocale, useTranslations } from "next-intl";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -274,6 +275,7 @@ export function ReprintSameModal({
   returnFocusElement,
 }: ReprintSameModalProps) {
   const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
   const tCheckout = useTranslations("checkout");
   const locale = useLocale();
   const isMobile = useIsMobile();
@@ -527,21 +529,16 @@ export function ReprintSameModal({
                           </p>
                         </div>
                       ) : isError ? (
-                        <div className="flex flex-1 flex-col items-center justify-center rounded-[30px] border border-[#2A2A2A] bg-[#050505] px-6 py-10 text-center">
-                          <p className="font-display text-2xl font-semibold text-white">
-                            {tDashboard("reprint_same_load_error_title")}
-                          </p>
-                          <p className="font-sans mt-3 max-w-md text-sm leading-6 text-[#BDBDBD]">
-                            {errorMessage || tDashboard("reprint_same_load_error_description")}
-                          </p>
-                          <Button
-                            type="button"
-                            onClick={handleRetry}
-                            className="font-sans mt-5 min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
-                          >
-                            {tDashboard("reprint_same_retry")}
-                          </Button>
-                        </div>
+                        <DashboardErrorState
+                          className="flex-1 rounded-[30px] border-[#2A2A2A] bg-[#050505]"
+                          title={tDashboard("reprint_same_load_error_title")}
+                          description={
+                            errorMessage || tDashboard("reprint_same_load_error_description")
+                          }
+                          retryLabel={tCommon("retry")}
+                          loadingLabel={tCommon("loading")}
+                          onRetry={handleRetry}
+                        />
                       ) : showUnavailableState ? (
                         <div className="flex flex-1 flex-col justify-between gap-6 rounded-[30px] border border-[#2A2A2A] bg-[#050505] p-5 sm:p-6">
                           <div>

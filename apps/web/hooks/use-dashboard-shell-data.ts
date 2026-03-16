@@ -39,6 +39,11 @@ import {
   normalizeMyReviewsPayload,
 } from "@/lib/api/reviews-contract";
 import { throwApiError } from "@/lib/api-error";
+import {
+  createDashboardConditionalRealtimeQueryOptions,
+  dashboardLiveQueryOptions,
+  dashboardRealtimeQueryOptions,
+} from "@/lib/dashboard/query-defaults";
 
 function getApiV1BaseUrl() {
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
@@ -49,7 +54,6 @@ function getApiV1BaseUrl() {
 }
 
 const API_V1_BASE_URL = getApiV1BaseUrl();
-const NOTIFICATIONS_POLL_INTERVAL_MS = 30_000;
 const DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE = 50;
 
 export const dashboardNotificationsQueryKeys = {
@@ -268,6 +272,28 @@ async function createReviewRequest(input: CreateReviewBodyInput): Promise<Create
   return normalizeCreateReviewPayload(payload);
 }
 
+function buildOptimisticReviewBook(
+  current: ReviewStateQueryData | undefined,
+  input: CreateReviewBodyInput
+): MyReviewsResponse["books"][number] {
+  const existingBook = current?.books.find((book) => book.bookId === input.bookId) ?? null;
+  const trimmedComment = input.comment?.trim() || null;
+
+  return {
+    bookId: input.bookId,
+    title: existingBook?.title ?? null,
+    coverImageUrl: existingBook?.coverImageUrl ?? null,
+    lifecycleStatus: existingBook?.lifecycleStatus ?? "DELIVERED",
+    reviewStatus: "REVIEWED",
+    review: {
+      rating: input.rating,
+      comment: trimmedComment,
+      isPublic: true,
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
+
 function getNotificationsListSnapshots(
   queryClient: ReturnType<typeof useQueryClient>
 ): Array<[QueryKey, NotificationsListResponse | undefined]> {
@@ -384,13 +410,7 @@ export function useNotificationUnreadCount() {
       sentryEndpoint: "/api/v1/notifications/unread-count",
     },
     queryFn: ({ signal }) => fetchNotificationUnreadCount({ signal }),
-    staleTime: 0,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
-    refetchInterval: NOTIFICATIONS_POLL_INTERVAL_MS,
-    refetchIntervalInBackground: true,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    ...dashboardRealtimeQueryOptions,
   });
 
   const unreadCount = query.data?.unreadCount ?? 0;
@@ -430,14 +450,8 @@ export function useNotificationsList({
         signal,
       }),
     placeholderData: keepPreviousData,
-    staleTime: 0,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
+    ...createDashboardConditionalRealtimeQueryOptions(isOpen),
     enabled: isOpen,
-    refetchInterval: isOpen ? NOTIFICATIONS_POLL_INTERVAL_MS : false,
-    refetchIntervalInBackground: isOpen,
-    refetchOnWindowFocus: isOpen,
-    refetchOnMount: isOpen ? "always" : false,
   });
 
   const data = query.data ?? createEmptyNotificationsListResponse(resolvedPage, resolvedPageSize);
@@ -475,13 +489,7 @@ export function useNotificationBannerState() {
         pageSize: DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE,
         signal,
       }),
-    staleTime: 0,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
-    refetchInterval: NOTIFICATIONS_POLL_INTERVAL_MS,
-    refetchIntervalInBackground: true,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    ...dashboardRealtimeQueryOptions,
   });
 
   const data =
@@ -601,11 +609,7 @@ export function useReviewState() {
       sentryEndpoint: "/api/v1/reviews/my",
     },
     queryFn: ({ signal }) => fetchReviewState({ signal }),
-    staleTime: 0,
-    gcTime: 1000 * 60 * 10,
-    retry: 1,
-    refetchOnWindowFocus: true,
-    refetchOnMount: "always",
+    ...dashboardLiveQueryOptions,
   });
 
   const emptyReviewState = useMemo(
@@ -658,7 +662,44 @@ export function useCreateReview() {
       sentryName: "createReview",
       sentryEndpoint: "/api/v1/reviews",
     },
-    onSuccess: (result) => {
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({
+        queryKey: DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY,
+        exact: true,
+      });
+
+      const reviewStateSnapshot = queryClient.getQueryData<ReviewStateQueryData>(
+        DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY
+      );
+
+      queryClient.setQueryData<ReviewStateQueryData>(
+        DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY,
+        (current) => ({
+          ...appendReviewToState(
+            current
+              ? {
+                  hasEligibleBooks: current.hasEligibleBooks,
+                  hasPendingReviews: current.hasPendingReviews,
+                  books: current.books,
+                }
+              : createEmptyReviewState(),
+            buildOptimisticReviewBook(current, input)
+          ),
+          isFallback: current?.isFallback ?? false,
+        })
+      );
+
+      return {
+        reviewStateSnapshot,
+      };
+    },
+    onError: (_error, _variables, context) => {
+      queryClient.setQueryData(
+        DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY,
+        context?.reviewStateSnapshot
+      );
+    },
+    onSuccess: async (result) => {
       queryClient.setQueryData<ReviewStateQueryData>(
         DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY,
         (current) => ({
@@ -675,6 +716,11 @@ export function useCreateReview() {
           isFallback: false,
         })
       );
+
+      await queryClient.invalidateQueries({
+        queryKey: DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY,
+        exact: true,
+      });
     },
   });
 

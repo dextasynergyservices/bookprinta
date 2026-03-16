@@ -2,11 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import {
+  DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY,
   DASHBOARD_UNREAD_COUNT_QUERY_KEY,
   dashboardNotificationsQueryKeys,
+  useCreateReview,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotificationBannerState,
+  useNotificationUnreadCount,
 } from "./use-dashboard-shell-data";
 
 const unreadNotification = {
@@ -62,6 +65,15 @@ const resolvedSystemNotification = {
       tone: "default" as const,
     },
   },
+};
+
+const pendingReviewBook = {
+  bookId: "cmreviewbook11111111111111111",
+  title: "The Lagos Chronicle",
+  coverImageUrl: null,
+  lifecycleStatus: "DELIVERED" as const,
+  reviewStatus: "PENDING" as const,
+  review: null,
 };
 
 function createWrapper(client: QueryClient) {
@@ -209,6 +221,199 @@ describe("use-dashboard-shell-data mutations", () => {
 
     expect(cachedList?.items.every((item) => item.isRead)).toBe(true);
   });
+
+  it("optimistically marks a pending review as submitted before the API resolves", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    client.setQueryData(DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY, {
+      hasEligibleBooks: true,
+      hasPendingReviews: true,
+      books: [pendingReviewBook],
+      isFallback: false,
+    });
+
+    let resolveFetch: ((value: Response) => void) | null = null;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    const { result } = renderHook(() => useCreateReview(), {
+      wrapper: createWrapper(client),
+    });
+
+    let submissionPromise: Promise<unknown> | null = null;
+    act(() => {
+      submissionPromise = result.current.submitReview({
+        bookId: pendingReviewBook.bookId,
+        rating: 5,
+        comment: "Sharp print quality and smooth updates.",
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        client.getQueryData<{
+          hasPendingReviews: boolean;
+          books: Array<{
+            bookId: string;
+            reviewStatus: string;
+            review: { rating: number; comment: string | null } | null;
+          }>;
+        }>(DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY)
+      ).toMatchObject({
+        hasPendingReviews: false,
+        books: [
+          {
+            bookId: pendingReviewBook.bookId,
+            reviewStatus: "REVIEWED",
+            review: {
+              rating: 5,
+              comment: "Sharp print quality and smooth updates.",
+            },
+          },
+        ],
+      });
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/reviews"),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+      })
+    );
+
+    await act(async () => {
+      resolveFetch?.({
+        ok: true,
+        json: jest.fn().mockResolvedValue({
+          book: {
+            ...pendingReviewBook,
+            reviewStatus: "REVIEWED",
+            review: {
+              rating: 5,
+              comment: "Sharp print quality and smooth updates.",
+              isPublic: true,
+              createdAt: "2026-03-04T12:00:00.000Z",
+            },
+          },
+        }),
+      } as unknown as Response);
+      await submissionPromise;
+    });
+
+    expect(
+      client.getQueryData<{
+        hasPendingReviews: boolean;
+        books: Array<{
+          bookId: string;
+          reviewStatus: string;
+          review: { createdAt: string } | null;
+        }>;
+      }>(DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY)
+    ).toMatchObject({
+      hasPendingReviews: false,
+      books: [
+        {
+          bookId: pendingReviewBook.bookId,
+          reviewStatus: "REVIEWED",
+          review: {
+            createdAt: "2026-03-04T12:00:00.000Z",
+          },
+        },
+      ],
+    });
+  });
+
+  it("rolls back the optimistic review update when submission fails", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    client.setQueryData(DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY, {
+      hasEligibleBooks: true,
+      hasPendingReviews: true,
+      books: [pendingReviewBook],
+      isFallback: false,
+    });
+
+    let rejectFetch: ((reason?: unknown) => void) | null = null;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectFetch = reject;
+        })
+    );
+
+    const { result } = renderHook(() => useCreateReview(), {
+      wrapper: createWrapper(client),
+    });
+
+    let submissionPromise: Promise<unknown> | null = null;
+    act(() => {
+      submissionPromise = result.current.submitReview({
+        bookId: pendingReviewBook.bookId,
+        rating: 4,
+        comment: "Lovely finish.",
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        client.getQueryData<{
+          hasPendingReviews: boolean;
+          books: Array<{
+            bookId: string;
+            reviewStatus: string;
+          }>;
+        }>(DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY)
+      ).toMatchObject({
+        hasPendingReviews: false,
+        books: [
+          {
+            bookId: pendingReviewBook.bookId,
+            reviewStatus: "REVIEWED",
+          },
+        ],
+      });
+    });
+
+    await act(async () => {
+      rejectFetch?.(new Error("Network down"));
+      await expect(submissionPromise).rejects.toThrow("Network down");
+    });
+
+    expect(
+      client.getQueryData<{
+        hasPendingReviews: boolean;
+        books: Array<{
+          bookId: string;
+          reviewStatus: string;
+          review: unknown;
+        }>;
+      }>(DASHBOARD_REVIEW_ELIGIBILITY_QUERY_KEY)
+    ).toMatchObject({
+      hasPendingReviews: true,
+      books: [
+        {
+          bookId: pendingReviewBook.bookId,
+          reviewStatus: "PENDING",
+          review: null,
+        },
+      ],
+    });
+  });
 });
 
 describe("useNotificationBannerState", () => {
@@ -290,5 +495,116 @@ describe("useNotificationBannerState", () => {
     });
 
     expect(result.current.hasProductionDelayBanner).toBe(false);
+  });
+});
+
+describe("useMarkNotificationRead rollback", () => {
+  const fetchMock = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  it("restores original unread count and list item state on mark-read API failure", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    client.setQueryData(DASHBOARD_UNREAD_COUNT_QUERY_KEY, {
+      unreadCount: 3,
+      isFallback: false,
+    });
+    client.setQueryData(dashboardNotificationsQueryKeys.list(1, 20), {
+      items: [unreadNotification],
+      pagination: {
+        page: 1,
+        pageSize: 20,
+        totalItems: 1,
+        totalPages: 1,
+        hasPreviousPage: false,
+        hasNextPage: false,
+      },
+    });
+
+    let rejectFetch: ((reason?: unknown) => void) | null = null;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectFetch = reject;
+        })
+    );
+
+    const { result } = renderHook(() => useMarkNotificationRead(), {
+      wrapper: createWrapper(client),
+    });
+
+    let markPromise: Promise<unknown> | null = null;
+    act(() => {
+      markPromise = result.current.markAsRead({
+        notificationId: unreadNotification.id,
+      });
+    });
+
+    // Optimistic: count dropped by 1
+    await waitFor(() => {
+      expect(client.getQueryData(DASHBOARD_UNREAD_COUNT_QUERY_KEY)).toMatchObject({
+        unreadCount: 2,
+      });
+    });
+
+    // Fail the request
+    await act(async () => {
+      rejectFetch?.(new Error("500 Internal Server Error"));
+      try {
+        await markPromise;
+      } catch {
+        /* expected */
+      }
+    });
+
+    // Rollback: count restored
+    await waitFor(() => {
+      expect(client.getQueryData(DASHBOARD_UNREAD_COUNT_QUERY_KEY)).toMatchObject({
+        unreadCount: 3,
+      });
+    });
+
+    // List item rolled back to unread
+    const cachedList = client.getQueryData<{
+      items: Array<{ id: string; isRead: boolean }>;
+    }>(dashboardNotificationsQueryKeys.list(1, 20));
+    expect(cachedList?.items[0]?.isRead).toBe(false);
+  });
+});
+
+describe("useNotificationUnreadCount graceful degradation", () => {
+  const fetchMock = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  it("degrades to zero unread count with isFallback=true on network failure", async () => {
+    fetchMock.mockRejectedValue(new Error("Network down"));
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    const { result } = renderHook(() => useNotificationUnreadCount(), {
+      wrapper: createWrapper(client),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isFallback).toBe(true);
+    });
+
+    expect(result.current.unreadCount).toBe(0);
+    expect(result.current.hasUnread).toBe(false);
   });
 });
