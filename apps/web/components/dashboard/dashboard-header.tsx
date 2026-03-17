@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { NotificationBell } from "@/components/dashboard/notification-bell";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { useAuthSession } from "@/hooks/use-auth-session";
+import { buildLogoutRedirect } from "@/lib/auth/redirect-policy";
 import { Link, usePathname, useRouter } from "@/lib/i18n/navigation";
 import {
   DropdownMenu,
@@ -35,6 +36,8 @@ function toInitials(value: string, fallback: string) {
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return `${words[0].charAt(0)}${words[1].charAt(0)}`.toUpperCase();
 }
+
+const PRESERVE_RETURN_TO_ON_EXPLICIT_LOGOUT = true;
 
 type DashboardHeaderProps = {
   onOpenMobileMenu?: () => void;
@@ -66,7 +69,13 @@ export function DashboardHeader({
     try {
       await logout();
       toast.success(tNav("logout_success"));
-      router.replace("/");
+      const currentPathWithQuery =
+        typeof window === "undefined" ? pathname : `${pathname}${window.location.search}`;
+      router.replace(
+        buildLogoutRedirect(currentPathWithQuery, {
+          preserveReturnToOnLogout: PRESERVE_RETURN_TO_ON_EXPLICIT_LOGOUT,
+        })
+      );
     } catch {
       toast.error(tNav("logout_error"));
     }

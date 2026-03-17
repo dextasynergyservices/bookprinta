@@ -117,6 +117,7 @@ describe("AdminHeader", () => {
 
   it("logs the user out and redirects to login", async () => {
     const logoutMock = jest.fn().mockResolvedValue(undefined);
+    window.history.replaceState({}, "", "/admin/books?status=PENDING&sort=createdAt");
 
     useAuthSessionMock.mockReturnValue({
       user: {
@@ -140,7 +141,9 @@ describe("AdminHeader", () => {
       expect(logoutMock).toHaveBeenCalledTimes(1);
     });
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/login");
+      expect(routerReplaceMock).toHaveBeenCalledWith(
+        "/login?returnTo=%2Fadmin%2Fbooks%3Fstatus%3DPENDING%26sort%3DcreatedAt"
+      );
     });
     expect(toast.success).toHaveBeenCalledWith("Logged out successfully.");
   });

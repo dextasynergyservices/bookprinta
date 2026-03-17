@@ -21,6 +21,7 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  MoreHorizontal,
   Search,
   ShieldCheck,
   ShieldX,
@@ -30,12 +31,20 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useDeferredValue, useEffect, useId, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   DashboardResponsiveDataRegion,
   DashboardTableViewport,
 } from "@/components/dashboard/dashboard-content-frame";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -51,6 +60,11 @@ import {
   DEFAULT_ADMIN_USER_SORT_DIRECTION,
   useAdminUsersFilters,
 } from "@/hooks/use-admin-users-filters";
+import {
+  useAdminDeleteUserMutation,
+  useAdminReactivateUserMutation,
+  useAdminUpdateUserMutation,
+} from "@/hooks/useAdminUserActions";
 import { useAdminUsers } from "@/hooks/useAdminUsers";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -58,6 +72,7 @@ import { cn } from "@/lib/utils";
 type AdminUserRow = AdminUsersListResponse["items"][number];
 type TranslateFn = (key: string, values?: Record<string, string | number | Date>) => string;
 type AdminUserMobileSlot = "primary" | "secondary" | "badges" | "details" | "actions";
+type PendingListActionType = "reactivate" | "deactivate" | "delete";
 type AdminUserColumnMeta = {
   mobileSlot: AdminUserMobileSlot;
   mobileLabel?: string;
@@ -118,6 +133,14 @@ function formatAdminDate(
     month: "short",
     year: "numeric",
   }).format(parsedDate);
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 function getFilterControlClass(isActive: boolean): string {
@@ -859,6 +882,13 @@ function AdminUsersPagination({
 export function AdminUsersView() {
   const tAdmin = useTranslations("admin");
   const locale = useLocale();
+  const updateMutation = useAdminUpdateUserMutation();
+  const deleteMutation = useAdminDeleteUserMutation();
+  const reactivateMutation = useAdminReactivateUserMutation();
+  const [pendingListAction, setPendingListAction] = useState<{
+    userId: string;
+    action: PendingListActionType;
+  } | null>(null);
   const {
     role,
     isVerified,
@@ -939,6 +969,131 @@ export function AdminUsersView() {
       setSort(nextColumn.id as AdminUserSortField, nextColumn.desc ? "desc" : "asc");
     },
     [setSort, sorting]
+  );
+
+  const runListAction = useCallback(
+    async (
+      params: {
+        userId: string;
+        action: PendingListActionType;
+      },
+      execute: () => Promise<void>
+    ) => {
+      if (pendingListAction) {
+        return;
+      }
+
+      setPendingListAction({
+        userId: params.userId,
+        action: params.action,
+      });
+
+      try {
+        await execute();
+      } finally {
+        setPendingListAction((current) => {
+          if (!current) return current;
+          if (current.userId !== params.userId || current.action !== params.action) return current;
+          return null;
+        });
+      }
+    },
+    [pendingListAction]
+  );
+
+  const handleReactivateFromList = useCallback(
+    async (row: AdminUserRow) => {
+      await runListAction(
+        {
+          userId: row.id,
+          action: "reactivate",
+        },
+        async () => {
+          const response = await reactivateMutation.mutateAsync({
+            userId: row.id,
+          });
+
+          toast.success(tAdmin("users_action_reactivate_success"), {
+            description: tAdmin("users_detail_save_success_description", {
+              action: response.audit.action,
+              date: formatAdminDate(
+                response.audit.recordedAt,
+                locale,
+                tAdmin("users_detail_unknown")
+              ),
+            }),
+          });
+        }
+      );
+    },
+    [locale, reactivateMutation, runListAction, tAdmin]
+  );
+
+  const handleDeactivateFromList = useCallback(
+    async (row: AdminUserRow) => {
+      await runListAction(
+        {
+          userId: row.id,
+          action: "deactivate",
+        },
+        async () => {
+          try {
+            const response = await updateMutation.mutateAsync({
+              userId: row.id,
+              input: {
+                isActive: false,
+              },
+            });
+
+            toast.success(tAdmin("users_detail_deactivate_success"), {
+              description: tAdmin("users_detail_save_success_description", {
+                action: response.audit.action,
+                date: formatAdminDate(
+                  response.audit.recordedAt,
+                  locale,
+                  tAdmin("users_detail_unknown")
+                ),
+              }),
+            });
+          } catch (error) {
+            toast.error(tAdmin("users_detail_deactivate_error_title"), {
+              description: getErrorMessage(
+                error,
+                tAdmin("users_detail_deactivate_error_description")
+              ),
+            });
+          }
+        }
+      );
+    },
+    [locale, runListAction, tAdmin, updateMutation]
+  );
+
+  const handleDeleteFromList = useCallback(
+    async (row: AdminUserRow) => {
+      await runListAction(
+        {
+          userId: row.id,
+          action: "delete",
+        },
+        async () => {
+          try {
+            await deleteMutation.mutateAsync({
+              userId: row.id,
+            });
+
+            toast.success(tAdmin("users_detail_delete_success"), {
+              description: tAdmin("users_detail_delete_success_description"),
+            });
+          } catch (error) {
+            toast.error(tAdmin("users_detail_delete_error_title"), {
+              description: getErrorMessage(error, tAdmin("users_detail_delete_error_description")),
+            });
+          }
+        }
+      );
+    },
+    [deleteMutation, runListAction, tAdmin]
   );
 
   const columns = useMemo(
@@ -1054,18 +1209,101 @@ export function AdminUsersView() {
             {tAdmin("users_table_actions")}
           </span>
         ),
-        cell: ({ row }) => (
-          <Link
-            href={row.original.detailUrl}
-            className="inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-4 py-2 font-sans text-xs font-medium text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#101010] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 md:w-auto"
-          >
-            <span>{tAdmin("users_action_view")}</span>
-            <span className="sr-only"> {row.original.fullName}</span>
-          </Link>
-        ),
+        cell: ({ row }) => {
+          const isReactivatePending =
+            pendingListAction?.userId === row.original.id &&
+            pendingListAction.action === "reactivate";
+          const isDeactivatePending =
+            pendingListAction?.userId === row.original.id &&
+            pendingListAction.action === "deactivate";
+          const isDeletePending =
+            pendingListAction?.userId === row.original.id && pendingListAction.action === "delete";
+          const anyRowActionPending = isReactivatePending || isDeactivatePending || isDeletePending;
+
+          return (
+            <div className="flex w-full items-center justify-end gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={anyRowActionPending}
+                    className="size-11 rounded-full border-[#2A2A2A] bg-[#000000] p-0 text-white hover:border-[#007eff] hover:bg-[#101010] disabled:opacity-55"
+                    aria-label={tAdmin("users_actions_menu_sr")}
+                  >
+                    <MoreHorizontal className="size-4" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-[14.5rem] rounded-2xl border-[#2A2A2A] bg-[#111111] p-1.5 text-white"
+                >
+                  <DropdownMenuItem asChild className="min-h-11 rounded-xl font-sans text-sm">
+                    <Link href={row.original.detailUrl}>
+                      <span>{tAdmin("users_action_view")}</span>
+                      <span className="sr-only"> {row.original.fullName}</span>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="my-1 bg-[#2A2A2A]" />
+
+                  {row.original.isActive ? (
+                    <DropdownMenuItem
+                      disabled={isDeactivatePending}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void handleDeactivateFromList(row.original);
+                      }}
+                      className="min-h-11 rounded-xl font-sans text-sm"
+                    >
+                      <span>{tAdmin("users_detail_deactivate_confirm")}</span>
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem
+                      disabled={isReactivatePending}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void handleReactivateFromList(row.original);
+                      }}
+                      className="min-h-11 rounded-xl font-sans text-sm"
+                    >
+                      <span>
+                        {isReactivatePending
+                          ? tAdmin("users_action_reactivating")
+                          : tAdmin("users_action_reactivate")}
+                      </span>
+                    </DropdownMenuItem>
+                  )}
+
+                  <DropdownMenuItem
+                    disabled={isDeletePending}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void handleDeleteFromList(row.original);
+                    }}
+                    className="min-h-11 rounded-xl font-sans text-sm text-[#ffb3b3] focus:text-[#ffb3b3]"
+                  >
+                    <span>
+                      {isDeletePending
+                        ? tAdmin("users_detail_deleting")
+                        : tAdmin("users_detail_delete")}
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          );
+        },
       }),
     ],
-    [locale, sortableFieldSet, tAdmin]
+    [
+      handleDeactivateFromList,
+      handleDeleteFromList,
+      handleReactivateFromList,
+      locale,
+      pendingListAction,
+      sortableFieldSet,
+      tAdmin,
+    ]
   );
 
   const table = useReactTable({

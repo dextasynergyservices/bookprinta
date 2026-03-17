@@ -9,6 +9,7 @@ import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { useAdminNotificationBellState } from "@/hooks/use-admin-notifications";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { buildLogoutRedirect } from "@/lib/auth/redirect-policy";
 import { usePathname, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import { resolveAdminPageTitle } from "./admin-navigation";
@@ -24,6 +25,8 @@ type AdminHeaderProps = {
 
 const CONTROL_BUTTON_CLASS_NAME =
   "relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#111111] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#1a1a1a] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2";
+
+const PRESERVE_RETURN_TO_ON_EXPLICIT_LOGOUT = true;
 
 export function AdminHeader({
   onOpenMobileMenu,
@@ -81,7 +84,13 @@ export function AdminHeader({
     try {
       await logout();
       toast.success(tAdmin("logout_success"));
-      router.replace("/login");
+      const currentPathWithQuery =
+        typeof window === "undefined" ? pathname : `${pathname}${window.location.search}`;
+      router.replace(
+        buildLogoutRedirect(currentPathWithQuery, {
+          preserveReturnToOnLogout: PRESERVE_RETURN_TO_ON_EXPLICIT_LOGOUT,
+        })
+      );
     } catch {
       toast.error(tAdmin("logout_error"));
     }

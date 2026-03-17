@@ -3,6 +3,7 @@ import { AdminAuthGate } from "./admin-auth-gate";
 
 const useAuthSessionMock = jest.fn();
 const usePathnameMock = jest.fn();
+const useSearchParamsMock = jest.fn();
 const routerReplaceMock = jest.fn();
 
 jest.mock("next-intl", () => ({
@@ -23,10 +24,15 @@ jest.mock("@/lib/i18n/navigation", () => ({
   }),
 }));
 
+jest.mock("next/navigation", () => ({
+  useSearchParams: () => useSearchParamsMock(),
+}));
+
 describe("AdminAuthGate", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     usePathnameMock.mockReturnValue("/admin/payments");
+    useSearchParamsMock.mockReturnValue(new URLSearchParams());
   });
 
   it("shows the loading state while auth is unresolved", () => {
@@ -97,7 +103,7 @@ describe("AdminAuthGate", () => {
       expect(refetchMock).toHaveBeenCalledTimes(1);
     });
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/login?next=%2Fadmin%2Fpayments");
+      expect(routerReplaceMock).toHaveBeenCalledWith("/login?returnTo=%2Fadmin%2Fpayments");
     });
   });
 
@@ -125,7 +131,33 @@ describe("AdminAuthGate", () => {
     );
 
     await waitFor(() => {
-      expect(routerReplaceMock).toHaveBeenCalledWith("/login?next=%2Fadmin%2Fpayments");
+      expect(routerReplaceMock).toHaveBeenCalledWith("/login?returnTo=%2Fadmin%2Fpayments");
+    });
+  });
+
+  it("preserves deep-link query params in returnTo", async () => {
+    const refetchMock = jest.fn();
+    usePathnameMock.mockReturnValue("/admin/quotes");
+    useSearchParamsMock.mockReturnValue(new URLSearchParams("status=PENDING&sort=createdAt"));
+
+    useAuthSessionMock.mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+      isFetching: false,
+      refetch: refetchMock,
+    });
+
+    render(
+      <AdminAuthGate>
+        <div>Protected admin content</div>
+      </AdminAuthGate>
+    );
+
+    await waitFor(() => {
+      expect(routerReplaceMock).toHaveBeenCalledWith(
+        "/login?returnTo=%2Fadmin%2Fquotes%3Fstatus%3DPENDING%26sort%3DcreatedAt"
+      );
     });
   });
 

@@ -1,23 +1,26 @@
 "use client";
 
-import type { AdminUpdateUserInput, AdminUpdateUserResponse } from "@bookprinta/shared";
+import type {
+  AdminDeleteUserResponse,
+  AdminUpdateUserInput,
+  AdminUpdateUserResponse,
+} from "@bookprinta/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import { adminUsersQueryKeys } from "./useAdminUsers";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 
 type UpdateAdminUserVariables = {
   userId: string;
   input: AdminUpdateUserInput;
+};
+
+type DeleteAdminUserVariables = {
+  userId: string;
+};
+
+type ReactivateAdminUserVariables = {
+  userId: string;
 };
 
 async function updateAdminUser({
@@ -27,7 +30,7 @@ async function updateAdminUser({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/users/${userId}`, {
+    response = await fetchApiV1WithRefresh(`/admin/users/${userId}`, {
       method: "PATCH",
       credentials: "include",
       cache: "no-store",
@@ -47,6 +50,50 @@ async function updateAdminUser({
   return (await response.json()) as AdminUpdateUserResponse;
 }
 
+async function deleteAdminUser({
+  userId,
+}: DeleteAdminUserVariables): Promise<AdminDeleteUserResponse> {
+  let response: Response;
+
+  try {
+    response = await fetchApiV1WithRefresh(`/admin/users/${userId}`, {
+      method: "DELETE",
+      credentials: "include",
+      cache: "no-store",
+    });
+  } catch {
+    throw new Error("Unable to delete the user right now.");
+  }
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to delete the user");
+  }
+
+  return (await response.json()) as AdminDeleteUserResponse;
+}
+
+async function reactivateAdminUser({
+  userId,
+}: ReactivateAdminUserVariables): Promise<AdminUpdateUserResponse> {
+  let response: Response;
+
+  try {
+    response = await fetchApiV1WithRefresh(`/admin/users/${userId}/reactivate`, {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+    });
+  } catch {
+    throw new Error("Unable to reactivate the user right now.");
+  }
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to reactivate the user");
+  }
+
+  return (await response.json()) as AdminUpdateUserResponse;
+}
+
 export function useAdminUpdateUserMutation() {
   const queryClient = useQueryClient();
 
@@ -55,6 +102,48 @@ export function useAdminUpdateUserMutation() {
       updateAdminUser({
         userId,
         input,
+      }),
+    onSuccess: async (_response, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: adminUsersQueryKeys.all,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: adminUsersQueryKeys.detail(variables.userId),
+        }),
+      ]);
+    },
+  });
+}
+
+export function useAdminDeleteUserMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId }: DeleteAdminUserVariables) =>
+      deleteAdminUser({
+        userId,
+      }),
+    onSuccess: async (_response, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: adminUsersQueryKeys.all,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: adminUsersQueryKeys.detail(variables.userId),
+        }),
+      ]);
+    },
+  });
+}
+
+export function useAdminReactivateUserMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId }: ReactivateAdminUserVariables) =>
+      reactivateAdminUser({
+        userId,
       }),
     onSuccess: async (_response, variables) => {
       await Promise.all([

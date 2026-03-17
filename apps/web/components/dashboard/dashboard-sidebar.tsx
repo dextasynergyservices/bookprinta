@@ -150,6 +150,7 @@ export function DashboardSidebar({
                 <Link
                   href={item.href}
                   aria-label={itemLabel}
+                  title={isCollapsed ? itemLabel : undefined}
                   aria-current={isActive ? "page" : undefined}
                   aria-disabled={isReviewsLocked || undefined}
                   onClick={(event) => {

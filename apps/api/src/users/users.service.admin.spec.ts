@@ -442,4 +442,146 @@ describe("UsersService admin user management", () => {
       )
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it("soft-deletes an active user and writes an audit trail", async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: "cmuser_4",
+      role: "USER",
+      isVerified: true,
+      isActive: true,
+      updatedAt: new Date("2026-03-10T10:00:00.000Z"),
+    });
+    prisma.user.update.mockResolvedValue({
+      id: "cmuser_4",
+      role: "USER",
+      isVerified: true,
+      isActive: false,
+      updatedAt: new Date("2026-03-14T14:00:00.000Z"),
+    });
+    prisma.auditLog.create.mockResolvedValue({
+      id: "cmaudit_4",
+      action: "ADMIN_USER_DELETED",
+      entityType: "USER",
+      entityId: "cmuser_4",
+      details: {
+        changedFields: ["isActive"],
+      },
+      createdAt: new Date("2026-03-14T14:00:01.000Z"),
+    });
+
+    await expect(service.deleteAdminUser("cmuser_4", "cmadmin_1")).resolves.toEqual({
+      userId: "cmuser_4",
+      deleted: true,
+      isActive: false,
+      deletedAt: "2026-03-14T14:00:00.000Z",
+      audit: {
+        auditId: "cmaudit_4",
+        action: "ADMIN_USER_DELETED",
+        entityType: "USER",
+        entityId: "cmuser_4",
+        recordedAt: "2026-03-14T14:00:01.000Z",
+        recordedBy: "cmadmin_1",
+        note: null,
+        reason: null,
+      },
+    });
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "cmuser_4" },
+      data: {
+        isActive: false,
+        refreshToken: null,
+        refreshTokenExp: null,
+      },
+      select: expect.any(Object),
+    });
+  });
+
+  it("rejects delete when user is already inactive", async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: "cmuser_5",
+      role: "USER",
+      isVerified: true,
+      isActive: false,
+      updatedAt: new Date("2026-03-10T10:00:00.000Z"),
+    });
+
+    await expect(service.deleteAdminUser("cmuser_5", "cmadmin_1")).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+  });
+
+  it("reactivates an inactive user via the dedicated admin action", async () => {
+    prisma.user.findUnique
+      .mockResolvedValueOnce({
+        id: "cmuser_6",
+        role: "USER",
+        isVerified: true,
+        isActive: false,
+        updatedAt: new Date("2026-03-10T10:00:00.000Z"),
+      })
+      .mockResolvedValueOnce({
+        id: "cmuser_6",
+        role: "USER",
+        isVerified: true,
+        isActive: false,
+        updatedAt: new Date("2026-03-10T10:00:00.000Z"),
+      });
+    prisma.user.update.mockResolvedValue({
+      id: "cmuser_6",
+      role: "USER",
+      isVerified: true,
+      isActive: true,
+      updatedAt: new Date("2026-03-14T16:00:00.000Z"),
+    });
+    prisma.auditLog.create.mockResolvedValue({
+      id: "cmaudit_6",
+      action: "ADMIN_USER_REACTIVATED",
+      entityType: "USER",
+      entityId: "cmuser_6",
+      details: {
+        changedFields: ["isActive"],
+      },
+      createdAt: new Date("2026-03-14T16:00:01.000Z"),
+    });
+
+    await expect(service.reactivateAdminUser("cmuser_6", "cmadmin_1")).resolves.toEqual({
+      userId: "cmuser_6",
+      previousState: {
+        role: "USER",
+        isVerified: true,
+        isActive: false,
+      },
+      currentState: {
+        role: "USER",
+        isVerified: true,
+        isActive: true,
+      },
+      updatedAt: "2026-03-14T16:00:00.000Z",
+      audit: {
+        auditId: "cmaudit_6",
+        action: "ADMIN_USER_REACTIVATED",
+        entityType: "USER",
+        entityId: "cmuser_6",
+        recordedAt: "2026-03-14T16:00:01.000Z",
+        recordedBy: "cmadmin_1",
+        note: null,
+        reason: null,
+      },
+    });
+  });
+
+  it("rejects reactivation when user is already active", async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: "cmuser_7",
+      role: "USER",
+      isVerified: true,
+      isActive: true,
+      updatedAt: new Date("2026-03-10T10:00:00.000Z"),
+    });
+
+    await expect(service.reactivateAdminUser("cmuser_7", "cmadmin_1")).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+  });
 });
