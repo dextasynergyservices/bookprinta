@@ -34,7 +34,7 @@ import { normalizePhoneNumber } from "./phone-number.util.js";
 import { hashRefreshToken } from "./refresh-token.util.js";
 
 const AUTH_ACCOUNT_DEACTIVATED_MESSAGE =
-  "This account has been deactivated. Please contact support or an administrator for assistance.";
+  "This account has been deactivated. Use the account recovery/reactivation flow, or contact support or an administrator for assistance.";
 
 /**
  * Auth Service — Core authentication and authorization logic.

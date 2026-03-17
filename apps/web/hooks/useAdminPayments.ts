@@ -12,19 +12,12 @@ import type {
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { throwApiError } from "@/lib/api-error";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import {
   ADMIN_PAYMENTS_LIMIT,
   DEFAULT_ADMIN_PAYMENT_SORT_BY,
   DEFAULT_ADMIN_PAYMENT_SORT_DIRECTION,
 } from "./use-admin-payments-filters";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
 
 function isAbortError(error: unknown): boolean {
   if (typeof error !== "object" || error === null || !("name" in error)) {
@@ -35,8 +28,6 @@ function isAbortError(error: unknown): boolean {
     .toLowerCase()
     .includes("abort");
 }
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 
 export const ADMIN_PENDING_BANK_TRANSFER_SLA_GREEN_MINUTES = 15;
 export const ADMIN_PENDING_BANK_TRANSFER_SLA_RED_MINUTES = 30;
@@ -246,7 +237,7 @@ export async function fetchAdminPayments(
 
   let response: Response;
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/payments?${params.toString()}`, {
+    response = await fetchApiV1WithRefresh(`/admin/payments?${params.toString()}`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",
@@ -275,7 +266,7 @@ export async function fetchPendingBankTransfers({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/payments/pending-bank-transfers`, {
+    response = await fetchApiV1WithRefresh(`/admin/payments/pending-bank-transfers`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",

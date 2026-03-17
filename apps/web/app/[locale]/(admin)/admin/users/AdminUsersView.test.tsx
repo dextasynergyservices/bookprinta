@@ -5,6 +5,9 @@ import { AdminUsersView } from "./AdminUsersView";
 
 const useAdminUsersMock = jest.fn();
 const useAdminUsersFiltersMock = jest.fn();
+const useAdminUpdateUserMutationMock = jest.fn();
+const useAdminDeleteUserMutationMock = jest.fn();
+const useAdminReactivateUserMutationMock = jest.fn();
 
 const translations: Record<string, string> = {
   panel_label: "BookPrinta Admin",
@@ -36,11 +39,28 @@ const translations: Record<string, string> = {
   users_table_verified: "Verified",
   users_table_joined: "Joined",
   users_table_actions: "Actions",
+  users_actions_menu_sr: "User actions menu",
   users_action_view: "Manage User",
+  users_action_reactivate: "Reactivate User",
+  users_action_reactivating: "Reactivating user",
   users_status_verified: "Verified",
   users_status_unverified: "Unverified",
   users_status_active: "Active",
   users_status_inactive: "Inactive",
+  users_detail_deactivate_confirm: "Deactivate User",
+  users_detail_deactivate_success: "User deactivated",
+  users_detail_deactivate_error_title: "Unable to deactivate user",
+  users_detail_deactivate_error_description:
+    "Refresh the user details and try the deactivation again.",
+  users_detail_delete: "Delete User",
+  users_detail_deleting: "Deleting user",
+  users_detail_delete_success: "User deleted",
+  users_detail_delete_success_description: "The user was deleted and removed from active access.",
+  users_detail_delete_error_title: "Unable to delete user",
+  users_detail_delete_error_description: "Refresh the user details and try deleting again.",
+  users_detail_save_success_description: "{action} was recorded at {date}.",
+  users_detail_unknown: "Unavailable",
+  users_action_reactivate_success: "User reactivated",
   users_joined_unavailable: "Join date unavailable",
   users_pagination_aria: "Users pagination",
   users_pagination_page: "Page {page}",
@@ -85,6 +105,19 @@ jest.mock("@/hooks/use-admin-users-filters", () => {
     useAdminUsersFilters: () => useAdminUsersFiltersMock(),
   };
 });
+
+jest.mock("@/hooks/useAdminUserActions", () => ({
+  useAdminUpdateUserMutation: () => useAdminUpdateUserMutationMock(),
+  useAdminDeleteUserMutation: () => useAdminDeleteUserMutationMock(),
+  useAdminReactivateUserMutation: () => useAdminReactivateUserMutationMock(),
+}));
+
+jest.mock("sonner", () => ({
+  toast: {
+    success: jest.fn(),
+    error: jest.fn(),
+  },
+}));
 
 jest.mock("@/lib/i18n/navigation", () => ({
   Link: ({
@@ -168,11 +201,22 @@ function createLoadedUsersState() {
   };
 }
 
+function createMutationState(overrides?: Record<string, unknown>) {
+  return {
+    mutateAsync: jest.fn(),
+    isPending: false,
+    ...overrides,
+  };
+}
+
 describe("AdminUsersView", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     useAdminUsersFiltersMock.mockReturnValue(createBaseFilters());
     useAdminUsersMock.mockReturnValue(createLoadedUsersState());
+    useAdminUpdateUserMutationMock.mockReturnValue(createMutationState());
+    useAdminDeleteUserMutationMock.mockReturnValue(createMutationState());
+    useAdminReactivateUserMutationMock.mockReturnValue(createMutationState());
   });
 
   afterEach(() => {
@@ -240,11 +284,32 @@ describe("AdminUsersView", () => {
 
     expect(screen.getAllByText("Ada Okafor").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Inactive").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: /Manage User/ })[0]).toHaveAttribute(
-      "href",
-      "/admin/users/cm1111111111111111111111111"
-    );
+    expect(screen.getAllByRole("button", { name: "User actions menu" })[0]).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Users pagination" })).toBeInTheDocument();
+  });
+
+  it("wires reactivation from the action menu for inactive users", async () => {
+    const user = userEvent.setup();
+    const reactivateMutateAsync = jest.fn().mockResolvedValue({
+      audit: {
+        action: "ADMIN_USER_REACTIVATED",
+        recordedAt: "2026-03-17T12:10:00.000Z",
+      },
+    });
+    useAdminReactivateUserMutationMock.mockReturnValue(
+      createMutationState({
+        mutateAsync: reactivateMutateAsync,
+      })
+    );
+
+    render(<AdminUsersView />);
+
+    await user.click(screen.getAllByRole("button", { name: "User actions menu" })[0]);
+    await user.click(screen.getByRole("menuitem", { name: "Reactivate User" }));
+
+    expect(reactivateMutateAsync).toHaveBeenCalledWith({
+      userId: "cm1111111111111111111111111",
+    });
   });
 
   it("exposes aria-sort on the sortable table headers", () => {

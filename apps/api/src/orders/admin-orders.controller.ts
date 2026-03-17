@@ -2,6 +2,8 @@ import { Body, Controller, Get, Header, Param, Patch, Query, UseGuards } from "@
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
 import {
+  AdminArchiveOrderDto,
+  AdminArchiveOrderResponseDto,
   AdminOrderDetailDto,
   AdminOrdersListQueryDto,
   AdminOrdersListResponseDto,
@@ -86,5 +88,32 @@ export class AdminOrdersController {
     @CurrentUser("sub") adminId: string
   ): Promise<AdminUpdateOrderStatusResponseDto> {
     return this.ordersService.updateAdminOrderStatus(params.id, dto, adminId);
+  }
+
+  @Patch(":id/archive")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Archive an order from active admin queue",
+    description:
+      "Archives terminal-state orders (COMPLETED, CANCELLED, REFUNDED) from active admin listing and writes an audit entry.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Order CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Order archived successfully",
+    type: AdminArchiveOrderResponseDto,
+  })
+  @ApiResponse({ status: 404, description: "Order not found" })
+  async archiveAdminOrder(
+    @Param() params: OrderParamsDto,
+    @Body() dto: AdminArchiveOrderDto,
+    @CurrentUser("sub") adminId: string
+  ): Promise<AdminArchiveOrderResponseDto> {
+    return this.ordersService.archiveAdminOrder(params.id, dto, adminId);
   }
 }

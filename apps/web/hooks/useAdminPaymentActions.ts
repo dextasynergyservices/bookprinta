@@ -7,18 +7,9 @@ import type {
 } from "@bookprinta/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import { adminOrdersQueryKeys } from "./useAdminOrders";
 import { adminPaymentsQueryKeys } from "./useAdminPayments";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 
 export type AdminBankTransferDecisionResponse = {
   id: string;
@@ -100,8 +91,8 @@ async function approveAdminBankTransfer({
   let response: Response;
 
   try {
-    response = await fetch(
-      `${API_V1_BASE_URL}/admin/payments/${encodeURIComponent(paymentId)}/approve-transfer`,
+    response = await fetchApiV1WithRefresh(
+      `/admin/payments/${encodeURIComponent(paymentId)}/approve-transfer`,
       {
         method: "POST",
         credentials: "include",
@@ -135,8 +126,8 @@ async function rejectAdminBankTransfer({
   let response: Response;
 
   try {
-    response = await fetch(
-      `${API_V1_BASE_URL}/admin/payments/${encodeURIComponent(paymentId)}/reject-transfer`,
+    response = await fetchApiV1WithRefresh(
+      `/admin/payments/${encodeURIComponent(paymentId)}/reject-transfer`,
       {
         method: "POST",
         credentials: "include",
@@ -165,8 +156,8 @@ async function refundAdminPayment({
   let response: Response;
 
   try {
-    response = await fetch(
-      `${API_V1_BASE_URL}/admin/payments/${encodeURIComponent(paymentId)}/refund`,
+    response = await fetchApiV1WithRefresh(
+      `/admin/payments/${encodeURIComponent(paymentId)}/refund`,
       {
         method: "POST",
         credentials: "include",

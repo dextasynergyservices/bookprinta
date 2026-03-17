@@ -3,17 +3,8 @@
 import type { AdminBookDetail } from "@bookprinta/shared";
 import { useQuery } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import { adminBooksQueryKeys } from "./useAdminBooks";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 
 type FetchAdminBookDetailInput = {
   bookId: string;
@@ -37,7 +28,7 @@ export async function fetchAdminBookDetail({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/books/${bookId}`, {
+    response = await fetchApiV1WithRefresh(`/admin/books/${bookId}`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",

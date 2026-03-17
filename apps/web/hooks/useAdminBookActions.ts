@@ -13,17 +13,9 @@ import type {
 } from "@bookprinta/shared";
 import { ADMIN_BOOK_HTML_UPLOAD_MAX_BYTES } from "@bookprinta/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import { adminBooksQueryKeys } from "./useAdminBooks";
 
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 const ADMIN_BOOK_HTML_EXTENSIONS = [".html", ".htm"] as const;
 
 type ApiErrorPayload = {
@@ -195,7 +187,7 @@ async function updateAdminBookStatus({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/books/${bookId}/status`, {
+    response = await fetchApiV1WithRefresh(`/admin/books/${bookId}/status`, {
       method: "PATCH",
       credentials: "include",
       cache: "no-store",
@@ -222,7 +214,7 @@ async function rejectAdminBook({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/books/${bookId}/reject`, {
+    response = await fetchApiV1WithRefresh(`/admin/books/${bookId}/reject`, {
       method: "POST",
       credentials: "include",
       cache: "no-store",
@@ -249,7 +241,7 @@ async function requestAdminBookHtmlUpload({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/books/${bookId}/upload-html`, {
+    response = await fetchApiV1WithRefresh(`/admin/books/${bookId}/upload-html`, {
       method: "POST",
       credentials: "include",
       cache: "no-store",
@@ -406,7 +398,7 @@ export async function downloadAdminBookFile({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/books/${bookId}/download/${fileType}`, {
+    response = await fetchApiV1WithRefresh(`/admin/books/${bookId}/download/${fileType}`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",
@@ -436,7 +428,7 @@ export async function downloadAdminBookVersionFile({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/books/${bookId}/files/${fileId}/download`, {
+    response = await fetchApiV1WithRefresh(`/admin/books/${bookId}/files/${fileId}/download`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",

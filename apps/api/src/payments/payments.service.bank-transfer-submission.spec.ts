@@ -181,4 +181,32 @@ describe("PaymentsService bank transfer submission", () => {
         "This typically takes less than 30 minutes.",
     });
   });
+
+  it("requires a receipt file for custom quote bank transfer submissions", async () => {
+    const { service, prisma } = createService();
+
+    prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+
+    await expect(
+      service.submitBankTransfer({
+        payerName: "Ada Okafor",
+        payerEmail: "ada@example.com",
+        payerPhone: "+2348012345678",
+        amount: 125000,
+        currency: "NGN",
+        receiptUrl: "https://example.com/receipts/bt-2026-0002.jpg",
+        metadata: {
+          paymentFlow: "CUSTOM_QUOTE",
+          customQuoteId: "cqw6b4x5k0000x7qza9m1t2b3",
+          quoteTitle: "My Story",
+          quoteQuantity: 100,
+          quotePrintSize: "A5",
+          quoteFinalPrice: 125000,
+          locale: "en",
+        },
+      } as never)
+    ).rejects.toThrow("Receipt file upload is required for custom quote bank transfers.");
+
+    expect(prisma.payment.create).not.toHaveBeenCalled();
+  });
 });

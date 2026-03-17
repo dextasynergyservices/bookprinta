@@ -14,6 +14,8 @@ import { ManuscriptRejectedEmail } from "./emails/ManuscriptRejectedEmail.tsx";
 import { PasswordResetEmail } from "./emails/PasswordResetEmail.tsx";
 import { ProductionDelayEmail } from "./emails/ProductionDelayEmail.tsx";
 import { QuoteAdminNotificationEmail } from "./emails/QuoteAdminNotificationEmail.tsx";
+import { QuotePaymentRevokedEmail } from "./emails/QuotePaymentRevokedEmail.tsx";
+import { QuoteProposalEmail } from "./emails/QuoteProposalEmail.tsx";
 import { QuoteReceivedEmail } from "./emails/QuoteReceivedEmail.tsx";
 import { RefundConfirmEmail } from "./emails/RefundConfirmEmail.tsx";
 import { SignupLinkEmail } from "./emails/SignupLinkEmail.tsx";
@@ -176,6 +178,22 @@ export interface RenderQuoteAdminNotificationProps {
   estimatedPriceLow?: number | null;
   estimatedPriceHigh?: number | null;
   adminPanelUrl: string;
+}
+
+export interface RenderQuoteProposalProps {
+  locale?: Locale;
+  userName: string;
+  totalPrice: string;
+  paymentUrl: string;
+  proposalPdfUrl?: string;
+  adminNotes?: string;
+}
+
+export interface RenderQuotePaymentRevokedProps {
+  locale?: Locale;
+  userName: string;
+  reason: string;
+  customerMessage?: string;
 }
 
 // ── Render helpers ───────────────────────────────────────────────────────────
@@ -342,6 +360,28 @@ export async function renderQuoteAdminNotificationEmail(
   return {
     html,
     subject,
+  };
+}
+
+export async function renderQuoteProposalEmail(
+  props: RenderQuoteProposalProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(QuoteProposalEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("quote_proposal", locale),
+  };
+}
+
+export async function renderQuotePaymentLinkRevokedEmail(
+  props: RenderQuotePaymentRevokedProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(QuotePaymentRevokedEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("quote_payment_revoked", locale),
   };
 }
 

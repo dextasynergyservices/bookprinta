@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useLenis } from "@/hooks/use-lenis";
+import { buildLogoutRedirect } from "@/lib/auth/redirect-policy";
 import { Link, usePathname, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import { MobileDrawer } from "./mobile-drawer";
@@ -28,6 +29,8 @@ const navLinks = [
   { href: "/resources", labelKey: "resources" },
   { href: "/contact", labelKey: "contact" },
 ] as const;
+
+const PRESERVE_RETURN_TO_ON_EXPLICIT_LOGOUT = true;
 
 export function Navbar() {
   const t = useTranslations("nav");
@@ -48,11 +51,17 @@ export function Navbar() {
       await logout();
       toast.success(t("logout_success"));
       setIsDrawerOpen(false);
-      router.replace("/");
+      const currentPathWithQuery =
+        typeof window === "undefined" ? pathname : `${pathname}${window.location.search}`;
+      router.replace(
+        buildLogoutRedirect(currentPathWithQuery, {
+          preserveReturnToOnLogout: PRESERVE_RETURN_TO_ON_EXPLICIT_LOGOUT,
+        })
+      );
     } catch {
       toast.error(t("logout_error"));
     }
-  }, [logout, router, t]);
+  }, [logout, pathname, router, t]);
 
   // Track scroll position via Lenis for background change
   const handleScroll = useCallback(() => {

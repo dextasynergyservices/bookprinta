@@ -1,4 +1,6 @@
 import {
+  AdminArchiveOrderResponseSchema,
+  AdminArchiveOrderSchema,
   AdminOrderDetailSchema,
   AdminOrdersListQuerySchema,
   AdminOrdersListResponseSchema,
@@ -23,3 +25,9 @@ export class AdminUpdateOrderStatusDto extends createZodDto(AdminUpdateOrderStat
 export class AdminUpdateOrderStatusResponseDto extends createZodDto(
   AdminUpdateOrderStatusResponseSchema
 ) {}
+
+/** PATCH /api/v1/admin/orders/:id/archive */
+export class AdminArchiveOrderDto extends createZodDto(AdminArchiveOrderSchema) {}
+
+/** Response for PATCH /api/v1/admin/orders/:id/archive */
+export class AdminArchiveOrderResponseDto extends createZodDto(AdminArchiveOrderResponseSchema) {}

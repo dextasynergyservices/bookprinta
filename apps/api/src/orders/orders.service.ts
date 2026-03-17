@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type {
+  AdminArchiveOrderResponse,
   AdminOrderDetail,
   AdminOrderDisplayStatus,
   AdminOrderSortField,
@@ -35,7 +36,11 @@ import {
   resolveAdminStatusProjection,
   resolveNextAllowedOrderStatuses,
 } from "./admin-order-workflow.js";
-import type { AdminOrdersListQueryDto, AdminUpdateOrderStatusDto } from "./dto/admin-order.dto.js";
+import type {
+  AdminArchiveOrderDto,
+  AdminOrdersListQueryDto,
+  AdminUpdateOrderStatusDto,
+} from "./dto/admin-order.dto.js";
 import { renderOrderInvoiceHtml } from "./order-invoice.template.js";
 
 type TrackingEventRow = {
@@ -93,6 +98,7 @@ export class OrdersService {
   private static readonly ORDER_TRACKING_ACTION = "ORDER_STATUS_REACHED";
   private static readonly ORDER_INVOICE_ENTITY_TYPE = "ORDER_INVOICE";
   private static readonly ORDER_INVOICE_ACTION = "ORDER_INVOICE_ARCHIVED";
+  private static readonly ORDER_ARCHIVED_ACTION = "ORDER_ARCHIVED";
 
   constructor(
     private readonly prisma: PrismaService,
@@ -488,7 +494,8 @@ export class OrdersService {
   }
 
   async findAdminOrders(query: AdminOrdersListQueryDto): Promise<AdminOrdersListResponse> {
-    const where = this.buildAdminOrdersWhere(query);
+    const archivedOrderIds = await this.getArchivedOrderIds();
+    const where = this.buildAdminOrdersWhere(query, archivedOrderIds);
     const orderBy = this.buildAdminOrdersOrderBy(query.sortBy, query.sortDirection);
 
     const rows = await this.prisma.order.findMany({
@@ -518,6 +525,74 @@ export class OrdersService {
       sortBy: query.sortBy,
       sortDirection: query.sortDirection,
       sortableFields: [...OrdersService.ADMIN_ORDER_SORTABLE_FIELDS],
+    };
+  }
+
+  async archiveAdminOrder(
+    orderId: string,
+    dto: AdminArchiveOrderDto,
+    adminId: string
+  ): Promise<AdminArchiveOrderResponse> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        book: {
+          select: {
+            status: true,
+            productionStatus: true,
+          },
+        },
+        updatedAt: true,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order "${orderId}" not found`);
+    }
+
+    const existingArchive = await this.prisma.auditLog.findFirst({
+      where: {
+        entityType: "ORDER",
+        entityId: orderId,
+        action: OrdersService.ORDER_ARCHIVED_ACTION,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existingArchive) {
+      throw new BadRequestException("Order is already archived.");
+    }
+
+    const archivedAt = new Date();
+    const reason = dto.reason.trim();
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId: adminId,
+        action: OrdersService.ORDER_ARCHIVED_ACTION,
+        entityType: "ORDER",
+        entityId: orderId,
+        details: {
+          reason,
+          previousStatus: order.status,
+          archivedAt: archivedAt.toISOString(),
+        },
+      },
+    });
+
+    return {
+      id: order.id,
+      status: order.status,
+      archived: true,
+      archivedAt: archivedAt.toISOString(),
+      updatedAt: order.updatedAt.toISOString(),
     };
   }
 
@@ -1831,7 +1906,10 @@ export class OrdersService {
     }).format(parsed);
   }
 
-  private buildAdminOrdersWhere(query: AdminOrdersListQueryDto): Prisma.OrderWhereInput {
+  private buildAdminOrdersWhere(
+    query: AdminOrdersListQueryDto,
+    archivedOrderIds: string[]
+  ): Prisma.OrderWhereInput {
     const q = query.q?.trim();
     const createdAt: Prisma.DateTimeFilter | undefined =
       query.dateFrom || query.dateTo
@@ -1841,6 +1919,14 @@ export class OrdersService {
           }
         : undefined;
     const filters: Prisma.OrderWhereInput[] = [];
+
+    if (archivedOrderIds.length > 0) {
+      filters.push({
+        id: {
+          notIn: archivedOrderIds,
+        },
+      });
+    }
 
     if (query.packageId) {
       filters.push({ packageId: query.packageId });
@@ -1963,7 +2049,29 @@ export class OrdersService {
       totalAmount: this.toNumber(row.totalAmount),
       currency: row.currency,
       detailUrl: `/admin/orders/${row.id}`,
+      actions: {
+        canArchive: this.isOrderArchivable(statusProjection.displayStatus),
+      },
     };
+  }
+
+  private async getArchivedOrderIds(): Promise<string[]> {
+    const rows = await this.prisma.auditLog.findMany({
+      where: {
+        entityType: "ORDER",
+        action: OrdersService.ORDER_ARCHIVED_ACTION,
+      },
+      select: {
+        entityId: true,
+      },
+      distinct: ["entityId"],
+    });
+
+    return rows.map((row) => row.entityId);
+  }
+
+  private isOrderArchivable(_status: AdminOrderDisplayStatus): boolean {
+    return true;
   }
 
   private isAdminPaymentRefundable(params: {

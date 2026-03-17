@@ -239,7 +239,7 @@ describe("PaymentsService identity conflicts", () => {
         metadata: {},
       })
     ).rejects.toThrow(
-      "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup."
+      "This account has been deactivated. Reactivate your account first using the recovery flow, or contact support or an administrator before continuing with payment or account setup."
     );
 
     expect(paystackService.initialize).not.toHaveBeenCalled();
@@ -363,7 +363,7 @@ describe("PaymentsService identity conflicts", () => {
         currency: "NGN",
       })
     ).rejects.toThrow(
-      "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup."
+      "This account has been deactivated. Reactivate your account first using the recovery flow, or contact support or an administrator before continuing with payment or account setup."
     );
 
     expect(tx.user.create).not.toHaveBeenCalled();

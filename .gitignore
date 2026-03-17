@@ -19,6 +19,10 @@ coverage
 playwright-report/
 test-results/
 
+# Local test artifacts (keep out of PRs)
+.local-artifacts/
+apps/web/tmp-*.json
+
 # Turbo
 .turbo
 

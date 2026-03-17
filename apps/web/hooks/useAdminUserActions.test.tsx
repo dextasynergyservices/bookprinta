@@ -1,5 +1,9 @@
 import { renderHook } from "@testing-library/react";
-import { useAdminUpdateUserMutation } from "./useAdminUserActions";
+import {
+  useAdminDeleteUserMutation,
+  useAdminReactivateUserMutation,
+  useAdminUpdateUserMutation,
+} from "./useAdminUserActions";
 import { adminUsersQueryKeys } from "./useAdminUsers";
 
 const useMutationMock = jest.fn();
@@ -87,6 +91,110 @@ describe("useAdminUserActions", () => {
       role: "EDITOR",
       isVerified: true,
     });
+
+    await options.onSuccess?.(result, {
+      userId: "cm1111111111111111111111111",
+    });
+
+    expect(invalidateQueriesMock).toHaveBeenCalledWith({
+      queryKey: adminUsersQueryKeys.all,
+    });
+    expect(invalidateQueriesMock).toHaveBeenCalledWith({
+      queryKey: adminUsersQueryKeys.detail("cm1111111111111111111111111"),
+    });
+  });
+
+  it("deletes a user and invalidates the admin users list and detail queries", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        userId: "cm1111111111111111111111111",
+        deleted: true,
+        isActive: false,
+        deletedAt: "2026-03-14T12:00:00.000Z",
+        audit: {
+          auditId: "cmaudit_2",
+          action: "ADMIN_USER_DELETED",
+          entityType: "USER",
+          entityId: "cm1111111111111111111111111",
+          recordedAt: "2026-03-14T12:00:01.000Z",
+          recordedBy: "cmadmin_1",
+          note: "Soft delete via admin users panel",
+          reason: "ADMIN_REQUESTED_DELETE",
+        },
+      }),
+    } as unknown as Response);
+
+    renderHook(() => useAdminDeleteUserMutation());
+    const options = useMutationMock.mock.calls[0]?.[0] as MutationOptionsShape;
+
+    const result = await options.mutationFn({
+      userId: "cm1111111111111111111111111",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/admin/users/cm1111111111111111111111111"),
+      expect.objectContaining({
+        method: "DELETE",
+        credentials: "include",
+      })
+    );
+
+    await options.onSuccess?.(result, {
+      userId: "cm1111111111111111111111111",
+    });
+
+    expect(invalidateQueriesMock).toHaveBeenCalledWith({
+      queryKey: adminUsersQueryKeys.all,
+    });
+    expect(invalidateQueriesMock).toHaveBeenCalledWith({
+      queryKey: adminUsersQueryKeys.detail("cm1111111111111111111111111"),
+    });
+  });
+
+  it("reactivates a user and invalidates the admin users list and detail queries", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        userId: "cm1111111111111111111111111",
+        previousState: {
+          role: "EDITOR",
+          isVerified: true,
+          isActive: false,
+        },
+        currentState: {
+          role: "EDITOR",
+          isVerified: true,
+          isActive: true,
+        },
+        updatedAt: "2026-03-17T12:00:00.000Z",
+        audit: {
+          auditId: "cmaudit_3",
+          action: "ADMIN_USER_REACTIVATED",
+          entityType: "USER",
+          entityId: "cm1111111111111111111111111",
+          recordedAt: "2026-03-17T12:00:01.000Z",
+          recordedBy: "cmadmin_1",
+          note: null,
+          reason: null,
+        },
+      }),
+    } as unknown as Response);
+
+    renderHook(() => useAdminReactivateUserMutation());
+    const options = useMutationMock.mock.calls[0]?.[0] as MutationOptionsShape;
+
+    const result = await options.mutationFn({
+      userId: "cm1111111111111111111111111",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/admin/users/cm1111111111111111111111111/reactivate"),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+      })
+    );
 
     await options.onSuccess?.(result, {
       userId: "cm1111111111111111111111111",
