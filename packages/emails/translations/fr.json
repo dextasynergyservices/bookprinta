@@ -135,8 +135,17 @@
     "total_price": "Prix total",
     "cta": "Voir la proposition et payer",
     "view_proposal": "Voir le PDF de la proposition",
-    "valid_until": "Ce devis est valable 14 jours.",
+    "valid_until": "Ce devis est valable 7 jours.",
     "admin_notes": "Notes de notre equipe"
+  },
+  "quote_payment_revoked": {
+    "subject": "Mise a jour de votre lien de paiement BookPrinta",
+    "heading": "Votre lien de paiement a ete revoque",
+    "body": "Nous avons revoque votre ancien lien de paiement de devis afin de corriger vos informations de paiement.",
+    "reason": "Motif",
+    "customer_message": "Message de notre equipe",
+    "next_step": "Nous vous enverrons un nouveau lien de paiement une fois le probleme resolu.",
+    "whatsapp_cta": "Discuter avec nous sur WhatsApp"
   },
   "password_reset": {
     "subject": "Reinitialiser votre mot de passe BookPrinta",

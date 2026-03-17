@@ -37,6 +37,7 @@ function AdminSidebarLink({
     <Link
       href={item.href}
       aria-label={itemLabel}
+      title={isCollapsed ? itemLabel : undefined}
       aria-current={isActive ? "page" : undefined}
       onClick={() => {
         onNavigate?.();

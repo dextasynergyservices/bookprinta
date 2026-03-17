@@ -483,3 +483,12 @@ export const AdminUpdateUserResponseSchema = z.object({
   audit: AdminAuditEntrySchema,
 });
 export type AdminUpdateUserResponse = z.infer<typeof AdminUpdateUserResponseSchema>;
+
+export const AdminDeleteUserResponseSchema = z.object({
+  userId: z.string().cuid(),
+  deleted: z.literal(true),
+  isActive: z.literal(false),
+  deletedAt: z.string().datetime(),
+  audit: AdminAuditEntrySchema,
+});
+export type AdminDeleteUserResponse = z.infer<typeof AdminDeleteUserResponseSchema>;

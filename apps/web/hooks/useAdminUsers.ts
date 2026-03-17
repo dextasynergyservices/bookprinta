@@ -3,19 +3,12 @@
 import type { AdminUserSortField, AdminUsersListResponse, UserRoleValue } from "@bookprinta/shared";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import {
   ADMIN_USERS_LIMIT,
   DEFAULT_ADMIN_USER_SORT_BY,
   DEFAULT_ADMIN_USER_SORT_DIRECTION,
 } from "./use-admin-users-filters";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
 
 function isAbortError(error: unknown): boolean {
   if (typeof error !== "object" || error === null || !("name" in error)) {
@@ -26,8 +19,6 @@ function isAbortError(error: unknown): boolean {
     .toLowerCase()
     .includes("abort");
 }
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 
 export type AdminUsersQueryInput = {
   cursor?: string;
@@ -104,7 +95,7 @@ export async function fetchAdminUsers(
 
   let response: Response;
   try {
-    response = await fetch(`${API_V1_BASE_URL}/admin/users?${params.toString()}`, {
+    response = await fetchApiV1WithRefresh(`/admin/users?${params.toString()}`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",

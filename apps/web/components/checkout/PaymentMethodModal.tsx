@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -48,6 +48,7 @@ type BankAccount = {
 
 const MAX_RECEIPT_SIZE_BYTES = 10 * 1024 * 1024;
 const RECEIPT_ALLOWED_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const PAYMENT_CLICK_DEBOUNCE_MS = 900;
 
 function formatPrice(price: number) {
   return new Intl.NumberFormat("en-NG", {
@@ -120,6 +121,8 @@ export function PaymentMethodModal({
   const [copiedFieldKey, setCopiedFieldKey] = useState<string | null>(null);
   const [onlineRateLimitSeconds, setOnlineRateLimitSeconds] = useState(0);
   const [bankRateLimitSeconds, setBankRateLimitSeconds] = useState(0);
+  const [isRedirectingToProvider, setIsRedirectingToProvider] = useState(false);
+  const lastPaymentClickAtRef = useRef<number>(0);
   const isAuthenticatedReprintCheckout =
     paymentMetadata.orderType === "REPRINT_REVISED" &&
     typeof paymentMetadata.sourceBookId === "string" &&
@@ -165,6 +168,7 @@ export function PaymentMethodModal({
         toast.error(t("payment_modal_online_error"));
         return;
       }
+      setIsRedirectingToProvider(true);
       window.location.assign(response.authorizationUrl);
     },
     onError: (error) => {
@@ -180,6 +184,7 @@ export function PaymentMethodModal({
       toast.error(t("payment_modal_online_error"), {
         description: error instanceof Error ? error.message : undefined,
       });
+      setIsRedirectingToProvider(false);
     },
   });
 
@@ -229,6 +234,7 @@ export function PaymentMethodModal({
     setBankReceiptError(null);
     setOnlineRateLimitSeconds(0);
     setBankRateLimitSeconds(0);
+    setIsRedirectingToProvider(false);
     resetInitializeMutation();
     resetBankTransferMutation();
   }, [open, resetBankTransferMutation, resetInitializeMutation]);
@@ -278,7 +284,12 @@ export function PaymentMethodModal({
   const isBankRateLimited = bankRateLimitSeconds > 0;
 
   const submitOnlinePayment = () => {
-    if (!isOnlineFormComplete || !onlineProvider || isOnlineRateLimited) return;
+    const now = Date.now();
+    if (now - lastPaymentClickAtRef.current < PAYMENT_CLICK_DEBOUNCE_MS) return;
+    lastPaymentClickAtRef.current = now;
+
+    if (!isOnlineFormComplete || !onlineProvider || isOnlineRateLimited || isRedirectingToProvider)
+      return;
     const payerEmail = lockedReprintEmail || onlineEmail.trim().toLowerCase();
 
     const callbackUrl =
@@ -323,7 +334,12 @@ export function PaymentMethodModal({
   };
 
   const submitBankPayment = () => {
-    if (!isBankFormComplete || !bankReceiptFile || isBankRateLimited) return;
+    const now = Date.now();
+    if (now - lastPaymentClickAtRef.current < PAYMENT_CLICK_DEBOUNCE_MS) return;
+    lastPaymentClickAtRef.current = now;
+
+    if (!isBankFormComplete || !bankReceiptFile || isBankRateLimited || isRedirectingToProvider)
+      return;
     const payerEmail = lockedReprintEmail || bankEmail.trim().toLowerCase();
 
     bankTransferMutation.mutate({
@@ -345,15 +361,23 @@ export function PaymentMethodModal({
   };
 
   const onlineSubmitDisabled =
-    !isOnlineFormComplete || initializeMutation.isPending || isOnlineRateLimited;
+    !isOnlineFormComplete ||
+    initializeMutation.isPending ||
+    isOnlineRateLimited ||
+    isRedirectingToProvider;
   const bankSubmitDisabled =
-    !isBankFormComplete || bankTransferMutation.isPending || isBankRateLimited;
+    !isBankFormComplete ||
+    bankTransferMutation.isPending ||
+    isBankRateLimited ||
+    isRedirectingToProvider;
 
-  const onlineButtonText = initializeMutation.isPending
-    ? t("payment_modal_loading")
-    : isOnlineRateLimited
-      ? t("rate_limit_wait_seconds", { seconds: onlineRateLimitSeconds })
-      : t("payment_modal_pay_now");
+  const onlineButtonText = isRedirectingToProvider
+    ? t("payment_modal_redirecting")
+    : initializeMutation.isPending
+      ? t("payment_modal_loading")
+      : isOnlineRateLimited
+        ? t("rate_limit_wait_seconds", { seconds: onlineRateLimitSeconds })
+        : t("payment_modal_pay_now");
 
   const bankButtonText = bankTransferMutation.isPending
     ? t("payment_modal_loading")

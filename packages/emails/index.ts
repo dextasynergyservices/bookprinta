@@ -15,6 +15,7 @@ export { PasswordResetEmail } from "./emails/PasswordResetEmail.tsx";
 export { ProductionDelayEmail } from "./emails/ProductionDelayEmail.tsx";
 export { ProfileCompleteBannerEmail } from "./emails/ProfileCompleteBannerEmail.tsx";
 export { QuoteAdminNotificationEmail } from "./emails/QuoteAdminNotificationEmail.tsx";
+export { QuotePaymentRevokedEmail } from "./emails/QuotePaymentRevokedEmail.tsx";
 export { QuoteProposalEmail } from "./emails/QuoteProposalEmail.tsx";
 export { QuoteReceivedEmail } from "./emails/QuoteReceivedEmail.tsx";
 export { RefundConfirmEmail } from "./emails/RefundConfirmEmail.tsx";

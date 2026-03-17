@@ -4,15 +4,8 @@ import { isAdminRole, type NotificationUnreadCountResponse } from "@bookprinta/s
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { normalizeNotificationUnreadCountPayload } from "@/lib/api/notifications-contract";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import { useAuthSession } from "./use-auth-session";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
 
 function isAbortError(error: unknown): boolean {
   if (typeof error !== "object" || error === null || !("name" in error)) {
@@ -28,7 +21,6 @@ type QueryDataWithFallback<TData> = TData & {
   isFallback: boolean;
 };
 
-const API_V1_BASE_URL = getApiV1BaseUrl();
 export const ADMIN_NOTIFICATIONS_POLL_INTERVAL_MS = 30_000;
 
 export const adminNotificationsQueryKeys = {
@@ -44,7 +36,7 @@ async function fetchAdminNotificationUnreadCount({
   signal?: AbortSignal;
 } = {}): Promise<QueryDataWithFallback<NotificationUnreadCountResponse>> {
   try {
-    const response = await fetch(`${API_V1_BASE_URL}/notifications/unread-count`, {
+    const response = await fetchApiV1WithRefresh("/notifications/unread-count", {
       method: "GET",
       credentials: "include",
       cache: "no-store",

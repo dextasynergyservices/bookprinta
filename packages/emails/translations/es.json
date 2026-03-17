@@ -135,8 +135,17 @@
     "total_price": "Precio total",
     "cta": "Ver propuesta y pagar",
     "view_proposal": "Ver PDF de la propuesta",
-    "valid_until": "Esta cotizacion es valida por 14 dias.",
+    "valid_until": "Esta cotizacion es valida por 7 dias.",
     "admin_notes": "Notas de nuestro equipo"
+  },
+  "quote_payment_revoked": {
+    "subject": "Actualizacion de tu enlace de pago de BookPrinta",
+    "heading": "Tu enlace de pago fue revocado",
+    "body": "Revocamos tu enlace de pago anterior de cotizacion para corregir tus datos de pago.",
+    "reason": "Motivo",
+    "customer_message": "Mensaje de nuestro equipo",
+    "next_step": "Te enviaremos un enlace de pago actualizado cuando el problema se haya resuelto.",
+    "whatsapp_cta": "Chatea con nosotros por WhatsApp"
   },
   "password_reset": {
     "subject": "Restablece tu contrasena de BookPrinta",

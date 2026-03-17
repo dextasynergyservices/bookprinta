@@ -135,8 +135,17 @@
     "total_price": "Total Price",
     "cta": "View Proposal & Pay",
     "view_proposal": "View Proposal PDF",
-    "valid_until": "This quote is valid for 14 days.",
+    "valid_until": "This quote is valid for 7 days.",
     "admin_notes": "Notes from our team"
+  },
+  "quote_payment_revoked": {
+    "subject": "Update on Your BookPrinta Payment Link",
+    "heading": "Your Payment Link Was Revoked",
+    "body": "We've revoked your previous custom quote payment link so we can correct your checkout details.",
+    "reason": "Reason",
+    "customer_message": "Message from our team",
+    "next_step": "We'll share an updated payment link once the issue is resolved.",
+    "whatsapp_cta": "Chat with us on WhatsApp"
   },
   "password_reset": {
     "subject": "Reset Your BookPrinta Password",

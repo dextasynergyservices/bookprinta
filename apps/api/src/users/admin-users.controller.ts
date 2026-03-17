@@ -1,7 +1,19 @@
-import { Body, Controller, Get, Header, Param, Patch, Query, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Header,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
 import {
+  AdminDeleteUserResponseDto,
   AdminUpdateUserDto,
   AdminUpdateUserResponseDto,
   AdminUserDetailDto,
@@ -84,5 +96,59 @@ export class AdminUsersController {
     @CurrentUser("sub") adminId: string
   ): Promise<AdminUpdateUserResponseDto> {
     return this.usersService.updateAdminUser(userId, dto, adminId);
+  }
+
+  @Delete(":id")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Delete a user account",
+    description:
+      "Soft-deletes a user by deactivating the account, clearing active refresh tokens, and recording an audit entry.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "User CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "User deleted successfully",
+    type: AdminDeleteUserResponseDto,
+  })
+  @ApiResponse({ status: 400, description: "User is already deleted/inactive" })
+  @ApiResponse({ status: 404, description: "User not found" })
+  async deleteAdminUser(
+    @Param("id") userId: string,
+    @CurrentUser("sub") adminId: string
+  ): Promise<AdminDeleteUserResponseDto> {
+    return this.usersService.deleteAdminUser(userId, adminId);
+  }
+
+  @Post(":id/reactivate")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Reactivate a deactivated user account",
+    description:
+      "Reactivates a soft-deleted user account by setting isActive to true and recording an admin audit entry.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "User CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "User reactivated successfully",
+    type: AdminUpdateUserResponseDto,
+  })
+  @ApiResponse({ status: 400, description: "User is already active" })
+  @ApiResponse({ status: 404, description: "User not found" })
+  async reactivateAdminUser(
+    @Param("id") userId: string,
+    @CurrentUser("sub") adminId: string
+  ): Promise<AdminUpdateUserResponseDto> {
+    return this.usersService.reactivateAdminUser(userId, adminId);
   }
 }

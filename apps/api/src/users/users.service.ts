@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  AdminDeleteUserResponse,
   AdminUpdateUserInput,
   AdminUpdateUserResponse,
   AdminUserDetail,
@@ -526,8 +527,102 @@ export class UsersService {
     };
   }
 
+  async deleteAdminUser(userId: string, adminId: string): Promise<AdminDeleteUserResponse> {
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: ADMIN_USER_STATE_SELECT,
+    });
+
+    if (!current) {
+      throw new NotFoundException("User not found");
+    }
+
+    if (!current.isActive) {
+      throw new BadRequestException("User is already inactive.");
+    }
+
+    const { updatedUser, audit } = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: {
+          isActive: false,
+          refreshToken: null,
+          refreshTokenExp: null,
+        },
+        select: ADMIN_USER_STATE_SELECT,
+      });
+
+      const auditLog = await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_USER_DELETED",
+          entityType: "USER",
+          entityId: userId,
+          details: {
+            changedFields: ["isActive"],
+            previousState: {
+              role: current.role,
+              isVerified: current.isVerified,
+              isActive: current.isActive,
+            },
+            currentState: {
+              role: updated.role,
+              isVerified: updated.isVerified,
+              isActive: updated.isActive,
+            },
+            previousValues: {
+              isActive: current.isActive,
+            },
+            nextValues: {
+              isActive: updated.isActive,
+            },
+            note: "Soft delete via admin users panel",
+            reason: "ADMIN_REQUESTED_DELETE",
+          },
+        },
+      });
+
+      return {
+        updatedUser: updated,
+        audit: auditLog,
+      };
+    });
+
+    return {
+      userId: updatedUser.id,
+      deleted: true,
+      isActive: false,
+      deletedAt: updatedUser.updatedAt.toISOString(),
+      audit: this.serializeAdminAuditEntry(audit, adminId),
+    };
+  }
+
+  async reactivateAdminUser(userId: string, adminId: string): Promise<AdminUpdateUserResponse> {
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: ADMIN_USER_STATE_SELECT,
+    });
+
+    if (!current) {
+      throw new NotFoundException("User not found");
+    }
+
+    if (current.isActive) {
+      throw new BadRequestException("User is already active.");
+    }
+
+    return this.updateAdminUser(
+      userId,
+      {
+        isActive: true,
+      },
+      adminId
+    );
+  }
+
   private buildAdminUsersWhere(query: AdminUsersListQuery): Prisma.UserWhereInput {
-    const filters: Prisma.UserWhereInput[] = [];
+    // Admin users table is active-only by default; deleted users remain in DB/audit history.
+    const filters: Prisma.UserWhereInput[] = [{ isActive: true }];
 
     if (query.role) {
       filters.push({ role: query.role });
@@ -540,10 +635,6 @@ export class UsersService {
     const searchWhere = this.buildAdminUserSearchWhere(query.q);
     if (searchWhere) {
       filters.push(searchWhere);
-    }
-
-    if (filters.length === 0) {
-      return {};
     }
 
     if (filters.length === 1) {
