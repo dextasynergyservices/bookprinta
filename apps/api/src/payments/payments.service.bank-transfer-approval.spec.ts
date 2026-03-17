@@ -418,7 +418,7 @@ describe("PaymentsService bank transfer approval", () => {
         adminNote: "Inactive user should block approval",
       })
     ).rejects.toThrow(
-      "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup."
+      "This account has been deactivated. Reactivate your account first using the recovery flow, or contact support or an administrator before continuing with payment or account setup."
     );
 
     expect(tx.user.update).not.toHaveBeenCalled();

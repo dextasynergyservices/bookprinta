@@ -356,6 +356,9 @@ export const AdminOrdersListItemSchema = z.object({
   totalAmount: z.number().nonnegative(),
   currency: z.string().length(3),
   detailUrl: z.string(),
+  actions: z.object({
+    canArchive: z.boolean(),
+  }),
 });
 export type AdminOrdersListItem = z.infer<typeof AdminOrdersListItemSchema>;
 
@@ -459,6 +462,20 @@ export const AdminOrderDetailSchema = z.object({
   statusControl: AdminOrderStatusControlSchema,
 });
 export type AdminOrderDetail = z.infer<typeof AdminOrderDetailSchema>;
+
+export const AdminArchiveOrderSchema = z.object({
+  reason: z.string().trim().min(5).max(500),
+});
+export type AdminArchiveOrderInput = z.infer<typeof AdminArchiveOrderSchema>;
+
+export const AdminArchiveOrderResponseSchema = z.object({
+  id: z.string().cuid(),
+  status: OrderStatusSchema,
+  archived: z.literal(true),
+  archivedAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AdminArchiveOrderResponse = z.infer<typeof AdminArchiveOrderResponseSchema>;
 
 export const AdminUpdateOrderStatusSchema = z.object({
   nextStatus: OrderStatusSchema,

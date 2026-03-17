@@ -5,6 +5,9 @@ import { AdminUserDetailView } from "./AdminUserDetailView";
 
 const useAdminUserDetailMock = jest.fn();
 const useAdminUpdateUserMutationMock = jest.fn();
+const useAdminDeleteUserMutationMock = jest.fn();
+const useAdminReactivateUserMutationMock = jest.fn();
+const routerReplaceMock = jest.fn();
 const toastSuccessMock = jest.fn();
 const toastErrorMock = jest.fn();
 
@@ -87,7 +90,14 @@ const translations: Record<string, string> = {
   users_detail_deactivate_description:
     "Deactivate this user to block future login, checkout linkage, and refresh token use while preserving their history.",
   users_detail_deactivate_locked:
-    "This account is already inactive. Reactivation is intentionally limited to future admin controls.",
+    "This account is already inactive. Use the reactivate action below to restore access.",
+  users_action_reactivate: "Reactivate User",
+  users_action_reactivating: "Reactivating user",
+  users_action_reactivate_success: "User reactivated",
+  users_detail_reactivate_success: "User reactivated",
+  users_detail_reactivate_error_title: "Unable to reactivate user",
+  users_detail_reactivate_error_description:
+    "Refresh the user details and try the reactivation again.",
   users_detail_management_hint:
     "Changes are saved to the audit log and reflected across the admin user directory after the mutation completes.",
   users_detail_save: "Save Changes",
@@ -107,6 +117,17 @@ const translations: Record<string, string> = {
   users_detail_deactivate_error_title: "Unable to deactivate user",
   users_detail_deactivate_error_description:
     "Refresh the user details and try the deactivation again.",
+  users_detail_delete: "Delete User",
+  users_detail_deleting: "Deleting user",
+  users_detail_delete_success: "User deleted",
+  users_detail_delete_success_description: "The user was deleted and removed from active access.",
+  users_detail_delete_error_title: "Unable to delete user",
+  users_detail_delete_error_description: "Refresh the user details and try deleting again.",
+  users_detail_delete_dialog_title: "Delete This User",
+  users_detail_delete_dialog_description:
+    "This permanently deactivates the account for login and checkout linking while preserving historical records.",
+  users_detail_delete_cancel: "Cancel",
+  users_detail_delete_confirm: "Delete User Permanently",
   users_detail_order_package: "Package",
   users_detail_order_total: "Order Total",
   users_detail_order_created: "Created",
@@ -149,6 +170,8 @@ jest.mock("@/hooks/useAdminUserDetail", () => ({
 
 jest.mock("@/hooks/useAdminUserActions", () => ({
   useAdminUpdateUserMutation: () => useAdminUpdateUserMutationMock(),
+  useAdminDeleteUserMutation: () => useAdminDeleteUserMutationMock(),
+  useAdminReactivateUserMutation: () => useAdminReactivateUserMutationMock(),
 }));
 
 jest.mock("@/lib/i18n/navigation", () => ({
@@ -165,6 +188,9 @@ jest.mock("@/lib/i18n/navigation", () => ({
       {children}
     </a>
   ),
+  useRouter: () => ({
+    replace: routerReplaceMock,
+  }),
 }));
 
 jest.mock("sonner", () => ({
@@ -293,6 +319,8 @@ describe("AdminUserDetailView", () => {
     jest.clearAllMocks();
     useAdminUserDetailMock.mockReturnValue(createDetailQueryState());
     useAdminUpdateUserMutationMock.mockReturnValue(createMutationState());
+    useAdminDeleteUserMutationMock.mockReturnValue(createMutationState());
+    useAdminReactivateUserMutationMock.mockReturnValue(createMutationState());
   });
 
   it("renders the skeleton layout while the detail query is loading", () => {
@@ -403,6 +431,85 @@ describe("AdminUserDetailView", () => {
     });
     expect(toastSuccessMock).toHaveBeenCalledWith(
       "User deactivated",
+      expect.objectContaining({
+        description: expect.any(String),
+      })
+    );
+  });
+
+  it("opens the delete dialog, deletes the user, and redirects to users list", async () => {
+    const user = userEvent.setup();
+    const mutateAsync = jest.fn().mockResolvedValue({
+      audit: {
+        action: "ADMIN_USER_DELETED",
+        recordedAt: "2026-03-14T12:10:00.000Z",
+      },
+    });
+
+    useAdminDeleteUserMutationMock.mockReturnValue(
+      createMutationState({
+        mutateAsync,
+      })
+    );
+
+    render(<AdminUserDetailView userId="cm1111111111111111111111111" />);
+
+    await user.click(screen.getByRole("button", { name: "Delete User" }));
+    expect(screen.getByText("Delete This User")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Delete User Permanently" }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({
+        userId: "cm1111111111111111111111111",
+      });
+    });
+
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      "User deleted",
+      expect.objectContaining({
+        description: "The user was deleted and removed from active access.",
+      })
+    );
+    expect(routerReplaceMock).toHaveBeenCalledWith("/admin/users");
+  });
+
+  it("reactivates an inactive account from the detail controls", async () => {
+    const user = userEvent.setup();
+    const inactiveDetail = createUserDetail();
+    inactiveDetail.profile.isActive = false;
+
+    const mutateAsync = jest.fn().mockResolvedValue({
+      audit: {
+        action: "ADMIN_USER_REACTIVATED",
+        recordedAt: "2026-03-17T12:10:00.000Z",
+      },
+    });
+
+    useAdminUserDetailMock.mockReturnValue(
+      createDetailQueryState({
+        data: inactiveDetail,
+        user: inactiveDetail,
+      })
+    );
+    useAdminReactivateUserMutationMock.mockReturnValue(
+      createMutationState({
+        mutateAsync,
+      })
+    );
+
+    render(<AdminUserDetailView userId="cm1111111111111111111111111" />);
+
+    await user.click(screen.getByRole("button", { name: "Reactivate User" }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({
+        userId: "cm1111111111111111111111111",
+      });
+    });
+
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      "User reactivated",
       expect.objectContaining({
         description: expect.any(String),
       })

@@ -71,7 +71,7 @@ const PHONE_ALREADY_IN_USE_MESSAGE =
 const EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE =
   "This email and phone number belong to different accounts. Sign in to the correct account or use a different phone number.";
 const DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE =
-  "This account has been deactivated. Contact support or an administrator before continuing with payment or account setup.";
+  "This account has been deactivated. Reactivate your account first using the recovery flow, or contact support or an administrator before continuing with payment or account setup.";
 const REPRINT_ALLOWED_BOOK_SIZES = new Set(["A4", "A5", "A6"]);
 const REPRINT_ALLOWED_PAPER_COLORS = new Set(["white", "cream"]);
 const REPRINT_ALLOWED_LAMINATIONS = new Set(["matt", "gloss"]);
@@ -109,6 +109,23 @@ type CheckoutMetadata = {
   discountAmount?: number;
   totalPrice?: number;
   addons?: CheckoutAddonMetadata[];
+  paymentFlow?: string;
+  customQuoteId?: string;
+  quoteTitle?: string;
+  quoteQuantity?: number;
+  quotePrintSize?: string;
+  quoteFinalPrice?: number;
+};
+
+type CustomQuoteCheckoutMetadata = {
+  customQuoteId: string;
+  quoteTitle: string;
+  quotePrintSize: string;
+  quoteQuantity: number;
+  quoteFinalPrice: number;
+  fullName: string | null;
+  phone: string | null;
+  locale: Locale;
 };
 
 type ReprintMetadata = {
@@ -671,6 +688,12 @@ export class PaymentsService {
     const reference = this.generateReference("bt");
     const checkoutMetadata = (dto.metadata as Record<string, unknown>) ?? {};
     await this.assertInitialCheckoutMetadataReady(checkoutMetadata);
+    const customQuoteCheckout = this.extractCustomQuoteCheckoutMetadata(checkoutMetadata);
+    if (customQuoteCheckout && !receiptFile) {
+      throw new BadRequestException(
+        "Receipt file upload is required for custom quote bank transfers."
+      );
+    }
     const metadata: Record<string, unknown> = {
       ...checkoutMetadata,
       fullName: dto.payerName,
@@ -1885,6 +1908,54 @@ export class PaymentsService {
         existingPayment.type === PaymentType.INITIAL &&
         (!existingPayment.userId || !existingPayment.orderId);
 
+      const shouldFinalizeCustomQuoteLinkedCheckout =
+        existingPayment.type === PaymentType.CUSTOM_QUOTE &&
+        Boolean(existingPayment.userId) &&
+        Boolean(existingPayment.orderId);
+
+      if (shouldFinalizeCustomQuoteLinkedCheckout) {
+        const quoteCheckoutResult = await this.buildCheckoutFinalizationInfoForLinkedPayment({
+          paymentId: existingPayment.id,
+          userId: existingPayment.userId as string,
+          orderId: existingPayment.orderId as string,
+          payerEmail: data.payerEmail ?? existingPayment.payerEmail,
+          payerName: null,
+          metadata: mergedMetadata,
+        });
+
+        if (quoteCheckoutResult) {
+          await this.sendOnlinePaymentAdminEmail({
+            orderNumber: quoteCheckoutResult.orderNumber,
+            packageName: quoteCheckoutResult.packageName,
+            amountPaid: quoteCheckoutResult.amountPaid,
+            addons: quoteCheckoutResult.addons,
+            payerEmail: quoteCheckoutResult.email,
+            provider: data.provider,
+            reference: data.providerRef,
+          });
+
+          if (quoteCheckoutResult.signupToken) {
+            await this.attemptSignupLinkDelivery({
+              paymentId: existingPayment.id,
+              paymentReference: data.providerRef,
+              baseMetadata: mergedMetadata,
+              source: "WEBHOOK",
+              email: quoteCheckoutResult.email,
+              locale: quoteCheckoutResult.locale,
+              name: quoteCheckoutResult.name,
+              token: quoteCheckoutResult.signupToken,
+              phoneNumber: quoteCheckoutResult.phone,
+              orderNumber: quoteCheckoutResult.orderNumber,
+              packageName: quoteCheckoutResult.packageName,
+              amountPaid: quoteCheckoutResult.amountPaid,
+              addons: quoteCheckoutResult.addons,
+            });
+          }
+        }
+
+        return;
+      }
+
       if (!shouldCreateCheckoutEntities) {
         if (existingPayment.type === PaymentType.EXTRA_PAGES && existingPayment.orderId) {
           await this.reconcileExtraPagesBillingGate(existingPayment.orderId);
@@ -2243,6 +2314,14 @@ export class PaymentsService {
     existingUserId?: string | null;
   }): Promise<CheckoutFinalizationInfo | null> {
     if (!params.payerEmail && !params.existingUserId) return null;
+
+    const customQuoteCheckout = this.extractCustomQuoteCheckoutMetadata(params.metadata);
+    if (customQuoteCheckout) {
+      return this.createCustomQuoteEntitiesFromMetadata({
+        ...params,
+        customQuote: customQuoteCheckout,
+      });
+    }
 
     const checkout = this.extractCheckoutMetadata(params.metadata);
     if (!checkout) return null;
@@ -2810,6 +2889,10 @@ export class PaymentsService {
       );
     }
 
+    if (this.extractCustomQuoteCheckoutMetadata(metadata)) {
+      return;
+    }
+
     const pkg = await this.resolvePackageFromCheckoutMetadata(checkout);
     if (!pkg) {
       throw new BadRequestException(
@@ -2888,6 +2971,12 @@ export class PaymentsService {
       locale: this.resolveLocale(this.asString(merged.locale)),
       fullName: this.asString(merged.fullName),
       phone: this.asString(merged.phone),
+      paymentFlow: this.asString(merged.paymentFlow),
+      customQuoteId: this.asString(merged.customQuoteId),
+      quoteTitle: this.asString(merged.quoteTitle),
+      quoteQuantity: this.asInteger(merged.quoteQuantity),
+      quotePrintSize: this.asString(merged.quotePrintSize),
+      quoteFinalPrice: this.asNumber(merged.quoteFinalPrice),
       couponCode: this.asString(merged.couponCode),
       packageId: this.asString(merged.packageId),
       packageSlug: this.asString(merged.packageSlug),
@@ -2940,6 +3029,312 @@ export class PaymentsService {
       pageCount: this.asInteger(metadata.pageCount) ?? null,
       finalPdfUrl: this.asString(metadata.finalPdfUrl) ?? null,
     };
+  }
+
+  private extractCustomQuoteCheckoutMetadata(
+    metadata: Record<string, unknown> | null
+  ): CustomQuoteCheckoutMetadata | null {
+    const checkout = this.extractCheckoutMetadata(metadata);
+    if (!checkout) return null;
+
+    if ((checkout.paymentFlow || "").toUpperCase() !== "CUSTOM_QUOTE") {
+      return null;
+    }
+
+    const customQuoteId = this.asString(checkout.customQuoteId);
+    const quoteTitle = this.asString(checkout.quoteTitle);
+    const quotePrintSize = this.asString(checkout.quotePrintSize) || "A5";
+    const quoteQuantity = this.asInteger(checkout.quoteQuantity);
+    const quoteFinalPrice = this.asNumber(checkout.quoteFinalPrice);
+
+    if (!customQuoteId || !quoteTitle || !quoteQuantity || !quoteFinalPrice) {
+      return null;
+    }
+
+    return {
+      customQuoteId,
+      quoteTitle,
+      quotePrintSize,
+      quoteQuantity,
+      quoteFinalPrice,
+      fullName: this.asString(checkout.fullName) ?? null,
+      phone: this.asString(checkout.phone) ?? null,
+      locale: this.resolveLocale(this.asString(checkout.locale)),
+    };
+  }
+
+  private async createCustomQuoteEntitiesFromMetadata(params: {
+    paymentId: string;
+    payerEmail: string | null;
+    metadata: Record<string, unknown> | null;
+    amount: number;
+    currency: string;
+    existingUserId?: string | null;
+    customQuote: CustomQuoteCheckoutMetadata;
+  }): Promise<CheckoutFinalizationInfo | null> {
+    const normalizedEmail = params.payerEmail?.trim().toLowerCase();
+    if (!normalizedEmail) return null;
+
+    const signupTokenExpiry = new Date(Date.now() + MAX_SIGNUP_TOKEN_HOURS * 60 * 60 * 1000);
+
+    return this.prisma.$transaction(async (tx) => {
+      const quote = await tx.customQuote.findUnique({
+        where: { id: params.customQuote.customQuoteId },
+        select: {
+          id: true,
+          order: {
+            select: {
+              id: true,
+              orderNumber: true,
+              totalAmount: true,
+              currency: true,
+              status: true,
+              userId: true,
+              package: { select: { name: true } },
+            },
+          },
+        },
+      });
+
+      if (!quote) {
+        this.logger.warn(
+          `Webhook payment ${params.paymentId}: custom quote ${params.customQuote.customQuoteId} not found`
+        );
+        return null;
+      }
+
+      if (quote.order) {
+        const existingUser = await tx.user.findUnique({
+          where: { id: quote.order.userId },
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            preferredLanguage: true,
+            phoneNumber: true,
+            password: true,
+            isVerified: true,
+            isActive: true,
+            verificationToken: true,
+          },
+        });
+
+        if (!existingUser) return null;
+        if (!existingUser.isActive) {
+          throw new ConflictException(DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE);
+        }
+
+        await tx.payment.update({
+          where: { id: params.paymentId },
+          data: {
+            userId: existingUser.id,
+            orderId: quote.order.id,
+          },
+        });
+
+        if (quote.order.status !== OrderStatus.PAID) {
+          await tx.order.update({
+            where: { id: quote.order.id },
+            data: {
+              status: OrderStatus.PAID,
+              totalAmount: this.toCurrency(params.customQuote.quoteFinalPrice || params.amount),
+              currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
+            },
+          });
+        }
+
+        await tx.customQuote.update({
+          where: { id: quote.id },
+          data: {
+            userId: existingUser.id,
+            status: "PAID",
+          },
+        });
+
+        await tx.book.updateMany({
+          where: {
+            orderId: quote.order.id,
+          },
+          data: {
+            status: BookStatus.PAYMENT_RECEIVED,
+            productionStatus: BookStatus.PAYMENT_RECEIVED,
+            productionStatusUpdatedAt: new Date(),
+          },
+        });
+
+        return {
+          userId: existingUser.id,
+          orderId: quote.order.id,
+          email: existingUser.email,
+          name: existingUser.firstName,
+          locale: this.resolveLocale(existingUser.preferredLanguage),
+          signupToken: existingUser.verificationToken ?? null,
+          phone: existingUser.phoneNumber ?? null,
+          orderNumber: quote.order.orderNumber,
+          packageName: quote.order.package.name,
+          amountPaid: this.formatNaira(Number(quote.order.totalAmount)),
+          addons: [],
+        };
+      }
+
+      let user = params.existingUserId
+        ? await tx.user.findUnique({ where: { id: params.existingUserId } })
+        : null;
+
+      await this.assertCheckoutIdentityConflict({
+        email: normalizedEmail,
+        phone: params.customQuote.phone,
+        tx,
+      });
+
+      if (!user) {
+        user = await tx.user.findFirst({
+          where: {
+            email: {
+              equals: normalizedEmail,
+              mode: "insensitive",
+            },
+          },
+        });
+      }
+
+      if (user && !user.isActive) {
+        throw new ConflictException(DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE);
+      }
+
+      const fullName = this.pickDisplayName(
+        params.customQuote.fullName ?? undefined,
+        normalizedEmail
+      );
+      const splitName = this.splitFullName(fullName);
+      const normalizedPhone = params.customQuote.phone?.trim() || user?.phoneNumber || null;
+      const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
+      let signupToken: string | null = null;
+
+      if (!user) {
+        signupToken = this.generateSecureToken();
+        user = await tx.user.create({
+          data: {
+            email: normalizedEmail,
+            firstName: splitName.firstName,
+            lastName: splitName.lastName,
+            phoneNumber: normalizedPhone,
+            phoneNumberNormalized: normalizedPhoneLookup,
+            preferredLanguage: params.customQuote.locale,
+            isActive: true,
+            isVerified: false,
+            verificationToken: signupToken,
+            tokenExpiry: signupTokenExpiry,
+          },
+        });
+      } else {
+        const needsSignupToken = !user.password || !user.isVerified;
+        if (needsSignupToken) {
+          signupToken = this.generateSecureToken();
+        }
+
+        user = await tx.user.update({
+          where: { id: user.id },
+          data: {
+            firstName: user.firstName || splitName.firstName,
+            lastName: user.lastName ?? splitName.lastName,
+            phoneNumber: user.phoneNumber || normalizedPhone,
+            phoneNumberNormalized: user.phoneNumberNormalized || normalizedPhoneLookup,
+            preferredLanguage: params.customQuote.locale,
+            ...(needsSignupToken
+              ? {
+                  verificationToken: signupToken,
+                  tokenExpiry: signupTokenExpiry,
+                }
+              : {}),
+          },
+        });
+      }
+
+      const fallbackPackage = await tx.package.findFirst({
+        where: {
+          isActive: true,
+          category: {
+            isActive: true,
+          },
+        },
+        orderBy: [{ basePrice: "asc" }, { sortOrder: "asc" }],
+      });
+
+      if (!fallbackPackage) {
+        throw new BadRequestException(
+          "No active package is configured for custom quote checkout fulfillment."
+        );
+      }
+
+      const orderNumber = await this.generateOrderNumber(tx);
+      const paidAmount = this.toCurrency(params.customQuote.quoteFinalPrice || params.amount);
+
+      const order = await tx.order.create({
+        data: {
+          orderNumber,
+          userId: user.id,
+          packageId: fallbackPackage.id,
+          customQuoteId: params.customQuote.customQuoteId,
+          skipFormatting: true,
+          orderType: "STANDARD",
+          packagePriceSnap: Number(fallbackPackage.basePrice),
+          hasCoverDesign: true,
+          hasFormatting: true,
+          bookSize: params.customQuote.quotePrintSize,
+          paperColor: "white",
+          lamination: "gloss",
+          status: OrderStatus.PAID,
+          initialAmount: paidAmount,
+          extraAmount: 0,
+          discountAmount: 0,
+          totalAmount: paidAmount,
+          currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
+        } as Prisma.OrderUncheckedCreateInput,
+      });
+
+      await tx.book.create({
+        data: {
+          orderId: order.id,
+          userId: user.id,
+          status: BookStatus.PAYMENT_RECEIVED,
+          title: params.customQuote.quoteTitle,
+          pageSize: params.customQuote.quotePrintSize,
+          pageCount: null,
+          estimatedPages: null,
+        },
+      });
+
+      await tx.customQuote.update({
+        where: { id: params.customQuote.customQuoteId },
+        data: {
+          userId: user.id,
+          status: "PAID",
+        },
+      });
+
+      await tx.payment.update({
+        where: { id: params.paymentId },
+        data: {
+          userId: user.id,
+          orderId: order.id,
+        },
+      });
+
+      return {
+        userId: user.id,
+        orderId: order.id,
+        email: user.email,
+        name: user.firstName,
+        locale: this.resolveLocale(user.preferredLanguage),
+        signupToken,
+        phone: user.phoneNumber ?? null,
+        orderNumber: order.orderNumber,
+        packageName: fallbackPackage.name,
+        amountPaid: this.formatNaira(paidAmount),
+        addons: [],
+      };
+    });
   }
 
   private async resolveAppliedCouponForOrder(
@@ -4331,11 +4726,17 @@ export class PaymentsService {
       },
     });
 
-    if (
-      !payment ||
-      payment.type !== PaymentType.INITIAL ||
-      payment.status !== PaymentStatus.SUCCESS
-    ) {
+    if (!payment || payment.status !== PaymentStatus.SUCCESS) {
+      return {
+        signupUrl: null,
+        signupDelivery: null,
+      };
+    }
+
+    const supportsSignupFollowUp =
+      payment.type === PaymentType.INITIAL || payment.type === PaymentType.CUSTOM_QUOTE;
+
+    if (!supportsSignupFollowUp) {
       return {
         signupUrl: null,
         signupDelivery: null,

@@ -1,4 +1,5 @@
 import {
+  AdminDeleteUserResponseSchema,
   AdminUpdateUserResponseSchema,
   AdminUpdateUserSchema,
   AdminUserDetailSchema,
@@ -21,3 +22,6 @@ export class AdminUpdateUserDto extends createZodDto(AdminUpdateUserSchema) {}
 
 /** Response for PATCH /api/v1/admin/users/:id */
 export class AdminUpdateUserResponseDto extends createZodDto(AdminUpdateUserResponseSchema) {}
+
+/** Response for DELETE /api/v1/admin/users/:id */
+export class AdminDeleteUserResponseDto extends createZodDto(AdminDeleteUserResponseSchema) {}

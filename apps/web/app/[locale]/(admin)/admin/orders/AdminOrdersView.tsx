@@ -10,12 +10,14 @@ import {
 } from "@tanstack/react-table";
 import {
   AlertCircle,
+  Archive,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  MoreHorizontal,
   Search,
   ShoppingCart,
 } from "lucide-react";
@@ -26,10 +28,27 @@ import {
   DashboardTableViewport,
 } from "@/components/dashboard/dashboard-content-frame";
 import { OrderMetaText, OrderReferenceText, OrderStatusBadge } from "@/components/dashboard/orders";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import {
   ADMIN_ORDER_STATUS_OPTIONS,
   DEFAULT_ADMIN_ORDER_SORT_BY,
@@ -37,12 +56,16 @@ import {
   humanizeAdminOrderStatus,
   useAdminOrdersFilters,
 } from "@/hooks/use-admin-orders-filters";
+import { useAdminArchiveOrderMutation } from "@/hooks/useAdminOrderActions";
 import { useAdminOrders } from "@/hooks/useAdminOrders";
 import { usePackages } from "@/hooks/usePackages";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 type AdminOrderRow = AdminOrdersListResponse["items"][number];
+type OrderActionTarget = {
+  orderId: string;
+};
 
 const TABLE_SKELETON_ROWS = 6;
 const MOBILE_SKELETON_CARDS = 4;
@@ -214,6 +237,47 @@ function SortableHeader({
       <span>{label}</span>
       <SortIndicator active={isActive} direction={sortDirection} />
     </button>
+  );
+}
+
+function OrderRowActionsMenu({
+  order,
+  onArchive,
+}: {
+  order: AdminOrderRow;
+  onArchive: (target: OrderActionTarget) => void;
+}) {
+  const tAdmin = useTranslations("admin");
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-10 w-10 rounded-full border-[#2A2A2A] bg-[#000000] text-white hover:border-[#007eff] hover:bg-[#101010]"
+        >
+          <MoreHorizontal className="size-4" aria-hidden="true" />
+          <span className="sr-only">{tAdmin("orders_actions_menu_sr")}</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="min-w-[12rem] border-[#2A2A2A] bg-[#0B0B0B] text-white"
+      >
+        <DropdownMenuItem asChild>
+          <Link href={order.detailUrl}>{tAdmin("orders_action_view")}</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!order.actions.canArchive}
+          onSelect={() => onArchive({ orderId: order.id })}
+        >
+          <Archive className="size-4" aria-hidden="true" />
+          {tAdmin("orders_action_archive")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -507,6 +571,7 @@ type DesktopTableProps = {
   sortBy: AdminOrderSortField;
   sortDirection: "asc" | "desc";
   onSort: (columnId: AdminOrderSortField) => void;
+  onArchive: (target: OrderActionTarget) => void;
   transitioning: boolean;
 };
 
@@ -535,6 +600,7 @@ function AdminOrdersDesktopTable({
   sortBy,
   sortDirection,
   onSort,
+  onArchive,
   transitioning,
 }: DesktopTableProps) {
   const tAdmin = useTranslations("admin");
@@ -674,16 +740,19 @@ function AdminOrdersDesktopTable({
           </span>
         ),
         cell: ({ row }) => (
-          <Link
-            href={row.original.detailUrl}
-            className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-3 py-2 font-sans text-[10px] font-medium tracking-[0.02em] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#101010] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 xl:px-4 xl:text-[11px]"
-          >
-            {tAdmin("orders_action_view")}
-          </Link>
+          <div className="inline-flex items-center justify-end gap-2">
+            <Link
+              href={row.original.detailUrl}
+              className="inline-flex min-h-10 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-3 py-2 font-sans text-[10px] font-medium tracking-[0.02em] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#101010] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 xl:px-4 xl:text-[11px]"
+            >
+              {tAdmin("orders_action_view")}
+            </Link>
+            <OrderRowActionsMenu order={row.original} onArchive={onArchive} />
+          </div>
         ),
       }),
     ],
-    [locale, onSort, sortBy, sortDirection, tAdmin]
+    [locale, onArchive, onSort, sortBy, sortDirection, tAdmin]
   );
 
   const table = useReactTable({
@@ -759,9 +828,10 @@ type MobileCardsProps = {
   items: AdminOrderRow[];
   locale: string;
   transitioning: boolean;
+  onArchive: (target: OrderActionTarget) => void;
 };
 
-function AdminOrdersMobileCards({ items, locale, transitioning }: MobileCardsProps) {
+function AdminOrdersMobileCards({ items, locale, transitioning, onArchive }: MobileCardsProps) {
   const tAdmin = useTranslations("admin");
 
   return (
@@ -778,11 +848,14 @@ function AdminOrdersMobileCards({ items, locale, transitioning }: MobileCardsPro
                 {order.customer.fullName}
               </p>
             </div>
-            <OrderStatusBadge
-              orderStatus={order.orderStatus}
-              bookStatus={order.bookStatus}
-              label={humanizeAdminOrderStatus(order.displayStatus)}
-            />
+            <div className="flex items-start gap-2">
+              <OrderStatusBadge
+                orderStatus={order.orderStatus}
+                bookStatus={order.bookStatus}
+                label={humanizeAdminOrderStatus(order.displayStatus)}
+              />
+              <OrderRowActionsMenu order={order} onArchive={onArchive} />
+            </div>
           </div>
 
           <dl className="mt-4 space-y-3">
@@ -1038,6 +1111,7 @@ function AdminOrdersPagination({
 export function AdminOrdersView() {
   const tAdmin = useTranslations("admin");
   const locale = useLocale();
+  const archiveOrderMutation = useAdminArchiveOrderMutation();
   const {
     status,
     packageId,
@@ -1063,6 +1137,8 @@ export function AdminOrdersView() {
 
   const [searchDraft, setSearchDraft] = useState(q);
   const deferredSearch = useDeferredValue(searchDraft);
+  const [archiveTarget, setArchiveTarget] = useState<OrderActionTarget | null>(null);
+  const [archiveReason, setArchiveReason] = useState("");
 
   useEffect(() => {
     setSearchDraft(q);
@@ -1129,6 +1205,32 @@ export function AdminOrdersView() {
       ? error.message
       : tAdmin("orders_error_description");
 
+  const openArchiveDialog = (target: OrderActionTarget) => {
+    setArchiveTarget(target);
+    setArchiveReason("");
+  };
+
+  const closeArchiveDialog = () => {
+    setArchiveTarget(null);
+    setArchiveReason("");
+  };
+
+  const submitArchive = async () => {
+    if (!archiveTarget) return;
+    const reason = archiveReason.trim();
+    if (reason.length < 5) return;
+
+    try {
+      await archiveOrderMutation.mutateAsync({
+        orderId: archiveTarget.orderId,
+        input: { reason },
+      });
+      closeArchiveDialog();
+    } catch {
+      // Keep dialog open for retry.
+    }
+  };
+
   return (
     <section className="grid min-w-0 gap-4 md:gap-5">
       <AdminOrdersFilterBar
@@ -1184,6 +1286,7 @@ export function AdminOrdersView() {
               items={items}
               locale={locale}
               transitioning={isPageTransitioning}
+              onArchive={openArchiveDialog}
             />
           }
           desktopTable={
@@ -1193,6 +1296,7 @@ export function AdminOrdersView() {
               sortBy={sortBy}
               sortDirection={sortDirection}
               onSort={handleSort}
+              onArchive={openArchiveDialog}
               transitioning={isPageTransitioning}
             />
           }
@@ -1213,6 +1317,45 @@ export function AdminOrdersView() {
           onNext={() => goToNextCursor(data.nextCursor)}
         />
       ) : null}
+
+      <AlertDialog
+        open={Boolean(archiveTarget)}
+        onOpenChange={(open) => (!open ? closeArchiveDialog() : null)}
+      >
+        <AlertDialogContent className="border-[#2A2A2A] bg-[#0B0B0B] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tAdmin("orders_archive_dialog_title")}</AlertDialogTitle>
+            <AlertDialogDescription className="text-[#b8b8b8]">
+              {tAdmin("orders_archive_dialog_description")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-2">
+            <label htmlFor="order-archive-reason" className="font-sans text-xs text-[#cfcfcf]">
+              {tAdmin("orders_archive_dialog_reason_label")}
+            </label>
+            <Textarea
+              id="order-archive-reason"
+              value={archiveReason}
+              onChange={(event) => setArchiveReason(event.target.value)}
+              placeholder={tAdmin("orders_archive_dialog_reason_placeholder")}
+              className="min-h-[90px] border-[#2A2A2A] bg-[#111111] text-white"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={archiveOrderMutation.isPending}>
+              {tAdmin("orders_archive_dialog_cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={archiveOrderMutation.isPending || archiveReason.trim().length < 5}
+              onClick={() => {
+                void submitArchive();
+              }}
+            >
+              {tAdmin("orders_action_archive")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

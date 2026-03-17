@@ -7,7 +7,7 @@ function expectDeactivatedAuthError(error: unknown) {
   expect((error as UnauthorizedException).getResponse()).toEqual(
     expect.objectContaining({
       message:
-        "This account has been deactivated. Please contact support or an administrator for assistance.",
+        "This account has been deactivated. Use the account recovery/reactivation flow, or contact support or an administrator for assistance.",
       errorCode: "AUTH_ACCOUNT_DEACTIVATED",
     })
   );

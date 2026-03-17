@@ -8,8 +8,10 @@ import {
   ExternalLink,
   Loader2,
   RefreshCcw,
+  RotateCcw,
   ShieldCheck,
   ShieldX,
+  Trash2,
   UserRoundCheck,
   UserRoundX,
 } from "lucide-react";
@@ -30,16 +32,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { humanizeAdminBookStatus } from "@/hooks/use-admin-books-filters";
 import { humanizeAdminOrderStatus } from "@/hooks/use-admin-orders-filters";
 import { ADMIN_USER_ROLE_OPTIONS } from "@/hooks/use-admin-users-filters";
-import { useAdminUpdateUserMutation } from "@/hooks/useAdminUserActions";
+import {
+  useAdminDeleteUserMutation,
+  useAdminReactivateUserMutation,
+  useAdminUpdateUserMutation,
+} from "@/hooks/useAdminUserActions";
 import { useAdminUserDetail } from "@/hooks/useAdminUserDetail";
-import { Link } from "@/lib/i18n/navigation";
+import { Link, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 type AdminUserDetailViewProps = {
   userId: string;
 };
 
-type PendingAction = "save" | "deactivate" | null;
+type PendingAction = "save" | "reactivate" | "deactivate" | "delete" | null;
 
 const LOCALE_FORMAT_TAGS: Record<string, string> = {
   en: "en-NG",
@@ -392,16 +398,20 @@ function buildAuditDescription(params: {
 export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
   const tAdmin = useTranslations("admin");
   const locale = useLocale();
+  const router = useRouter();
   const detailQuery = useAdminUserDetail({
     userId,
     enabled: Boolean(userId),
   });
   const updateMutation = useAdminUpdateUserMutation();
+  const deleteMutation = useAdminDeleteUserMutation();
+  const reactivateMutation = useAdminReactivateUserMutation();
 
   const [roleDraft, setRoleDraft] = useState<UserRoleValue>("USER");
   const [verifiedDraft, setVerifiedDraft] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [isDeactivateDialogOpen, setIsDeactivateDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [latestAuditSummary, setLatestAuditSummary] = useState<{
     action: string;
     recordedAt: string;
@@ -414,7 +424,9 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
   const user = detailQuery.user;
   const profile = user?.profile ?? null;
   const isSavePending = updateMutation.isPending && pendingAction === "save";
+  const isReactivatePending = reactivateMutation.isPending && pendingAction === "reactivate";
   const isDeactivatePending = updateMutation.isPending && pendingAction === "deactivate";
+  const isDeletePending = deleteMutation.isPending && pendingAction === "delete";
 
   useEffect(() => {
     if (!profile) return;
@@ -517,6 +529,66 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
     } catch (error) {
       toast.error(tAdmin("users_detail_deactivate_error_title"), {
         description: getErrorMessage(error, tAdmin("users_detail_deactivate_error_description")),
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleReactivate() {
+    if (!profile || profile.isActive || isReactivatePending) return;
+
+    setPendingAction("reactivate");
+
+    try {
+      const response = await reactivateMutation.mutateAsync({
+        userId,
+      });
+
+      setLatestAuditSummary({
+        action: response.audit.action,
+        recordedAt: response.audit.recordedAt,
+      });
+
+      toast.success(tAdmin("users_detail_reactivate_success"), {
+        description: buildAuditDescription({
+          action: response.audit.action,
+          recordedAt: response.audit.recordedAt,
+          locale,
+          tAdmin,
+        }),
+      });
+    } catch (error) {
+      toast.error(tAdmin("users_detail_reactivate_error_title"), {
+        description: getErrorMessage(error, tAdmin("users_detail_reactivate_error_description")),
+      });
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function handleDeleteUser() {
+    if (!profile || isDeletePending) return;
+
+    setPendingAction("delete");
+
+    try {
+      const response = await deleteMutation.mutateAsync({ userId });
+
+      setLatestAuditSummary({
+        action: response.audit.action,
+        recordedAt: response.audit.recordedAt,
+      });
+      setIsDeleteDialogOpen(false);
+
+      toast.success(tAdmin("users_detail_delete_success"), {
+        description: tAdmin("users_detail_delete_success_description"),
+      });
+
+      router.replace("/admin/users");
+    } catch (error) {
+      toast.error(tAdmin("users_detail_delete_error_title"), {
+        description: getErrorMessage(error, tAdmin("users_detail_delete_error_description")),
       });
     } finally {
       setPendingAction(null);
@@ -984,6 +1056,28 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                   }}
                 />
 
+                {!profile.isActive ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleReactivate}
+                    disabled={isReactivatePending}
+                    className="min-h-11 w-full rounded-full border-[#1f5d36] bg-[#0d1e14] px-5 font-sans text-sm font-medium text-[#8ef0bb] hover:border-[#267447] hover:bg-[#11261a]"
+                  >
+                    {isReactivatePending ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                        {tAdmin("users_action_reactivating")}
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="size-4" aria-hidden="true" />
+                        {tAdmin("users_action_reactivate")}
+                      </>
+                    )}
+                  </Button>
+                ) : null}
+
                 <p className="font-sans text-sm leading-6 text-[#8F8F8F]">
                   {tAdmin("users_detail_management_hint")}
                 </p>
@@ -1020,6 +1114,26 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                     </>
                   ) : (
                     tAdmin("users_detail_save")
+                  )}
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsDeleteDialogOpen(true)}
+                  disabled={isDeletePending}
+                  className="min-h-11 w-full rounded-full border-[#5E1E1E] bg-[#1A0D0D] px-5 font-sans text-sm font-medium text-[#FFB3B3] hover:border-[#7A2727] hover:bg-[#220F0F]"
+                >
+                  {isDeletePending ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                      {tAdmin("users_detail_deleting")}
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="size-4" aria-hidden="true" />
+                      {tAdmin("users_detail_delete")}
+                    </>
                   )}
                 </Button>
               </div>
@@ -1183,6 +1297,53 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                 </>
               ) : (
                 tAdmin("users_detail_deactivate_confirm")
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          if (!isDeletePending) {
+            setIsDeleteDialogOpen(open);
+          }
+        }}
+      >
+        <DialogContent className="h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] max-w-[calc(100%-1rem)] overflow-y-auto rounded-[1.5rem] border border-[#3E1414] bg-[#120909] p-6 text-white md:h-auto md:max-h-[calc(100dvh-4rem)] md:max-w-xl md:rounded-[1.75rem]">
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-semibold tracking-tight text-white">
+              {tAdmin("users_detail_delete_dialog_title")}
+            </DialogTitle>
+            <DialogDescription className="font-sans text-sm leading-6 text-[#FFCFCF]">
+              {tAdmin("users_detail_delete_dialog_description")}
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="pt-2 md:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeletePending}
+              onClick={() => setIsDeleteDialogOpen(false)}
+              className="min-h-11 rounded-full border-[#2A2A2A] bg-[#111111] px-5 font-sans text-sm text-white hover:border-[#3A3A3A] hover:bg-[#181818]"
+            >
+              {tAdmin("users_detail_delete_cancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={isDeletePending}
+              onClick={handleDeleteUser}
+              className="min-h-11 rounded-full bg-[#A32020] px-5 font-sans text-sm font-medium text-white hover:bg-[#8d1a1a]"
+            >
+              {isDeletePending ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  {tAdmin("users_detail_deleting")}
+                </>
+              ) : (
+                tAdmin("users_detail_delete_confirm")
               )}
             </Button>
           </DialogFooter>

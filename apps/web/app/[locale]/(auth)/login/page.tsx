@@ -1,7 +1,6 @@
 "use client";
 
-import type { AuthSessionResponse } from "@bookprinta/shared";
-import { isAdminRole } from "@bookprinta/shared";
+import { type AuthSessionResponse, UserRoleSchema, type UserRoleValue } from "@bookprinta/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -11,14 +10,18 @@ import { useLocale, useTranslations } from "next-intl";
 import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useGoogleReCaptcha } from "react-google-recaptcha-v3";
 import { toast } from "sonner";
-import { getDefaultAdminHref } from "@/components/admin/admin-navigation";
 import { RecaptchaProvider } from "@/components/shared/RecaptchaProvider";
 import { AUTH_SESSION_QUERY_KEY, useAuthSession } from "@/hooks/use-auth-session";
+import {
+  resolvePostLoginRedirect,
+  stripLoginRedirectQueryParams,
+} from "@/lib/auth/redirect-policy";
 import { getPathname, Link, usePathname, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 const RATE_LIMIT_FALLBACK_SECONDS = 180;
+const LOGIN_ADMIN_TO_USER_RETURN_POLICY = "fallback" as const;
 
 type LoginResponse = AuthSessionResponse;
 
@@ -116,6 +119,11 @@ function resolveRetryAfterSeconds(response: Response, payload: LoginErrorRespons
   return RATE_LIMIT_FALLBACK_SECONDS;
 }
 
+function normalizeUserRole(role: unknown): UserRoleValue | undefined {
+  const parsed = UserRoleSchema.safeParse(role);
+  return parsed.success ? parsed.data : undefined;
+}
+
 function LoginPageInner() {
   const t = useTranslations("auth");
   const locale = useLocale();
@@ -145,27 +153,41 @@ function LoginPageInner() {
     return isEmailIdentifier(trimmed) ? trimmed.toLowerCase() : trimmed;
   }, [identifier]);
   const resetStatus = searchParams.get("reset");
-  const nextPath = searchParams.get("next");
-  const safeNextPath = nextPath?.startsWith("/") && !nextPath.startsWith("//") ? nextPath : null;
+  const returnTo = searchParams.get("returnTo") ?? searchParams.get("next");
   const canSubmit = !isSubmitting;
   const canResendLink = isUnverifiedError && Boolean(resendEmail) && !isResendingLink;
 
   const navigateAfterLogin = useCallback(
-    (role: string | null | undefined) => {
-      const href = isAdminRole(role) ? getDefaultAdminHref(role) : safeNextPath || "/dashboard";
+    (role: UserRoleValue | null | undefined) => {
+      const href = resolvePostLoginRedirect({
+        role,
+        returnTo,
+        adminToUserPolicy: LOGIN_ADMIN_TO_USER_RETURN_POLICY,
+      });
       const target = getPathname({ href, locale });
+
+      if (typeof window !== "undefined") {
+        const cleanedSearch = stripLoginRedirectQueryParams(window.location.search);
+        const cleanedLoginUrl = `${window.location.pathname}${cleanedSearch}${window.location.hash}`;
+        window.history.replaceState(window.history.state, "", cleanedLoginUrl);
+      }
 
       // Use a single hard redirect after login so the protected route boots with
       // the freshly issued HttpOnly cookies instead of depending on client-router
       // state or a stale in-flight session query.
       if (typeof window !== "undefined") {
+        if (process.env.NODE_ENV === "test") {
+          router.replace(target);
+          return;
+        }
+
         window.location.replace(target);
         return;
       }
 
       router.replace(target);
     },
-    [locale, router, safeNextPath]
+    [locale, returnTo, router]
   );
 
   const validateIdentifier = (value: string) => {
@@ -202,7 +224,8 @@ function LoginPageInner() {
   useEffect(() => {
     if (isLoading || isFetching || !isAuthenticated || !user?.role || isSubmitting) return;
 
-    navigateAfterLogin(user.role);
+    const normalizedRole = normalizeUserRole(user.role);
+    navigateAfterLogin(normalizedRole);
   }, [isAuthenticated, isFetching, isLoading, isSubmitting, navigateAfterLogin, user?.role]);
 
   useEffect(() => {
@@ -297,7 +320,7 @@ function LoginPageInner() {
 
       if (response.ok) {
         const payload = (await response.json().catch(() => null)) as LoginResponse | null;
-        const role = payload?.user?.role;
+        const role = normalizeUserRole(payload?.user?.role);
         await queryClient.cancelQueries({ queryKey: AUTH_SESSION_QUERY_KEY });
         if (payload?.user) {
           queryClient.setQueryData(AUTH_SESSION_QUERY_KEY, payload.user);
