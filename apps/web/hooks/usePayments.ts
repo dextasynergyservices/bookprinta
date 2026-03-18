@@ -102,11 +102,14 @@ export type CouponValidationErrorCode =
   | "INVALID_CODE"
   | "CODE_EXPIRED"
   | "CODE_INACTIVE"
-  | "CODE_MAXED_OUT";
+  | "CODE_MAXED_OUT"
+  | "CODE_NOT_APPLICABLE";
 
 export interface ValidateCouponInput {
   code: string;
   amount: number;
+  packageId?: string;
+  packageSlug?: string;
 }
 
 export interface ValidateCouponResponse {
@@ -231,7 +234,8 @@ export async function validateCouponCode(payload: ValidateCouponInput) {
       (data.code === "INVALID_CODE" ||
         data.code === "CODE_EXPIRED" ||
         data.code === "CODE_INACTIVE" ||
-        data.code === "CODE_MAXED_OUT")
+        data.code === "CODE_MAXED_OUT" ||
+        data.code === "CODE_NOT_APPLICABLE")
         ? (data.code as CouponValidationErrorCode)
         : "INVALID_CODE";
     const message =

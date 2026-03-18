@@ -107,6 +107,10 @@ describe("CheckoutView coupon display", () => {
       refetch: refetchMock,
     });
     mockValidateCouponCode.mockReset();
+    mockValidateCouponCode.mockResolvedValue({
+      code: "SAVE10",
+      discountAmount: 5_000,
+    });
     paymentMethodModalMock.mockReset();
 
     const store = usePricingStore.getState();
@@ -224,6 +228,45 @@ describe("CheckoutView coupon display", () => {
           }),
         })
       );
+    });
+  });
+
+  it("auto-revalidates persisted coupons and blocks continue until revalidation completes", async () => {
+    const store = usePricingStore.getState();
+    store.applyCoupon("SAVE10", 5_000);
+
+    let resolveValidation: ((value: { code: string; discountAmount: number }) => void) | undefined;
+    mockValidateCouponCode.mockImplementation(
+      () =>
+        new Promise<{ code: string; discountAmount: number }>((resolve) => {
+          resolveValidation = resolve;
+        })
+    );
+
+    renderWithProviders();
+
+    await waitFor(() => {
+      expect(mockValidateCouponCode).toHaveBeenCalledWith(
+        {
+          code: "SAVE10",
+          amount: 100_000,
+        },
+        expect.any(Object)
+      );
+    });
+
+    const continueButtons = screen.getAllByRole("button", { name: "addons_continue" });
+    expect(continueButtons.every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getAllByText("coupon_revalidating_notice").length).toBeGreaterThan(0);
+
+    if (!resolveValidation) {
+      throw new Error("Expected coupon revalidation resolver to be set");
+    }
+
+    resolveValidation({ code: "SAVE10", discountAmount: 5_000 });
+
+    await waitFor(() => {
+      expect(continueButtons.some((button) => !button.hasAttribute("disabled"))).toBe(true);
     });
   });
 });
