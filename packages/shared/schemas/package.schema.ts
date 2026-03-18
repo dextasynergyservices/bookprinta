@@ -78,3 +78,79 @@ export const PackageCategoryResponseSchema = PackageCategorySummarySchema.extend
 });
 
 export type PackageCategoryResponse = z.infer<typeof PackageCategoryResponseSchema>;
+
+// ==========================================
+// Admin Package Category Schemas
+// ==========================================
+
+export const AdminPackageCategorySchema = PackageCategorySummarySchema.extend({
+  packageCount: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export type AdminPackageCategory = z.infer<typeof AdminPackageCategorySchema>;
+
+export const AdminCreatePackageCategorySchema = z.object({
+  name: z.string().trim().min(1, "Category name is required").max(120),
+  description: z.string().trim().max(1000).nullable().optional(),
+  copies: z.number().int().positive(),
+  sortOrder: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export type AdminCreatePackageCategoryInput = z.infer<typeof AdminCreatePackageCategorySchema>;
+
+export const AdminUpdatePackageCategorySchema = AdminCreatePackageCategorySchema.partial().refine(
+  (payload) => Object.keys(payload).length > 0,
+  "Provide at least one field to update"
+);
+
+export type AdminUpdatePackageCategoryInput = z.infer<typeof AdminUpdatePackageCategorySchema>;
+
+export const AdminDeletePackageCategoryResponseSchema = z.object({
+  id: z.string().cuid(),
+  deleted: z.literal(true),
+});
+
+export type AdminDeletePackageCategoryResponse = z.infer<
+  typeof AdminDeletePackageCategoryResponseSchema
+>;
+
+export const AdminPackageCategoryLiteSchema = PackageCategorySummarySchema;
+export type AdminPackageCategoryLite = z.infer<typeof AdminPackageCategoryLiteSchema>;
+
+export const AdminPackageSchema = PackageBaseResponseSchema.extend({
+  categoryId: z.string().cuid(),
+  category: AdminPackageCategoryLiteSchema,
+});
+
+export type AdminPackage = z.infer<typeof AdminPackageSchema>;
+
+export const AdminCreatePackageSchema = z.object({
+  categoryId: z.string().cuid(),
+  name: z.string().trim().min(1, "Package name is required").max(120),
+  description: z.string().trim().max(2000).nullable().optional(),
+  basePrice: z.number().nonnegative(),
+  pageLimit: z.number().int().positive(),
+  includesISBN: z.boolean(),
+  features: PackageFeaturesSchema,
+  sortOrder: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export type AdminCreatePackageInput = z.infer<typeof AdminCreatePackageSchema>;
+
+export const AdminUpdatePackageSchema = AdminCreatePackageSchema.partial().refine(
+  (payload) => Object.keys(payload).length > 0,
+  "Provide at least one field to update"
+);
+
+export type AdminUpdatePackageInput = z.infer<typeof AdminUpdatePackageSchema>;
+
+export const AdminDeletePackageResponseSchema = z.object({
+  id: z.string().cuid(),
+  deleted: z.literal(true),
+});
+
+export type AdminDeletePackageResponse = z.infer<typeof AdminDeletePackageResponseSchema>;
