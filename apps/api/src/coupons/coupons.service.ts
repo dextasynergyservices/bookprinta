@@ -19,7 +19,29 @@ type CouponRow = {
   usageCount: number;
   expiresAt: Date | null;
   isActive: boolean;
+  appliesToAll: boolean;
+  packageScopes: Array<{ packageId: string }>;
+  categoryScopes: Array<{ categoryId: string }>;
   createdAt: Date;
+};
+
+export type CouponAnalyticsBreakdownItem = {
+  packageId: string;
+  packageName: string;
+  categoryId: string;
+  categoryName: string;
+  orderCount: number;
+  discountAmount: number;
+};
+
+export type CouponAnalyticsItem = {
+  couponId: string;
+  couponCode: string;
+  orderCount: number;
+  usageCount: number;
+  totalDiscountAmount: number;
+  totalRevenueAmount: number;
+  packageBreakdown: CouponAnalyticsBreakdownItem[];
 };
 
 @Injectable()
@@ -33,6 +55,17 @@ export class CouponsService {
     usageCount: true,
     expiresAt: true,
     isActive: true,
+    appliesToAll: true,
+    packageScopes: {
+      select: {
+        packageId: true,
+      },
+    },
+    categoryScopes: {
+      select: {
+        categoryId: true,
+      },
+    },
     createdAt: true,
   } as const;
 
@@ -61,6 +94,11 @@ export class CouponsService {
       this.throwCouponValidationError("CODE_MAXED_OUT", "Code has reached its usage limit");
     }
 
+    const packageContext = await this.resolvePackageContext(input);
+    if (!this.isCouponApplicableToPackage(coupon, packageContext)) {
+      this.throwCouponValidationError("CODE_NOT_APPLICABLE", "Code does not apply to this package");
+    }
+
     const amount = this.toCurrency(input.amount);
     const discountAmount = this.calculateDiscountAmount({
       amount,
@@ -84,6 +122,9 @@ export class CouponsService {
   }
 
   async createCoupon(input: CreateCouponInput): Promise<Coupon> {
+    const scope = this.resolveScopeInput(input);
+    await this.assertScopeTargetsExist(scope);
+
     try {
       const coupon = await this.prisma.coupon.create({
         data: {
@@ -94,6 +135,19 @@ export class CouponsService {
           usageCount: 0,
           expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
           isActive: input.isActive ?? true,
+          appliesToAll: scope.appliesToAll,
+          packageScopes:
+            scope.appliesToAll || scope.eligiblePackageIds.length === 0
+              ? undefined
+              : {
+                  create: scope.eligiblePackageIds.map((packageId) => ({ packageId })),
+                },
+          categoryScopes:
+            scope.appliesToAll || scope.eligibleCategoryIds.length === 0
+              ? undefined
+              : {
+                  create: scope.eligibleCategoryIds.map((categoryId) => ({ categoryId })),
+                },
         },
         select: CouponsService.COUPON_SELECT,
       });
@@ -114,6 +168,17 @@ export class CouponsService {
         id: true,
         usageLimit: true,
         usageCount: true,
+        appliesToAll: true,
+        packageScopes: {
+          select: {
+            packageId: true,
+          },
+        },
+        categoryScopes: {
+          select: {
+            categoryId: true,
+          },
+        },
       },
     });
 
@@ -124,6 +189,26 @@ export class CouponsService {
     const nextUsageLimit = input.maxUses !== undefined ? input.maxUses : existing.usageLimit;
     const nextUsageCount =
       input.currentUses !== undefined ? input.currentUses : existing.usageCount;
+
+    const nextAppliesToAll = input.appliesToAll ?? existing.appliesToAll;
+    const nextPackageIds =
+      input.eligiblePackageIds !== undefined
+        ? this.normalizeIdList(input.eligiblePackageIds)
+        : existing.packageScopes.map((scope) => scope.packageId);
+    const nextCategoryIds =
+      input.eligibleCategoryIds !== undefined
+        ? this.normalizeIdList(input.eligibleCategoryIds)
+        : existing.categoryScopes.map((scope) => scope.categoryId);
+
+    if (!nextAppliesToAll && nextPackageIds.length === 0 && nextCategoryIds.length === 0) {
+      throw new BadRequestException("At least one eligible package or category is required");
+    }
+
+    await this.assertScopeTargetsExist({
+      appliesToAll: nextAppliesToAll,
+      eligiblePackageIds: nextPackageIds,
+      eligibleCategoryIds: nextCategoryIds,
+    });
 
     if (nextUsageLimit !== null && nextUsageCount > nextUsageLimit) {
       throw new BadRequestException("currentUses cannot be greater than maxUses");
@@ -138,11 +223,39 @@ export class CouponsService {
     if (input.expiresAt !== undefined)
       data.expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
     if (input.isActive !== undefined) data.isActive = input.isActive;
+    if (input.appliesToAll !== undefined) data.appliesToAll = input.appliesToAll;
+
+    const shouldReplaceScopeTargets =
+      input.appliesToAll !== undefined ||
+      input.eligiblePackageIds !== undefined ||
+      input.eligibleCategoryIds !== undefined;
 
     try {
       const coupon = await this.prisma.coupon.update({
         where: { id },
-        data,
+        data: {
+          ...data,
+          ...(shouldReplaceScopeTargets
+            ? {
+                packageScopes: {
+                  deleteMany: {},
+                  ...(nextAppliesToAll || nextPackageIds.length === 0
+                    ? {}
+                    : {
+                        create: nextPackageIds.map((packageId) => ({ packageId })),
+                      }),
+                },
+                categoryScopes: {
+                  deleteMany: {},
+                  ...(nextAppliesToAll || nextCategoryIds.length === 0
+                    ? {}
+                    : {
+                        create: nextCategoryIds.map((categoryId) => ({ categoryId })),
+                      }),
+                },
+              }
+            : {}),
+        },
         select: CouponsService.COUPON_SELECT,
       });
 
@@ -173,6 +286,108 @@ export class CouponsService {
     }
 
     return { id, deleted: true };
+  }
+
+  async getCouponAnalytics(): Promise<CouponAnalyticsItem[]> {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        couponId: {
+          not: null,
+        },
+      },
+      select: {
+        couponId: true,
+        coupon: {
+          select: {
+            code: true,
+            usageCount: true,
+          },
+        },
+        discountAmount: true,
+        totalAmount: true,
+        package: {
+          select: {
+            id: true,
+            name: true,
+            category: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    const couponMap = new Map<string, CouponAnalyticsItem>();
+
+    for (const order of orders) {
+      if (!order.couponId || !order.coupon) continue;
+
+      const current = couponMap.get(order.couponId);
+      if (!current) {
+        couponMap.set(order.couponId, {
+          couponId: order.couponId,
+          couponCode: order.coupon.code,
+          orderCount: 1,
+          usageCount: order.coupon.usageCount,
+          totalDiscountAmount: this.toCurrency(order.discountAmount),
+          totalRevenueAmount: this.toCurrency(order.totalAmount),
+          packageBreakdown: [
+            {
+              packageId: order.package.id,
+              packageName: order.package.name,
+              categoryId: order.package.category.id,
+              categoryName: order.package.category.name,
+              orderCount: 1,
+              discountAmount: this.toCurrency(order.discountAmount),
+            },
+          ],
+        });
+        continue;
+      }
+
+      current.orderCount += 1;
+      current.totalDiscountAmount = this.toCurrency(
+        current.totalDiscountAmount + this.toCurrency(order.discountAmount)
+      );
+      current.totalRevenueAmount = this.toCurrency(
+        current.totalRevenueAmount + this.toCurrency(order.totalAmount)
+      );
+
+      const breakdown = current.packageBreakdown.find(
+        (item) =>
+          item.packageId === order.package.id && item.categoryId === order.package.category.id
+      );
+
+      if (!breakdown) {
+        current.packageBreakdown.push({
+          packageId: order.package.id,
+          packageName: order.package.name,
+          categoryId: order.package.category.id,
+          categoryName: order.package.category.name,
+          orderCount: 1,
+          discountAmount: this.toCurrency(order.discountAmount),
+        });
+      } else {
+        breakdown.orderCount += 1;
+        breakdown.discountAmount = this.toCurrency(
+          breakdown.discountAmount + this.toCurrency(order.discountAmount)
+        );
+      }
+    }
+
+    return Array.from(couponMap.values()).sort((a, b) => {
+      if (b.totalDiscountAmount !== a.totalDiscountAmount) {
+        return b.totalDiscountAmount - a.totalDiscountAmount;
+      }
+
+      return b.orderCount - a.orderCount;
+    });
   }
 
   private normalizeCode(code: string): string {
@@ -210,20 +425,150 @@ export class CouponsService {
       currentUses: coupon.usageCount,
       expiresAt: coupon.expiresAt ? coupon.expiresAt.toISOString() : null,
       isActive: coupon.isActive,
+      appliesToAll: coupon.appliesToAll,
+      eligiblePackageIds: coupon.packageScopes.map((scope) => scope.packageId),
+      eligibleCategoryIds: coupon.categoryScopes.map((scope) => scope.categoryId),
       createdAt: coupon.createdAt.toISOString(),
     };
   }
 
   private throwCouponValidationError(
-    code: "INVALID_CODE" | "CODE_EXPIRED" | "CODE_INACTIVE" | "CODE_MAXED_OUT",
+    code:
+      | "INVALID_CODE"
+      | "CODE_EXPIRED"
+      | "CODE_INACTIVE"
+      | "CODE_MAXED_OUT"
+      | "CODE_NOT_APPLICABLE",
     message: string
   ): never {
     throw new BadRequestException({ code, message });
   }
 
-  private toCurrency(value: number): number {
-    if (!Number.isFinite(value)) return 0;
-    return Math.max(0, Number(value.toFixed(2)));
+  private resolveScopeInput(input: CreateCouponInput): {
+    appliesToAll: boolean;
+    eligiblePackageIds: string[];
+    eligibleCategoryIds: string[];
+  } {
+    const appliesToAll = input.appliesToAll ?? true;
+    const eligiblePackageIds = this.normalizeIdList(input.eligiblePackageIds ?? []);
+    const eligibleCategoryIds = this.normalizeIdList(input.eligibleCategoryIds ?? []);
+
+    if (!appliesToAll && eligiblePackageIds.length === 0 && eligibleCategoryIds.length === 0) {
+      throw new BadRequestException("At least one eligible package or category is required");
+    }
+
+    return {
+      appliesToAll,
+      eligiblePackageIds,
+      eligibleCategoryIds,
+    };
+  }
+
+  private normalizeIdList(values: string[]): string[] {
+    return Array.from(
+      new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))
+    );
+  }
+
+  private async assertScopeTargetsExist(params: {
+    appliesToAll: boolean;
+    eligiblePackageIds: string[];
+    eligibleCategoryIds: string[];
+  }): Promise<void> {
+    if (params.appliesToAll) {
+      return;
+    }
+
+    if (params.eligiblePackageIds.length > 0) {
+      const count = await this.prisma.package.count({
+        where: {
+          id: {
+            in: params.eligiblePackageIds,
+          },
+        },
+      });
+
+      if (count !== params.eligiblePackageIds.length) {
+        throw new BadRequestException("One or more eligible packages are invalid");
+      }
+    }
+
+    if (params.eligibleCategoryIds.length > 0) {
+      const count = await this.prisma.packageCategory.count({
+        where: {
+          id: {
+            in: params.eligibleCategoryIds,
+          },
+        },
+      });
+
+      if (count !== params.eligibleCategoryIds.length) {
+        throw new BadRequestException("One or more eligible categories are invalid");
+      }
+    }
+  }
+
+  private async resolvePackageContext(input: {
+    packageId?: string;
+    packageSlug?: string;
+  }): Promise<{ id: string; categoryId: string } | null> {
+    if (input.packageId) {
+      const pkg = await this.prisma.package.findUnique({
+        where: { id: input.packageId },
+        select: {
+          id: true,
+          categoryId: true,
+        },
+      });
+
+      if (pkg) {
+        return pkg;
+      }
+    }
+
+    if (input.packageSlug) {
+      const pkg = await this.prisma.package.findUnique({
+        where: { slug: input.packageSlug },
+        select: {
+          id: true,
+          categoryId: true,
+        },
+      });
+
+      if (pkg) {
+        return pkg;
+      }
+    }
+
+    return null;
+  }
+
+  private isCouponApplicableToPackage(
+    coupon: Pick<CouponRow, "appliesToAll" | "packageScopes" | "categoryScopes">,
+    packageContext: { id: string; categoryId: string } | null
+  ): boolean {
+    if (coupon.appliesToAll) {
+      return true;
+    }
+
+    if (!packageContext) {
+      return false;
+    }
+
+    const packageMatch = coupon.packageScopes.some(
+      (scope) => scope.packageId === packageContext.id
+    );
+    if (packageMatch) {
+      return true;
+    }
+
+    return coupon.categoryScopes.some((scope) => scope.categoryId === packageContext.categoryId);
+  }
+
+  private toCurrency(value: unknown): number {
+    const numericValue = this.toNumber(value);
+    if (!Number.isFinite(numericValue)) return 0;
+    return Math.max(0, Number(numericValue.toFixed(2)));
   }
 
   private toNumber(value: unknown): number {

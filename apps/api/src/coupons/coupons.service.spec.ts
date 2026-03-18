@@ -13,6 +13,9 @@ function makeCouponRow(overrides: Record<string, unknown> = {}) {
     usageCount: 1,
     expiresAt: null,
     isActive: true,
+    appliesToAll: true,
+    packageScopes: [],
+    categoryScopes: [],
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     ...overrides,
   };
@@ -25,6 +28,13 @@ const mockPrismaService = {
     create: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+  },
+  package: {
+    findUnique: jest.fn(),
+    findFirst: jest.fn(),
+  },
+  packageCategory: {
+    count: jest.fn(),
   },
 };
 
@@ -110,6 +120,46 @@ describe("CouponsService", () => {
 
       expect(result.discountType).toBe("fixed");
       expect(result.discountAmount).toBe(90_000);
+    });
+
+    it("throws CODE_NOT_APPLICABLE when coupon is scoped and package does not match", async () => {
+      mockPrismaService.coupon.findUnique.mockResolvedValue(
+        makeCouponRow({
+          appliesToAll: false,
+          packageScopes: [{ packageId: "pkg_allowed" }],
+          categoryScopes: [],
+        })
+      );
+      mockPrismaService.package.findUnique.mockResolvedValue({
+        id: "pkg_other",
+        categoryId: "cat_other",
+      });
+
+      await expectValidationError("CODE_NOT_APPLICABLE", () =>
+        service.validateCoupon({ code: "save10", amount: 100_000, packageId: "pkg_other" })
+      );
+    });
+
+    it("accepts scoped coupon when package category matches", async () => {
+      mockPrismaService.coupon.findUnique.mockResolvedValue(
+        makeCouponRow({
+          appliesToAll: false,
+          packageScopes: [],
+          categoryScopes: [{ categoryId: "cat_target" }],
+        })
+      );
+      mockPrismaService.package.findUnique.mockResolvedValue({
+        id: "pkg_1",
+        categoryId: "cat_target",
+      });
+
+      const result = await service.validateCoupon({
+        code: "save10",
+        amount: 100_000,
+        packageId: "pkg_1",
+      });
+
+      expect(result.discountAmount).toBe(10_000);
     });
   });
 });

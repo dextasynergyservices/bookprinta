@@ -3356,6 +3356,17 @@ export class PaymentsService {
         usageCount: true,
         expiresAt: true,
         isActive: true,
+        appliesToAll: true,
+        packageScopes: {
+          select: {
+            packageId: true,
+          },
+        },
+        categoryScopes: {
+          select: {
+            categoryId: true,
+          },
+        },
       },
     });
 
@@ -3375,6 +3386,14 @@ export class PaymentsService {
     }
     if (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit) {
       this.logger.warn(`Coupon "${code}" reached usage limit. Skipping coupon application.`);
+      return null;
+    }
+
+    const packageContext = await this.resolveCheckoutPackageContext(tx, checkout);
+    if (!this.isCouponApplicableToCheckout(coupon, packageContext)) {
+      this.logger.warn(
+        `Coupon "${code}" does not apply to package context. Skipping coupon application.`
+      );
       return null;
     }
 
@@ -3426,6 +3445,69 @@ export class PaymentsService {
     if (totalPlusDiscount > 0) return totalPlusDiscount;
 
     return this.toCurrency(amountPaid);
+  }
+
+  private async resolveCheckoutPackageContext(
+    tx: Prisma.TransactionClient,
+    checkout: CheckoutMetadata
+  ): Promise<{ id: string; categoryId: string } | null> {
+    const packageId = this.asString(checkout.packageId);
+    if (packageId) {
+      const pkg = await tx.package.findUnique({
+        where: { id: packageId },
+        select: {
+          id: true,
+          categoryId: true,
+        },
+      });
+
+      if (pkg) {
+        return pkg;
+      }
+    }
+
+    const packageSlug = this.asString(checkout.packageSlug) ?? this.asString(checkout.tier);
+    if (!packageSlug) {
+      return null;
+    }
+
+    const pkg = await tx.package.findFirst({
+      where: {
+        slug: packageSlug,
+      },
+      select: {
+        id: true,
+        categoryId: true,
+      },
+    });
+
+    return pkg ?? null;
+  }
+
+  private isCouponApplicableToCheckout(
+    coupon: {
+      appliesToAll: boolean;
+      packageScopes: Array<{ packageId: string }>;
+      categoryScopes: Array<{ categoryId: string }>;
+    },
+    packageContext: { id: string; categoryId: string } | null
+  ): boolean {
+    if (coupon.appliesToAll) {
+      return true;
+    }
+
+    if (!packageContext) {
+      return false;
+    }
+
+    const packageMatch = coupon.packageScopes.some(
+      (scope) => scope.packageId === packageContext.id
+    );
+    if (packageMatch) {
+      return true;
+    }
+
+    return coupon.categoryScopes.some((scope) => scope.categoryId === packageContext.categoryId);
   }
 
   private async resolveBankTransferReceiptUrl(params: {
