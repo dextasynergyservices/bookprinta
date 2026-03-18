@@ -12,7 +12,7 @@ import {
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
-import { CouponsService } from "./coupons.service.js";
+import { type CouponAnalyticsItem, CouponsService } from "./coupons.service.js";
 import { CouponResponseDto, CreateCouponDto, UpdateCouponDto } from "./dto/coupon.dto.js";
 
 @ApiTags("Admin Coupons")
@@ -37,6 +37,21 @@ export class AdminCouponsController {
   })
   async list(): Promise<CouponResponseDto[]> {
     return this.couponsService.listCoupons();
+  }
+
+  @Get("analytics")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Coupon analytics",
+    description:
+      "Returns coupon performance analytics, including discount totals and package/category breakdown.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Coupon analytics list",
+  })
+  async analytics(): Promise<CouponAnalyticsItem[]> {
+    return this.couponsService.getCouponAnalytics();
   }
 
   @Post()

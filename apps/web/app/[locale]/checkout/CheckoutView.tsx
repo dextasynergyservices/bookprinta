@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Loader2, ShieldCheck, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AddonCard } from "@/components/checkout/AddonCard";
 import { PaymentMethodModal } from "@/components/checkout/PaymentMethodModal";
 import { type Addon, useAddons } from "@/hooks/useAddons";
@@ -29,6 +29,7 @@ type CheckoutAddon = Addon & {
 };
 
 const FALLBACK_FORMATTING_PRICE = 35_000;
+const COUPON_REVALIDATE_DEBOUNCE_MS = 450;
 
 function formatPrice(price: number) {
   return new Intl.NumberFormat("en-NG", {
@@ -111,6 +112,8 @@ export function CheckoutView() {
     text: string;
   } | null>(null);
   const [couponRateLimitSeconds, setCouponRateLimitSeconds] = useState(0);
+  const [isCouponStale, setIsCouponStale] = useState(false);
+  const lastValidatedCouponRef = useRef<{ code: string; subtotal: number } | null>(null);
 
   const packageSlug = searchParams.get("package");
   const categorySlug = searchParams.get("category");
@@ -144,6 +147,22 @@ export function CheckoutView() {
   const packageBasePrice = usePricingStore(selectBasePrice);
   const addonTotal = usePricingStore(selectAddonTotal);
   const orderTotal = usePricingStore(selectTotalPrice);
+  const couponSubtotal = packageBasePrice + addonTotal;
+
+  const getCouponErrorMessage = (errorCode: CouponValidationError["code"]) => {
+    const key =
+      errorCode === "CODE_EXPIRED"
+        ? "coupon_error_expired"
+        : errorCode === "CODE_MAXED_OUT"
+          ? "coupon_error_maxed_out"
+          : errorCode === "CODE_NOT_APPLICABLE"
+            ? "coupon_error_not_applicable"
+            : errorCode === "CODE_INACTIVE"
+              ? "coupon_error_invalid"
+              : "coupon_error_invalid";
+
+    return t(key);
+  };
 
   const isConfigurationComplete = isPricingConfigurationComplete({
     hasCoverDesign,
@@ -204,10 +223,15 @@ export function CheckoutView() {
 
   const couponMutation = useMutation({
     mutationFn: validateCouponCode,
-    onSuccess: (response) => {
+    onSuccess: (response, variables) => {
       setCouponRateLimitSeconds(0);
       applyCoupon(response.code, response.discountAmount);
       setCouponInput(response.code);
+      lastValidatedCouponRef.current = {
+        code: response.code.trim().toUpperCase(),
+        subtotal: variables.amount,
+      };
+      setIsCouponStale(false);
       setCouponMessage({
         tone: "success",
         text: t("coupon_success_applied", { amount: formatPrice(response.discountAmount) }),
@@ -222,15 +246,7 @@ export function CheckoutView() {
       }
 
       if (error instanceof CouponValidationError) {
-        const key =
-          error.code === "CODE_EXPIRED"
-            ? "coupon_error_expired"
-            : error.code === "CODE_MAXED_OUT"
-              ? "coupon_error_maxed_out"
-              : error.code === "CODE_INACTIVE"
-                ? "coupon_error_invalid"
-                : "coupon_error_invalid";
-        setCouponMessage({ tone: "error", text: t(key) });
+        setCouponMessage({ tone: "error", text: getCouponErrorMessage(error.code) });
         return;
       }
 
@@ -238,6 +254,37 @@ export function CheckoutView() {
         tone: "error",
         text: t("coupon_error_invalid"),
       });
+    },
+  });
+
+  const couponRevalidationMutation = useMutation({
+    mutationFn: validateCouponCode,
+    onSuccess: (response, variables) => {
+      setCouponRateLimitSeconds(0);
+      applyCoupon(response.code, response.discountAmount);
+      lastValidatedCouponRef.current = {
+        code: response.code.trim().toUpperCase(),
+        subtotal: variables.amount,
+      };
+      setIsCouponStale(false);
+      setCouponMessage(null);
+    },
+    onError: (error) => {
+      if (error instanceof RateLimitError) {
+        setCouponRateLimitSeconds(Math.max(1, error.retryAfterSeconds));
+        return;
+      }
+
+      if (error instanceof CouponValidationError) {
+        clearCoupon();
+        setCouponInput("");
+        setCouponMessage({ tone: "error", text: getCouponErrorMessage(error.code) });
+        setIsCouponStale(false);
+        lastValidatedCouponRef.current = null;
+        return;
+      }
+
+      setCouponMessage({ tone: "error", text: t("coupon_error_invalid") });
     },
   });
 
@@ -255,7 +302,9 @@ export function CheckoutView() {
 
     couponMutation.mutate({
       code,
-      amount: packageBasePrice + addonTotal,
+      amount: couponSubtotal,
+      packageId: selectedPackage?.id,
+      packageSlug: selectedPackage?.slug,
     });
   };
 
@@ -263,7 +312,10 @@ export function CheckoutView() {
     clearCoupon();
     setCouponInput("");
     setCouponMessage(null);
+    setIsCouponStale(false);
+    lastValidatedCouponRef.current = null;
     couponMutation.reset();
+    couponRevalidationMutation.reset();
   };
 
   useEffect(() => {
@@ -276,14 +328,70 @@ export function CheckoutView() {
     return () => window.clearTimeout(timer);
   }, [couponRateLimitSeconds]);
 
+  useEffect(() => {
+    const activeCode = couponCode?.trim().toUpperCase() ?? null;
+
+    if (!activeCode) {
+      setIsCouponStale(false);
+      return;
+    }
+
+    const lastValidated = lastValidatedCouponRef.current;
+    if (
+      lastValidated &&
+      lastValidated.code === activeCode &&
+      lastValidated.subtotal === couponSubtotal
+    ) {
+      setIsCouponStale(false);
+      return;
+    }
+
+    setIsCouponStale(true);
+  }, [couponCode, couponSubtotal]);
+
   const isCouponRateLimited = couponRateLimitSeconds > 0;
+  const isCouponValidationPending =
+    couponMutation.isPending || couponRevalidationMutation.isPending;
   const couponApplyDisabled =
-    couponMutation.isPending || isCouponRateLimited || couponInput.trim().length === 0;
-  const couponApplyLabel = couponMutation.isPending
+    isCouponValidationPending || isCouponRateLimited || couponInput.trim().length === 0;
+  const couponApplyLabel = isCouponValidationPending
     ? t("coupon_apply_loading")
     : isCouponRateLimited
       ? t("rate_limit_wait_seconds", { seconds: couponRateLimitSeconds })
       : t("coupon_apply_button");
+  const isCouponBlockingCheckout =
+    Boolean(couponCode) && (isCouponStale || isCouponValidationPending);
+
+  useEffect(() => {
+    const activeCode = couponCode?.trim();
+    if (!activeCode || !isCouponStale || isCouponRateLimited || couponMutation.isPending) {
+      return;
+    }
+
+    if (couponRevalidationMutation.isPending) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      couponRevalidationMutation.mutate({
+        code: activeCode,
+        amount: couponSubtotal,
+        packageId: selectedPackage?.id,
+        packageSlug: selectedPackage?.slug,
+      });
+    }, COUPON_REVALIDATE_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    couponCode,
+    couponMutation.isPending,
+    couponRevalidationMutation,
+    couponSubtotal,
+    isCouponRateLimited,
+    isCouponStale,
+    selectedPackage?.id,
+    selectedPackage?.slug,
+  ]);
 
   useEffect(() => {
     if (!selectedPackage) return;
@@ -587,9 +695,16 @@ export function CheckoutView() {
                   </p>
                 </div>
 
+                {isCouponBlockingCheckout ? (
+                  <p className="mt-3 font-sans text-xs text-[#ffb86b]">
+                    {t("coupon_revalidating_notice")}
+                  </p>
+                ) : null}
+
                 <button
                   type="button"
                   onClick={openPaymentModal}
+                  disabled={isCouponBlockingCheckout}
                   className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 >
                   <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
@@ -714,11 +829,18 @@ export function CheckoutView() {
                     {t("addons_selected_count", { count: selectedAddons.length })}
                   </p>
                 </div>
+
+                {isCouponBlockingCheckout ? (
+                  <p className="mt-3 font-sans text-xs text-[#ffb86b]">
+                    {t("coupon_revalidating_notice")}
+                  </p>
+                ) : null}
               </div>
 
               <button
                 type="button"
                 onClick={openPaymentModal}
+                disabled={isCouponBlockingCheckout}
                 className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
               >
                 <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
@@ -745,6 +867,7 @@ export function CheckoutView() {
           <button
             type="button"
             onClick={openPaymentModal}
+            disabled={isCouponBlockingCheckout}
             className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
             {t("addons_continue")}
