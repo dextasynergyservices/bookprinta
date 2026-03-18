@@ -1,265 +1,119 @@
 import type {
+  AdminCreateShowcaseCategoryInput,
+  AdminCreateShowcaseEntryInput,
+  AdminDeleteShowcaseCategoryResponse,
+  AdminDeleteShowcaseEntryResponse,
+  AdminShowcaseCategoriesListResponse,
+  AdminShowcaseCategory,
+  AdminShowcaseCoverUploadBodyInput,
+  AdminShowcaseCoverUploadResponse,
+  AdminShowcaseEntriesListQuery,
+  AdminShowcaseEntriesListResponse,
+  AdminShowcaseEntry,
+  AdminShowcaseUserSearchQuery,
+  AdminShowcaseUserSearchResponse,
+  AdminUpdateShowcaseCategoryInput,
+  AdminUpdateShowcaseEntryInput,
   AuthorProfileResponse,
-  PurchaseLink,
   ShowcaseCategoriesResponse,
   ShowcaseListQuery,
   ShowcaseListResponse,
-  ShowcaseSortOption,
-  SocialLink,
 } from "@bookprinta/shared";
-import { PurchaseLinkSchema, SocialLinkSchema } from "@bookprinta/shared";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
+import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { AdminShowcaseService } from "./admin-showcase.service.js";
+import { AdminShowcaseUploadService } from "./admin-showcase-upload.service.js";
+import { PublicShowcaseService } from "./public-showcase.service.js";
 
-type ShowcaseCategoryRow = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  sortOrder: number;
-  isActive: boolean;
-};
-
-type ShowcaseListRow = {
-  id: string;
-  authorName: string;
-  bookTitle: string;
-  bookCoverUrl: string;
-  aboutBook: string | null;
-  testimonial: string | null;
-  categoryId: string | null;
-  category: ShowcaseCategoryRow | null;
-  publishedYear: number | null;
-  publishedAt: Date | null;
-  userId: string | null;
-  isFeatured: boolean;
-  sortOrder: number;
-  user: {
-    isProfileComplete: boolean;
-  } | null;
-};
-
-type AuthorProfileRow = {
-  userId: string | null;
-  user: {
-    bio: string | null;
-    profileImageUrl: string | null;
-    whatsAppNumber: string | null;
-    websiteUrl: string | null;
-    purchaseLinks: unknown;
-    socialLinks: unknown;
-    isProfileComplete: boolean;
-  } | null;
-} | null;
-
+/**
+ * Backward-compatible facade retained to avoid breaking existing imports/tests
+ * while controllers now depend on dedicated services.
+ */
 @Injectable()
 export class ShowcaseService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly publicService: PublicShowcaseService;
+  private readonly adminService: AdminShowcaseService;
+  private readonly uploadService: AdminShowcaseUploadService;
 
-  async listCategories(): Promise<ShowcaseCategoriesResponse> {
-    const categories = await this.prisma.showcaseCategory.findMany({
-      where: { isActive: true },
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        description: true,
-        sortOrder: true,
-        isActive: true,
-      },
-    });
-
-    return {
-      categories: categories.map((category) => this.serializeCategory(category)),
-    };
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly cloudinary?: CloudinaryService,
+    @Optional() publicShowcaseService?: PublicShowcaseService,
+    @Optional() adminShowcaseService?: AdminShowcaseService,
+    @Optional() adminShowcaseUploadService?: AdminShowcaseUploadService
+  ) {
+    this.publicService = publicShowcaseService ?? new PublicShowcaseService(this.prisma);
+    this.adminService = adminShowcaseService ?? new AdminShowcaseService(this.prisma);
+    this.uploadService =
+      adminShowcaseUploadService ??
+      new AdminShowcaseUploadService(this.adminService, this.cloudinary);
   }
 
-  async listPublic(query: ShowcaseListQuery): Promise<ShowcaseListResponse> {
-    const q = query.q?.trim();
-
-    const rows = await this.prisma.authorShowcase.findMany({
-      where: {
-        ...(q
-          ? {
-              OR: [
-                { bookTitle: { contains: q, mode: "insensitive" } },
-                { authorName: { contains: q, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-        ...(query.category
-          ? {
-              category: {
-                is: {
-                  slug: query.category,
-                  isActive: true,
-                },
-              },
-            }
-          : {}),
-        ...(query.year ? { publishedYear: query.year } : {}),
-        ...(query.isFeatured !== undefined ? { isFeatured: query.isFeatured } : {}),
-      },
-      orderBy: this.resolveOrderBy(query.sort, query.isFeatured),
-      take: query.limit + 1,
-      ...(query.cursor
-        ? {
-            cursor: { id: query.cursor },
-            skip: 1,
-          }
-        : {}),
-      select: {
-        id: true,
-        authorName: true,
-        bookTitle: true,
-        bookCoverUrl: true,
-        aboutBook: true,
-        testimonial: true,
-        categoryId: true,
-        category: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            description: true,
-            sortOrder: true,
-            isActive: true,
-          },
-        },
-        publishedYear: true,
-        publishedAt: true,
-        userId: true,
-        isFeatured: true,
-        sortOrder: true,
-        user: {
-          select: {
-            isProfileComplete: true,
-          },
-        },
-      },
-    });
-
-    const hasMore = rows.length > query.limit;
-    const pageItems = hasMore ? rows.slice(0, query.limit) : rows;
-
-    return {
-      items: pageItems.map((row) => this.serializeShowcaseEntry(row)),
-      nextCursor:
-        hasMore && pageItems.length > 0 ? (pageItems[pageItems.length - 1]?.id ?? null) : null,
-      hasMore,
-    };
+  requestAdminShowcaseCoverUpload(
+    input: AdminShowcaseCoverUploadBodyInput,
+    adminId: string
+  ): Promise<AdminShowcaseCoverUploadResponse> {
+    return this.uploadService.requestAdminShowcaseCoverUpload(input, adminId);
   }
 
-  async getAuthorProfile(showcaseId: string): Promise<AuthorProfileResponse> {
-    const showcase = await this.prisma.authorShowcase.findUnique({
-      where: { id: showcaseId },
-      select: {
-        userId: true,
-        user: {
-          select: {
-            bio: true,
-            profileImageUrl: true,
-            whatsAppNumber: true,
-            websiteUrl: true,
-            purchaseLinks: true,
-            socialLinks: true,
-            isProfileComplete: true,
-          },
-        },
-      },
-    });
-
-    if (!showcase?.userId || !showcase.user || !showcase.user.isProfileComplete) {
-      throw new NotFoundException(`Author profile for showcase "${showcaseId}" not found`);
-    }
-
-    return this.serializeAuthorProfile(showcase);
+  searchAdminShowcaseUsers(
+    query: AdminShowcaseUserSearchQuery
+  ): Promise<AdminShowcaseUserSearchResponse> {
+    return this.adminService.searchAdminShowcaseUsers(query);
   }
 
-  private resolveOrderBy(sort: ShowcaseSortOption, isFeatured?: boolean) {
-    if (isFeatured === true) {
-      return [
-        { sortOrder: "asc" as const },
-        { publishedAt: "desc" as const },
-        { id: "desc" as const },
-      ];
-    }
-
-    switch (sort) {
-      case "date_asc":
-        return [{ publishedAt: "asc" as const }, { id: "asc" as const }];
-      case "title_asc":
-        return [{ bookTitle: "asc" as const }, { id: "asc" as const }];
-      case "title_desc":
-        return [{ bookTitle: "desc" as const }, { id: "desc" as const }];
-      default:
-        return [{ publishedAt: "desc" as const }, { id: "desc" as const }];
-    }
+  listAdminShowcaseEntries(
+    query: AdminShowcaseEntriesListQuery
+  ): Promise<AdminShowcaseEntriesListResponse> {
+    return this.adminService.listAdminShowcaseEntries(query);
   }
 
-  private serializeCategory(category: ShowcaseCategoryRow) {
-    return {
-      id: category.id,
-      name: category.name,
-      slug: category.slug,
-      description: category.description,
-      sortOrder: category.sortOrder,
-    };
+  createAdminShowcaseEntry(input: AdminCreateShowcaseEntryInput): Promise<AdminShowcaseEntry> {
+    return this.adminService.createAdminShowcaseEntry(input);
   }
 
-  private serializeShowcaseEntry(row: ShowcaseListRow) {
-    return {
-      id: row.id,
-      authorName: row.authorName,
-      bookTitle: row.bookTitle,
-      bookCoverUrl: row.bookCoverUrl,
-      aboutBook: row.aboutBook,
-      testimonial: row.testimonial,
-      categoryId: row.categoryId,
-      category: row.category?.isActive ? this.serializeCategory(row.category) : null,
-      publishedYear: row.publishedYear,
-      publishedAt: row.publishedAt?.toISOString() ?? null,
-      userId: row.userId,
-      isFeatured: row.isFeatured,
-      isProfileComplete: row.user?.isProfileComplete ?? false,
-    };
+  updateAdminShowcaseEntry(
+    id: string,
+    input: AdminUpdateShowcaseEntryInput
+  ): Promise<AdminShowcaseEntry> {
+    return this.adminService.updateAdminShowcaseEntry(id, input);
   }
 
-  private serializeAuthorProfile(showcase: AuthorProfileRow): AuthorProfileResponse {
-    const user = showcase?.user;
-    if (!user) {
-      throw new NotFoundException("Author profile not found");
-    }
-
-    const purchaseLinks = this.parsePurchaseLinks(user.purchaseLinks);
-    const socialLinks = this.parseSocialLinks(user.socialLinks);
-
-    return {
-      ...(user.bio ? { bio: user.bio } : {}),
-      ...(user.profileImageUrl ? { profileImageUrl: user.profileImageUrl } : {}),
-      ...(user.whatsAppNumber ? { whatsAppNumber: user.whatsAppNumber } : {}),
-      ...(user.websiteUrl ? { websiteUrl: user.websiteUrl } : {}),
-      ...(purchaseLinks.length > 0 ? { purchaseLinks } : {}),
-      ...(socialLinks.length > 0 ? { socialLinks } : {}),
-    };
+  deleteAdminShowcaseEntry(id: string): Promise<AdminDeleteShowcaseEntryResponse> {
+    return this.adminService.deleteAdminShowcaseEntry(id);
   }
 
-  private parsePurchaseLinks(value: unknown): PurchaseLink[] {
-    if (!Array.isArray(value)) return [];
-
-    return value.flatMap((item) => {
-      const parsed = PurchaseLinkSchema.safeParse(item);
-      return parsed.success ? [parsed.data] : [];
-    });
+  listAdminShowcaseCategories(): Promise<AdminShowcaseCategoriesListResponse> {
+    return this.adminService.listAdminShowcaseCategories();
   }
 
-  private parseSocialLinks(value: unknown): SocialLink[] {
-    if (!Array.isArray(value)) return [];
+  createAdminShowcaseCategory(
+    input: AdminCreateShowcaseCategoryInput
+  ): Promise<AdminShowcaseCategory> {
+    return this.adminService.createAdminShowcaseCategory(input);
+  }
 
-    return value.flatMap((item) => {
-      const parsed = SocialLinkSchema.safeParse(item);
-      return parsed.success ? [parsed.data] : [];
-    });
+  updateAdminShowcaseCategory(
+    id: string,
+    input: AdminUpdateShowcaseCategoryInput
+  ): Promise<AdminShowcaseCategory> {
+    return this.adminService.updateAdminShowcaseCategory(id, input);
+  }
+
+  deleteAdminShowcaseCategory(id: string): Promise<AdminDeleteShowcaseCategoryResponse> {
+    return this.adminService.deleteAdminShowcaseCategory(id);
+  }
+
+  listCategories(): Promise<ShowcaseCategoriesResponse> {
+    return this.publicService.listCategories();
+  }
+
+  listPublic(query: ShowcaseListQuery): Promise<ShowcaseListResponse> {
+    return this.publicService.listPublic(query);
+  }
+
+  getAuthorProfile(showcaseId: string): Promise<AuthorProfileResponse> {
+    return this.publicService.getAuthorProfile(showcaseId);
   }
 }
