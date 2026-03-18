@@ -35,7 +35,7 @@ export class CouponsController {
   @ApiResponse({
     status: 400,
     description:
-      "Coupon validation failed with standardized error code: INVALID_CODE | CODE_EXPIRED | CODE_INACTIVE | CODE_MAXED_OUT",
+      "Coupon validation failed with standardized error code: INVALID_CODE | CODE_EXPIRED | CODE_INACTIVE | CODE_MAXED_OUT | CODE_NOT_APPLICABLE",
     type: CouponValidationErrorResponseDto,
   })
   @ApiResponse({ status: 429, description: "Too many coupon validation attempts" })

@@ -8,12 +8,17 @@ type CouponCheckoutMetadata = {
   addonTotal?: number;
   totalPrice?: number;
   discountAmount?: number;
+  packageId?: string;
 };
 
 type CouponTransactionClient = {
   coupon: {
     findUnique: jest.Mock;
     updateMany: jest.Mock;
+  };
+  package: {
+    findUnique: jest.Mock;
+    findFirst: jest.Mock;
   };
 };
 
@@ -62,6 +67,9 @@ function makeCouponRow(overrides: Record<string, unknown> = {}) {
     usageCount: 1,
     expiresAt: null,
     isActive: true,
+    appliesToAll: true,
+    packageScopes: [],
+    categoryScopes: [],
     ...overrides,
   };
 }
@@ -73,6 +81,10 @@ describe("PaymentsService coupon application", () => {
       coupon: {
         findUnique: jest.fn(),
         updateMany: jest.fn(),
+      },
+      package: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
       },
     };
 
@@ -94,6 +106,10 @@ describe("PaymentsService coupon application", () => {
       coupon: {
         findUnique: jest.fn().mockResolvedValue(makeCouponRow()),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      package: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
       },
     };
 
@@ -136,6 +152,10 @@ describe("PaymentsService coupon application", () => {
         ),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      package: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+      },
     };
 
     const result = await resolveAppliedCouponForOrder(
@@ -157,6 +177,10 @@ describe("PaymentsService coupon application", () => {
       coupon: {
         findUnique: jest.fn().mockResolvedValue(makeCouponRow()),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      package: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
       },
     };
 
@@ -180,6 +204,10 @@ describe("PaymentsService coupon application", () => {
           .mockResolvedValue(makeCouponRow({ expiresAt: new Date("2025-01-01T00:00:00.000Z") })),
         updateMany: jest.fn(),
       },
+      package: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+      },
     };
 
     const result = await resolveAppliedCouponForOrder(
@@ -187,6 +215,39 @@ describe("PaymentsService coupon application", () => {
       tx,
       { couponCode: "SAVE10", basePrice: 100_000, addonTotal: 20_000 },
       120_000
+    );
+
+    expect(result).toBeNull();
+    expect(tx.coupon.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("returns null when coupon scope does not match checkout package", async () => {
+    const service = createService();
+    const tx = {
+      coupon: {
+        findUnique: jest.fn().mockResolvedValue(
+          makeCouponRow({
+            appliesToAll: false,
+            packageScopes: [{ packageId: "pkg_allowed" }],
+            categoryScopes: [],
+          })
+        ),
+        updateMany: jest.fn(),
+      },
+      package: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "pkg_other",
+          categoryId: "cat_other",
+        }),
+        findFirst: jest.fn(),
+      },
+    };
+
+    const result = await resolveAppliedCouponForOrder(
+      service,
+      tx,
+      { couponCode: "SAVE10", packageId: "pkg_other", basePrice: 100_000 },
+      100_000
     );
 
     expect(result).toBeNull();

@@ -228,6 +228,7 @@ model PackageCategory {
   isActive    Boolean   @default(true)
 
   packages    Package[]
+  couponScopes CouponCategoryScope[]
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -250,6 +251,7 @@ model Package {
   sortOrder       Int              @default(0)
 
   orders          Order[]
+  couponScopes    CouponPackageScope[]
 
   @@index([categoryId])
 }
@@ -686,10 +688,33 @@ model Coupon {
   usageCount     Int          @default(0)
   expiresAt      DateTime?
   isActive       Boolean      @default(true)
+  appliesToAll   Boolean      @default(true)
 
   orders         Order[]
+  packageScopes  CouponPackageScope[]
+  categoryScopes CouponCategoryScope[]
 
   createdAt      DateTime     @default(now())
+}
+
+model CouponPackageScope {
+  couponId  String
+  packageId String
+  coupon    Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  package   Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, packageId])
+  @@index([packageId])
+}
+
+model CouponCategoryScope {
+  couponId   String
+  categoryId String
+  coupon     Coupon          @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  category   PackageCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, categoryId])
+  @@index([categoryId])
 }
 
 // ==========================================
