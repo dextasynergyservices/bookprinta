@@ -20,6 +20,10 @@ function isNextProductionBuildPhase(): boolean {
   return process.env.NEXT_PHASE === "phase-production-build";
 }
 
+function isBuildSafeFallbackEnabled(): boolean {
+  return isNextProductionBuildPhase();
+}
+
 function normalizeSlug(slug: string): string {
   return slug.trim().toLowerCase();
 }
@@ -119,7 +123,13 @@ export async function fetchResourceDetailForServer(slug: string): Promise<Resour
   }
 
   // During static generation, avoid failing the entire build on transient API throttling.
-  if (response.status === 429 && isNextProductionBuildPhase()) {
+  if (response.status === 429 && isBuildSafeFallbackEnabled()) {
+    return null;
+  }
+
+  // During production build, degrade gracefully for transient upstream issues.
+  // Returning null here allows the page to fall back to metadata defaults/notFound without aborting `next build`.
+  if (!response.ok && isBuildSafeFallbackEnabled()) {
     return null;
   }
 
@@ -144,7 +154,12 @@ export async function fetchPublishedResourceSlugsForStaticParams(): Promise<stri
       page = await fetchResourcesPage({ limit: 30 }, cursor);
     } catch (error) {
       // During production build, a rate-limited page fetch should not fail deployment.
-      if (error instanceof RateLimitError && isNextProductionBuildPhase()) {
+      if (error instanceof RateLimitError && isBuildSafeFallbackEnabled()) {
+        break;
+      }
+
+      // During production build, stop expanding static params on transient upstream failures.
+      if (isBuildSafeFallbackEnabled()) {
         break;
       }
 
