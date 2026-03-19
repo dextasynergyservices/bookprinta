@@ -69,6 +69,7 @@ describe("ProductionDelayMonitorService", () => {
           email: "ada@example.com",
           firstName: "Ada",
           preferredLanguage: "en",
+          emailNotificationsEnabled: true,
           books: [],
         },
       ],

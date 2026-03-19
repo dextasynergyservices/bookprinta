@@ -49,7 +49,9 @@ import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { FilesService } from "../files/files.service.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { type FileType, type JobStatus, PaymentProvider } from "../generated/prisma/enums.js";
+import { isUserNotificationChannelEnabled } from "../notifications/notification-preference-policy.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
+import { WhatsappNotificationsService } from "../notifications/whatsapp-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import {
   isReviewEligibleLifecycleStatus,
@@ -329,6 +331,7 @@ export class BooksService {
     private readonly manuscriptAnalysis: ManuscriptAnalysisService,
     private readonly notifications: NotificationsService,
     private readonly rollout: RolloutService,
+    @Optional() private readonly whatsappNotificationsService?: WhatsappNotificationsService,
     @Optional() private readonly cloudinary?: CloudinaryService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -812,6 +815,24 @@ export class BooksService {
         status: true,
         productionStatus: true,
         version: true,
+        order: {
+          select: {
+            orderNumber: true,
+            trackingNumber: true,
+            shippingProvider: true,
+          },
+        },
+        user: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+            preferredLanguage: true,
+            emailNotificationsEnabled: true,
+            whatsAppNotificationsEnabled: true,
+          },
+        },
       },
     });
 
@@ -838,6 +859,12 @@ export class BooksService {
       input.nextStatus === "DELIVERED" && !isReviewEligibleLifecycleStatus(previousLifecycleStatus);
     const reason = input.reason?.trim() || null;
     const note = input.note?.trim() || null;
+    const trackingNumber = input.trackingNumber?.trim();
+    const shippingProvider = input.shippingProvider?.trim();
+    const shouldUpdateShippingDetails = Boolean(trackingNumber || shippingProvider);
+    const trackingNumberChanged =
+      Boolean(trackingNumber) && trackingNumber !== (current.order?.trackingNumber?.trim() ?? "");
+    const shouldSendShippingNotification = trackingNumberChanged && input.nextStatus === "SHIPPING";
     const recordedAt = new Date();
 
     const { updated, audit } = await this.prisma.$transaction(async (tx) => {
@@ -857,6 +884,21 @@ export class BooksService {
 
       if (updatedCount.count === 0) {
         throw new ConflictException("Book was updated by another admin. Refresh and try again.");
+      }
+
+      if (shouldUpdateShippingDetails) {
+        const orderUpdateData: Prisma.OrderUpdateInput = {};
+        if (trackingNumber) {
+          orderUpdateData.trackingNumber = trackingNumber;
+        }
+        if (shippingProvider) {
+          orderUpdateData.shippingProvider = shippingProvider;
+        }
+
+        await tx.order.update({
+          where: { id: current.orderId },
+          data: orderUpdateData,
+        });
       }
 
       const updatedBook = await tx.book.findUnique({
@@ -928,6 +970,17 @@ export class BooksService {
       };
     });
 
+    await this.sendBookWorkflowWhatsAppNotifications({
+      user: current.user,
+      bookTitle: current.title,
+      nextStatus: input.nextStatus,
+      orderId: current.orderId,
+      orderNumber: current.order?.orderNumber,
+      shouldSendShippingNotification,
+      trackingNumber: trackingNumber ?? null,
+      shippingProvider: shippingProvider ?? current.order?.shippingProvider ?? null,
+    });
+
     const projection = resolveAdminBookStatusProjection({
       status: updated.status,
       productionStatus: updated.productionStatus,
@@ -965,7 +1018,10 @@ export class BooksService {
             email: true,
             firstName: true,
             lastName: true,
+            phoneNumber: true,
             preferredLanguage: true,
+            emailNotificationsEnabled: true,
+            whatsAppNotificationsEnabled: true,
           },
         },
       },
@@ -1099,6 +1155,12 @@ export class BooksService {
       email: current.user.email,
       preferredLanguage: current.user.preferredLanguage,
       userName: this.resolveUserFullName(current.user),
+      bookTitle,
+      rejectionReason,
+      emailNotificationsEnabled: current.user.emailNotificationsEnabled,
+    });
+    await this.sendManuscriptRejectedWhatsApp({
+      user: current.user,
       bookTitle,
       rejectionReason,
     });
@@ -1341,6 +1403,23 @@ export class BooksService {
         title: true,
         status: true,
         productionStatus: true,
+        order: {
+          select: {
+            orderNumber: true,
+            trackingNumber: true,
+            shippingProvider: true,
+          },
+        },
+        user: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+            preferredLanguage: true,
+            whatsAppNotificationsEnabled: true,
+          },
+        },
       },
     });
 
@@ -1355,8 +1434,30 @@ export class BooksService {
     const shouldCreateReviewRequest =
       input.productionStatus === "DELIVERED" &&
       !isReviewEligibleLifecycleStatus(previousLifecycleStatus);
+    const trackingNumber = input.trackingNumber?.trim();
+    const shippingProvider = input.shippingProvider?.trim();
+    const shouldUpdateShippingDetails = Boolean(trackingNumber || shippingProvider);
+    const trackingNumberChanged =
+      Boolean(trackingNumber) && trackingNumber !== (book.order?.trackingNumber?.trim() ?? "");
+    const shouldSendShippingNotification =
+      trackingNumberChanged && input.productionStatus === "SHIPPING";
     const updatedAt = new Date();
     const updated = await this.prisma.$transaction(async (tx) => {
+      if (shouldUpdateShippingDetails) {
+        const orderUpdateData: Prisma.OrderUpdateInput = {};
+        if (trackingNumber) {
+          orderUpdateData.trackingNumber = trackingNumber;
+        }
+        if (shippingProvider) {
+          orderUpdateData.shippingProvider = shippingProvider;
+        }
+
+        await tx.order.update({
+          where: { id: book.orderId },
+          data: orderUpdateData,
+        });
+      }
+
       const result = await tx.book.update({
         where: { id: bookId },
         data: {
@@ -1383,6 +1484,17 @@ export class BooksService {
       }
 
       return result;
+    });
+
+    await this.sendBookWorkflowWhatsAppNotifications({
+      user: book.user,
+      bookTitle: book.title,
+      nextStatus: input.productionStatus,
+      orderId: book.orderId,
+      orderNumber: book.order?.orderNumber,
+      shouldSendShippingNotification,
+      trackingNumber: trackingNumber ?? null,
+      shippingProvider: shippingProvider ?? book.order?.shippingProvider ?? null,
     });
 
     return {
@@ -2098,13 +2210,127 @@ export class BooksService {
     return fullName.length > 0 ? fullName : "BookPrinta Author";
   }
 
+  private resolveUserWhatsappName(user: {
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+  }): string {
+    const firstName = user.firstName?.trim() ?? "";
+    const lastName = user.lastName?.trim() ?? "";
+    const fullName = [firstName, lastName]
+      .filter((part) => part.length > 0)
+      .join(" ")
+      .trim();
+    if (fullName.length > 0) {
+      return fullName;
+    }
+
+    const emailName = user.email?.split("@")[0]?.trim() ?? "";
+    return emailName.length > 0 ? emailName : "BookPrinta Author";
+  }
+
+  private async sendBookWorkflowWhatsAppNotifications(params: {
+    user?: {
+      email?: string | null;
+      firstName?: string | null;
+      lastName?: string | null;
+      phoneNumber?: string | null;
+      preferredLanguage?: string | null;
+      whatsAppNotificationsEnabled?: boolean | null;
+    } | null;
+    bookTitle?: string | null;
+    nextStatus: string;
+    orderId: string;
+    orderNumber?: string | null;
+    shouldSendShippingNotification?: boolean;
+    trackingNumber?: string | null;
+    shippingProvider?: string | null;
+  }): Promise<void> {
+    if (!this.whatsappNotificationsService || !params.user) {
+      return;
+    }
+
+    const locale = this.resolveLocale(params.user.preferredLanguage);
+    const dashboardUrl = this.buildLocalizedDashboardUrl(locale);
+    const bookTitle = params.bookTitle?.trim() || "Your book";
+    const recipient = {
+      userName: this.resolveUserWhatsappName(params.user),
+      phoneNumber: params.user.phoneNumber ?? null,
+      preferredLanguage: params.user.preferredLanguage ?? null,
+      whatsAppNotificationsEnabled: params.user.whatsAppNotificationsEnabled ?? null,
+    };
+
+    const deliveries: Array<Promise<unknown>> = [
+      this.whatsappNotificationsService.sendBookStatusUpdate({
+        recipient,
+        bookTitle,
+        newStatus: params.nextStatus,
+        dashboardUrl,
+      }),
+    ];
+
+    if (params.shouldSendShippingNotification && params.trackingNumber) {
+      deliveries.push(
+        this.whatsappNotificationsService.sendShippingNotification({
+          recipient,
+          bookTitle,
+          orderNumber: params.orderNumber?.trim() || params.orderId,
+          trackingNumber: params.trackingNumber,
+          shippingProvider: params.shippingProvider ?? null,
+        })
+      );
+    }
+
+    await Promise.allSettled(deliveries);
+  }
+
+  private async sendManuscriptRejectedWhatsApp(params: {
+    user?: {
+      email?: string | null;
+      firstName?: string | null;
+      lastName?: string | null;
+      phoneNumber?: string | null;
+      preferredLanguage?: string | null;
+      whatsAppNotificationsEnabled?: boolean | null;
+    } | null;
+    bookTitle: string;
+    rejectionReason: string;
+  }): Promise<void> {
+    if (!this.whatsappNotificationsService || !params.user) {
+      return;
+    }
+
+    const locale = this.resolveLocale(params.user.preferredLanguage);
+    await this.whatsappNotificationsService.sendManuscriptRejected({
+      recipient: {
+        userName: this.resolveUserWhatsappName(params.user),
+        phoneNumber: params.user.phoneNumber ?? null,
+        preferredLanguage: params.user.preferredLanguage ?? null,
+        whatsAppNotificationsEnabled: params.user.whatsAppNotificationsEnabled ?? null,
+      },
+      bookTitle: params.bookTitle,
+      rejectionReason: params.rejectionReason,
+      dashboardUrl: this.buildLocalizedDashboardUrl(locale),
+    });
+  }
+
   private async sendManuscriptRejectedEmail(params: {
     email: string;
     preferredLanguage: string;
     userName: string;
     bookTitle: string;
     rejectionReason: string;
+    emailNotificationsEnabled?: boolean | null;
   }): Promise<void> {
+    if (
+      !isUserNotificationChannelEnabled({
+        enabled: params.emailNotificationsEnabled,
+        kind: "manuscript_rejected",
+      })
+    ) {
+      return;
+    }
+
     if (!this.resend) {
       this.logger.warn("RESEND_API_KEY not set - manuscript rejection email skipped");
       return;

@@ -235,6 +235,7 @@ export class AuthService {
         firstName: true,
         lastName: true,
         preferredLanguage: true,
+        emailNotificationsEnabled: true,
         isActive: true,
         isVerified: true,
         verificationCode: true,
@@ -287,6 +288,7 @@ export class AuthService {
         firstName: true,
         lastName: true,
         preferredLanguage: true,
+        emailNotificationsEnabled: true,
         isActive: true,
         isVerified: true,
         password: true,
@@ -322,6 +324,7 @@ export class AuthService {
     firstName: string;
     lastName: string | null;
     preferredLanguage: string | null;
+    emailNotificationsEnabled: boolean;
   }): Promise<{ user: SafeUser; tokens: TokenPair }> {
     // Mark user as verified, clear challenge artifacts.
     await this.prisma.user.update({
@@ -345,6 +348,7 @@ export class AuthService {
       name: user.firstName || user.email.split("@")[0] || "Author",
       locale: this.resolveLocale(user.preferredLanguage),
       fromEmail: this.fromEmail,
+      emailNotificationsEnabled: user.emailNotificationsEnabled,
       orderNumber: latestOrder?.orderNumber,
       packageName: latestOrder?.packageName,
       amountPaid: latestOrder

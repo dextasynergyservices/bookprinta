@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { LoaderCircle } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   DashboardErrorState,
@@ -184,11 +184,8 @@ export function ProfileSettingsSettingsPanel() {
     applyNotificationPreferences(profile.notificationPreferences);
   }, [applyNotificationPreferences, profile]);
 
-  const isNotificationDirty = useMemo(
-    () => !areNotificationPreferencesEqual(notificationDraft, notificationSnapshot),
-    [notificationDraft, notificationSnapshot]
-  );
   const currentLanguageLabel = resolveLanguageLabel(profile?.preferredLanguage ?? "en", tDashboard);
+  const hasWhatsAppNotificationNumber = Boolean(profile?.whatsAppNumber?.trim());
 
   const handleLanguageChange = async (newLocale: string) => {
     const nextLocale: "en" | "fr" | "es" =
@@ -260,11 +257,25 @@ export function ProfileSettingsSettingsPanel() {
     }
   };
 
-  const handleNotificationSave = async () => {
+  const handleNotificationToggle = async (
+    key: keyof NotificationPreferencesDraft,
+    checked: boolean
+  ) => {
+    const currentPreferences = notificationDraftRef.current;
+    if (currentPreferences[key] === checked) {
+      return;
+    }
+
     setNotificationError(null);
+    const previousPreferences = notificationSnapshotRef.current;
+    const nextPreferences = {
+      ...currentPreferences,
+      [key]: checked,
+    };
+    setNotificationDraft(nextPreferences);
 
     try {
-      const response = await updateNotificationPreferences(notificationDraft);
+      const response = await updateNotificationPreferences(nextPreferences);
       applyNotificationPreferences(response.notificationPreferences, { forceReset: true });
       toast.success(tDashboard("settings_notifications_success"));
     } catch (notificationSaveError) {
@@ -272,6 +283,7 @@ export function ProfileSettingsSettingsPanel() {
         notificationSaveError instanceof Error
           ? notificationSaveError.message
           : tDashboard("settings_notifications_error");
+      applyNotificationPreferences(previousPreferences, { forceReset: true });
       setNotificationError(message);
       toast.error(message);
     }
@@ -452,6 +464,9 @@ export function ProfileSettingsSettingsPanel() {
             <p className="font-sans text-sm leading-6 text-[#A3A3A3]">
               {tDashboard("settings_notifications_description")}
             </p>
+            <p className="font-sans text-xs leading-5 text-[#D6D6D6]">
+              {tDashboard("settings_notifications_critical_note")}
+            </p>
           </div>
 
           <div className="mt-5 space-y-3">
@@ -465,58 +480,56 @@ export function ProfileSettingsSettingsPanel() {
                 key: "whatsApp" as const,
                 label: tDashboard("settings_notifications_whatsapp_label"),
                 description: tDashboard("settings_notifications_whatsapp_description"),
+                hidden: !hasWhatsAppNotificationNumber,
               },
               {
                 key: "inApp" as const,
                 label: tDashboard("settings_notifications_in_app_label"),
                 description: tDashboard("settings_notifications_in_app_description"),
               },
-            ].map((item) => (
-              <div
-                key={item.key}
-                className="flex items-center justify-between gap-4 rounded-[24px] border border-[#2A2A2A] bg-[#0B0B0B] px-4 py-4"
-              >
-                <div className="space-y-1">
-                  <label
-                    htmlFor={`settings-notification-${item.key}`}
-                    className="font-sans text-sm font-medium text-white"
-                  >
-                    {item.label}
-                  </label>
-                  <p className="font-sans text-sm leading-6 text-[#A3A3A3]">{item.description}</p>
+            ]
+              .filter((item) => item.hidden !== true)
+              .map((item) => (
+                <div
+                  key={item.key}
+                  className="flex items-center justify-between gap-4 rounded-[24px] border border-[#2A2A2A] bg-[#0B0B0B] px-4 py-4"
+                >
+                  <div className="space-y-1">
+                    <label
+                      htmlFor={`settings-notification-${item.key}`}
+                      className="font-sans text-sm font-medium text-white"
+                    >
+                      {item.label}
+                    </label>
+                    <p className="font-sans text-sm leading-6 text-[#A3A3A3]">{item.description}</p>
+                  </div>
+                  <Switch
+                    id={`settings-notification-${item.key}`}
+                    checked={notificationDraft[item.key]}
+                    disabled={isUpdatingNotifications}
+                    onCheckedChange={(checked) => {
+                      void handleNotificationToggle(item.key, checked);
+                    }}
+                    className={cn(
+                      "data-[state=checked]:bg-[#007eff] data-[state=unchecked]:bg-[#2A2A2A]",
+                      "focus-visible:ring-[#007eff]/20"
+                    )}
+                    aria-label={item.label}
+                  />
                 </div>
-                <Switch
-                  id={`settings-notification-${item.key}`}
-                  checked={notificationDraft[item.key]}
-                  disabled={isUpdatingNotifications}
-                  onCheckedChange={(checked) => {
-                    setNotificationDraft((current) => ({
-                      ...current,
-                      [item.key]: checked,
-                    }));
-                  }}
-                  className={cn(
-                    "data-[state=checked]:bg-[#007eff] data-[state=unchecked]:bg-[#2A2A2A]",
-                    "focus-visible:ring-[#007eff]/20"
-                  )}
-                  aria-label={item.label}
-                />
-              </div>
-            ))}
+              ))}
           </div>
 
           <FieldError className="mt-4">{notificationError}</FieldError>
-
-          <Button
-            type="button"
-            disabled={isUpdatingNotifications || !isNotificationDirty}
-            onClick={() => {
-              void handleNotificationSave();
-            }}
-            className="font-sans mt-5 min-h-12 w-full rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0a72df]"
-          >
+          <AnimatePresence initial={false}>
             {isUpdatingNotifications ? (
-              <>
+              <motion.p
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={prefersReducedMotion ? undefined : { opacity: 0, y: -6 }}
+                transition={{ duration: prefersReducedMotion ? 0.01 : 0.18, ease: PANEL_EASE }}
+                className="font-sans mt-4 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-[#D6D6D6]"
+              >
                 <motion.span
                   animate={prefersReducedMotion ? undefined : { rotate: 360 }}
                   transition={
@@ -529,11 +542,9 @@ export function ProfileSettingsSettingsPanel() {
                   <LoaderCircle className="size-4" aria-hidden="true" />
                 </motion.span>
                 {tDashboard("settings_notifications_saving")}
-              </>
-            ) : (
-              tDashboard("settings_notifications_save")
-            )}
-          </Button>
+              </motion.p>
+            ) : null}
+          </AnimatePresence>
         </section>
       </div>
     </section>

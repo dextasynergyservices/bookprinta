@@ -338,6 +338,7 @@ function createAffectedUser(
     email: overrides.email ?? "ada@example.com",
     firstName: overrides.firstName ?? "Ada",
     preferredLanguage: overrides.preferredLanguage ?? "en",
+    emailNotificationsEnabled: overrides.emailNotificationsEnabled ?? true,
     books: overrides.books ?? [
       {
         bookId: "cmbook1",

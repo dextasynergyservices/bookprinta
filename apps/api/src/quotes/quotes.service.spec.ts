@@ -6,6 +6,7 @@ import {
 } from "@bookprinta/shared";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
+import { WhatsappService } from "../notifications/whatsapp.service.js";
 import { PaymentsService } from "../payments/payments.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { QuotesService } from "./quotes.service.js";
@@ -113,6 +114,7 @@ describe("QuotesService", () => {
         QuotesService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: PaymentsService, useValue: mockPaymentsService },
+        WhatsappService,
       ],
     }).compile();
 
@@ -421,6 +423,7 @@ describe("QuotesService", () => {
           QuotesService,
           { provide: PrismaService, useValue: mockPrismaService },
           { provide: PaymentsService, useValue: mockPaymentsService },
+          WhatsappService,
         ],
       }).compile();
       const noFrontendService = module.get<QuotesService>(QuotesService);
