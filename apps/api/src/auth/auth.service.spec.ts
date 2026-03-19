@@ -385,4 +385,42 @@ describe("AuthService login instrumentation", () => {
     expect(refreshTokenLifetimeMs).toBeLessThanOrEqual(60 * 60 * 1000 + 5_000);
     expect(refreshTokenLifetimeMs).toBeGreaterThan(55 * 60 * 1000);
   });
+
+  it("rejects resetPassword when reCAPTCHA verification fails", async () => {
+    const { service } = buildService();
+
+    jest.spyOn(global, "fetch").mockResolvedValue({
+      json: async () => ({ success: true, score: 0.1 }),
+    } as Response);
+
+    await expect(
+      service.resetPassword({
+        token: "valid-reset-token",
+        newPassword: "NewPassword123!",
+        recaptchaToken: "bad-recaptcha-token",
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("allows resetPassword when reCAPTCHA token is absent (optional)", async () => {
+    const { prisma, service } = buildService();
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: "user-1",
+      isActive: true,
+      tokenExpiry: new Date(Date.now() + 60_000),
+      resetToken: "valid-token",
+    });
+    prisma.user.update.mockResolvedValue({});
+
+    const fetchSpy = jest.spyOn(global, "fetch");
+
+    const result = await service.resetPassword({
+      token: "valid-token",
+      newPassword: "NewPassword123!",
+    });
+
+    expect(result.message).toContain("Password reset successfully");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

@@ -3066,6 +3066,8 @@
     "orders_detail_status_success_description": "La commande est passée à {status} et l'audit a été enregistré.",
     "orders_detail_status_error_title": "Impossible de mettre à jour le statut",
     "orders_detail_status_error_description": "Actualisez la commande puis réessayez ce changement de statut.",
+    "orders_detail_conflict_title": "Cette commande a été mise à jour par un autre administrateur",
+    "orders_detail_conflict_description": "Actualisez la page pour voir la dernière version avant de continuer.",
     "orders_detail_customer_phone": "Téléphone",
     "orders_detail_customer_language": "Langue préférée",
     "orders_detail_book_status": "Statut du livre",

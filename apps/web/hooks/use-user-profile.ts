@@ -133,6 +133,7 @@ async function requestMyProfileImageUploadRequest(
     | {
         action: "authorize";
         mimeType: "image/jpeg" | "image/png";
+        fileSize: number;
       }
     | {
         action: "finalize";
@@ -315,6 +316,7 @@ async function uploadProfileImageRequest({
   const authorizeResponse = await requestMyProfileImageUploadRequest({
     action: "authorize",
     mimeType: file.type as "image/jpeg" | "image/png",
+    fileSize: file.size,
   });
 
   if (authorizeResponse.action !== "authorize" || !authorizeResponse.upload) {
