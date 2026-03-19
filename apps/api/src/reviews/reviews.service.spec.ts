@@ -7,6 +7,9 @@ import { ReviewsService } from "./reviews.service.js";
 const mockPrismaService = {
   review: {
     create: jest.fn(),
+    findMany: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
   },
   book: {
     findMany: jest.fn(),
@@ -235,6 +238,142 @@ describe("ReviewsService", () => {
 
       expect(error).toBeInstanceOf(ConflictException);
       expect(error.getStatus()).toBe(409);
+    });
+  });
+
+  describe("admin moderation", () => {
+    it("lists admin reviews with pagination and serialized output", async () => {
+      mockPrismaService.review.findMany.mockResolvedValue([
+        {
+          id: "review-1",
+          rating: 5,
+          comment: "Brilliant execution",
+          isPublic: false,
+          createdAt: new Date("2026-03-19T10:00:00.000Z"),
+          book: {
+            id: "book-1",
+            title: "Lagos Rising",
+          },
+          user: {
+            firstName: "Ada",
+            lastName: "Author",
+            email: "ada@example.com",
+          },
+        },
+        {
+          id: "review-2",
+          rating: 4,
+          comment: "Solid",
+          isPublic: true,
+          createdAt: new Date("2026-03-18T10:00:00.000Z"),
+          book: {
+            id: "book-2",
+            title: "Market Moves",
+          },
+          user: {
+            firstName: "Bola",
+            lastName: "Writer",
+            email: "bola@example.com",
+          },
+        },
+      ]);
+
+      await expect(
+        service.listAdminReviews({
+          limit: 1,
+          q: "  ada  ",
+          isPublic: false,
+          rating: 5,
+        })
+      ).resolves.toEqual({
+        items: [
+          {
+            id: "review-1",
+            bookId: "book-1",
+            bookTitle: "Lagos Rising",
+            authorName: "Ada Author",
+            authorEmail: "ada@example.com",
+            rating: 5,
+            comment: "Brilliant execution",
+            isPublic: false,
+            createdAt: "2026-03-19T10:00:00.000Z",
+          },
+        ],
+        nextCursor: "review-1",
+        hasMore: true,
+      });
+
+      expect(mockPrismaService.review.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            isPublic: false,
+            rating: 5,
+          }),
+          take: 2,
+        })
+      );
+    });
+
+    it("updates moderation fields for an existing review", async () => {
+      mockPrismaService.review.update.mockResolvedValue({
+        id: "review-1",
+        rating: 3,
+        comment: null,
+        isPublic: true,
+        createdAt: new Date("2026-03-19T10:00:00.000Z"),
+        book: {
+          id: "book-1",
+          title: "Lagos Rising",
+        },
+        user: {
+          firstName: null,
+          lastName: null,
+          email: "ada@example.com",
+        },
+      });
+
+      await expect(
+        service.updateAdminReview("review-1", {
+          isPublic: true,
+          comment: null,
+        })
+      ).resolves.toEqual({
+        id: "review-1",
+        bookId: "book-1",
+        bookTitle: "Lagos Rising",
+        authorName: "ada@example.com",
+        authorEmail: "ada@example.com",
+        rating: 3,
+        comment: null,
+        isPublic: true,
+        createdAt: "2026-03-19T10:00:00.000Z",
+      });
+    });
+
+    it("maps missing review updates to NotFoundException", async () => {
+      mockPrismaService.review.update.mockRejectedValue({ code: "P2025" });
+
+      await expect(
+        service.updateAdminReview("missing-review", {
+          isPublic: false,
+          comment: undefined,
+        })
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("deletes an existing review", async () => {
+      mockPrismaService.review.delete.mockResolvedValue({ id: "review-1" });
+
+      await expect(service.deleteAdminReview("review-1")).resolves.toEqual({
+        id: "review-1",
+        deleted: true,
+      });
+    });
+
+    it("maps missing review deletes to NotFoundException", async () => {
+      mockPrismaService.review.delete.mockRejectedValue({ code: "P2025" });
+
+      await expect(service.deleteAdminReview("missing-review")).rejects.toThrow(NotFoundException);
     });
   });
 });

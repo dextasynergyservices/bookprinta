@@ -1,4 +1,10 @@
 import type {
+  AdminDeleteReviewResponse,
+  AdminReviewItem,
+  AdminReviewsListQuery,
+  AdminReviewsListResponse,
+  AdminUpdateReviewInput,
+  AdminUpdateReviewResponse,
   BookStatus,
   CreateReviewBodyInput,
   CreateReviewResponse,
@@ -55,8 +61,30 @@ const REVIEW_BOOK_SELECT = {
   },
 } satisfies Prisma.BookSelect;
 
+const ADMIN_REVIEW_SELECT = {
+  id: true,
+  rating: true,
+  comment: true,
+  isPublic: true,
+  createdAt: true,
+  book: {
+    select: {
+      id: true,
+      title: true,
+    },
+  },
+  user: {
+    select: {
+      firstName: true,
+      lastName: true,
+      email: true,
+    },
+  },
+} satisfies Prisma.ReviewSelect;
+
 type ReviewBookRow = Prisma.BookGetPayload<{ select: typeof REVIEW_BOOK_SELECT }>;
 type ReviewSummaryRow = NonNullable<ReviewBookRow["reviews"][number]>;
+type AdminReviewRow = Prisma.ReviewGetPayload<{ select: typeof ADMIN_REVIEW_SELECT }>;
 
 @Injectable()
 export class ReviewsService {
@@ -134,6 +162,92 @@ export class ReviewsService {
 
     return {
       book: this.serializeReviewBook(reviewBook),
+    };
+  }
+
+  async listAdminReviews(query: AdminReviewsListQuery): Promise<AdminReviewsListResponse> {
+    const q = query.q?.trim();
+
+    const reviews = await this.prisma.review.findMany({
+      where: {
+        ...(query.isPublic !== undefined ? { isPublic: query.isPublic } : {}),
+        ...(query.rating !== undefined ? { rating: query.rating } : {}),
+        ...(q
+          ? {
+              OR: [
+                { comment: { contains: q, mode: "insensitive" } },
+                { book: { title: { contains: q, mode: "insensitive" } } },
+                { user: { firstName: { contains: q, mode: "insensitive" } } },
+                { user: { lastName: { contains: q, mode: "insensitive" } } },
+                { user: { email: { contains: q, mode: "insensitive" } } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: query.limit + 1,
+      ...(query.cursor
+        ? {
+            cursor: { id: query.cursor },
+            skip: 1,
+          }
+        : {}),
+      select: ADMIN_REVIEW_SELECT,
+    });
+
+    const hasMore = reviews.length > query.limit;
+    const pageItems = hasMore ? reviews.slice(0, query.limit) : reviews;
+
+    return {
+      items: pageItems.map((review) => this.serializeAdminReviewItem(review)),
+      nextCursor:
+        hasMore && pageItems.length > 0 ? (pageItems[pageItems.length - 1]?.id ?? null) : null,
+      hasMore,
+    };
+  }
+
+  async updateAdminReview(
+    reviewId: string,
+    input: AdminUpdateReviewInput
+  ): Promise<AdminUpdateReviewResponse> {
+    const data: Prisma.ReviewUpdateInput = {
+      ...(input.isPublic !== undefined ? { isPublic: input.isPublic } : {}),
+      ...(input.comment !== undefined ? { comment: input.comment } : {}),
+    };
+
+    try {
+      const review = (await this.prisma.review.update({
+        where: { id: reviewId },
+        data,
+        select: ADMIN_REVIEW_SELECT,
+      })) as AdminReviewRow;
+
+      return this.serializeAdminReviewItem(review);
+    } catch (error) {
+      if (this.isPrismaNotFound(error)) {
+        throw new NotFoundException(`Review "${reviewId}" not found`);
+      }
+
+      throw error;
+    }
+  }
+
+  async deleteAdminReview(reviewId: string): Promise<AdminDeleteReviewResponse> {
+    try {
+      await this.prisma.review.delete({
+        where: { id: reviewId },
+      });
+    } catch (error) {
+      if (this.isPrismaNotFound(error)) {
+        throw new NotFoundException(`Review "${reviewId}" not found`);
+      }
+
+      throw error;
+    }
+
+    return {
+      id: reviewId,
+      deleted: true,
     };
   }
 
@@ -221,6 +335,20 @@ export class ReviewsService {
     };
   }
 
+  private serializeAdminReviewItem(row: AdminReviewRow): AdminReviewItem {
+    return {
+      id: row.id,
+      bookId: row.book.id,
+      bookTitle: row.book.title,
+      authorName: this.resolveAuthorName(row.user.firstName, row.user.lastName, row.user.email),
+      authorEmail: row.user.email,
+      rating: row.rating,
+      comment: row.comment,
+      isPublic: row.isPublic,
+      createdAt: row.createdAt.toISOString(),
+    };
+  }
+
   private resolveBookTitle(row: ReviewBookRow): string | null {
     const storedTitle = this.normalizeString(row.title);
     if (storedTitle) return storedTitle;
@@ -261,12 +389,37 @@ export class ReviewsService {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  private resolveAuthorName(
+    firstName: string | null,
+    lastName: string | null,
+    email: string
+  ): string {
+    const normalizedFirst = this.normalizeString(firstName);
+    const normalizedLast = this.normalizeString(lastName);
+    const joined = [normalizedFirst, normalizedLast].filter(Boolean).join(" ").trim();
+
+    if (joined.length > 0) {
+      return joined;
+    }
+
+    return email;
+  }
+
   private isPrismaUniqueViolation(error: unknown): boolean {
     return Boolean(
       error &&
         typeof error === "object" &&
         "code" in error &&
         (error as { code?: string }).code === "P2002"
+    );
+  }
+
+  private isPrismaNotFound(error: unknown): boolean {
+    return Boolean(
+      error &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: string }).code === "P2025"
     );
   }
 }

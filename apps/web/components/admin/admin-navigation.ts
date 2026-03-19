@@ -11,6 +11,7 @@ import {
   Settings,
   Shield,
   ShoppingCart,
+  Star,
   TicketPercent,
   Users,
 } from "lucide-react";
@@ -26,6 +27,7 @@ export type AdminNavLabelKey =
   | "coupons"
   | "showcase"
   | "resources"
+  | "reviews"
   | "system_settings"
   | "audit_logs";
 
@@ -155,6 +157,15 @@ export const ADMIN_NAV_ITEMS: readonly AdminNavItem[] = [
     icon: Newspaper,
     matchMode: "prefix",
     allowedRoles: CONTENT_ADMIN_ROLES,
+  },
+  {
+    segment: "reviews",
+    href: "/admin/reviews",
+    labelKey: "reviews",
+    sectionLabelKey: "section_content",
+    icon: Star,
+    matchMode: "prefix",
+    allowedRoles: TOP_LEVEL_ADMIN_ROLES,
   },
   {
     segment: "system-settings",
