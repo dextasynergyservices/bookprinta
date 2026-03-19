@@ -55,6 +55,7 @@ import { Resend } from "resend";
 import { normalizePhoneNumber } from "../auth/phone-number.util.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PaymentProvider, PaymentStatus, PaymentType } from "../generated/prisma/enums.js";
+import { WhatsappService } from "../notifications/whatsapp.service.js";
 import { PaymentsService } from "../payments/payments.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 
@@ -167,31 +168,16 @@ export class QuotesService {
   private readonly quoteFromEmail: string | null;
   private readonly quoteAdminRecipients: string[];
   private readonly frontendBaseUrl: string;
-  private readonly infobipBaseUrl: string;
-  private readonly infobipApiKey: string;
-  private readonly infobipWhatsAppFrom: string;
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly paymentsService: PaymentsService
+    private readonly paymentsService: PaymentsService,
+    private readonly whatsappService: WhatsappService = new WhatsappService()
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.quoteFromEmail = this.resolveQuoteFromEmail();
     this.quoteAdminRecipients = this.resolveQuoteAdminRecipients();
     this.frontendBaseUrl = this.resolveFrontendBaseUrl();
-    this.infobipBaseUrl = this.normalizeBaseUrl(
-      process.env.INFOBIP_BASE_URL ||
-        process.env.INFOBIP_API_BASE_URL ||
-        process.env.INFOBIP_BASEURL ||
-        ""
-    );
-    this.infobipApiKey =
-      process.env.INFOBIP_API_KEY || process.env.INFOBIP_KEY || process.env.INFOBIP_APIKEY || "";
-    this.infobipWhatsAppFrom =
-      process.env.INFOBIP_WHATSAPP_FROM ||
-      process.env.INFOBIP_WHATSAPP_SENDER ||
-      process.env.INFOBIP_WHATSAPP_NUMBER ||
-      "";
   }
 
   async resolvePaymentToken(token: string): Promise<ResolveQuotePaymentTokenResponse> {
@@ -1019,24 +1005,6 @@ export class QuotesService {
       };
     }
 
-    if (!this.infobipBaseUrl || !this.infobipApiKey || !this.infobipWhatsAppFrom) {
-      this.logMissingInfobipConfig("quote proposal");
-      return {
-        attempted: false,
-        delivered: false,
-        failureReason: "Infobip WhatsApp config missing",
-      };
-    }
-
-    const to = this.normalizeWhatsAppPhone(params.phone);
-    if (!to) {
-      return {
-        attempted: false,
-        delivered: false,
-        failureReason: "Invalid phone number",
-      };
-    }
-
     const text = this.buildQuoteProposalWhatsAppMessage({
       locale: params.locale,
       userName: params.userName,
@@ -1044,12 +1012,21 @@ export class QuotesService {
       paymentUrl: params.paymentUrl,
     });
 
-    const delivered = await this.sendInfobipTextMessage(to, text, "quote proposal", params.quoteId);
+    const result = await this.whatsappService.sendText({
+      to: params.phone,
+      text,
+      kind: "quote proposal",
+      callbackData: params.quoteId,
+      meta: {
+        quoteId: params.quoteId,
+        locale: params.locale,
+      },
+    });
 
     return {
-      attempted: true,
-      delivered,
-      failureReason: delivered ? null : "Infobip WhatsApp delivery failed",
+      attempted: result.attempted,
+      delivered: result.delivered,
+      failureReason: result.failureReason,
     };
   }
 
@@ -1088,68 +1065,6 @@ export class QuotesService {
       `Payment link: ${params.paymentUrl}\n\n` +
       `This link expires in ${QUOTE_PAYMENT_LINK_VALIDITY_DAYS} days.`
     );
-  }
-
-  private async sendInfobipTextMessage(
-    to: string,
-    text: string,
-    kind: string,
-    quoteId: string
-  ): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.infobipBaseUrl}/whatsapp/1/message/text`, {
-        method: "POST",
-        headers: {
-          Authorization: `App ${this.infobipApiKey}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          from: this.infobipWhatsAppFrom,
-          to,
-          content: { text },
-        }),
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        const error = new Error(
-          `Infobip ${kind} WhatsApp failed (${response.status}) for quoteId=${quoteId}: ${body}`
-        );
-        this.logger.error(error.message);
-        Sentry.captureException(error);
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Infobip ${kind} WhatsApp failed: ${JSON.stringify({ quoteId, error: error instanceof Error ? error.message : String(error) })}`
-      );
-      Sentry.captureException(error);
-      return false;
-    }
-  }
-
-  private normalizeWhatsAppPhone(value: string): string {
-    const trimmed = value.trim();
-    if (!trimmed) return "";
-
-    if (trimmed.startsWith("+")) {
-      const digits = trimmed.slice(1).replace(/\D/g, "");
-      return digits ? `+${digits}` : "";
-    }
-
-    return trimmed.replace(/\D/g, "");
-  }
-
-  private logMissingInfobipConfig(kind: string): void {
-    const missing: string[] = [];
-    if (!this.infobipBaseUrl) missing.push("INFOBIP_BASE_URL");
-    if (!this.infobipApiKey) missing.push("INFOBIP_API_KEY");
-    if (!this.infobipWhatsAppFrom) missing.push("INFOBIP_WHATSAPP_FROM");
-    const details = missing.length > 0 ? ` (${missing.join(", ")})` : "";
-    this.logger.warn(`Infobip WhatsApp config missing${details} — ${kind} WhatsApp skipped`);
   }
 
   async revokePaymentLink(
@@ -1760,13 +1675,6 @@ export class QuotesService {
       process.env.NEXT_PUBLIC_WEB_URL ||
       "";
     const normalized = raw.trim().replace(/\/+$/, "");
-    if (!normalized) return "";
-    if (/^https?:\/\//i.test(normalized)) return normalized;
-    return `https://${normalized}`;
-  }
-
-  private normalizeBaseUrl(baseUrl: string): string {
-    const normalized = baseUrl.trim().replace(/\/+$/, "");
     if (!normalized) return "";
     if (/^https?:\/\//i.test(normalized)) return normalized;
     return `https://${normalized}`;

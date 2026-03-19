@@ -1,10 +1,14 @@
+import { existsSync, readFileSync } from "node:fs";
+import { extname, resolve } from "node:path";
 import {
   Body,
+  Button,
   Container,
   Font,
   Head,
   Hr,
   Html,
+  Img,
   Link,
   Preview,
   Section,
@@ -82,7 +86,17 @@ export function EmailLayout({ locale, preview, children }: EmailLayoutProps) {
         <Container style={container}>
           {/* Header */}
           <Section style={header}>
-            <Text style={logoText}>BookPrinta</Text>
+            {EMAIL_LOGO_SRC ? (
+              <Img
+                src={EMAIL_LOGO_SRC}
+                alt="BookPrinta"
+                width="194"
+                height="40"
+                style={logoImage}
+              />
+            ) : (
+              <Text style={logoText}>BookPrinta</Text>
+            )}
           </Section>
 
           {/* Main Content */}
@@ -102,6 +116,11 @@ export function EmailLayout({ locale, preview, children }: EmailLayoutProps) {
                 {t(locale, "common", "support_email")}
               </Link>
             </Text>
+            <Section style={footerActionSection}>
+              <Button href={WHATSAPP_URL} style={footerButton}>
+                {t(locale, "common", "whatsapp_cta")}
+              </Button>
+            </Section>
             <Text style={footerMuted}>{t(locale, "common", "footer_address")}</Text>
             <Text style={footerMuted}>{t(locale, "common", "footer_copyright", { year })}</Text>
           </Section>
@@ -138,6 +157,13 @@ const logoText: React.CSSProperties = {
   letterSpacing: "-0.5px",
 };
 
+const logoImage: React.CSSProperties = {
+  display: "block",
+  margin: "0 auto",
+  height: "auto",
+  maxWidth: "194px",
+};
+
 const main: React.CSSProperties = {
   backgroundColor: BRAND.white,
   borderRadius: "12px",
@@ -168,6 +194,24 @@ const footerLink: React.CSSProperties = {
   textDecoration: "underline",
 };
 
+const footerActionSection: React.CSSProperties = {
+  margin: "16px 0 18px",
+};
+
+const footerButton: React.CSSProperties = {
+  display: "inline-block",
+  backgroundColor: BRAND.black,
+  color: BRAND.white,
+  fontFamily: BRAND.fontSans,
+  fontSize: "14px",
+  fontWeight: 600,
+  textDecoration: "none",
+  textAlign: "center" as const,
+  padding: "12px 24px",
+  borderRadius: "8px",
+  lineHeight: "100%",
+};
+
 const footerMuted: React.CSSProperties = {
   fontFamily: BRAND.fontSans,
   fontSize: "12px",
@@ -175,5 +219,36 @@ const footerMuted: React.CSSProperties = {
   color: BRAND.mutedText,
   margin: "0 0 4px",
 };
+
+const WHATSAPP_URL = "https://wa.me/2348103208297";
+const EMAIL_LOGO_SRC = resolveEmailLogoSrc();
+
+function resolveEmailLogoSrc(): string | null {
+  const candidates = [
+    resolve(process.cwd(), "../../apps/web/public/logo-main-black.png"),
+    resolve(process.cwd(), "../web/public/logo-main-black.png"),
+    resolve(process.cwd(), "apps/web/public/logo-main-black.png"),
+    resolve(process.cwd(), "public/logo-main-black.png"),
+  ];
+
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+
+    try {
+      const bytes = readFileSync(candidate);
+      const ext = extname(candidate).toLowerCase();
+      const mime =
+        ext === ".svg"
+          ? "image/svg+xml"
+          : ext === ".jpg" || ext === ".jpeg"
+            ? "image/jpeg"
+            : "image/png";
+
+      return `data:${mime};base64,${bytes.toString("base64")}`;
+    } catch {}
+  }
+
+  return null;
+}
 
 export { BRAND };

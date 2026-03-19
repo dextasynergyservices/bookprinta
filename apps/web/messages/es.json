@@ -864,6 +864,7 @@
     "settings_language_name_es": "Español",
     "settings_notifications_title": "Preferencias de notificación",
     "settings_notifications_description": "Elige cómo quieres recibir noticias de BookPrinta.",
+    "settings_notifications_critical_note": "Algunas notificaciones criticas, incluidos los enlaces de registro y los recibos, siempre se envian.",
     "settings_notifications_email_label": "Notificaciones por correo",
     "settings_notifications_email_description": "Recibe actualizaciones de pedidos y alertas importantes por correo.",
     "settings_notifications_whatsapp_label": "Notificaciones por WhatsApp",
