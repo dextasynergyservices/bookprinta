@@ -1,4 +1,7 @@
+"use client";
+
 import { useTranslations } from "next-intl";
+import { usePublicMarketingSettings } from "@/hooks/usePublicMarketingSettings";
 import { Link } from "@/lib/i18n/navigation";
 
 const socialLinks = [
@@ -47,6 +50,28 @@ const legalLinks = [
 
 export function Footer() {
   const t = useTranslations("footer");
+  const { settings } = usePublicMarketingSettings();
+
+  const supportEmail = settings?.businessProfile.supportEmail?.trim() || t("email");
+  const supportPhone = settings?.businessProfile.supportPhone?.trim() || t("phone");
+  const officeAddress = settings?.businessProfile.officeAddress?.trim() || t("address");
+  const managedSocialLinks = settings?.businessProfile.socialLinks ?? [];
+
+  const socialLinkHrefMap = new Map(
+    managedSocialLinks.map((entry) => [entry.label.trim().toLowerCase(), entry.url.trim()])
+  );
+
+  const resolveSocialHref = (fallbackHref: string, socialName: string): string => {
+    const lowerName = socialName.toLowerCase();
+
+    for (const [label, href] of socialLinkHrefMap.entries()) {
+      if (label.includes(lowerName)) {
+        return href;
+      }
+    }
+
+    return fallbackHref;
+  };
 
   return (
     <footer className="bg-primary text-primary-foreground">
@@ -125,21 +150,21 @@ export function Footer() {
                 {t("say_hello_label")}
               </h3>
               <address className="space-y-1 not-italic">
-                <p className="text-sm text-primary-foreground/60">{t("address")}</p>
+                <p className="text-sm text-primary-foreground/60">{officeAddress}</p>
                 <p className="text-sm text-primary-foreground/60">
                   <a
-                    href={`tel:${t("phone").replace(/\s/g, "")}`}
+                    href={`tel:${supportPhone.replace(/\s/g, "")}`}
                     className="transition-colors hover:text-primary-foreground"
                   >
-                    {t("phone")}
+                    {supportPhone}
                   </a>
                 </p>
                 <p className="text-sm">
                   <a
-                    href={`mailto:${t("email")}`}
+                    href={`mailto:${supportEmail}`}
                     className="text-primary-foreground/60 transition-colors hover:text-primary-foreground"
                   >
-                    {t("email")}
+                    {supportEmail}
                   </a>
                 </p>
               </address>
@@ -154,7 +179,7 @@ export function Footer() {
                 {socialLinks.map(({ name, href, labelKey, icon }) => (
                   <a
                     key={name}
-                    href={href}
+                    href={resolveSocialHref(href, name)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex size-10 items-center justify-center rounded-full border border-white/10 text-primary-foreground/60 transition-colors hover:border-primary-foreground hover:text-primary-foreground"
