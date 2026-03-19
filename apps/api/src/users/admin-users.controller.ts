@@ -13,6 +13,8 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
 import {
+  AdminCreateUserDto,
+  AdminCreateUserResponseDto,
   AdminDeleteUserResponseDto,
   AdminUpdateUserDto,
   AdminUpdateUserResponseDto,
@@ -29,6 +31,31 @@ import { UsersService } from "./users.service.js";
 @ApiBearerAuth("access-token")
 export class AdminUsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  @Post()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Create an admin user (SUPER_ADMIN only)",
+    description:
+      "Creates a new admin/editor/manager user with pre-set credentials. The account is immediately active and verified.",
+  })
+  @ApiResponse({
+    status: 201,
+    description: "Admin user created successfully",
+    type: AdminCreateUserResponseDto,
+  })
+  @ApiResponse({ status: 400, description: "Invalid input" })
+  @ApiResponse({ status: 403, description: "Only SUPER_ADMIN can create admin users" })
+  @ApiResponse({ status: 409, description: "Email already exists" })
+  async createAdminUser(
+    @Body() dto: AdminCreateUserDto,
+    @CurrentUser("sub") adminId: string
+  ): Promise<AdminCreateUserResponseDto> {
+    return this.usersService.createAdminUser(dto, adminId);
+  }
 
   @Get()
   @Header("Cache-Control", "private, no-store")

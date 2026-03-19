@@ -7,3 +7,6 @@ node_modules
 
 /generated/prisma
 /src/generated/prisma
+
+# Production seed script (contains sensitive setup logic)
+prisma/seed-production-admin.ts

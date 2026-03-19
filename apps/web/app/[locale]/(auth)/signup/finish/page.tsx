@@ -529,7 +529,7 @@ function SignupFinishPageContent() {
                       onChange={(event) => setPassword(event.target.value)}
                       autoComplete="new-password"
                       required
-                      className="min-h-11 w-full rounded-xl border border-white/10 bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                      className="min-h-11 w-full rounded-xl border border-white/10 bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                     />
                     <button
                       type="button"
@@ -603,7 +603,7 @@ function SignupFinishPageContent() {
                       onChange={(event) => setConfirmPassword(event.target.value)}
                       autoComplete="new-password"
                       required
-                      className="min-h-11 w-full rounded-xl border border-white/10 bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                      className="min-h-11 w-full rounded-xl border border-white/10 bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                     />
                     <button
                       type="button"

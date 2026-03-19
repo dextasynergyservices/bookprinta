@@ -25,6 +25,7 @@
     "typecheck": "tsc --noEmit",
     "db:seed": "bun x prisma db seed",
     "db:seed:admin": "bun run prisma/seed-admin.ts",
+    "db:seed:production-admin": "bun run prisma/seed-production-admin.ts",
     "db:seed:gateways": "bun run prisma/seed-payment-gateways.ts",
     "db:seed:production-delay": "bun run prisma/seed-production-delay-settings.ts",
     "db:seed:quote-settings": "bun run prisma/seed-quote-settings.ts",

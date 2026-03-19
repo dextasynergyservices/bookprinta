@@ -1,4 +1,6 @@
 import {
+  AdminCreateUserResponseSchema,
+  AdminCreateUserSchema,
   AdminDeleteUserResponseSchema,
   AdminUpdateUserResponseSchema,
   AdminUpdateUserSchema,
@@ -25,3 +27,9 @@ export class AdminUpdateUserResponseDto extends createZodDto(AdminUpdateUserResp
 
 /** Response for DELETE /api/v1/admin/users/:id */
 export class AdminDeleteUserResponseDto extends createZodDto(AdminDeleteUserResponseSchema) {}
+
+/** POST /api/v1/admin/users (SUPER_ADMIN only) */
+export class AdminCreateUserDto extends createZodDto(AdminCreateUserSchema) {}
+
+/** Response for POST /api/v1/admin/users */
+export class AdminCreateUserResponseDto extends createZodDto(AdminCreateUserResponseSchema) {}

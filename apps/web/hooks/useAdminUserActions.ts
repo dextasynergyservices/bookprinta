@@ -1,6 +1,8 @@
 "use client";
 
 import type {
+  AdminCreateUserInput,
+  AdminCreateUserResponse,
   AdminDeleteUserResponse,
   AdminUpdateUserInput,
   AdminUpdateUserResponse,
@@ -9,6 +11,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
 import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import { adminUsersQueryKeys } from "./useAdminUsers";
+
+type CreateAdminUserVariables = {
+  input: AdminCreateUserInput;
+};
 
 type UpdateAdminUserVariables = {
   userId: string;
@@ -22,6 +28,32 @@ type DeleteAdminUserVariables = {
 type ReactivateAdminUserVariables = {
   userId: string;
 };
+
+async function createAdminUser({
+  input,
+}: CreateAdminUserVariables): Promise<AdminCreateUserResponse> {
+  let response: Response;
+
+  try {
+    response = await fetchApiV1WithRefresh("/admin/users", {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new Error("Unable to create admin user right now.");
+  }
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to create admin user");
+  }
+
+  return (await response.json()) as AdminCreateUserResponse;
+}
 
 async function updateAdminUser({
   userId,
@@ -92,6 +124,19 @@ async function reactivateAdminUser({
   }
 
   return (await response.json()) as AdminUpdateUserResponse;
+}
+
+export function useAdminCreateUserMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ input }: CreateAdminUserVariables) => createAdminUser({ input }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: adminUsersQueryKeys.all,
+      });
+    },
+  });
 }
 
 export function useAdminUpdateUserMutation() {

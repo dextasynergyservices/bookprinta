@@ -26,7 +26,7 @@ export default async function LegalLayout({ children }: LegalLayoutProps) {
           <Link href="/" aria-label={tLegal("home_link_aria")} className="inline-flex items-center">
             <Image
               src="/logo-main-black.png"
-              alt=""
+              alt="BookPrinta"
               width={146}
               height={28}
               priority
