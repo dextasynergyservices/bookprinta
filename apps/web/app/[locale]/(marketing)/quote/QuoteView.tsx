@@ -161,7 +161,7 @@ const INITIAL_TOUCHED_STATE: FieldTouched = {
 };
 
 const inputClassName =
-  "mt-2 min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-transparent px-4 py-3 font-sans text-sm text-white placeholder:text-white/35 transition-colors duration-300 focus:border-[#007eff] focus:outline-none";
+  "mt-2 min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-transparent px-4 py-3 font-sans text-sm text-white placeholder:text-white/45 transition-colors duration-300 focus:border-[#007eff] focus:outline-none";
 const inputErrorClassName = "border-[#EF4444] focus:border-[#EF4444]";
 const errorTextClassName = "mt-2 font-sans text-xs text-[#EF4444]";
 

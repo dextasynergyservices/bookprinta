@@ -1,6 +1,11 @@
 "use client";
 
-import type { AdminUserSortField, AdminUsersListResponse, UserRoleValue } from "@bookprinta/shared";
+import type {
+  AdminCreatableRole,
+  AdminUserSortField,
+  AdminUsersListResponse,
+  UserRoleValue,
+} from "@bookprinta/shared";
 import {
   type Cell,
   type Column,
@@ -21,7 +26,9 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  Loader2,
   MoreHorizontal,
+  Plus,
   Search,
   ShieldCheck,
   ShieldX,
@@ -30,7 +37,7 @@ import {
   Users,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useDeferredValue, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   DashboardResponsiveDataRegion,
@@ -39,6 +46,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -46,6 +61,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -60,7 +76,9 @@ import {
   DEFAULT_ADMIN_USER_SORT_DIRECTION,
   useAdminUsersFilters,
 } from "@/hooks/use-admin-users-filters";
+import { useAuthSession } from "@/hooks/use-auth-session";
 import {
+  useAdminCreateUserMutation,
   useAdminDeleteUserMutation,
   useAdminReactivateUserMutation,
   useAdminUpdateUserMutation,
@@ -332,6 +350,208 @@ function getAdminUserMobileCells(params: { row: Row<AdminUserRow>; slot: AdminUs
   return params.row
     .getVisibleCells()
     .filter((cell) => getAdminUserColumnMeta(cell)?.mobileSlot === params.slot);
+}
+
+const ADMIN_CREATABLE_ROLES: { value: AdminCreatableRole; labelKey: string }[] = [
+  { value: "ADMIN", labelKey: "role_admin" },
+  { value: "EDITOR", labelKey: "role_editor" },
+  { value: "MANAGER", labelKey: "role_manager" },
+];
+
+function CreateAdminDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const tAdmin = useTranslations("admin");
+  const createMutation = useAdminCreateUserMutation();
+  const formRef = useRef<HTMLFormElement>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  function resetForm() {
+    formRef.current?.reset();
+    setFormError(null);
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormError(null);
+
+    const formData = new FormData(event.currentTarget);
+    const email = (formData.get("email") as string)?.trim() ?? "";
+    const firstName = (formData.get("firstName") as string)?.trim() ?? "";
+    const lastName = (formData.get("lastName") as string)?.trim() ?? "";
+    const password = (formData.get("password") as string) ?? "";
+    const role = formData.get("role") as AdminCreatableRole;
+
+    if (!email || !firstName || !password || !role) {
+      setFormError("All required fields must be filled.");
+      return;
+    }
+
+    try {
+      const result = await createMutation.mutateAsync({
+        input: {
+          email,
+          firstName,
+          ...(lastName ? { lastName } : {}),
+          password,
+          role,
+        },
+      });
+
+      toast.success(tAdmin("users_create_success"), {
+        description: tAdmin("users_create_success_description", {
+          fullName: result.fullName,
+          email: result.email,
+          role: formatAdminUserRole(result.role as UserRoleValue, tAdmin),
+        }),
+      });
+
+      resetForm();
+      onOpenChange(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : tAdmin("users_create_error");
+      setFormError(message);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) resetForm();
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent className="border-[#2A2A2A] bg-[#111111] text-white sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle className="font-display text-xl font-semibold tracking-tight">
+            {tAdmin("users_create_dialog_title")}
+          </DialogTitle>
+          <DialogDescription className="font-sans text-sm text-[#B4B4B4]">
+            {tAdmin("users_create_dialog_description")}
+          </DialogDescription>
+        </DialogHeader>
+        <form ref={formRef} onSubmit={(e) => void handleSubmit(e)} className="grid gap-4 py-2">
+          <div className="grid gap-2">
+            <Label htmlFor="create-admin-email" className="font-sans text-sm text-[#d0d0d0]">
+              {tAdmin("users_create_email")}
+            </Label>
+            <Input
+              id="create-admin-email"
+              name="email"
+              type="email"
+              required
+              autoComplete="off"
+              placeholder={tAdmin("users_create_email_placeholder")}
+              className="min-h-11 rounded-xl border-[#2A2A2A] bg-[#080808] text-white placeholder:text-[#6f6f6f] focus-visible:border-[#007eff] focus-visible:ring-2 focus-visible:ring-[#007eff]/25"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="create-admin-first-name" className="font-sans text-sm text-[#d0d0d0]">
+                {tAdmin("users_create_first_name")}
+              </Label>
+              <Input
+                id="create-admin-first-name"
+                name="firstName"
+                type="text"
+                required
+                autoComplete="off"
+                placeholder={tAdmin("users_create_first_name_placeholder")}
+                className="min-h-11 rounded-xl border-[#2A2A2A] bg-[#080808] text-white placeholder:text-[#6f6f6f] focus-visible:border-[#007eff] focus-visible:ring-2 focus-visible:ring-[#007eff]/25"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="create-admin-last-name" className="font-sans text-sm text-[#d0d0d0]">
+                {tAdmin("users_create_last_name")}
+              </Label>
+              <Input
+                id="create-admin-last-name"
+                name="lastName"
+                type="text"
+                autoComplete="off"
+                placeholder={tAdmin("users_create_last_name_placeholder")}
+                className="min-h-11 rounded-xl border-[#2A2A2A] bg-[#080808] text-white placeholder:text-[#6f6f6f] focus-visible:border-[#007eff] focus-visible:ring-2 focus-visible:ring-[#007eff]/25"
+              />
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="create-admin-password" className="font-sans text-sm text-[#d0d0d0]">
+              {tAdmin("users_create_password")}
+            </Label>
+            <Input
+              id="create-admin-password"
+              name="password"
+              type="password"
+              required
+              minLength={8}
+              autoComplete="new-password"
+              placeholder={tAdmin("users_create_password_placeholder")}
+              className="min-h-11 rounded-xl border-[#2A2A2A] bg-[#080808] text-white placeholder:text-[#6f6f6f] focus-visible:border-[#007eff] focus-visible:ring-2 focus-visible:ring-[#007eff]/25"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="create-admin-role" className="font-sans text-sm text-[#d0d0d0]">
+              {tAdmin("users_create_role")}
+            </Label>
+            <select
+              id="create-admin-role"
+              name="role"
+              required
+              defaultValue=""
+              className="min-h-11 w-full appearance-none rounded-xl border border-[#2A2A2A] bg-[#080808] px-4 font-sans text-sm text-white outline-none placeholder:text-[#6f6f6f] focus-visible:border-[#007eff] focus-visible:ring-2 focus-visible:ring-[#007eff]/25"
+            >
+              <option value="" disabled>
+                {tAdmin("users_create_role_placeholder")}
+              </option>
+              {ADMIN_CREATABLE_ROLES.map(({ value, labelKey }) => (
+                <option key={value} value={value}>
+                  {tAdmin(labelKey)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {formError ? (
+            <p className="flex items-center gap-2 font-sans text-sm text-[#ef4444]">
+              <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+              {formError}
+            </p>
+          ) : null}
+
+          <DialogFooter className="mt-2 gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={createMutation.isPending}
+              className="min-h-11 rounded-full border-[#2A2A2A] bg-[#080808] px-5 font-sans text-sm text-white hover:bg-[#101010]"
+            >
+              {tAdmin("users_create_cancel")}
+            </Button>
+            <Button
+              type="submit"
+              disabled={createMutation.isPending}
+              className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0066cc]"
+            >
+              {createMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
+                  {tAdmin("users_create_submitting")}
+                </>
+              ) : (
+                tAdmin("users_create_submit")
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function AdminUsersFilterBar({
@@ -882,6 +1102,9 @@ function AdminUsersPagination({
 export function AdminUsersView() {
   const tAdmin = useTranslations("admin");
   const locale = useLocale();
+  const { user: sessionUser } = useAuthSession();
+  const isSuperAdmin = sessionUser?.role === "SUPER_ADMIN";
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const updateMutation = useAdminUpdateUserMutation();
   const deleteMutation = useAdminDeleteUserMutation();
   const reactivateMutation = useAdminReactivateUserMutation();
@@ -1351,8 +1574,20 @@ export function AdminUsersView() {
             })}
           </p>
         </div>
-        <div aria-live="polite" className="font-sans text-xs text-[#8f8f8f] md:text-sm">
-          {isPageTransitioning ? tAdmin("users_loading_more") : null}
+        <div className="flex items-center gap-3">
+          <div aria-live="polite" className="font-sans text-xs text-[#8f8f8f] md:text-sm">
+            {isPageTransitioning ? tAdmin("users_loading_more") : null}
+          </div>
+          {isSuperAdmin ? (
+            <Button
+              type="button"
+              onClick={() => setCreateDialogOpen(true)}
+              className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0066cc]"
+            >
+              <Plus className="mr-2 size-4" aria-hidden="true" />
+              {tAdmin("users_create_button")}
+            </Button>
+          ) : null}
         </div>
       </section>
 
@@ -1391,6 +1626,10 @@ export function AdminUsersView() {
           onPrevious={goToPreviousCursor}
           onNext={() => goToNextCursor(data.nextCursor)}
         />
+      ) : null}
+
+      {isSuperAdmin ? (
+        <CreateAdminDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
       ) : null}
     </section>
   );

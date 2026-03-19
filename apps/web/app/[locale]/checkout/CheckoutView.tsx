@@ -663,7 +663,7 @@ export function CheckoutView() {
                       }}
                       placeholder={t("coupon_input_placeholder")}
                       aria-label={t("coupon_input_placeholder")}
-                      className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-[#0b0b0b] px-3 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                      className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-[#0b0b0b] px-3 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                     />
                     <button
                       type="button"
@@ -798,7 +798,7 @@ export function CheckoutView() {
                       }}
                       placeholder={t("coupon_input_placeholder")}
                       aria-label={t("coupon_input_placeholder")}
-                      className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-3 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                      className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-3 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                     />
                     <button
                       type="button"

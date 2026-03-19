@@ -503,3 +503,34 @@ export const AdminDeleteUserResponseSchema = z.object({
   audit: AdminAuditEntrySchema,
 });
 export type AdminDeleteUserResponse = z.infer<typeof AdminDeleteUserResponseSchema>;
+
+// ==========================================
+// Admin Create User (SUPER_ADMIN only)
+// ==========================================
+
+export const AdminCreatableRoleSchema = z.enum(["ADMIN", "EDITOR", "MANAGER"]);
+export type AdminCreatableRole = z.infer<typeof AdminCreatableRoleSchema>;
+
+export const AdminCreateUserSchema = z
+  .object({
+    email: z.string().trim().email("Valid email address is required").max(254),
+    firstName: z.string().trim().min(1, "First name is required").max(120),
+    lastName: z.string().trim().max(120).optional(),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .max(128, "Password must be at most 128 characters"),
+    role: AdminCreatableRoleSchema,
+  })
+  .strict();
+export type AdminCreateUserInput = z.infer<typeof AdminCreateUserSchema>;
+
+export const AdminCreateUserResponseSchema = z.object({
+  userId: z.string().cuid(),
+  email: z.string().email(),
+  fullName: z.string().trim().min(1),
+  role: UserRoleSchema,
+  createdAt: z.string().datetime(),
+  audit: AdminAuditEntrySchema,
+});
+export type AdminCreateUserResponse = z.infer<typeof AdminCreateUserResponseSchema>;

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
+  AdminCreateUserInput,
+  AdminCreateUserResponse,
   AdminDeleteUserResponse,
   AdminUpdateUserInput,
   AdminUpdateUserResponse,
@@ -33,6 +35,7 @@ import {
 } from "@bookprinta/shared";
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -428,6 +431,79 @@ export class UsersService {
       orders: orders.map((order) => this.serializeAdminUserOrderSummary(order)),
       books: books.map((book) => this.serializeAdminUserBookSummary(book)),
       payments: payments.map((payment) => this.serializeAdminUserPaymentSummary(payment)),
+    };
+  }
+
+  async createAdminUser(
+    input: AdminCreateUserInput,
+    adminId: string
+  ): Promise<AdminCreateUserResponse> {
+    const emailNormalized = input.email.trim().toLowerCase();
+
+    const existing = await this.prisma.user.findUnique({
+      where: { email: emailNormalized },
+      select: { id: true },
+    });
+
+    if (existing) {
+      throw new ConflictException("A user with this email address already exists.");
+    }
+
+    const hashedPassword = await bcrypt.hash(input.password, PASSWORD_SALT_ROUNDS);
+    const firstName = input.firstName.trim();
+    const lastName = input.lastName?.trim() || null;
+
+    const { createdUser, audit } = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: emailNormalized,
+          firstName,
+          lastName,
+          password: hashedPassword,
+          role: input.role,
+          isActive: true,
+          isVerified: true,
+          preferredLanguage: "en",
+        },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          createdAt: true,
+        },
+      });
+
+      const auditLog = await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_USER_CREATED",
+          entityType: "USER",
+          entityId: user.id,
+          details: {
+            createdEmail: user.email,
+            createdRole: user.role,
+            note: `Admin created user ${user.email} with role ${user.role}`,
+            reason: null,
+          },
+        },
+      });
+
+      return { createdUser: user, audit: auditLog };
+    });
+
+    return {
+      userId: createdUser.id,
+      email: createdUser.email,
+      fullName: this.buildUserFullName(
+        createdUser.firstName,
+        createdUser.lastName,
+        createdUser.email
+      ),
+      role: createdUser.role,
+      createdAt: createdUser.createdAt.toISOString(),
+      audit: this.serializeAdminAuditEntry(audit, adminId),
     };
   }
 
