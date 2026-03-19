@@ -670,6 +670,13 @@ export class AuthService {
    * Reset password using the token from the reset email.
    */
   async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+    if (dto.recaptchaToken) {
+      const isHuman = await this.verifyRecaptcha(dto.recaptchaToken);
+      if (!isHuman) {
+        throw new BadRequestException("reCAPTCHA verification failed. Please try again.");
+      }
+    }
+
     const user = await this.getValidResetTokenUser(dto.token);
 
     const hashedPassword = await bcrypt.hash(dto.newPassword, this.SALT_ROUNDS);

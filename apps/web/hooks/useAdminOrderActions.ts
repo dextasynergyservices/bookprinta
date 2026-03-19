@@ -13,6 +13,17 @@ import { throwApiError } from "@/lib/api-error";
 import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import { adminOrdersQueryKeys } from "./useAdminOrders";
 
+export class AdminOrderConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AdminOrderConflictError";
+  }
+}
+
+export function isAdminOrderConflictError(error: unknown): error is AdminOrderConflictError {
+  return error instanceof AdminOrderConflictError;
+}
+
 type UpdateAdminOrderStatusVariables = {
   orderId: string;
   input: AdminUpdateOrderStatusInput;
@@ -48,7 +59,21 @@ async function updateAdminOrderStatus({
   }
 
   if (!response.ok) {
-    await throwApiError(response, "Unable to update the order status");
+    const payload = (await response.json().catch(() => null)) as {
+      message?: string | string[];
+      error?: { message?: string };
+    } | null;
+    const message =
+      (typeof payload?.error?.message === "string" && payload.error.message) ||
+      (typeof payload?.message === "string" && payload.message) ||
+      (Array.isArray(payload?.message) && payload.message.join(", ")) ||
+      "Unable to update the order status";
+
+    if (response.status === 409) {
+      throw new AdminOrderConflictError(message);
+    }
+
+    throw new Error(message);
   }
 
   return (await response.json()) as AdminUpdateOrderStatusResponse;
