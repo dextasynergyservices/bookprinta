@@ -1,4 +1,4 @@
-import { throwApiError } from "@/lib/api-error";
+import { RateLimitError, throwApiError } from "@/lib/api-error";
 import type {
   ResourceDetail,
   ResourcesCategoriesResponse,
@@ -15,6 +15,10 @@ function getApiV1BaseUrl() {
 }
 
 const API_V1_BASE_URL = getApiV1BaseUrl();
+
+function isNextProductionBuildPhase(): boolean {
+  return process.env.NEXT_PHASE === "phase-production-build";
+}
 
 function normalizeSlug(slug: string): string {
   return slug.trim().toLowerCase();
@@ -114,6 +118,11 @@ export async function fetchResourceDetailForServer(slug: string): Promise<Resour
     return null;
   }
 
+  // During static generation, avoid failing the entire build on transient API throttling.
+  if (response.status === 429 && isNextProductionBuildPhase()) {
+    return null;
+  }
+
   if (!response.ok) {
     await throwApiError(response, "Failed to fetch resource detail");
   }
@@ -129,7 +138,18 @@ export async function fetchPublishedResourceSlugsForStaticParams(): Promise<stri
 
   while (pageSafetyCounter < 200) {
     pageSafetyCounter += 1;
-    const page = await fetchResourcesPage({ limit: 30 }, cursor);
+    let page: ResourcesListResponse;
+
+    try {
+      page = await fetchResourcesPage({ limit: 30 }, cursor);
+    } catch (error) {
+      // During production build, a rate-limited page fetch should not fail deployment.
+      if (error instanceof RateLimitError && isNextProductionBuildPhase()) {
+        break;
+      }
+
+      throw error;
+    }
 
     for (const item of page.items) {
       const normalizedSlug = normalizeSlug(item.slug);
