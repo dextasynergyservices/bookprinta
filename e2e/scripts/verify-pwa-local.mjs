@@ -29,11 +29,6 @@ function assert(condition, message) {
   }
 }
 
-function normalizeUrlPath(url) {
-  const parsed = new URL(url);
-  return `${parsed.pathname}${parsed.search}`;
-}
-
 async function ensureServiceWorkerControl(page) {
   await page.goto(`${WEB_BASE_URL}/about`, { waitUntil: "networkidle" });
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -171,7 +166,10 @@ async function main() {
     };
 
     assert(report.manifest.errors.length === 0, "Chrome reported manifest parsing/install errors.");
-    assert(report.manifest.containsStandaloneDisplay, "Manifest did not expose standalone display.");
+    assert(
+      report.manifest.containsStandaloneDisplay,
+      "Manifest did not expose standalone display."
+    );
     assert(report.manifest.containsMaskableIcon, "Manifest did not expose a maskable icon.");
     assert(
       report.serviceWorker.scriptUrl?.endsWith("/sw.js"),
@@ -301,7 +299,9 @@ async function main() {
       "Expected dashboard route to be cached in dashboard-shell-pages."
     );
     assert(
-      readonlyApiCache.entries.some((entry) => entry.includes("/api/v1/notifications/unread-count")),
+      readonlyApiCache.entries.some((entry) =>
+        entry.includes("/api/v1/notifications/unread-count")
+      ),
       "Expected read-only API cache entries in api-read-models."
     );
     assert(
@@ -397,11 +397,7 @@ async function main() {
 
 main().catch((error) => {
   console.error(
-    JSON.stringify(
-      { ok: false, message: error.message, report: latestReport },
-      null,
-      2
-    )
+    JSON.stringify({ ok: false, message: error.message, report: latestReport }, null, 2)
   );
   process.exitCode = 1;
 });
