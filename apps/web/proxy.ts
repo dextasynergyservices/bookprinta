@@ -5,6 +5,7 @@ import { routing } from "@/lib/i18n/routing";
 
 const intlMiddleware = createMiddleware(routing);
 const ACCESS_TOKEN_COOKIE = "access_token";
+const SESSION_MARKER_COOKIE = "bp_session";
 const DEFAULT_LOCALE_OFFLINE_PATH = "/en/offline";
 const OFFLINE_COMPATIBILITY_PATH = "/offline";
 
@@ -74,7 +75,11 @@ export default function proxy(request: NextRequest) {
   const currentPathWithQuery = `${pathname}${request.nextUrl.search}`;
   const isProtectedRoute = getProtectedScope(currentPathWithQuery) !== "none";
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
-  const hasLikelyValidSession = isLikelyUnexpiredJwt(accessToken);
+  const sessionMarker = request.cookies.get(SESSION_MARKER_COOKIE)?.value;
+  // Check the real JWT cookie first (works when API shares root domain).
+  // Fall back to the session marker cookie (set by frontend JS after login)
+  // for cross-origin setups where the HttpOnly cookie lives on the API domain.
+  const hasLikelyValidSession = isLikelyUnexpiredJwt(accessToken) || sessionMarker === "1";
 
   if (isProtectedRoute && !hasLikelyValidSession) {
     const loginRedirectHref = localizeLoginRedirect(

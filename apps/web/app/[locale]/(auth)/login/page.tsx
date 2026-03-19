@@ -16,6 +16,7 @@ import {
   resolvePostLoginRedirect,
   stripLoginRedirectQueryParams,
 } from "@/lib/auth/redirect-policy";
+import { setSessionMarkerCookie } from "@/lib/auth/session-cookie";
 import { getPathname, Link, usePathname, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
@@ -328,6 +329,7 @@ function LoginPageInner() {
           queryClient.invalidateQueries({ queryKey: AUTH_SESSION_QUERY_KEY });
         }
 
+        setSessionMarkerCookie();
         toast.success(t("login_success_toast"));
         markTiming(totalEndMark);
         totalDurationMs = measureTiming(
