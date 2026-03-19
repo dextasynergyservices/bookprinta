@@ -24,16 +24,20 @@ import {
   AdminCreateResourceDto,
   AdminDeleteResourceResponseDto,
   AdminResourceDetailDto,
+  AdminResourceSlugAvailabilityQueryDto,
+  AdminResourceSlugAvailabilityResponseDto,
   AdminResourcesListQueryDto,
   AdminResourcesListResponseDto,
   AdminUpdateResourceDto,
+  RequestAdminResourceCoverUploadBodyDto,
+  RequestAdminResourceCoverUploadResponseDto,
 } from "./dto/index.js";
 import { ResourcesService } from "./resources.service.js";
 
 @ApiTags("Admin Resources")
 @Controller("admin/resources")
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.EDITOR)
 @ApiBearerAuth("access-token")
 export class AdminResourcesController {
   constructor(private readonly resourcesService: ResourcesService) {}
@@ -71,6 +75,72 @@ export class AdminResourcesController {
   })
   async list(@Query() query: AdminResourcesListQueryDto): Promise<AdminResourcesListResponseDto> {
     return this.resourcesService.listAdminResources(query);
+  }
+
+  @Get("slug-availability")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Check resource slug availability (admin)",
+    description:
+      "Checks whether a slug is available for use. Pass excludeId when editing an existing resource.",
+  })
+  @ApiQuery({
+    name: "slug",
+    required: true,
+    description: "Slug to validate",
+    example: "how-to-format-your-manuscript",
+  })
+  @ApiQuery({
+    name: "excludeId",
+    required: false,
+    description: "Existing resource ID to exclude from uniqueness checks",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Slug availability result",
+    type: AdminResourceSlugAvailabilityResponseDto,
+  })
+  async checkSlugAvailability(
+    @Query() query: AdminResourceSlugAvailabilityQueryDto
+  ): Promise<AdminResourceSlugAvailabilityResponseDto> {
+    return this.resourcesService.checkAdminResourceSlugAvailability(query);
+  }
+
+  @Get(":id")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Get resource detail (admin)",
+    description: "Returns a full admin resource payload including content and cover image URL.",
+  })
+  @ApiParam({ name: "id", description: "Resource ID", example: "cm1234567890abcdef1234567" })
+  @ApiResponse({
+    status: 200,
+    description: "Admin resource detail",
+    type: AdminResourceDetailDto,
+  })
+  @ApiResponse({ status: 404, description: "Resource not found" })
+  async getById(@Param("id") id: string): Promise<AdminResourceDetailDto> {
+    return this.resourcesService.getAdminResourceById(id);
+  }
+
+  @Post("cover-upload")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Authorize or finalize a signed resource cover upload",
+    description:
+      "Returns Cloudinary signed upload parameters for action=authorize and validates URL/publicId for action=finalize.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Cover upload request handled",
+    type: RequestAdminResourceCoverUploadResponseDto,
+  })
+  @ApiResponse({ status: 400, description: "Invalid upload request or Cloudinary URL mismatch" })
+  async requestCoverUpload(
+    @CurrentUser("sub") adminId: string,
+    @Body() body: RequestAdminResourceCoverUploadBodyDto
+  ): Promise<RequestAdminResourceCoverUploadResponseDto> {
+    return this.resourcesService.requestAdminResourceCoverUpload(adminId, body);
   }
 
   @Post()

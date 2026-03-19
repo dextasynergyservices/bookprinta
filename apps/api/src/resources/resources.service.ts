@@ -1,10 +1,15 @@
+import { randomUUID } from "node:crypto";
 import type {
   AdminCreateResourceCategoryInput,
   AdminCreateResourceInput,
   AdminDeleteResourceCategoryResponse,
   AdminDeleteResourceResponse,
+  AdminResourceCategoriesListQuery,
+  AdminResourceCategoriesListResponse,
   AdminResourceCategoryResponse,
   AdminResourceDetail,
+  AdminResourceSlugAvailabilityQuery,
+  AdminResourceSlugAvailabilityResponse,
   AdminResourcesListQuery,
   AdminResourcesListResponse,
   AdminUpdateResourceCategoryInput,
@@ -13,9 +18,21 @@ import type {
   PublicResourceDetailResponse,
   PublicResourcesListQuery,
   PublicResourcesListResponse,
+  RequestAdminResourceCoverUploadBodyInput,
+  RequestAdminResourceCoverUploadResponse,
 } from "@bookprinta/shared";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+
+const RESOURCE_COVER_FOLDER_ROOT = "bookprinta/resources/covers";
+const RESOURCE_NOT_FOUND_ERROR = "Resource not found";
+const RESOURCE_CATEGORY_NOT_FOUND_ERROR = "Resource category not found";
+const INVALID_CATEGORY_ID_ERROR = "Invalid categoryId";
+const RESOURCE_SLUG_EXISTS_ERROR = "Resource slug already exists";
+const RESOURCE_TITLE_EXISTS_ERROR = "Resource title already exists";
+const RESOURCE_CATEGORY_NAME_EXISTS_ERROR = "Resource category name already exists";
+const RESOURCE_CATEGORY_SLUG_EXISTS_ERROR = "Resource category slug already exists";
 
 type CategorySummaryRow = {
   id: string;
@@ -75,9 +92,33 @@ type AdminCategoryRow = {
   };
 };
 
+const ADMIN_RESOURCE_DETAIL_SELECT = {
+  id: true,
+  title: true,
+  slug: true,
+  excerpt: true,
+  content: true,
+  coverImage: true,
+  categoryId: true,
+  category: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+    },
+  },
+  isPublished: true,
+  publishedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 @Injectable()
 export class ResourcesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cloudinary: CloudinaryService
+  ) {}
 
   async listPublicCategories(): Promise<PublicResourceCategoriesResponse> {
     const now = new Date();
@@ -260,6 +301,11 @@ export class ResourcesService {
 
   async listAdminResources(query: AdminResourcesListQuery): Promise<AdminResourcesListResponse> {
     const q = query.q?.trim();
+
+    if (query.categoryId) {
+      await this.assertCategoryExists(query.categoryId);
+    }
+
     const where = {
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.isPublished !== undefined ? { isPublished: query.isPublished } : {}),
@@ -315,6 +361,70 @@ export class ResourcesService {
     };
   }
 
+  async listAdminResourceCategories(
+    query: AdminResourceCategoriesListQuery
+  ): Promise<AdminResourceCategoriesListResponse> {
+    const categories = await this.prisma.resourceCategory.findMany({
+      ...(query.isActive !== undefined ? { where: { isActive: query.isActive } } : {}),
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        sortOrder: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: {
+          select: {
+            posts: true,
+          },
+        },
+      },
+    });
+
+    return {
+      categories: categories.map((category) => this.serializeAdminCategory(category)),
+    };
+  }
+
+  async checkAdminResourceSlugAvailability(
+    query: AdminResourceSlugAvailabilityQuery
+  ): Promise<AdminResourceSlugAvailabilityResponse> {
+    const slug = this.normalizeSlug(query.slug);
+
+    const existing = await this.prisma.blogPost.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+
+    const collidesWithAnother = Boolean(existing && existing.id !== query.excludeId);
+
+    return {
+      slug,
+      isAvailable: !collidesWithAnother,
+      resourceId: collidesWithAnother ? (existing?.id ?? null) : null,
+    };
+  }
+
+  async requestAdminResourceCoverUpload(
+    adminId: string,
+    input: RequestAdminResourceCoverUploadBodyInput
+  ): Promise<RequestAdminResourceCoverUploadResponse> {
+    if (input.action === "authorize") {
+      return this.authorizeAdminResourceCoverUpload(
+        adminId,
+        input.mimeType as "image/jpeg" | "image/png"
+      );
+    }
+
+    return this.finalizeAdminResourceCoverUpload(adminId, {
+      secureUrl: input.secureUrl as string,
+      publicId: input.publicId as string,
+    });
+  }
+
   async createAdminResource(
     input: AdminCreateResourceInput,
     adminId: string
@@ -337,35 +447,16 @@ export class ResourcesService {
           publishedAt: publication.publishedAt,
           authorId: adminId,
         },
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          excerpt: true,
-          content: true,
-          coverImage: true,
-          categoryId: true,
-          category: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-            },
-          },
-          isPublished: true,
-          publishedAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+        select: ADMIN_RESOURCE_DETAIL_SELECT,
       });
 
       return this.serializeAdminResourceDetail(created);
     } catch (error) {
       if (this.isPrismaUniqueViolation(error)) {
-        throw new BadRequestException("Resource title/slug must be unique");
+        throw new BadRequestException(this.resolveResourceUniqueViolationMessage(error));
       }
       if (this.isPrismaForeignKeyViolation(error)) {
-        throw new BadRequestException("Invalid categoryId");
+        throw new BadRequestException(INVALID_CATEGORY_ID_ERROR);
       }
       throw error;
     }
@@ -386,7 +477,7 @@ export class ResourcesService {
     });
 
     if (!existing) {
-      throw new NotFoundException("Resource not found");
+      throw new NotFoundException(RESOURCE_NOT_FOUND_ERROR);
     }
 
     if (input.categoryId !== undefined) {
@@ -421,38 +512,19 @@ export class ResourcesService {
             ? { publishedAt: publication.publishedAt }
             : {}),
         },
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          excerpt: true,
-          content: true,
-          coverImage: true,
-          categoryId: true,
-          category: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-            },
-          },
-          isPublished: true,
-          publishedAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+        select: ADMIN_RESOURCE_DETAIL_SELECT,
       });
 
       return this.serializeAdminResourceDetail(updated);
     } catch (error) {
       if (this.isPrismaUniqueViolation(error)) {
-        throw new BadRequestException("Resource title/slug must be unique");
+        throw new BadRequestException(this.resolveResourceUniqueViolationMessage(error));
       }
       if (this.isPrismaForeignKeyViolation(error)) {
-        throw new BadRequestException("Invalid categoryId");
+        throw new BadRequestException(INVALID_CATEGORY_ID_ERROR);
       }
       if (this.isPrismaRecordNotFound(error)) {
-        throw new NotFoundException("Resource not found");
+        throw new NotFoundException(RESOURCE_NOT_FOUND_ERROR);
       }
       throw error;
     }
@@ -465,12 +537,25 @@ export class ResourcesService {
       });
     } catch (error) {
       if (this.isPrismaRecordNotFound(error)) {
-        throw new NotFoundException("Resource not found");
+        throw new NotFoundException(RESOURCE_NOT_FOUND_ERROR);
       }
       throw error;
     }
 
     return { id, deleted: true };
+  }
+
+  async getAdminResourceById(id: string): Promise<AdminResourceDetail> {
+    const resource = await this.prisma.blogPost.findUnique({
+      where: { id },
+      select: ADMIN_RESOURCE_DETAIL_SELECT,
+    });
+
+    if (!resource) {
+      throw new NotFoundException(RESOURCE_NOT_FOUND_ERROR);
+    }
+
+    return this.serializeAdminResourceDetail(resource);
   }
 
   async createAdminResourceCategory(
@@ -505,7 +590,7 @@ export class ResourcesService {
       return this.serializeAdminCategory(created);
     } catch (error) {
       if (this.isPrismaUniqueViolation(error)) {
-        throw new BadRequestException("Resource category name/slug must be unique");
+        throw new BadRequestException(this.resolveResourceCategoryUniqueViolationMessage(error));
       }
       throw error;
     }
@@ -547,10 +632,10 @@ export class ResourcesService {
       return this.serializeAdminCategory(updated);
     } catch (error) {
       if (this.isPrismaUniqueViolation(error)) {
-        throw new BadRequestException("Resource category name/slug must be unique");
+        throw new BadRequestException(this.resolveResourceCategoryUniqueViolationMessage(error));
       }
       if (this.isPrismaRecordNotFound(error)) {
-        throw new NotFoundException("Resource category not found");
+        throw new NotFoundException(RESOURCE_CATEGORY_NOT_FOUND_ERROR);
       }
       throw error;
     }
@@ -570,7 +655,7 @@ export class ResourcesService {
     });
 
     if (!category) {
-      throw new NotFoundException("Resource category not found");
+      throw new NotFoundException(RESOURCE_CATEGORY_NOT_FOUND_ERROR);
     }
 
     if (category._count.posts > 0) {
@@ -581,7 +666,7 @@ export class ResourcesService {
       await this.prisma.resourceCategory.delete({ where: { id } });
     } catch (error) {
       if (this.isPrismaRecordNotFound(error)) {
-        throw new NotFoundException("Resource category not found");
+        throw new NotFoundException(RESOURCE_CATEGORY_NOT_FOUND_ERROR);
       }
       throw error;
     }
@@ -644,7 +729,7 @@ export class ResourcesService {
     });
 
     if (!category) {
-      throw new BadRequestException("Invalid categoryId");
+      throw new BadRequestException(INVALID_CATEGORY_ID_ERROR);
     }
   }
 
@@ -756,6 +841,154 @@ export class ResourcesService {
     if (value === undefined || value === null) return null;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private async authorizeAdminResourceCoverUpload(
+    adminId: string,
+    mimeType: "image/jpeg" | "image/png"
+  ): Promise<RequestAdminResourceCoverUploadResponse> {
+    await this.assertAdminAuthorExists(adminId);
+
+    const folder = `${RESOURCE_COVER_FOLDER_ROOT}/${adminId}`;
+    const publicId = randomUUID();
+    const upload = this.cloudinary.generateSignature({
+      folder,
+      mimeType,
+      publicId,
+      tags: [`admin:${adminId}`, "kind:resource-cover"],
+    });
+
+    return {
+      action: "authorize",
+      upload: {
+        ...upload,
+        resourceType: "image",
+        publicId,
+      },
+    };
+  }
+
+  private async finalizeAdminResourceCoverUpload(
+    adminId: string,
+    input: {
+      secureUrl: string;
+      publicId: string;
+    }
+  ): Promise<RequestAdminResourceCoverUploadResponse> {
+    await this.assertAdminAuthorExists(adminId);
+
+    this.assertAllowedResourceCoverUpload({
+      adminId,
+      secureUrl: input.secureUrl,
+      publicId: input.publicId,
+    });
+
+    return {
+      action: "finalize",
+      coverImageUrl: input.secureUrl,
+    };
+  }
+
+  private assertAllowedResourceCoverUpload(params: {
+    adminId: string;
+    secureUrl: string;
+    publicId: string;
+  }): string {
+    let parsed: URL;
+
+    try {
+      parsed = new URL(params.secureUrl);
+    } catch {
+      throw new BadRequestException("Cover image URL must be a valid secure Cloudinary URL");
+    }
+
+    if (parsed.protocol !== "https:" || parsed.hostname !== "res.cloudinary.com") {
+      throw new BadRequestException("Cover image URL must be a valid secure Cloudinary URL");
+    }
+
+    const pathSegments = parsed.pathname.split("/").filter(Boolean);
+    const expectedCloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
+    if (expectedCloudName && pathSegments[0] !== expectedCloudName) {
+      throw new BadRequestException("Cover image URL must belong to this Cloudinary account");
+    }
+
+    const extractedPublicId = this.extractCloudinaryPublicId(params.secureUrl);
+    if (!extractedPublicId) {
+      throw new BadRequestException("Cover image URL must be a valid secure Cloudinary URL");
+    }
+
+    const expectedPublicId = `${RESOURCE_COVER_FOLDER_ROOT}/${params.adminId}/${params.publicId}`;
+    if (extractedPublicId !== expectedPublicId) {
+      throw new BadRequestException("Cover image upload metadata does not match the signed asset");
+    }
+
+    return extractedPublicId;
+  }
+
+  private extractCloudinaryPublicId(url: string): string | null {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname !== "res.cloudinary.com") return null;
+
+      const pathSegments = parsed.pathname.split("/").filter(Boolean);
+      const uploadIndex = pathSegments.indexOf("upload");
+      if (uploadIndex < 0) return null;
+
+      const afterUpload = pathSegments.slice(uploadIndex + 1);
+      const versionIndex = afterUpload.findIndex((segment) => /^v\d+$/.test(segment));
+      const assetSegments = versionIndex >= 0 ? afterUpload.slice(versionIndex + 1) : afterUpload;
+      if (assetSegments.length === 0) return null;
+
+      const lastSegment = assetSegments[assetSegments.length - 1];
+      assetSegments[assetSegments.length - 1] = lastSegment.replace(/\.[^.]+$/, "");
+      const publicId = assetSegments.join("/");
+      return publicId.length > 0 ? publicId : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveResourceUniqueViolationMessage(error: unknown): string {
+    const target = this.getPrismaUniqueTarget(error);
+    if (target.includes("slug")) {
+      return RESOURCE_SLUG_EXISTS_ERROR;
+    }
+
+    if (target.includes("title")) {
+      return RESOURCE_TITLE_EXISTS_ERROR;
+    }
+
+    return "Resource title/slug must be unique";
+  }
+
+  private resolveResourceCategoryUniqueViolationMessage(error: unknown): string {
+    const target = this.getPrismaUniqueTarget(error);
+    if (target.includes("slug")) {
+      return RESOURCE_CATEGORY_SLUG_EXISTS_ERROR;
+    }
+
+    if (target.includes("name")) {
+      return RESOURCE_CATEGORY_NAME_EXISTS_ERROR;
+    }
+
+    return "Resource category name/slug must be unique";
+  }
+
+  private getPrismaUniqueTarget(error: unknown): string[] {
+    if (!(error && typeof error === "object" && "meta" in error)) {
+      return [];
+    }
+
+    const meta = (error as { meta?: { target?: unknown } }).meta;
+    if (!meta || meta.target === undefined || meta.target === null) {
+      return [];
+    }
+
+    if (Array.isArray(meta.target)) {
+      return meta.target.flatMap((field) => (typeof field === "string" ? [field] : []));
+    }
+
+    return typeof meta.target === "string" ? [meta.target] : [];
   }
 
   private isPrismaUniqueViolation(error: unknown): boolean {
