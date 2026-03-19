@@ -8,6 +8,7 @@ const initializePaymentMock = jest.fn();
 const submitBankTransferMock = jest.fn();
 const usePaymentGatewaysMock = jest.fn();
 const useAuthSessionMock = jest.fn();
+const useOnlineStatusMock = jest.fn();
 const toastErrorMock = jest.fn();
 const toastSuccessMock = jest.fn();
 
@@ -28,6 +29,10 @@ jest.mock("@/hooks/use-mobile", () => ({
 
 jest.mock("@/hooks/use-auth-session", () => ({
   useAuthSession: () => useAuthSessionMock(),
+}));
+
+jest.mock("@/hooks/use-online-status", () => ({
+  useOnlineStatus: () => useOnlineStatusMock(),
 }));
 
 jest.mock("@/hooks/usePayments", () => ({
@@ -163,6 +168,7 @@ describe("PaymentMethodModal", () => {
       },
       isAuthenticated: true,
     });
+    useOnlineStatusMock.mockReturnValue(true);
   });
 
   it("uses the signed-in account email for authenticated revise-and-reprint checkout", async () => {
@@ -200,5 +206,22 @@ describe("PaymentMethodModal", () => {
         })
       );
     });
+  });
+
+  it("disables payment method entry points offline", () => {
+    useOnlineStatusMock.mockReturnValue(false);
+
+    renderWithProviders();
+
+    const onlineOption = screen.getByRole("button", { name: /payment_modal_option_online/i });
+    const bankOption = screen.getByRole("button", { name: /payment_modal_option_bank/i });
+
+    expect(onlineOption).toBeDisabled();
+    expect(bankOption).toBeDisabled();
+
+    fireEvent.click(onlineOption);
+
+    expect(initializePaymentMock).not.toHaveBeenCalled();
+    expect(submitBankTransferMock).not.toHaveBeenCalled();
   });
 });

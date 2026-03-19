@@ -11,6 +11,22 @@ jest.mock("next-intl/middleware", () => {
 
 jest.mock("next/server", () => ({
   NextResponse: {
+    next: (...args: unknown[]) => {
+      const mockContainer = globalThis as { __nextResponseNextMock?: jest.Mock };
+      if (!mockContainer.__nextResponseNextMock) {
+        mockContainer.__nextResponseNextMock = jest.fn();
+      }
+
+      return mockContainer.__nextResponseNextMock(...args);
+    },
+    rewrite: (...args: unknown[]) => {
+      const mockContainer = globalThis as { __nextResponseRewriteMock?: jest.Mock };
+      if (!mockContainer.__nextResponseRewriteMock) {
+        mockContainer.__nextResponseRewriteMock = jest.fn();
+      }
+
+      return mockContainer.__nextResponseRewriteMock(...args);
+    },
     redirect: (...args: unknown[]) => {
       const mockContainer = globalThis as { __nextResponseRedirectMock?: jest.Mock };
       if (!mockContainer.__nextResponseRedirectMock) {
@@ -24,6 +40,12 @@ jest.mock("next/server", () => ({
 
 const getIntlMiddlewareMock = () =>
   (globalThis as { __intlMiddlewareMock?: jest.Mock }).__intlMiddlewareMock as jest.Mock;
+
+const getNextResponseNextMock = () =>
+  (globalThis as { __nextResponseNextMock?: jest.Mock }).__nextResponseNextMock as jest.Mock;
+
+const getNextResponseRewriteMock = () =>
+  (globalThis as { __nextResponseRewriteMock?: jest.Mock }).__nextResponseRewriteMock as jest.Mock;
 
 const getNextResponseRedirectMock = () =>
   (globalThis as { __nextResponseRedirectMock?: jest.Mock })
@@ -41,11 +63,15 @@ import proxy from "./proxy";
 
 beforeAll(() => {
   // Ensure the dynamic redirect mock exists before tests execute.
+  (globalThis as { __nextResponseNextMock?: jest.Mock }).__nextResponseNextMock = jest.fn();
+  (globalThis as { __nextResponseRewriteMock?: jest.Mock }).__nextResponseRewriteMock = jest.fn();
   (globalThis as { __nextResponseRedirectMock?: jest.Mock }).__nextResponseRedirectMock = jest.fn();
 });
 
 afterAll(() => {
   delete (globalThis as { __intlMiddlewareMock?: jest.Mock }).__intlMiddlewareMock;
+  delete (globalThis as { __nextResponseNextMock?: jest.Mock }).__nextResponseNextMock;
+  delete (globalThis as { __nextResponseRewriteMock?: jest.Mock }).__nextResponseRewriteMock;
   delete (globalThis as { __nextResponseRedirectMock?: jest.Mock }).__nextResponseRedirectMock;
 });
 
@@ -96,10 +122,46 @@ describe("proxy auth boundary", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     getIntlMiddlewareMock().mockReturnValue({ kind: "intl" });
+    getNextResponseNextMock().mockReturnValue({ kind: "next" });
+    getNextResponseRewriteMock().mockImplementation((url: URL) => ({
+      kind: "rewrite",
+      to: url.toString(),
+    }));
     getNextResponseRedirectMock().mockImplementation((url: URL) => ({
       kind: "redirect",
       to: url.toString(),
     }));
+  });
+
+  it("rewrites the compatibility offline route to the english locale page", () => {
+    const request = createRequest({
+      pathname: "/offline",
+    });
+
+    const response = proxy(request);
+
+    expect(getNextResponseRewriteMock()).toHaveBeenCalledTimes(1);
+    expect(getNextResponseNextMock()).not.toHaveBeenCalled();
+    expect(getNextResponseRedirectMock()).not.toHaveBeenCalled();
+    expect(getIntlMiddlewareMock()).not.toHaveBeenCalled();
+    expect(response).toEqual({
+      kind: "rewrite",
+      to: "https://bookprinta.test/en/offline",
+    });
+  });
+
+  it("lets the default-locale offline route bypass next-intl redirect normalization", () => {
+    const request = createRequest({
+      pathname: "/en/offline",
+    });
+
+    const response = proxy(request);
+
+    expect(getNextResponseNextMock()).toHaveBeenCalledTimes(1);
+    expect(getNextResponseRewriteMock()).not.toHaveBeenCalled();
+    expect(getNextResponseRedirectMock()).not.toHaveBeenCalled();
+    expect(getIntlMiddlewareMock()).not.toHaveBeenCalled();
+    expect(response).toEqual({ kind: "next" });
   });
 
   it("redirects unauthenticated deep links to login with encoded returnTo", () => {

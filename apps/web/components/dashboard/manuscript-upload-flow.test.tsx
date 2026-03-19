@@ -4,6 +4,7 @@ import { ManuscriptUploadFlow } from "./manuscript-upload-flow";
 
 const updateBookSettingsMock = jest.fn();
 const uploadManuscriptWithProgressMock = jest.fn();
+const useOnlineStatusMock = jest.fn();
 
 const TRANSLATIONS: Record<string, string> = {
   manuscript_upload_title: "Upload manuscript",
@@ -49,6 +50,7 @@ const TRANSLATIONS: Record<string, string> = {
     "Quick guide from word count and your selected trim size and font size.",
   manuscript_upload_word_count_label: "{count} words",
   manuscript_upload_replace_file: "Replace file",
+  offline_banner: "You're offline — some features require an internet connection",
 };
 
 function interpolate(template: string, values?: Record<string, unknown>) {
@@ -73,6 +75,10 @@ jest.mock("next-intl", () => ({
   useTranslations: () => (key: string, values?: Record<string, unknown>) =>
     interpolate(TRANSLATIONS[key] ?? key, values),
   useLocale: () => "en",
+}));
+
+jest.mock("@/hooks/use-online-status", () => ({
+  useOnlineStatus: () => useOnlineStatusMock(),
 }));
 
 jest.mock("@/hooks/use-reduced-motion", () => ({
@@ -132,6 +138,7 @@ describe("ManuscriptUploadFlow", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     setViewportWidth(375);
+    useOnlineStatusMock.mockReturnValue(true);
   });
 
   it("requires book size and font size before moving to upload", async () => {
@@ -386,5 +393,36 @@ describe("ManuscriptUploadFlow", () => {
     await waitFor(() =>
       expect(screen.getByText("File scanning temporarily unavailable")).toBeInTheDocument()
     );
+  });
+
+  it("disables manuscript upload actions offline", () => {
+    useOnlineStatusMock.mockReturnValue(false);
+
+    render(
+      <ManuscriptUploadFlow
+        bookId="cm_book_1"
+        initialTitle="Story Title"
+        initialPageSize="A5"
+        initialFontSize={12}
+        initialEstimatedPages={null}
+        initialWordCount={null}
+      />
+    );
+
+    const dropZone = screen.getByRole("button", { name: "Drag and drop your manuscript" });
+    const manuscript = new File(["Hello world"], "story.docx", {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+
+    expect(dropZone).toBeDisabled();
+    expect(
+      screen.getByText("You're offline — some features require an internet connection")
+    ).toBeInTheDocument();
+
+    fireEvent.drop(dropZone, {
+      dataTransfer: { files: [manuscript] },
+    });
+
+    expect(uploadManuscriptWithProgressMock).not.toHaveBeenCalled();
   });
 });
