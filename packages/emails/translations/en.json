@@ -9,7 +9,8 @@
     "footer_copyright": "{year} BookPrinta. All rights reserved.",
     "view_dashboard": "Go to Dashboard",
     "need_help": "Need help? Reply to this email or contact us at",
-    "support_email": "support@bookprinta.com"
+    "support_email": "admin@bookprinta.com",
+    "whatsapp_cta": "Chat on WhatsApp"
   },
   "welcome": {
     "subject": "Welcome to BookPrinta - Your Account Is Ready",

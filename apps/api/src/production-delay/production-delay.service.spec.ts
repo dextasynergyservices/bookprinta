@@ -49,6 +49,7 @@ describe("ProductionDelayService", () => {
           email: "ada@example.com",
           firstName: "Ada",
           preferredLanguage: "en",
+          emailNotificationsEnabled: true,
         },
         order: {
           customQuote: null,
@@ -66,6 +67,7 @@ describe("ProductionDelayService", () => {
           email: "ada@example.com",
           firstName: "Ada",
           preferredLanguage: "en",
+          emailNotificationsEnabled: true,
         },
         order: {
           customQuote: null,
@@ -105,6 +107,7 @@ describe("ProductionDelayService", () => {
           email: "ada@example.com",
           firstName: "Ada",
           preferredLanguage: "en",
+          emailNotificationsEnabled: true,
           books: [
             {
               bookId: "cmbook111111111111111111111111",

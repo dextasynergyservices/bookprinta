@@ -165,6 +165,8 @@ export type BookSettingsResponse = z.infer<typeof BookSettingsResponseSchema>;
  */
 export const UpdateAdminBookProductionStatusSchema = z.object({
   productionStatus: BookProgressStageSchema,
+  trackingNumber: z.string().trim().min(1).max(120).optional(),
+  shippingProvider: z.string().trim().min(1).max(120).optional(),
 });
 export type UpdateAdminBookProductionStatusInput = z.infer<
   typeof UpdateAdminBookProductionStatusSchema
@@ -484,6 +486,8 @@ export const AdminUpdateBookStatusSchema = z.object({
   expectedVersion: z.number().int().min(1),
   reason: z.string().trim().min(1).max(240).optional(),
   note: z.string().trim().min(1).max(1000).optional(),
+  trackingNumber: z.string().trim().min(1).max(120).optional(),
+  shippingProvider: z.string().trim().min(1).max(120).optional(),
 });
 export type AdminUpdateBookStatusInput = z.infer<typeof AdminUpdateBookStatusSchema>;
 

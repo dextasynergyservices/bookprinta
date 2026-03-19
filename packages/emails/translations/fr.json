@@ -9,7 +9,8 @@
     "footer_copyright": "{year} BookPrinta. Tous droits reserves.",
     "view_dashboard": "Acceder au tableau de bord",
     "need_help": "Besoin d'aide ? Repondez a cet email ou contactez-nous a",
-    "support_email": "support@bookprinta.com"
+    "support_email": "admin@bookprinta.com",
+    "whatsapp_cta": "Ecrire sur WhatsApp"
   },
   "welcome": {
     "subject": "Bienvenue sur BookPrinta - Votre compte est pret",

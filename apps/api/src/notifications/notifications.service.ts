@@ -17,6 +17,7 @@ import {
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { isUserNotificationChannelEnabled } from "./notification-preference-policy.js";
 
 const NOTIFICATION_SELECT = {
   id: true,
@@ -45,6 +46,15 @@ type NotificationWriteInput = {
   fallbackTitle: string;
   fallbackMessage: string;
   data: NotificationData;
+  preferenceKind?:
+    | "bank_transfer_receipt"
+    | "bank_transfer_rejected"
+    | "book_status_update"
+    | "order_status_update"
+    | "production_delay"
+    | "review_request"
+    | "system";
+  bypassPreference?: boolean;
 };
 
 type BankTransferReceivedNotificationParams = {
@@ -88,6 +98,7 @@ type SystemNotificationParams = NotificationEntityRefs & {
   presentation?: NotificationPresentation;
   fallbackTitle: string;
   fallbackMessage: string;
+  bypassPreference?: boolean;
 };
 
 const NOTIFICATION_TRANSLATION_KEYS = {
@@ -239,6 +250,8 @@ export class NotificationsService {
         type: "BANK_TRANSFER_RECEIVED",
         fallbackTitle: "Bank transfer received",
         fallbackMessage: `${params.payerName} submitted ${params.amountLabel} for order ${orderNumber}. Ref: ${params.reference}.`,
+        preferenceKind: "bank_transfer_receipt",
+        bypassPreference: true,
         data: {
           titleKey: NOTIFICATION_TRANSLATION_KEYS.bankTransferReceived.title,
           messageKey: NOTIFICATION_TRANSLATION_KEYS.bankTransferReceived.message,
@@ -272,6 +285,7 @@ export class NotificationsService {
           type: "ORDER_STATUS",
           fallbackTitle: "Order update",
           fallbackMessage: `Order ${params.orderNumber} has a new status update.`,
+          preferenceKind: "order_status_update",
           data: {
             titleKey: NOTIFICATION_TRANSLATION_KEYS.orderStatus.title,
             messageKey: NOTIFICATION_TRANSLATION_KEYS.orderStatus.message,
@@ -309,6 +323,7 @@ export class NotificationsService {
           type: "REVIEW_REQUEST",
           fallbackTitle: "Leave a review",
           fallbackMessage: `"${normalizedTitle}" has been delivered and is ready for your feedback.`,
+          preferenceKind: "review_request",
           data: {
             titleKey: NOTIFICATION_TRANSLATION_KEYS.reviewRequest.title,
             messageKey: NOTIFICATION_TRANSLATION_KEYS.reviewRequest.message,
@@ -344,6 +359,7 @@ export class NotificationsService {
           type: "PRODUCTION_DELAY",
           fallbackTitle: PRODUCTION_DELAY_FALLBACK_TITLE,
           fallbackMessage: PRODUCTION_DELAY_FALLBACK_MESSAGE,
+          preferenceKind: "production_delay",
           data: {
             titleKey: NOTIFICATION_TRANSLATION_KEYS.productionDelay.title,
             messageKey: NOTIFICATION_TRANSLATION_KEYS.productionDelay.message,
@@ -374,6 +390,8 @@ export class NotificationsService {
           type: "SYSTEM",
           fallbackTitle: params.fallbackTitle,
           fallbackMessage: params.fallbackMessage,
+          preferenceKind: "system",
+          bypassPreference: params.bypassPreference,
           data: {
             titleKey: params.titleKey,
             messageKey: params.messageKey,
@@ -471,8 +489,36 @@ export class NotificationsService {
   ): Promise<void> {
     if (records.length === 0) return;
 
+    const uniqueUserIds = Array.from(new Set(records.map((record) => record.userId)));
+    const preferenceRows =
+      uniqueUserIds.length > 0
+        ? await executor.user.findMany({
+            where: {
+              id: { in: uniqueUserIds },
+            },
+            select: {
+              id: true,
+              inAppNotificationsEnabled: true,
+            },
+          })
+        : [];
+    const preferenceMap = new Map(
+      preferenceRows.map((row) => [row.id, row.inAppNotificationsEnabled])
+    );
+    const eligibleRecords = records.filter((record) =>
+      isUserNotificationChannelEnabled({
+        enabled: preferenceMap.get(record.userId),
+        kind: record.preferenceKind ?? "system",
+        bypassPreference: record.bypassPreference,
+      })
+    );
+
+    if (eligibleRecords.length === 0) {
+      return;
+    }
+
     await executor.notification.createMany({
-      data: records.map((record) => this.toNotificationCreateManyInput(record)),
+      data: eligibleRecords.map((record) => this.toNotificationCreateManyInput(record)),
     });
   }
 
