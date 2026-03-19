@@ -38,7 +38,13 @@ async function fetchAuthSession(): Promise<AuthSessionUser | null> {
     }
   }
 
-  if (response.status === 401) return null;
+  if (response.status === 401) {
+    // Session is truly dead (both access and refresh tokens expired).
+    // Clear the session marker so proxy.ts redirects to login on next navigation.
+    const { clearSessionMarkerCookie } = await import("@/lib/auth/session-cookie");
+    clearSessionMarkerCookie();
+    return null;
+  }
   if (!response.ok) throw new Error("Unable to resolve auth session");
 
   const payload = (await response.json()) as AuthSessionResponse;
@@ -46,6 +52,10 @@ async function fetchAuthSession(): Promise<AuthSessionUser | null> {
 }
 
 async function logoutSession(): Promise<void> {
+  // Clear the frontend session marker cookie (used by proxy.ts for route protection)
+  const { clearSessionMarkerCookie } = await import("@/lib/auth/session-cookie");
+  clearSessionMarkerCookie();
+
   const logoutUrl = `${getApiV1BaseUrl()}/auth/logout`;
   const refreshUrl = `${getApiV1BaseUrl()}/auth/refresh`;
 
