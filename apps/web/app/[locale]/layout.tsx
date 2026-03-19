@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
 import { LenisProvider } from "@/components/shared/lenis-provider";
+import { OfflineStatusBanner } from "@/components/shared/offline-status-banner";
+import { ServiceWorkerUpdatePrompt } from "@/components/shared/service-worker-update-prompt";
 import { Toaster } from "@/components/ui/sonner";
 import { routing } from "@/lib/i18n/routing";
 import { Providers } from "@/lib/providers";
@@ -45,6 +47,8 @@ export default async function LocaleLayout({
       <body className={`${spaceGrotesk.variable} ${poppins.variable} antialiased`}>
         <NextIntlClientProvider messages={messages}>
           <Providers>
+            <OfflineStatusBanner />
+            <ServiceWorkerUpdatePrompt />
             <LenisProvider>{children}</LenisProvider>
             <Toaster />
           </Providers>

@@ -10,6 +10,7 @@ import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react"
 import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { type PaymentGateway, payReprint, usePaymentGateways } from "@/hooks/usePayments";
 import { redirectToUrl } from "@/lib/browser-navigation";
@@ -279,6 +280,8 @@ export function ReprintSameModal({
   const tCheckout = useTranslations("checkout");
   const locale = useLocale();
   const isMobile = useIsMobile();
+  const isOnline = useOnlineStatus();
+  const isOffline = !isOnline;
   const prefersReducedMotion = useReducedMotion();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [copiesInput, setCopiesInput] = useState("25");
@@ -399,6 +402,11 @@ export function ReprintSameModal({
 
   const handleStartPayment = async (provider: ReprintPaymentProvider) => {
     if (!config) {
+      return;
+    }
+
+    if (isOffline) {
+      setPaymentError(tCommon("offline_banner"));
       return;
     }
 
@@ -738,6 +746,16 @@ export function ReprintSameModal({
                               {tDashboard("reprint_same_payment_authenticated_note")}
                             </p>
 
+                            {isOffline ? (
+                              <p
+                                aria-live="polite"
+                                aria-atomic="true"
+                                className="font-sans mt-4 rounded-[20px] border border-[#2A2A2A] bg-[#050505] px-4 py-3 text-sm leading-6 text-[#d0d0d0]"
+                              >
+                                {tCommon("offline_banner")}
+                              </p>
+                            ) : null}
+
                             {isPaymentGatewaysLoading ? (
                               <div className="mt-4 flex items-center gap-2 rounded-full border border-[#2A2A2A] bg-[#050505] px-4 py-3">
                                 <LoaderCircle
@@ -775,10 +793,10 @@ export function ReprintSameModal({
                                       onClick={() => {
                                         void handleStartPayment(gateway.provider);
                                       }}
-                                      disabled={pendingPaymentProvider !== null}
+                                      disabled={pendingPaymentProvider !== null || isOffline}
                                       className={cn(
                                         "inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border px-5 py-3 font-sans text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
-                                        pendingPaymentProvider !== null
+                                        pendingPaymentProvider !== null || isOffline
                                           ? "cursor-not-allowed border-[#2A2A2A] bg-[#121212] text-white/45"
                                           : "border-[#007eff] bg-transparent text-[#007eff] hover:border-[#3398ff] hover:bg-[#071320] hover:text-[#3398ff]"
                                       )}
