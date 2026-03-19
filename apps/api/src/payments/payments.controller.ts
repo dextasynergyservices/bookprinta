@@ -208,6 +208,7 @@ export class PaymentsController {
     const currency = this.parseOptionalString(body.currency)?.toUpperCase() ?? "NGN";
     const receiptUrl = this.parseOptionalString(body.receiptUrl);
     const orderId = this.parseOptionalString(body.orderId);
+    const recaptchaToken = this.parseOptionalString(body.recaptchaToken);
 
     if (!receipt && !receiptUrl) {
       throw new BadRequestException("Upload a receipt file or provide receiptUrl");
@@ -223,6 +224,7 @@ export class PaymentsController {
         receiptUrl,
         orderId,
         metadata,
+        recaptchaToken,
       },
       receipt
     );

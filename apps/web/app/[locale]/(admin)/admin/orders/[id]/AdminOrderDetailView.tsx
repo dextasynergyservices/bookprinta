@@ -17,7 +17,11 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { humanizeAdminOrderStatus } from "@/hooks/use-admin-orders-filters";
-import { useAdminOrderStatusMutation, useAdminRefundMutation } from "@/hooks/useAdminOrderActions";
+import {
+  isAdminOrderConflictError,
+  useAdminOrderStatusMutation,
+  useAdminRefundMutation,
+} from "@/hooks/useAdminOrderActions";
 import { useAdminOrderDetail } from "@/hooks/useAdminOrderDetail";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -269,6 +273,14 @@ export function AdminOrderDetailView({ orderId }: AdminOrderDetailViewProps) {
         }),
       });
     } catch (error) {
+      if (isAdminOrderConflictError(error)) {
+        toast.error(tAdmin("orders_detail_conflict_title"), {
+          description: getErrorMessage(error, tAdmin("orders_detail_conflict_description")),
+        });
+        detailQuery.refetch();
+        return;
+      }
+
       toast.error(tAdmin("orders_detail_status_error_title"), {
         description: getErrorMessage(error, tAdmin("orders_detail_status_error_description")),
       });

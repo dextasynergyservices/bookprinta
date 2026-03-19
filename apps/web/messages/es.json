@@ -3066,6 +3066,8 @@
     "orders_detail_status_success_description": "El pedido pasó a {status} y el registro de auditoría fue creado.",
     "orders_detail_status_error_title": "No se pudo actualizar el estado del pedido",
     "orders_detail_status_error_description": "Actualiza el pedido y vuelve a intentar ese cambio de estado.",
+    "orders_detail_conflict_title": "Este pedido fue actualizado por otro administrador",
+    "orders_detail_conflict_description": "Actualiza la página para ver la última versión antes de continuar.",
     "orders_detail_customer_phone": "Teléfono",
     "orders_detail_customer_language": "Idioma preferido",
     "orders_detail_book_status": "Estado del libro",

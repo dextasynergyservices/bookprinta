@@ -6,6 +6,8 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { type FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { useGoogleReCaptcha } from "react-google-recaptcha-v3";
+import { RecaptchaProvider } from "@/components/shared/RecaptchaProvider";
 import { Link, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
@@ -116,6 +118,7 @@ function ResetPasswordPageContent() {
   const t = useTranslations("auth");
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { executeRecaptcha } = useGoogleReCaptcha();
   const token = useMemo(() => searchParams.get("token")?.trim() || "", [searchParams]);
 
   const [viewState, setViewState] = useState<"checking" | "form" | "invalid" | "success">(
@@ -224,6 +227,15 @@ function ResetPasswordPageContent() {
 
     setIsSubmitting(true);
     try {
+      let recaptchaToken: string | undefined;
+      if (executeRecaptcha) {
+        try {
+          recaptchaToken = await executeRecaptcha("reset_password_form");
+        } catch {
+          // Allow submission to proceed — backend will skip if no token
+        }
+      }
+
       const response = await fetch(`${getApiV1BaseUrl()}/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -231,6 +243,7 @@ function ResetPasswordPageContent() {
         body: JSON.stringify({
           token,
           newPassword: password,
+          ...(recaptchaToken ? { recaptchaToken } : {}),
         }),
       });
 
@@ -645,8 +658,10 @@ function ResetPasswordFallback() {
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<ResetPasswordFallback />}>
-      <ResetPasswordPageContent />
-    </Suspense>
+    <RecaptchaProvider>
+      <Suspense fallback={<ResetPasswordFallback />}>
+        <ResetPasswordPageContent />
+      </Suspense>
+    </RecaptchaProvider>
   );
 }
