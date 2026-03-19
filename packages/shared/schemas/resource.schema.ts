@@ -39,6 +39,10 @@ const ResourceCategoryBriefSchema = ResourceCategoryCoreSchema.pick({
   slug: true,
 });
 
+export const ADMIN_RESOURCE_COVER_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+
+const ResourceCoverUploadMimeTypeSchema = z.enum(["image/jpeg", "image/png"]);
+
 /**
  * Category shape for public listing filters.
  * Includes count of published articles in each active category.
@@ -138,6 +142,23 @@ const AdminResourceCategorySchema = ResourceCategoryCoreSchema.extend({
 });
 export type AdminResourceCategory = z.infer<typeof AdminResourceCategorySchema>;
 
+export const AdminResourceCategoriesListQuerySchema = z.object({
+  isActive: z
+    .union([z.boolean(), z.enum(["true", "false"])])
+    .transform((value) => (typeof value === "boolean" ? value : value === "true"))
+    .optional(),
+});
+export type AdminResourceCategoriesListQuery = z.infer<
+  typeof AdminResourceCategoriesListQuerySchema
+>;
+
+export const AdminResourceCategoriesListResponseSchema = z.object({
+  categories: z.array(AdminResourceCategorySchema),
+});
+export type AdminResourceCategoriesListResponse = z.infer<
+  typeof AdminResourceCategoriesListResponseSchema
+>;
+
 export const AdminResourcesListItemSchema = z.object({
   id: z.string().cuid(),
   title: z.string().trim().min(1).max(240),
@@ -180,6 +201,23 @@ export const AdminResourceDetailSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 export type AdminResourceDetail = z.infer<typeof AdminResourceDetailSchema>;
+
+export const AdminResourceSlugAvailabilityQuerySchema = z.object({
+  slug: SlugSchema,
+  excludeId: z.string().cuid().optional(),
+});
+export type AdminResourceSlugAvailabilityQuery = z.infer<
+  typeof AdminResourceSlugAvailabilityQuerySchema
+>;
+
+export const AdminResourceSlugAvailabilityResponseSchema = z.object({
+  slug: SlugSchema,
+  isAvailable: z.boolean(),
+  resourceId: z.string().cuid().nullable(),
+});
+export type AdminResourceSlugAvailabilityResponse = z.infer<
+  typeof AdminResourceSlugAvailabilityResponseSchema
+>;
 
 /**
  * POST /api/v1/admin/resources
@@ -241,4 +279,128 @@ export const AdminDeleteResourceCategoryResponseSchema = z.object({
 });
 export type AdminDeleteResourceCategoryResponse = z.infer<
   typeof AdminDeleteResourceCategoryResponseSchema
+>;
+
+export const AuthorizeAdminResourceCoverUploadBodySchema = z
+  .object({
+    action: z.literal("authorize"),
+    mimeType: ResourceCoverUploadMimeTypeSchema,
+  })
+  .strict();
+export type AuthorizeAdminResourceCoverUploadBodyInput = z.infer<
+  typeof AuthorizeAdminResourceCoverUploadBodySchema
+>;
+
+export const FinalizeAdminResourceCoverUploadBodySchema = z
+  .object({
+    action: z.literal("finalize"),
+    secureUrl: z.string().trim().url("Cover image URL must be a valid URL").max(2048),
+    publicId: z.string().trim().min(1).max(255),
+  })
+  .strict();
+export type FinalizeAdminResourceCoverUploadBodyInput = z.infer<
+  typeof FinalizeAdminResourceCoverUploadBodySchema
+>;
+
+export const RequestAdminResourceCoverUploadBodySchema = z
+  .object({
+    action: z.enum(["authorize", "finalize"]),
+    mimeType: ResourceCoverUploadMimeTypeSchema.optional(),
+    secureUrl: z.string().trim().url("Cover image URL must be a valid URL").max(2048).optional(),
+    publicId: z.string().trim().min(1).max(255).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.action === "authorize") {
+      if (!value.mimeType) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["mimeType"],
+          message: "mimeType is required when action is authorize",
+        });
+      }
+      return;
+    }
+
+    if (!value.secureUrl) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["secureUrl"],
+        message: "secureUrl is required when action is finalize",
+      });
+    }
+
+    if (!value.publicId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["publicId"],
+        message: "publicId is required when action is finalize",
+      });
+    }
+  });
+export type RequestAdminResourceCoverUploadBodyInput = z.infer<
+  typeof RequestAdminResourceCoverUploadBodySchema
+>;
+
+export const AuthorizeAdminResourceCoverUploadResponseSchema = z
+  .object({
+    action: z.literal("authorize"),
+    upload: z
+      .object({
+        signature: z.string().min(1),
+        timestamp: z.number().int().positive(),
+        cloudName: z.string().min(1),
+        apiKey: z.string().min(1),
+        folder: z.string().min(1),
+        eager: z.string().min(1).optional(),
+        resourceType: z.literal("image"),
+        publicId: z.string().min(1),
+        tags: z.array(z.string().min(1)).optional(),
+      })
+      .strict(),
+  })
+  .strict();
+export type AuthorizeAdminResourceCoverUploadResponse = z.infer<
+  typeof AuthorizeAdminResourceCoverUploadResponseSchema
+>;
+
+export const FinalizeAdminResourceCoverUploadResponseSchema = z
+  .object({
+    action: z.literal("finalize"),
+    coverImageUrl: z.string().trim().url().max(2048),
+  })
+  .strict();
+export type FinalizeAdminResourceCoverUploadResponse = z.infer<
+  typeof FinalizeAdminResourceCoverUploadResponseSchema
+>;
+
+export const RequestAdminResourceCoverUploadResponseSchema = z
+  .object({
+    action: z.enum(["authorize", "finalize"]),
+    upload: AuthorizeAdminResourceCoverUploadResponseSchema.shape.upload.optional(),
+    coverImageUrl: z.string().trim().url().max(2048).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.action === "authorize") {
+      if (!value.upload) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["upload"],
+          message: "upload is required when action is authorize",
+        });
+      }
+      return;
+    }
+
+    if (!value.coverImageUrl) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["coverImageUrl"],
+        message: "coverImageUrl is required when action is finalize",
+      });
+    }
+  });
+export type RequestAdminResourceCoverUploadResponse = z.infer<
+  typeof RequestAdminResourceCoverUploadResponseSchema
 >;
