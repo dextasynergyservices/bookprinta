@@ -661,7 +661,7 @@ export function PaymentMethodModal({
                             onChange={(event) => setOnlineFullName(event.target.value)}
                             placeholder={t("payment_modal_form_full_name")}
                             aria-label={t("payment_modal_form_full_name")}
-                            className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                            className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                           />
                           <input
                             type="email"
@@ -671,7 +671,7 @@ export function PaymentMethodModal({
                             aria-label={t("payment_modal_form_email")}
                             readOnly={Boolean(lockedReprintEmail)}
                             aria-readonly={Boolean(lockedReprintEmail)}
-                            className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                            className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                           />
                           <input
                             type="tel"
@@ -679,7 +679,7 @@ export function PaymentMethodModal({
                             onChange={(event) => setOnlinePhone(event.target.value)}
                             placeholder={t("payment_modal_form_phone")}
                             aria-label={t("payment_modal_form_phone")}
-                            className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                            className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                           />
                         </div>
 
@@ -868,7 +868,7 @@ export function PaymentMethodModal({
                                   onChange={(event) => setBankFullName(event.target.value)}
                                   placeholder={t("payment_modal_form_full_name")}
                                   aria-label={t("payment_modal_form_full_name")}
-                                  className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                                  className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                                 />
                                 <input
                                   type="email"
@@ -878,7 +878,7 @@ export function PaymentMethodModal({
                                   aria-label={t("payment_modal_form_email")}
                                   readOnly={Boolean(lockedReprintEmail)}
                                   aria-readonly={Boolean(lockedReprintEmail)}
-                                  className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                                  className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                                 />
                                 <input
                                   type="tel"
@@ -886,7 +886,7 @@ export function PaymentMethodModal({
                                   onChange={(event) => setBankPhone(event.target.value)}
                                   placeholder={t("payment_modal_form_phone")}
                                   aria-label={t("payment_modal_form_phone")}
-                                  className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                                  className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                                 />
 
                                 <label className="block">

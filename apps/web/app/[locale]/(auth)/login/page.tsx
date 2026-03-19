@@ -578,7 +578,7 @@ function LoginPageInner() {
                 aria-describedby={identifierError ? "login-identifier-error" : undefined}
                 placeholder={t("login_email_placeholder")}
                 className={cn(
-                  "min-h-12 w-full rounded-xl border bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 transition-[border-color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]/20",
+                  "min-h-12 w-full rounded-xl border bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 transition-[border-color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]/20",
                   identifierError
                     ? "border-[#EF4444] focus-visible:border-[#EF4444]"
                     : "border-[#2A2A2A] focus-visible:border-[#007eff]"
@@ -621,7 +621,7 @@ function LoginPageInner() {
                   aria-describedby={passwordError ? "login-password-error" : undefined}
                   placeholder={t("login_password_placeholder")}
                   className={cn(
-                    "min-h-12 w-full rounded-xl border bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/35 transition-[border-color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]/20",
+                    "min-h-12 w-full rounded-xl border bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/45 transition-[border-color] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]/20",
                     passwordError
                       ? "border-[#EF4444] focus-visible:border-[#EF4444]"
                       : "border-[#2A2A2A] focus-visible:border-[#007eff]"

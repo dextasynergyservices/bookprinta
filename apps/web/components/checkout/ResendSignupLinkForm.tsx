@@ -99,7 +99,7 @@ export function ResendSignupLinkForm({ onSuccess }: ResendSignupLinkFormProps) {
           onChange={(event) => setEmail(event.target.value)}
           aria-label={t("payment_confirmation_resend_email_placeholder")}
           placeholder={t("payment_confirmation_resend_email_placeholder")}
-          className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+          className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
         />
 
         <button
