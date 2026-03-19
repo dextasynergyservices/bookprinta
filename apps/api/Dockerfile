@@ -4,7 +4,7 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 
-RUN npm install -g bun@1.3.4
+RUN npm install -g bun
 
 COPY package.json bun.lock ./
 COPY apps/api/package.json ./apps/api/
@@ -19,7 +19,7 @@ RUN bun install
 FROM node:22-alpine AS builder
 WORKDIR /app
 
-RUN npm install -g bun@1.3.4
+RUN npm install -g bun
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -44,7 +44,7 @@ RUN cd apps/api && bun run build
 FROM node:22-alpine AS runner
 WORKDIR /app
 
-RUN npm install -g bun@1.3.4
+RUN npm install -g bun
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nestjs
