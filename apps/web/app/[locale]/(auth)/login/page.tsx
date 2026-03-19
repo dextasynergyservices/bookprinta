@@ -723,7 +723,7 @@ function LoginPageInner() {
 
           <div className="mt-5 flex items-center justify-center gap-2 font-sans text-xs text-white/55">
             <Link
-              href="/pricing"
+              href="/terms"
               className="rounded-sm px-1 text-white/60 transition-colors duration-150 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
             >
               {t("login_footer_terms")}
@@ -732,7 +732,7 @@ function LoginPageInner() {
               /
             </span>
             <Link
-              href="/pricing"
+              href="/privacy"
               className="rounded-sm px-1 text-white/60 transition-colors duration-150 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
             >
               {t("login_footer_privacy")}

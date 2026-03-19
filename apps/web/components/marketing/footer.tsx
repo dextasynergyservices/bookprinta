@@ -43,7 +43,6 @@ const legalLinks = [
   { href: "/terms", labelKey: "terms" },
   { href: "/cookies", labelKey: "cookies" },
   { href: "/refund-policy", labelKey: "refund_policy" },
-  { href: "/sustainability", labelKey: "sustainability" },
 ] as const;
 
 export function Footer() {

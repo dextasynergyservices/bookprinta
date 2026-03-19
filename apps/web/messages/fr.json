@@ -1526,7 +1526,6 @@
     "terms": "Conditions générales",
     "cookies": "Politique de cookies",
     "refund_policy": "Politique de remboursement",
-    "sustainability": "Politique de durabilité",
     "company_number": "© 2026 BookPrinta",
     "instagram": "Suivez-nous sur Instagram",
     "twitter": "Suivez-nous sur X",
@@ -2737,6 +2736,160 @@
     "orders_refund_error_invalid_type": "Sélectionnez un type de remboursement autorisé avant de continuer.",
     "orders_refund_error_invalid_reason": "Saisissez un motif de remboursement avant de continuer.",
     "orders_refund_error_invalid_amount": "Saisissez un montant personnalisé valide jusqu'à {amount}."
+  },
+  "legal": {
+    "home_link_aria": "Accueil BookPrinta",
+    "back_to_home": "Retour à l'accueil",
+    "last_updated_label": "Dernière mise à jour :",
+    "contact_email": "hello@bookprinta.com",
+    "terms": {
+      "meta_title": "Conditions générales - BookPrinta",
+      "meta_description": "Consultez les conditions qui encadrent l'utilisation des services de publication, d'impression, de paiement et de commande de BookPrinta.",
+      "title": "Conditions générales",
+      "last_updated_date": "19 mars 2026",
+      "intro": {
+        "paragraph_1": "Les présentes Conditions générales encadrent votre accès et votre utilisation du site, des outils et des services de publication de BookPrinta.",
+        "paragraph_2": "En créant un compte, en soumettant du contenu, en demandant un devis ou en passant une commande, vous acceptez ces conditions."
+      },
+      "sections": {
+        "acceptance": {
+          "title": "Acceptation des conditions",
+          "paragraph_1": "Lorsque vous accédez à BookPrinta ou utilisez ses services, vous confirmez avoir lu, compris et accepté les présentes conditions ainsi que les politiques associées mentionnées sur la plateforme.",
+          "paragraph_2": "Si vous utilisez le service au nom d'une autre personne, d'une maison d'édition ou d'une organisation, vous confirmez avoir l'autorité nécessaire pour les engager."
+        },
+        "services": {
+          "title": "Services",
+          "paragraph_1": "BookPrinta propose des services liés à la réception de manuscrits, à la préparation de texte, à la mise en page, à la coordination graphique, à la production imprimée, aux aperçus et à l'assistance à la livraison, selon la formule, les options ou le devis personnalisé choisis.",
+          "paragraph_2": "Les délais et les livrables peuvent varier selon la qualité du manuscrit, les demandes de révision, la rapidité d'approbation, la disponibilité des prestataires et les contraintes opérationnelles."
+        },
+        "payment": {
+          "title": "Politique de paiement",
+          "paragraph_1": "Les prix affichés sur le site ou indiqués dans un devis personnalisé ne s'appliquent qu'aux services et quantités sélectionnés pour votre commande. Les paiements peuvent être traités via des prestataires tels que Paystack, Stripe, PayPal ou par virement bancaire vérifié.",
+          "paragraph_2": "La production, l'exécution ou la livraison ne peuvent commencer qu'après confirmation effective du paiement. Vous êtes responsable de l'exactitude des informations de facturation et de tous les frais supplémentaires approuvés, y compris les options, révisions, frais d'expédition ou dépassements de pages."
+        },
+        "refund": {
+          "title": "Politique de remboursement",
+          "paragraph_1": "Les demandes de remboursement sont examinées au cas par cas. Une fois l'aperçu final validé ou la production commencée, les remboursements ne sont généralement plus possibles, car la fabrication et l'exécution peuvent déjà être en cours.",
+          "paragraph_2": "Si une erreur vérifiée est imputable à BookPrinta, nous pouvons choisir de proposer une correction, une réimpression, un avoir de service ou un remboursement partiel ou total, selon les circonstances.",
+          "paragraph_3": "Si vous pensez qu'il existe un problème avec votre commande, contactez-nous rapidement via notre <contactPage>page de contact</contactPage> ou par email à <email>{contactEmail}</email> afin que nous puissions examiner la situation."
+        },
+        "acceptable_content": {
+          "title": "Contenu acceptable",
+          "paragraph_1": "Vous restez responsable de chaque fichier, image, manuscrit et instruction soumis à BookPrinta. Vous devez détenir les droits nécessaires ou disposer d'une autorisation pour utiliser et publier ce contenu.",
+          "paragraph_2": "Le contenu soumis ne doit pas être illégal, contrefaisant, diffamatoire, haineux, abusif, frauduleux, trompeur ou autrement nuisible, et il ne doit pas contenir de fichiers malveillants ou dangereux.",
+          "paragraph_3": "Nous pouvons demander des précisions, une preuve de propriété ou un examen supplémentaire avant de traiter un contenu soulevant des questions juridiques, éditoriales ou de sécurité."
+        },
+        "right_to_refuse": {
+          "title": "Droit de BookPrinta de refuser une commande",
+          "paragraph_1": "BookPrinta peut refuser, suspendre ou annuler une commande si le contenu ou les instructions soumis enfreignent les présentes conditions, la loi applicable, les droits d'autrui, les exigences de vérification de paiement ou des limites opérationnelles.",
+          "paragraph_2": "Nous pouvons également demander des modifications, une preuve de propriété, une vérification d'identité ou une confirmation de paiement avant de poursuivre un projet."
+        },
+        "liability_limitations": {
+          "title": "Limitations de responsabilité",
+          "paragraph_1": "Dans toute la mesure permise par la loi, BookPrinta ne saurait être responsable des pertes indirectes, accessoires, spéciales ou consécutives, notamment la perte de profit, l'interruption d'activité, la perte de données ou l'atteinte à la réputation.",
+          "paragraph_2": "Vous restez responsable de l'exactitude, de la légalité et de l'approbation finale de votre manuscrit, de vos métadonnées, de vos fichiers téléversés et de vos instructions de production.",
+          "paragraph_3": "Lorsque la responsabilité ne peut pas être exclue, la responsabilité totale de BookPrinta pour une réclamation liée à une commande ne dépassera pas le montant payé pour cette commande."
+        },
+        "governing_law": {
+          "title": "Droit applicable",
+          "paragraph_1": "Les présentes conditions sont régies par les lois applicables de la République fédérale du Nigeria.",
+          "paragraph_2": "En cas de litige, les deux parties conviennent d'abord de tenter une résolution de bonne foi. Si cela n'est pas possible, le litige sera porté devant une juridiction compétente au Nigeria."
+        }
+      }
+    },
+    "refund_policy": {
+      "meta_title": "Politique de remboursement - BookPrinta",
+      "meta_description": "Consultez l'éligibilité au remboursement chez BookPrinta selon l'étape de production et la marche à suivre pour contacter le support.",
+      "title": "Politique de remboursement",
+      "last_updated_date": "5 mars 2026",
+      "sections": {
+        "eligibility": {
+          "title": "Éligibilité selon l'étape de production"
+        },
+        "support": {
+          "title": "Support et examen"
+        }
+      }
+    },
+    "privacy": {
+      "meta_title": "Politique de confidentialité - BookPrinta",
+      "meta_description": "Découvrez quelles données personnelles BookPrinta collecte, comment elles sont utilisées et quels choix vous avez concernant vos informations.",
+      "title": "Politique de confidentialité",
+      "last_updated_date": "19 mars 2026",
+      "intro": {
+        "paragraph_1": "La présente Politique de confidentialité explique comment BookPrinta collecte, utilise, stocke et partage les informations personnelles lorsque vous utilisez notre site, demandez un devis, passez une commande ou contactez notre équipe.",
+        "paragraph_2": "Nous collectons uniquement les informations nécessaires pour faire fonctionner le service, vous accompagner dans votre parcours de publication et respecter nos obligations juridiques, de paiement et de sécurité."
+      },
+      "sections": {
+        "data_collected": {
+          "title": "Données collectées",
+          "paragraph_1": "Nous collectons les informations que vous fournissez directement, telles que votre nom, votre adresse email, votre numéro de téléphone, vos détails de facturation et de livraison, vos fichiers de manuscrit, vos notes de commande et vos messages au support.",
+          "paragraph_2": "Nous pouvons également collecter des données de compte, l'historique de commande, l'état des paiements et les références des prestataires, ainsi que des informations sur l'appareil, le navigateur et l'usage nécessaires au fonctionnement et à la sécurisation de la plateforme."
+        },
+        "how_we_use_data": {
+          "title": "Comment nous utilisons les données",
+          "paragraph_1": "Nous utilisons vos données pour créer et gérer les comptes, traiter les devis et les commandes, gérer les paiements, fournir les services de publication, envoyer des mises à jour transactionnelles et répondre aux demandes d'assistance.",
+          "paragraph_2": "Nous pouvons également utiliser ces données pour améliorer les performances du produit, mesurer la qualité du service, prévenir la fraude ou les abus, maintenir la sécurité et respecter les obligations légales ou réglementaires."
+        },
+        "data_sharing": {
+          "title": "Partage des données",
+          "paragraph_1": "Nous ne partageons les informations personnelles qu'avec des prestataires et partenaires de confiance qui nous aident à faire fonctionner BookPrinta, comme les processeurs de paiement, les services d'hébergement et de stockage cloud, les outils de communication et les partenaires de production ou d'exécution.",
+          "paragraph_2": "Nous ne vendons pas vos données personnelles. Nous pouvons divulguer des informations lorsque la loi l'exige, pour faire respecter nos politiques ou pour protéger les droits, la sécurité et l'intégrité de BookPrinta, de nos utilisateurs ou de tiers."
+        },
+        "cookies": {
+          "title": "Cookies",
+          "paragraph_1": "BookPrinta utilise des cookies et des technologies similaires pour les fonctions essentielles du site, la continuité de session, la mémorisation des préférences, l'analyse et l'amélioration du service.",
+          "paragraph_2": "Vous pouvez gérer les cookies via les paramètres de votre navigateur, mais la désactivation de certains cookies peut affecter le bon fonctionnement de certaines parties du site."
+        },
+        "user_rights": {
+          "title": "Droits des utilisateurs",
+          "paragraph_1": "Selon la loi qui vous est applicable, vous pouvez avoir le droit de demander l'accès à vos données personnelles, de demander des corrections, de solliciter leur suppression, de vous opposer à certains traitements ou de retirer votre consentement lorsque celui-ci s'applique.",
+          "paragraph_2": "Vous pouvez également vous désinscrire à tout moment des communications marketing non essentielles. Avant de traiter certaines demandes, nous pouvons devoir vérifier votre identité afin de protéger vos informations."
+        },
+        "contact": {
+          "title": "Contact",
+          "paragraph_1": "Pour toute question relative à la confidentialité, toute demande concernant vos données ou toute réclamation, contactez-nous à <email>{contactEmail}</email> ou utilisez notre <contactPage>page de contact</contactPage>.",
+          "paragraph_2": "Nous examinons les demandes relatives à la confidentialité dans un délai raisonnable et pouvons conserver des informations limitées lorsque cela est nécessaire pour des raisons juridiques, comptables, de prévention de la fraude ou de sécurité."
+        }
+      }
+    },
+    "cookies_page": {
+      "meta_title": "Politique de cookies - BookPrinta",
+      "meta_description": "Découvrez comment BookPrinta utilise les cookies, les types de cookies utilisés et les choix dont vous disposez pour les gérer.",
+      "title": "Politique de cookies",
+      "last_updated_date": "19 mars 2026",
+      "intro": {
+        "paragraph_1": "Cette Politique de cookies explique comment BookPrinta utilise des cookies et technologies similaires lorsque vous visitez notre site, vous connectez à votre compte, passez une commande ou interagissez avec nos fonctionnalités de support et de produit.",
+        "paragraph_2": "Nous utilisons les cookies pour sécuriser la plateforme, mémoriser vos préférences, mesurer les performances et améliorer l'expérience de publication sur différents appareils."
+      },
+      "sections": {
+        "what_cookies_are": {
+          "title": "Ce que sont les cookies",
+          "paragraph_1": "Les cookies sont de petits fichiers texte enregistrés sur votre appareil lorsque vous consultez un site web. Ils permettent aux sites de mémoriser vos actions et préférences, de reconnaître les visiteurs récurrents et d'assurer des fonctions importantes comme les sessions de connexion et l'activité liée au panier ou au devis.",
+          "paragraph_2": "Certains cookies ne durent que le temps de votre session de navigation, tandis que d'autres restent plus longtemps afin de conserver vos préférences et certains réglages de sécurité lors de votre prochaine visite."
+        },
+        "how_we_use_cookies": {
+          "title": "Comment nous utilisons les cookies",
+          "paragraph_1": "BookPrinta utilise des cookies et technologies similaires pour maintenir les comptes connectés, accompagner les parcours de paiement et de tableau de bord, mémoriser la langue ou les préférences d'interface, prévenir les abus et comprendre les performances du site et du parcours de commande.",
+          "paragraph_2": "Nous pouvons également utiliser des cookies de mesure ou de diagnostic afin d'identifier les parcours défaillants, d'améliorer la rapidité et l'ergonomie, et de garantir une expérience fiable sur le site marketing comme dans l'application."
+        },
+        "cookie_choices": {
+          "title": "Vos choix concernant les cookies",
+          "paragraph_1": "Vous pouvez contrôler ou supprimer les cookies depuis les paramètres de votre navigateur. La plupart des navigateurs permettent de bloquer certaines catégories de cookies, d'effacer les cookies enregistrés ou d'être averti avant qu'un cookie soit déposé.",
+          "paragraph_2": "Veuillez noter que la désactivation des cookies essentiels peut affecter la connexion, le suivi de commande, le paiement, les préférences enregistrées ou d'autres fonctions centrales de l'expérience BookPrinta."
+        },
+        "third_party_tools": {
+          "title": "Outils tiers",
+          "paragraph_1": "Certains cookies peuvent être déposés par des services tiers de confiance qui nous aident à traiter les paiements, mesurer l'audience, sécuriser la plateforme ou faciliter la communication avec les clients. Ces prestataires peuvent collecter des données techniques limitées conformément à leurs propres politiques.",
+          "paragraph_2": "Nous examinons les outils que nous utilisons et cherchons à travailler uniquement avec des prestataires capables de soutenir des opérations sûres et respectueuses de la vie privée pour la publication, les paiements et le support."
+        },
+        "contact": {
+          "title": "Contact",
+          "paragraph_1": "Si vous avez des questions sur l'utilisation des cookies ou de technologies de suivi similaires par BookPrinta, contactez-nous à <email>{contactEmail}</email> ou via notre <contactPage>page de contact</contactPage>.",
+          "paragraph_2": "Si votre demande concerne plus largement vos droits relatifs aux données personnelles, consultez également notre Politique de confidentialité pour plus d'informations sur le traitement des données et les choix qui vous sont offerts."
+        }
+      }
+    }
   },
   "not_found": {
     "title": "Page introuvable",
