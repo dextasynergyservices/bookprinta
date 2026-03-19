@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { resolvePostLoginRedirect } from "@/lib/auth/redirect-policy";
 import LoginPage from "./page";
 
@@ -165,6 +165,19 @@ describe("login page success redirect routing", () => {
       });
       expect(routerReplaceMock).toHaveBeenCalledWith("/fr/dashboard/orders/123?tab=tracking");
     });
+  });
+
+  it("points the auth footer Terms and Privacy links to the legal pages", () => {
+    render(<LoginPage />);
+
+    expect(screen.getByRole("link", { name: "login_footer_terms" })).toHaveAttribute(
+      "href",
+      "/terms"
+    );
+    expect(screen.getByRole("link", { name: "login_footer_privacy" })).toHaveAttribute(
+      "href",
+      "/privacy"
+    );
   });
 
   it("falls back admin attempting user returnTo to admin home", async () => {
