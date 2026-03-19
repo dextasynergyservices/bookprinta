@@ -2,18 +2,29 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from "@nestjs/swagger";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
 import {
   AdminCreateResourceCategoryDto,
   AdminDeleteResourceCategoryResponseDto,
+  AdminResourceCategoriesListQueryDto,
+  AdminResourceCategoriesListResponseDto,
   AdminResourceCategoryResponseDto,
   AdminUpdateResourceCategoryDto,
 } from "./dto/index.js";
@@ -22,10 +33,34 @@ import { ResourcesService } from "./resources.service.js";
 @ApiTags("Admin Resources")
 @Controller("admin/resource-categories")
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.EDITOR)
 @ApiBearerAuth("access-token")
 export class AdminResourceCategoriesController {
   constructor(private readonly resourcesService: ResourcesService) {}
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "List resource categories (admin)",
+    description:
+      "Returns all resource categories for admin management, with optional active-state filtering.",
+  })
+  @ApiQuery({
+    name: "isActive",
+    required: false,
+    description: "Filter categories by active state",
+    schema: { oneOf: [{ type: "boolean" }, { type: "string", enum: ["true", "false"] }] },
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Resource categories retrieved",
+    type: AdminResourceCategoriesListResponseDto,
+  })
+  async list(
+    @Query() query: AdminResourceCategoriesListQueryDto
+  ): Promise<AdminResourceCategoriesListResponseDto> {
+    return this.resourcesService.listAdminResourceCategories(query);
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)

@@ -25,6 +25,7 @@ const ALLOWED_TAGS = new Set([
   "h5",
   "h6",
   "a",
+  "img",
   "pre",
   "code",
 ]);
@@ -64,6 +65,54 @@ function sanitizeHref(rawHref: string | null): string {
   if (isBlockedProtocol) return "#";
 
   return href;
+}
+
+function sanitizeSrc(rawSrc: string | null): string | null {
+  if (!rawSrc) return null;
+
+  const src = rawSrc.trim();
+  if (!src) return null;
+
+  if (src.startsWith("/")) {
+    return src;
+  }
+
+  const lowercaseSrc = src.toLowerCase();
+  const isBlockedProtocol =
+    lowercaseSrc.startsWith("javascript:") ||
+    lowercaseSrc.startsWith("data:") ||
+    lowercaseSrc.startsWith("vbscript:") ||
+    lowercaseSrc.startsWith("file:");
+
+  if (isBlockedProtocol) return null;
+
+  try {
+    const parsed = new URL(src);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeImageAlign(rawAlign: string | null): "left" | "center" | "right" {
+  if (rawAlign === "left" || rawAlign === "center" || rawAlign === "right") {
+    return rawAlign;
+  }
+
+  return "center";
+}
+
+function sanitizeImageWidth(rawWidth: string | null): number {
+  if (!rawWidth) return 100;
+
+  const parsed = Number.parseInt(rawWidth, 10);
+  if (!Number.isFinite(parsed)) return 100;
+
+  return Math.min(100, Math.max(30, parsed));
 }
 
 function isLikelyHtml(content: string): boolean {
@@ -107,6 +156,7 @@ export function sanitizeArticleHtml(content: string): string {
 
       if (isClosing) {
         if (tag === "br") return "";
+        if (tag === "img") return "";
         return `</${tag}>`;
       }
 
@@ -118,6 +168,19 @@ export function sanitizeArticleHtml(content: string): string {
         const rel = isExternal ? ' rel="noopener noreferrer nofollow"' : "";
         const target = isExternal ? ' target="_blank"' : "";
         return `<a href="${escapeAttribute(href)}"${target}${rel}>`;
+      }
+
+      if (tag === "img") {
+        const src = sanitizeSrc(extractAttribute(String(attrs), "src"));
+        if (!src) return "";
+
+        const alt = extractAttribute(String(attrs), "alt") ?? "";
+        const title = extractAttribute(String(attrs), "title");
+        const titleAttribute = title ? ` title="${escapeAttribute(title)}"` : "";
+        const align = sanitizeImageAlign(extractAttribute(String(attrs), "data-align"));
+        const width = sanitizeImageWidth(extractAttribute(String(attrs), "data-width"));
+
+        return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}" data-align="${align}" data-width="${width}" style="width:${width}%;height:auto;" loading="lazy" decoding="async"${titleAttribute} />`;
       }
 
       return `<${tag}>`;

@@ -3,8 +3,12 @@ import {
   AdminCreateResourceSchema,
   AdminDeleteResourceCategoryResponseSchema,
   AdminDeleteResourceResponseSchema,
+  AdminResourceCategoriesListQuerySchema,
+  AdminResourceCategoriesListResponseSchema,
   AdminResourceCategoryResponseSchema,
   AdminResourceDetailSchema,
+  AdminResourceSlugAvailabilityQuerySchema,
+  AdminResourceSlugAvailabilityResponseSchema,
   AdminResourcesListQuerySchema,
   AdminResourcesListResponseSchema,
   AdminUpdateResourceCategorySchema,
@@ -13,6 +17,8 @@ import {
   PublicResourceDetailResponseSchema,
   PublicResourcesListQuerySchema,
   PublicResourcesListResponseSchema,
+  RequestAdminResourceCoverUploadBodySchema,
+  RequestAdminResourceCoverUploadResponseSchema,
 } from "@bookprinta/shared";
 import { createZodDto } from "nestjs-zod";
 
@@ -37,8 +43,28 @@ export class PublicResourceDetailResponseDto extends createZodDto(
 /** GET /api/v1/admin/resources?cursor=&limit=&q=&categoryId=&isPublished= */
 export class AdminResourcesListQueryDto extends createZodDto(AdminResourcesListQuerySchema) {}
 
+/** GET /api/v1/admin/resources/slug-availability?slug=&excludeId= */
+export class AdminResourceSlugAvailabilityQueryDto extends createZodDto(
+  AdminResourceSlugAvailabilityQuerySchema
+) {}
+
+/** Response for GET /api/v1/admin/resources/slug-availability */
+export class AdminResourceSlugAvailabilityResponseDto extends createZodDto(
+  AdminResourceSlugAvailabilityResponseSchema
+) {}
+
 /** Response for GET /api/v1/admin/resources */
 export class AdminResourcesListResponseDto extends createZodDto(AdminResourcesListResponseSchema) {}
+
+/** POST /api/v1/admin/resources/cover-upload */
+export class RequestAdminResourceCoverUploadBodyDto extends createZodDto(
+  RequestAdminResourceCoverUploadBodySchema
+) {}
+
+/** Response for POST /api/v1/admin/resources/cover-upload */
+export class RequestAdminResourceCoverUploadResponseDto extends createZodDto(
+  RequestAdminResourceCoverUploadResponseSchema
+) {}
 
 /** POST /api/v1/admin/resources */
 export class AdminCreateResourceDto extends createZodDto(AdminCreateResourceSchema) {}
@@ -57,6 +83,16 @@ export class AdminDeleteResourceResponseDto extends createZodDto(
 /** POST /api/v1/admin/resource-categories */
 export class AdminCreateResourceCategoryDto extends createZodDto(
   AdminCreateResourceCategorySchema
+) {}
+
+/** GET /api/v1/admin/resource-categories */
+export class AdminResourceCategoriesListQueryDto extends createZodDto(
+  AdminResourceCategoriesListQuerySchema
+) {}
+
+/** Response for GET /api/v1/admin/resource-categories */
+export class AdminResourceCategoriesListResponseDto extends createZodDto(
+  AdminResourceCategoriesListResponseSchema
 ) {}
 
 /** PATCH /api/v1/admin/resource-categories/:id */
