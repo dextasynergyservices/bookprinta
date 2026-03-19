@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AddonCard } from "@/components/checkout/AddonCard";
 import { PaymentMethodModal } from "@/components/checkout/PaymentMethodModal";
+import { RecaptchaProvider } from "@/components/shared/RecaptchaProvider";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { type Addon, useAddons } from "@/hooks/useAddons";
 import { usePackages } from "@/hooks/usePackages";
@@ -880,13 +881,15 @@ export function CheckoutView() {
         </div>
       </div>
 
-      <PaymentMethodModal
-        open={isPaymentModalOpen}
-        onOpenChange={setIsPaymentModalOpen}
-        amount={orderTotal}
-        packageName={selectedPackage.name}
-        paymentMetadata={paymentMetadata}
-      />
+      <RecaptchaProvider>
+        <PaymentMethodModal
+          open={isPaymentModalOpen}
+          onOpenChange={setIsPaymentModalOpen}
+          amount={orderTotal}
+          packageName={selectedPackage.name}
+          paymentMetadata={paymentMetadata}
+        />
+      </RecaptchaProvider>
     </main>
   );
 }

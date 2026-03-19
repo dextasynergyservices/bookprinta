@@ -64,6 +64,10 @@ export class AdminShowcaseUploadService {
       throw new BadRequestException("Cover image file name is required.");
     }
 
+    if (!cloudinary.isWithinSizeLimit(input.fileSize)) {
+      throw new BadRequestException("Cover image exceeds the maximum file size.");
+    }
+
     const publicId = `cover-${adminId}-${randomUUID().replace(/-/g, "")}`;
     const folder = this.buildAdminShowcaseCoverUploadFolder();
     const upload = cloudinary.generateSignature({

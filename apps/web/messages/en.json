@@ -3071,6 +3071,8 @@
     "orders_detail_status_success_description": "The order moved to {status} and the audit log was recorded.",
     "orders_detail_status_error_title": "Unable to update order status",
     "orders_detail_status_error_description": "Refresh the order and try that status change again.",
+    "orders_detail_conflict_title": "This order was updated by another admin",
+    "orders_detail_conflict_description": "Refresh the page to see the latest version before continuing.",
     "orders_detail_customer_phone": "Phone",
     "orders_detail_customer_language": "Preferred Language",
     "orders_detail_book_status": "Book Status",

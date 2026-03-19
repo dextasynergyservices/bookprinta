@@ -20,6 +20,7 @@ describe("UsersService", () => {
   const cloudinary = {
     generateSignature: jest.fn(),
     delete: jest.fn(),
+    isWithinSizeLimit: jest.fn().mockReturnValue(true),
   };
 
   let service: UsersService;
@@ -289,6 +290,44 @@ describe("UsersService", () => {
         publicId: "profile-image",
       })
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects profile image uploads that exceed the 10 MB size limit", async () => {
+    cloudinary.isWithinSizeLimit = jest.fn().mockReturnValue(false);
+    prisma.user.findUnique.mockResolvedValue(createUserRow());
+
+    await expect(
+      service.requestMyProfileImageUpload("cmuser1", {
+        action: "authorize",
+        mimeType: "image/png",
+        fileSize: 15 * 1024 * 1024, // 15 MB — exceeds limit
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(cloudinary.isWithinSizeLimit).toHaveBeenCalledWith(15 * 1024 * 1024);
+    expect(cloudinary.generateSignature).not.toHaveBeenCalled();
+  });
+
+  it("authorizes profile image uploads within the size limit", async () => {
+    cloudinary.isWithinSizeLimit = jest.fn().mockReturnValue(true);
+    cloudinary.generateSignature.mockReturnValue({
+      signature: "sig",
+      timestamp: 123456,
+      cloudName: "bookprinta",
+      apiKey: "key",
+      folder: "bookprinta/profile-images/cmuser1",
+    });
+    prisma.user.findUnique.mockResolvedValue(createUserRow());
+
+    const result = await service.requestMyProfileImageUpload("cmuser1", {
+      action: "authorize",
+      mimeType: "image/jpeg",
+      fileSize: 2 * 1024 * 1024, // 2 MB — within limit
+    });
+
+    expect(cloudinary.isWithinSizeLimit).toHaveBeenCalledWith(2 * 1024 * 1024);
+    expect(result.action).toBe("authorize");
+    expect(result.upload).toBeDefined();
   });
 });
 

@@ -125,6 +125,7 @@ export class HealthService {
       try {
         const response = await fetch(`${gotenbergUrl}/health`, {
           signal: AbortSignal.timeout(5000),
+          headers: this.buildGotenbergAuthHeaders(),
         });
         results.gotenberg = {
           status: response.ok ? "ok" : "error",
@@ -202,5 +203,17 @@ export class HealthService {
 
   async resetDevelopmentQueues() {
     return this.queueAdmin.resetDevelopmentQueues();
+  }
+
+  private buildGotenbergAuthHeaders(): Record<string, string> {
+    const username = process.env.GOTENBERG_USERNAME?.trim();
+    const password = process.env.GOTENBERG_PASSWORD?.trim();
+
+    if (!username || !password) {
+      return {};
+    }
+
+    const token = Buffer.from(`${username}:${password}`, "utf-8").toString("base64");
+    return { Authorization: `Basic ${token}` };
   }
 }

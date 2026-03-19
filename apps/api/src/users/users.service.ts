@@ -237,7 +237,11 @@ export class UsersService {
     input: RequestMyProfileImageUploadBodyInput
   ): Promise<RequestMyProfileImageUploadResponse> {
     if (input.action === "authorize") {
-      return this.authorizeProfileImageUpload(userId, input.mimeType as "image/jpeg" | "image/png");
+      return this.authorizeProfileImageUpload(
+        userId,
+        input.mimeType as "image/jpeg" | "image/png",
+        input.fileSize as number
+      );
     }
 
     return this.finalizeProfileImageUpload(userId, {
@@ -965,8 +969,13 @@ export class UsersService {
 
   private async authorizeProfileImageUpload(
     userId: string,
-    mimeType: "image/jpeg" | "image/png"
+    mimeType: "image/jpeg" | "image/png",
+    fileSize: number
   ): Promise<AuthorizeMyProfileImageUploadResponse> {
+    if (!this.cloudinary.isWithinSizeLimit(fileSize)) {
+      throw new BadRequestException("Profile image exceeds the maximum file size of 10 MB.");
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true },

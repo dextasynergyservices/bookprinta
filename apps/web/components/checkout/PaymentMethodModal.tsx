@@ -16,6 +16,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useGoogleReCaptcha } from "react-google-recaptcha-v3";
 import { toast } from "sonner";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -109,6 +110,7 @@ export function PaymentMethodModal({
   const isOnline = useOnlineStatus();
   const isOffline = !isOnline;
   const { user, isAuthenticated } = useAuthSession();
+  const { executeRecaptcha } = useGoogleReCaptcha();
   const { data: gateways, isLoading, isError, refetch } = usePaymentGateways(open);
 
   const [paymentChoice, setPaymentChoice] = useState<PaymentChoice | null>(null);
@@ -346,7 +348,7 @@ export function PaymentMethodModal({
     setBankReceiptFile(file);
   };
 
-  const submitBankPayment = () => {
+  const submitBankPayment = async () => {
     if (isOffline) {
       toast.error(tCommon("offline_banner"));
       return;
@@ -360,6 +362,15 @@ export function PaymentMethodModal({
       return;
     const payerEmail = lockedReprintEmail || bankEmail.trim().toLowerCase();
 
+    let recaptchaToken: string | undefined;
+    if (executeRecaptcha) {
+      try {
+        recaptchaToken = await executeRecaptcha("bank_transfer_form");
+      } catch {
+        // Allow submission to proceed — backend will skip if no token
+      }
+    }
+
     bankTransferMutation.mutate({
       payerName: bankFullName.trim(),
       payerEmail,
@@ -367,6 +378,7 @@ export function PaymentMethodModal({
       amount,
       currency: "NGN",
       receiptFile: bankReceiptFile,
+      recaptchaToken,
       metadata: {
         ...paymentMetadata,
         locale,

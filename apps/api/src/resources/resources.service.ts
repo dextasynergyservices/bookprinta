@@ -23,6 +23,7 @@ import type {
 } from "@bookprinta/shared";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
+import { sanitizeHtmlContent } from "../common/sanitize-html.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 
 const RESOURCE_COVER_FOLDER_ROOT = "bookprinta/resources/covers";
@@ -440,7 +441,7 @@ export class ResourcesService {
           title: input.title.trim(),
           slug: this.normalizeSlug(input.slug),
           excerpt: this.normalizeNullableString(input.excerpt),
-          content: input.content,
+          content: sanitizeHtmlContent(input.content),
           coverImage: this.normalizeNullableString(input.coverImageUrl),
           categoryId: input.categoryId ?? null,
           isPublished: publication.isPublished,
@@ -500,7 +501,7 @@ export class ResourcesService {
           ...(input.excerpt !== undefined
             ? { excerpt: this.normalizeNullableString(input.excerpt) }
             : {}),
-          ...(input.content !== undefined ? { content: input.content } : {}),
+          ...(input.content !== undefined ? { content: sanitizeHtmlContent(input.content) } : {}),
           ...(input.coverImageUrl !== undefined
             ? { coverImage: this.normalizeNullableString(input.coverImageUrl) }
             : {}),
