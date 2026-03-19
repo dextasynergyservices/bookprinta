@@ -6,8 +6,11 @@ import {
 } from "@bookprinta/emails/render";
 import { Injectable, Logger } from "@nestjs/common";
 import { Resend } from "resend";
+import { isUserNotificationChannelEnabled } from "./notification-preference-policy.js";
+import { WhatsappService } from "./whatsapp.service.js";
 
 const DEFAULT_FROM_EMAIL = "BookPrinta <info@bookprinta.com>";
+const SIGNUP_LINK_TEMPLATE_NAME = "signup_link";
 
 type DeliveryResult = {
   emailDelivered: boolean;
@@ -31,27 +34,11 @@ export class SignupNotificationsService {
   private readonly logger = new Logger(SignupNotificationsService.name);
   private readonly resend: Resend | null;
   private readonly frontendBaseUrl: string;
-  private readonly infobipBaseUrl: string;
-  private readonly infobipApiKey: string;
-  private readonly infobipWhatsAppFrom: string;
   private readonly fallbackFromEmail: string;
 
-  constructor() {
+  constructor(private readonly whatsappService: WhatsappService = new WhatsappService()) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.frontendBaseUrl = this.resolveFrontendBaseUrl();
-    this.infobipBaseUrl = this.normalizeBaseUrl(
-      process.env.INFOBIP_BASE_URL ||
-        process.env.INFOBIP_API_BASE_URL ||
-        process.env.INFOBIP_BASEURL ||
-        ""
-    );
-    this.infobipApiKey =
-      process.env.INFOBIP_API_KEY || process.env.INFOBIP_KEY || process.env.INFOBIP_APIKEY || "";
-    this.infobipWhatsAppFrom =
-      process.env.INFOBIP_WHATSAPP_FROM ||
-      process.env.INFOBIP_WHATSAPP_SENDER ||
-      process.env.INFOBIP_WHATSAPP_NUMBER ||
-      "";
     this.fallbackFromEmail =
       process.env.CONTACT_FROM_EMAIL ||
       process.env.DEFAULT_FROM_EMAIL ||
@@ -133,11 +120,21 @@ export class SignupNotificationsService {
     name: string;
     locale: Locale;
     fromEmail: string;
+    emailNotificationsEnabled?: boolean | null;
     orderNumber?: string;
     packageName?: string;
     amountPaid?: string;
     addons?: string[];
   }): Promise<boolean> {
+    if (
+      !isUserNotificationChannelEnabled({
+        enabled: params.emailNotificationsEnabled,
+        kind: "welcome",
+      })
+    ) {
+      return false;
+    }
+
     if (!this.resend) {
       this.logger.warn("RESEND_API_KEY not set — welcome email skipped");
       return false;
@@ -246,6 +243,10 @@ export class SignupNotificationsService {
     name: string;
     token: string;
     locale: Locale;
+    orderNumber?: string;
+    packageName?: string;
+    amountPaid?: string;
+    addons?: string[];
   }): Promise<ChannelDeliveryResult> {
     if (!params.phoneNumber?.trim()) {
       return {
@@ -254,35 +255,68 @@ export class SignupNotificationsService {
       };
     }
 
-    if (!this.infobipBaseUrl || !this.infobipApiKey || !this.infobipWhatsAppFrom) {
-      this.logMissingInfobipConfig("signup link");
-      return {
-        delivered: false,
-        failureReason: "Infobip WhatsApp config missing",
-      };
-    }
-
-    const to = this.normalizeWhatsAppPhone(params.phoneNumber);
-    if (!to) {
-      this.logger.warn("Invalid phone number for signup link WhatsApp delivery");
-      return {
-        delivered: false,
-        failureReason: "Invalid phone number",
-      };
-    }
-
     const signupUrl = this.buildSignupFinishUrl(params.token, params.locale);
-    const text = this.buildRegistrationLinkWhatsAppMessage({
-      locale: params.locale,
-      name: params.name,
-      token: params.token,
-      signupUrl,
+    const result = await this.whatsappService.sendTemplate({
+      to: params.phoneNumber,
+      templateName: SIGNUP_LINK_TEMPLATE_NAME,
+      language: params.locale,
+      kind: "signup link",
+      bodyPlaceholders: [
+        this.normalizeTemplateValue(params.name, "Author"),
+        this.resolveSignupTemplatePackageName(params.packageName, params.locale),
+        this.resolveSignupTemplateOrderNumber(params.orderNumber, params.locale),
+        this.resolveSignupTemplateAmount(params.amountPaid, params.locale),
+        this.resolveSignupTemplateAddons(params.addons, params.locale),
+      ],
+      buttons: [{ type: "URL", parameter: params.token }],
+      callbackData: params.token,
+      meta: {
+        flow: "signup_link",
+        locale: params.locale,
+      },
     });
 
-    const delivered = await this.sendInfobipTextMessage(to, text, "signup link");
+    if (result.delivered || !result.attempted) {
+      return {
+        delivered: result.delivered,
+        failureReason: result.failureReason,
+      };
+    }
+
+    const fallbackResult = await this.whatsappService.sendText({
+      to: params.phoneNumber,
+      kind: "signup link text fallback",
+      text: this.buildRegistrationLinkWhatsAppMessage({
+        locale: params.locale,
+        name: this.normalizeTemplateValue(params.name, "Author"),
+        signupUrl,
+        packageName: this.resolveSignupTemplatePackageName(params.packageName, params.locale),
+        orderNumber: this.resolveSignupTemplateOrderNumber(params.orderNumber, params.locale),
+        amountPaid: this.resolveSignupTemplateAmount(params.amountPaid, params.locale),
+        addons: this.resolveSignupTemplateAddons(params.addons, params.locale),
+      }),
+      callbackData: params.token,
+      meta: {
+        flow: "signup_link",
+        locale: params.locale,
+        templateName: SIGNUP_LINK_TEMPLATE_NAME,
+        templateFailureReason: result.failureReason,
+        fallbackChannel: "text",
+      },
+    });
+
+    if (fallbackResult.delivered) {
+      return {
+        delivered: true,
+        failureReason: null,
+      };
+    }
+
     return {
-      delivered,
-      failureReason: delivered ? null : "Infobip WhatsApp delivery failed",
+      delivered: false,
+      failureReason: [result.failureReason, fallbackResult.failureReason]
+        .filter((value): value is string => Boolean(value))
+        .join(" | "),
     };
   }
 
@@ -357,23 +391,6 @@ export class SignupNotificationsService {
       };
     }
 
-    if (!this.infobipBaseUrl || !this.infobipApiKey || !this.infobipWhatsAppFrom) {
-      this.logMissingInfobipConfig("signup verification");
-      return {
-        delivered: false,
-        failureReason: "Infobip WhatsApp config missing",
-      };
-    }
-
-    const to = this.normalizeWhatsAppPhone(params.phoneNumber);
-    if (!to) {
-      this.logger.warn("Invalid phone number for signup verification WhatsApp delivery");
-      return {
-        delivered: false,
-        failureReason: "Invalid phone number",
-      };
-    }
-
     const verificationUrl = this.buildVerificationUrl(params.verificationToken, params.locale);
     const text = this.buildVerificationChallengeWhatsAppMessage({
       locale: params.locale,
@@ -383,77 +400,44 @@ export class SignupNotificationsService {
       verificationUrl,
     });
 
-    const delivered = await this.sendInfobipTextMessage(to, text, "signup verification");
+    const result = await this.whatsappService.sendText({
+      to: params.phoneNumber,
+      text,
+      kind: "signup verification",
+      callbackData: params.verificationToken,
+      meta: {
+        flow: "signup_verification",
+        locale: params.locale,
+      },
+    });
+
     return {
-      delivered,
-      failureReason: delivered ? null : "Infobip WhatsApp delivery failed",
+      delivered: result.delivered,
+      failureReason: result.failureReason,
     };
-  }
-
-  private async sendInfobipTextMessage(to: string, text: string, kind: string): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.infobipBaseUrl}/whatsapp/1/message/text`, {
-        method: "POST",
-        headers: {
-          Authorization: `App ${this.infobipApiKey}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          from: this.infobipWhatsAppFrom,
-          to,
-          content: { text },
-        }),
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        this.logger.error(`Infobip ${kind} WhatsApp failed (${response.status}): ${body}`);
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Infobip ${kind} WhatsApp failed: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return false;
-    }
-  }
-
-  private normalizeWhatsAppPhone(value: string): string {
-    const trimmed = value.trim();
-    if (!trimmed) return "";
-
-    if (trimmed.startsWith("+")) {
-      const digits = trimmed.slice(1).replace(/\D/g, "");
-      return digits ? `+${digits}` : "";
-    }
-
-    return trimmed.replace(/\D/g, "");
-  }
-
-  private logMissingInfobipConfig(kind: string): void {
-    const missing: string[] = [];
-    if (!this.infobipBaseUrl) missing.push("INFOBIP_BASE_URL");
-    if (!this.infobipApiKey) missing.push("INFOBIP_API_KEY");
-    if (!this.infobipWhatsAppFrom) missing.push("INFOBIP_WHATSAPP_FROM");
-    const details = missing.length > 0 ? ` (${missing.join(", ")})` : "";
-    this.logger.warn(`Infobip WhatsApp config missing${details} — ${kind} WhatsApp skipped`);
   }
 
   private buildRegistrationLinkWhatsAppMessage(params: {
     locale: Locale;
     name: string;
-    token: string;
     signupUrl: string;
+    packageName: string;
+    orderNumber: string;
+    amountPaid: string;
+    addons: string;
   }): string {
     if (params.locale === "fr") {
       return (
         `Bonjour ${params.name},\n\n` +
-        `Votre lien d'inscription BookPrinta est pret.\n` +
-        `Jeton: ${params.token}\n` +
-        `Lien: ${params.signupUrl}\n\n` +
+        `Completez votre compte\n\n` +
+        `Votre paiement a ete recu ! Completez votre compte pour commencer.\n\n` +
+        `Resume de la commande\n` +
+        `Forfait: ${params.packageName}\n` +
+        `Numero de commande: ${params.orderNumber}\n` +
+        `Montant paye: ${params.amountPaid}\n` +
+        `Services supplementaires: ${params.addons}\n\n` +
+        `Utilisez le lien ci-dessous pour terminer la configuration de votre compte BookPrinta. Vous devrez definir un mot de passe et verifier votre email.\n` +
+        `Completer l'inscription: ${params.signupUrl}\n\n` +
         `Ce lien expire dans 24 heures.`
       );
     }
@@ -461,18 +445,29 @@ export class SignupNotificationsService {
     if (params.locale === "es") {
       return (
         `Hola ${params.name},\n\n` +
-        `Tu enlace de registro de BookPrinta esta listo.\n` +
-        `Token: ${params.token}\n` +
-        `Enlace: ${params.signupUrl}\n\n` +
+        `Completa tu cuenta\n\n` +
+        `¡Tu pago ha sido recibido! Completa tu cuenta para comenzar.\n\n` +
+        `Resumen del pedido\n` +
+        `Paquete: ${params.packageName}\n` +
+        `Numero de pedido: ${params.orderNumber}\n` +
+        `Monto pagado: ${params.amountPaid}\n` +
+        `Servicios adicionales: ${params.addons}\n\n` +
+        `Usa el enlace de abajo para terminar de configurar tu cuenta de BookPrinta. Necesitaras establecer una contrasena y verificar tu correo electronico.\n` +
+        `Completar registro: ${params.signupUrl}\n\n` +
         `Este enlace expira en 24 horas.`
       );
     }
 
     return (
       `Hi ${params.name},\n\n` +
-      `Your BookPrinta signup link is ready.\n` +
-      `Token: ${params.token}\n` +
-      `Link: ${params.signupUrl}\n\n` +
+      `Your payment has been received! Complete your account to get started.\n\n` +
+      `Order Summary\n` +
+      `Package: ${params.packageName}\n` +
+      `Order Number: ${params.orderNumber}\n` +
+      `Amount Paid: ${params.amountPaid}\n` +
+      `Extra Services: ${params.addons}\n\n` +
+      `Use the link below to finish setting up your BookPrinta account. You'll need to set a password and verify your email.\n` +
+      `Complete Signup: ${params.signupUrl}\n\n` +
       `This link expires in 24 hours.`
     );
   }
@@ -525,17 +520,49 @@ export class SignupNotificationsService {
     return `${this.frontendBaseUrl}/${locale}/dashboard`;
   }
 
+  private resolveSignupTemplatePackageName(value: string | undefined, locale: Locale): string {
+    const normalized = value?.trim();
+    if (normalized) return normalized;
+    if (locale === "fr") return "Commande BookPrinta";
+    if (locale === "es") return "Pedido BookPrinta";
+    return "BookPrinta Order";
+  }
+
+  private resolveSignupTemplateOrderNumber(value: string | undefined, locale: Locale): string {
+    const normalized = value?.trim();
+    if (normalized) return normalized;
+    if (locale === "fr") return "En attente";
+    if (locale === "es") return "Pendiente";
+    return "Pending";
+  }
+
+  private resolveSignupTemplateAmount(value: string | undefined, locale: Locale): string {
+    const normalized = value?.trim();
+    if (normalized) return normalized;
+    if (locale === "fr") return "A confirmer";
+    if (locale === "es") return "Por confirmar";
+    return "To be confirmed";
+  }
+
+  private resolveSignupTemplateAddons(value: string[] | undefined, locale: Locale): string {
+    if (Array.isArray(value) && value.length > 0) {
+      return value.join(", ");
+    }
+
+    if (locale === "fr") return "Aucun service supplementaire";
+    if (locale === "es") return "Sin servicios adicionales";
+    return "No extra services";
+  }
+
+  private normalizeTemplateValue(value: string, fallback: string): string {
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : fallback;
+  }
+
   private resolveFromEmail(fromEmail: string): string {
     const normalized = fromEmail.trim();
     if (normalized.length > 0) return normalized;
     return this.fallbackFromEmail;
-  }
-
-  private normalizeBaseUrl(baseUrl: string): string {
-    const normalized = baseUrl.trim().replace(/\/+$/, "");
-    if (!normalized) return "";
-    if (/^https?:\/\//i.test(normalized)) return normalized;
-    return `https://${normalized}`;
   }
 
   private resolveFrontendBaseUrl(): string {

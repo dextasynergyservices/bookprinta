@@ -56,6 +56,8 @@ const TRANSLATIONS: Record<string, string> = {
   settings_language_name_es: "Spanish",
   settings_notifications_title: "Notification Preferences",
   settings_notifications_description: "Choose how you want to hear from BookPrinta.",
+  settings_notifications_critical_note:
+    "Some critical notifications, including signup links and receipts, are always sent.",
   settings_notifications_email_label: "Email notifications",
   settings_notifications_email_description:
     "Receive order updates and important account alerts by email.",
@@ -251,7 +253,7 @@ describe("ProfileSettingsSettingsPanel", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("Language preference updated.");
   });
 
-  it("saves notification preference toggles through the backend mutation", async () => {
+  it("saves notification preference toggles immediately through the backend mutation", async () => {
     const user = userEvent.setup();
     updateNotificationPreferencesMock.mockImplementation(async (payload: unknown) => ({
       notificationPreferences: payload,
@@ -260,7 +262,6 @@ describe("ProfileSettingsSettingsPanel", () => {
     render(<ProfileSettingsSettingsPanel />);
 
     await user.click(screen.getByRole("switch", { name: "Email notifications" }));
-    await user.click(screen.getByRole("button", { name: "Save Notification Preferences" }));
 
     await waitFor(() =>
       expect(updateNotificationPreferencesMock).toHaveBeenCalledWith({
@@ -273,14 +274,29 @@ describe("ProfileSettingsSettingsPanel", () => {
     expect(toastSuccessMock).toHaveBeenCalledWith("Notification preferences updated.");
   });
 
+  it("hides the WhatsApp toggle when no WhatsApp number is saved on the profile", () => {
+    currentProfile = {
+      ...baseProfile,
+      whatsAppNumber: null,
+    };
+
+    render(<ProfileSettingsSettingsPanel />);
+
+    expect(
+      screen.queryByRole("switch", { name: "WhatsApp notifications" })
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the settings experience cleanly at a 375px viewport with full-width mobile actions", () => {
     const { container } = render(<ProfileSettingsSettingsPanel />);
 
     expect(container.firstChild).toHaveAttribute("data-testid", "profile-settings-settings-panel");
     expect(screen.getByRole("button", { name: "Update Password" })).toHaveClass("w-full");
-    expect(screen.getByRole("button", { name: "Save Notification Preferences" })).toHaveClass(
-      "w-full"
-    );
+    expect(
+      screen.getByText(
+        "Some critical notifications, including signup links and receipts, are always sent."
+      )
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change language" })).toBeInTheDocument();
   });
 

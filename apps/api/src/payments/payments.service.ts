@@ -27,6 +27,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Resend } from "resend";
@@ -44,8 +45,11 @@ import {
   PaymentType,
   UserRole,
 } from "../generated/prisma/enums.js";
+import { isUserNotificationChannelEnabled } from "../notifications/notification-preference-policy.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
+import { WhatsappService } from "../notifications/whatsapp.service.js";
+import { WhatsappNotificationsService } from "../notifications/whatsapp-notifications.service.js";
 import { buildRefundPolicySnapshot } from "../orders/admin-order-workflow.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
@@ -158,6 +162,7 @@ type CheckoutFinalizationInfo = {
   locale: Locale;
   signupToken: string | null;
   phone: string | null;
+  whatsAppNotificationsEnabled: boolean;
   orderNumber: string;
   packageName: string;
   amountPaid: string;
@@ -287,9 +292,6 @@ export class PaymentsService {
   private readonly customerPaymentsFromEmail: string;
   private readonly adminNotificationsFromEmail: string;
   private readonly adminEmailRecipients: string[];
-  private readonly infobipBaseUrl: string;
-  private readonly infobipApiKey: string;
-  private readonly infobipWhatsAppFrom: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -300,23 +302,15 @@ export class PaymentsService {
     private readonly cloudinary: CloudinaryService,
     private readonly signupNotificationsService: SignupNotificationsService,
     private readonly notificationsService: NotificationsService,
-    private readonly rollout: RolloutService
+    private readonly rollout: RolloutService,
+    private readonly whatsappService: WhatsappService = new WhatsappService(),
+    @Optional()
+    private readonly whatsappNotificationsService: WhatsappNotificationsService = new WhatsappNotificationsService(
+      new WhatsappService()
+    )
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.frontendBaseUrl = this.resolveFrontendBaseUrl();
-    this.infobipBaseUrl = this.normalizeBaseUrl(
-      process.env.INFOBIP_BASE_URL ||
-        process.env.INFOBIP_API_BASE_URL ||
-        process.env.INFOBIP_BASEURL ||
-        ""
-    );
-    this.infobipApiKey =
-      process.env.INFOBIP_API_KEY || process.env.INFOBIP_KEY || process.env.INFOBIP_APIKEY || "";
-    this.infobipWhatsAppFrom =
-      process.env.INFOBIP_WHATSAPP_FROM ||
-      process.env.INFOBIP_WHATSAPP_SENDER ||
-      process.env.INFOBIP_WHATSAPP_NUMBER ||
-      "";
     this.customerPaymentsFromEmail = this.resolveCustomerFacingFromEmail();
     this.adminNotificationsFromEmail = this.resolveAdminNotificationsFromEmail();
     this.adminEmailRecipients = this.resolveAdminEmailRecipients();
@@ -976,6 +970,19 @@ export class PaymentsService {
       });
     }
 
+    await this.sendPaymentConfirmationWhatsApp({
+      userName: signupInfo.name,
+      phoneNumber: signupInfo.phone,
+      preferredLanguage: signupInfo.locale,
+      whatsAppNotificationsEnabled: signupInfo.whatsAppNotificationsEnabled,
+      orderNumber: signupInfo.orderNumber,
+      packageName: signupInfo.packageName,
+      amountPaid: signupInfo.amountPaid,
+      addons: signupInfo.addons,
+      variant: "bank_transfer",
+      dashboardUrl: this.buildLocalizedDashboardUrl(signupInfo.locale),
+    });
+
     return {
       id: payment.id,
       status: PaymentStatus.SUCCESS,
@@ -1014,6 +1021,7 @@ export class PaymentsService {
             firstName: true,
             lastName: true,
             preferredLanguage: true,
+            emailNotificationsEnabled: true,
           },
         },
       },
@@ -1116,6 +1124,7 @@ export class PaymentsService {
         orderNumber,
         paymentReference: reference,
         rejectionReason,
+        emailNotificationsEnabled: payment.user?.emailNotificationsEnabled ?? null,
       });
 
       if (!emailSent) {
@@ -1168,7 +1177,10 @@ export class PaymentsService {
                 firstName: true,
                 lastName: true,
                 email: true,
+                phoneNumber: true,
                 preferredLanguage: true,
+                emailNotificationsEnabled: true,
+                whatsAppNotificationsEnabled: true,
               },
             },
             book: {
@@ -1439,6 +1451,24 @@ export class PaymentsService {
       originalAmount: originalPaymentAmount,
       refundedAmount,
       refundReason: normalizedReason,
+      emailNotificationsEnabled: order.user.emailNotificationsEnabled,
+    });
+
+    await this.sendRefundConfirmationWhatsApp({
+      userName: this.pickDisplayName(
+        [order.user.firstName, order.user.lastName].filter(Boolean).join(" ") || undefined,
+        order.user.email
+      ),
+      phoneNumber: payment.payerPhone ?? order.user.phoneNumber ?? null,
+      preferredLanguage: order.user.preferredLanguage,
+      whatsAppNotificationsEnabled: order.user.whatsAppNotificationsEnabled,
+      orderNumber: order.orderNumber,
+      originalAmount: this.formatNaira(originalPaymentAmount),
+      refundAmount: this.formatNaira(refundedAmount),
+      refundReason: normalizedReason,
+      dashboardUrl: this.buildLocalizedDashboardUrl(
+        this.resolveLocale(order.user.preferredLanguage)
+      ),
     });
 
     return {
@@ -1900,6 +1930,19 @@ export class PaymentsService {
             provider: data.provider,
             reference: data.providerRef,
           });
+
+          await this.sendPaymentConfirmationWhatsApp({
+            userName: reprintResult.name,
+            phoneNumber: reprintResult.phone,
+            preferredLanguage: reprintResult.locale,
+            whatsAppNotificationsEnabled: reprintResult.whatsAppNotificationsEnabled,
+            orderNumber: reprintResult.orderNumber,
+            packageName: reprintResult.packageName,
+            amountPaid: reprintResult.amountPaid,
+            addons: reprintResult.addons,
+            variant: "reprint",
+            dashboardUrl: this.buildLocalizedDashboardUrl(reprintResult.locale),
+          });
         }
         return;
       }
@@ -1951,6 +1994,19 @@ export class PaymentsService {
               addons: quoteCheckoutResult.addons,
             });
           }
+
+          await this.sendPaymentConfirmationWhatsApp({
+            userName: quoteCheckoutResult.name,
+            phoneNumber: quoteCheckoutResult.phone,
+            preferredLanguage: quoteCheckoutResult.locale,
+            whatsAppNotificationsEnabled: quoteCheckoutResult.whatsAppNotificationsEnabled,
+            orderNumber: quoteCheckoutResult.orderNumber,
+            packageName: quoteCheckoutResult.packageName,
+            amountPaid: quoteCheckoutResult.amountPaid,
+            addons: quoteCheckoutResult.addons,
+            variant: "quote",
+            dashboardUrl: this.buildLocalizedDashboardUrl(quoteCheckoutResult.locale),
+          });
         }
 
         return;
@@ -1959,6 +2015,7 @@ export class PaymentsService {
       if (!shouldCreateCheckoutEntities) {
         if (existingPayment.type === PaymentType.EXTRA_PAGES && existingPayment.orderId) {
           await this.reconcileExtraPagesBillingGate(existingPayment.orderId);
+          await this.sendExtraPagesPaymentConfirmationWhatsApp(existingPayment.orderId);
         }
         return;
       }
@@ -1998,6 +2055,21 @@ export class PaymentsService {
           packageName: checkoutResult.packageName,
           amountPaid: checkoutResult.amountPaid,
           addons: checkoutResult.addons,
+        });
+      }
+
+      if (checkoutResult) {
+        await this.sendPaymentConfirmationWhatsApp({
+          userName: checkoutResult.name,
+          phoneNumber: checkoutResult.phone,
+          preferredLanguage: checkoutResult.locale,
+          whatsAppNotificationsEnabled: checkoutResult.whatsAppNotificationsEnabled,
+          orderNumber: checkoutResult.orderNumber,
+          packageName: checkoutResult.packageName,
+          amountPaid: checkoutResult.amountPaid,
+          addons: checkoutResult.addons,
+          variant: "standard",
+          dashboardUrl: this.buildLocalizedDashboardUrl(checkoutResult.locale),
         });
       }
       return;
@@ -2070,6 +2142,21 @@ export class PaymentsService {
         packageName: checkoutResult.packageName,
         amountPaid: checkoutResult.amountPaid,
         addons: checkoutResult.addons,
+      });
+    }
+
+    if (checkoutResult) {
+      await this.sendPaymentConfirmationWhatsApp({
+        userName: checkoutResult.name,
+        phoneNumber: checkoutResult.phone,
+        preferredLanguage: checkoutResult.locale,
+        whatsAppNotificationsEnabled: checkoutResult.whatsAppNotificationsEnabled,
+        orderNumber: checkoutResult.orderNumber,
+        packageName: checkoutResult.packageName,
+        amountPaid: checkoutResult.amountPaid,
+        addons: checkoutResult.addons,
+        variant: "standard",
+        dashboardUrl: this.buildLocalizedDashboardUrl(checkoutResult.locale),
       });
     }
   }
@@ -2295,6 +2382,7 @@ export class PaymentsService {
         locale: this.resolveLocale(user.preferredLanguage),
         signupToken,
         phone: user.phoneNumber ?? null,
+        whatsAppNotificationsEnabled: user.whatsAppNotificationsEnabled,
         orderNumber: order.orderNumber,
         packageName: order.package.name,
         amountPaid: this.formatNaira(Number(order.totalAmount)),
@@ -2525,6 +2613,7 @@ export class PaymentsService {
           locale: this.resolveLocale(user.preferredLanguage),
           signupToken,
           phone: user.phoneNumber ?? null,
+          whatsAppNotificationsEnabled: user.whatsAppNotificationsEnabled,
           orderNumber,
           packageName: pkg.name,
           amountPaid: this.formatNaira(params.amount),
@@ -2611,6 +2700,10 @@ export class PaymentsService {
     currency: string;
   }): Promise<{
     email: string;
+    name: string;
+    locale: Locale;
+    phone: string | null;
+    whatsAppNotificationsEnabled: boolean;
     orderNumber: string;
     packageName: string;
     amountPaid: string;
@@ -2646,6 +2739,10 @@ export class PaymentsService {
           user: {
             select: {
               email: true,
+              firstName: true,
+              preferredLanguage: true,
+              phoneNumber: true,
+              whatsAppNotificationsEnabled: true,
             },
           },
           order: {
@@ -2781,6 +2878,10 @@ export class PaymentsService {
 
       return {
         email: params.payerEmail ?? sourceBook.user.email,
+        name: sourceBook.user.firstName,
+        locale: this.resolveLocale(sourceBook.user.preferredLanguage),
+        phone: sourceBook.user.phoneNumber ?? null,
+        whatsAppNotificationsEnabled: sourceBook.user.whatsAppNotificationsEnabled,
         orderNumber,
         packageName: sourceBook.order.package.name,
         amountPaid: this.formatNaira(params.amount),
@@ -3112,6 +3213,7 @@ export class PaymentsService {
             firstName: true,
             preferredLanguage: true,
             phoneNumber: true,
+            whatsAppNotificationsEnabled: true,
             password: true,
             isVerified: true,
             isActive: true,
@@ -3170,6 +3272,7 @@ export class PaymentsService {
           locale: this.resolveLocale(existingUser.preferredLanguage),
           signupToken: existingUser.verificationToken ?? null,
           phone: existingUser.phoneNumber ?? null,
+          whatsAppNotificationsEnabled: existingUser.whatsAppNotificationsEnabled,
           orderNumber: quote.order.orderNumber,
           packageName: quote.order.package.name,
           amountPaid: this.formatNaira(Number(quote.order.totalAmount)),
@@ -3329,6 +3432,7 @@ export class PaymentsService {
         locale: this.resolveLocale(user.preferredLanguage),
         signupToken,
         phone: user.phoneNumber ?? null,
+        whatsAppNotificationsEnabled: user.whatsAppNotificationsEnabled,
         orderNumber: order.orderNumber,
         packageName: fallbackPackage.name,
         amountPaid: this.formatNaira(paidAmount),
@@ -3628,6 +3732,7 @@ export class PaymentsService {
         amountLabel: this.formatNaira(params.amount),
       }),
       this.sendBankTransferAdminWhatsApp(params),
+      this.sendBankTransferUserWhatsApp(params),
       this.sendBankTransferUserEmail(params),
       this.sendBankTransferAdminEmail(params),
     ]);
@@ -3643,11 +3748,6 @@ export class PaymentsService {
     amount: number;
     receiptUrl: string;
   }): Promise<void> {
-    if (!this.infobipBaseUrl || !this.infobipApiKey || !this.infobipWhatsAppFrom) {
-      this.logMissingInfobipConfig("bank transfer admin alert");
-      return;
-    }
-
     const recipients = await this.resolveBankTransferAdminWhatsAppRecipients();
     if (recipients.length === 0) {
       this.logger.warn("No admin phone numbers found for bank transfer WhatsApp notifications");
@@ -3655,25 +3755,95 @@ export class PaymentsService {
     }
 
     const adminPanelUrl = `${this.frontendBaseUrl}/admin/payments`;
-    const addonsLabel = params.addons.length > 0 ? params.addons.join(", ") : "None";
-    const text =
-      "New bank transfer submitted.\n\n" +
-      `Order: ${params.orderNumber}\n` +
-      `Package: ${params.packageName}\n` +
-      `Add-ons: ${addonsLabel}\n` +
-      `Amount: ${this.formatNaira(params.amount)}\n` +
-      `Payer: ${params.payerName}\n` +
-      `Email: ${params.payerEmail}\n` +
-      `Phone: ${params.payerPhone}\n` +
-      `Receipt: ${params.receiptUrl}\n` +
-      `Review: ${adminPanelUrl}`;
+    const amountLabel = this.formatNaira(params.amount);
 
     await Promise.allSettled(
-      recipients.map((to) => this.sendInfobipTextMessage(to, text, "bank transfer admin alert"))
+      recipients.map(async (to) => {
+        const templateResult = await this.whatsappService.sendTemplate({
+          to,
+          templateName: "bank_transfer_admin",
+          language: "en",
+          kind: "bank transfer admin alert",
+          bodyPlaceholders: [
+            params.payerName,
+            params.payerEmail,
+            params.payerPhone,
+            amountLabel,
+            params.orderNumber,
+          ],
+          callbackData: params.orderNumber,
+          meta: {
+            orderNumber: params.orderNumber,
+            receiptUrl: params.receiptUrl,
+            packageName: params.packageName,
+            addons: params.addons,
+          },
+        });
+
+        if (templateResult.delivered || !templateResult.attempted) {
+          return templateResult;
+        }
+
+        return this.whatsappService.sendText({
+          to,
+          kind: "bank transfer admin alert text fallback",
+          text:
+            `Hi Admin,\n\n` +
+            `New Bank Transfer Received\n\n` +
+            `A new bank transfer has been submitted and requires your review.\n\n` +
+            `Payer Name: ${params.payerName}\n` +
+            `Payer Email: ${params.payerEmail}\n` +
+            `Payer Phone: ${params.payerPhone}\n` +
+            `Amount: ${amountLabel}\n` +
+            `Order Number: ${params.orderNumber}\n` +
+            `Receipt: ${params.receiptUrl}\n` +
+            `Review in Admin Panel: ${adminPanelUrl}\n\n` +
+            `Please review within 30 minutes to maintain our SLA.`,
+          callbackData: params.orderNumber,
+          meta: {
+            orderNumber: params.orderNumber,
+            receiptUrl: params.receiptUrl,
+            packageName: params.packageName,
+            addons: params.addons,
+            templateName: "bank_transfer_admin",
+            templateLanguage: "en",
+            templateFailureReason: templateResult.failureReason,
+            fallbackChannel: "text",
+          },
+        });
+      })
     );
   }
 
+  private async sendBankTransferUserWhatsApp(params: {
+    payerName: string;
+    payerPhone: string;
+    amount: number;
+    orderNumber: string;
+    locale: Locale;
+    packageName?: string;
+    addons?: string[];
+  }): Promise<void> {
+    await this.whatsappNotificationsService.sendBankTransferVerification({
+      recipient: {
+        userName: params.payerName,
+        phoneNumber: params.payerPhone,
+        preferredLanguage: params.locale,
+      },
+      orderNumber: params.orderNumber,
+      amountLabel: this.formatNaira(params.amount),
+      expectedWaitTime: "Less than 30 minutes",
+      packageName: params.packageName,
+      addons: params.addons,
+    });
+  }
+
   private async resolveBankTransferAdminWhatsAppRecipients(): Promise<string[]> {
+    const configuredRecipients = await this.resolveConfiguredAdminWhatsAppRecipients();
+    if (configuredRecipients.length > 0) {
+      return configuredRecipients;
+    }
+
     const admins = await this.prisma.user.findMany({
       where: {
         role: { in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] },
@@ -3682,15 +3852,49 @@ export class PaymentsService {
     });
 
     const dbRecipients = admins
-      .map((admin) => this.normalizeWhatsAppPhone(admin.phoneNumber ?? ""))
+      .map((admin) => this.whatsappService.normalizePhone(admin.phoneNumber))
       .filter((phone) => phone.length > 0);
 
     if (dbRecipients.length > 0) {
       return Array.from(new Set(dbRecipients));
     }
 
-    const fallback = this.normalizeWhatsAppPhone(BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK);
+    const fallback = this.whatsappService.normalizePhone(BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK);
     return fallback ? [fallback] : [];
+  }
+
+  private async resolveConfiguredAdminWhatsAppRecipients(): Promise<string[]> {
+    const systemSettingModel = (
+      this.prisma as PrismaService & {
+        systemSetting?: {
+          findUnique?: (args: {
+            where: { key: string };
+            select: { value: true };
+          }) => Promise<{ value: string } | null>;
+        };
+      }
+    ).systemSetting;
+
+    const configured = await systemSettingModel?.findUnique?.({
+      where: { key: "admin_whatsapp_numbers" },
+      select: { value: true },
+    });
+
+    return this.parseAdminWhatsAppRecipients(configured?.value ?? null);
+  }
+
+  private parseAdminWhatsAppRecipients(value: string | null | undefined): string[] {
+    const normalized = value?.trim();
+    if (!normalized) return [];
+
+    return Array.from(
+      new Set(
+        normalized
+          .split(",")
+          .map((entry) => this.whatsappService.normalizePhone(entry))
+          .filter((entry) => entry.length > 0)
+      )
+    );
   }
 
   private async sendBankTransferUserEmail(params: {
@@ -3777,7 +3981,17 @@ export class PaymentsService {
     orderNumber: string;
     paymentReference: string;
     rejectionReason: string;
+    emailNotificationsEnabled?: boolean | null;
   }): Promise<boolean> {
+    if (
+      !isUserNotificationChannelEnabled({
+        enabled: params.emailNotificationsEnabled,
+        kind: "bank_transfer_rejected",
+      })
+    ) {
+      return false;
+    }
+
     if (!this.resend) {
       this.logger.warn("RESEND_API_KEY not set — bank transfer rejection email skipped");
       return false;
@@ -3806,6 +4020,116 @@ export class PaymentsService {
     }
 
     return true;
+  }
+
+  private async sendPaymentConfirmationWhatsApp(params: {
+    userName: string;
+    phoneNumber?: string | null;
+    preferredLanguage?: string | null;
+    whatsAppNotificationsEnabled?: boolean;
+    orderNumber: string;
+    packageName: string;
+    amountPaid: string;
+    addons?: string[];
+    variant?: "standard" | "quote" | "reprint" | "extra_pages" | "bank_transfer";
+    dashboardUrl?: string | null;
+  }): Promise<void> {
+    await this.whatsappNotificationsService.sendPaymentConfirmation({
+      recipient: {
+        userName: params.userName,
+        phoneNumber: params.phoneNumber,
+        preferredLanguage: params.preferredLanguage,
+        whatsAppNotificationsEnabled: params.whatsAppNotificationsEnabled,
+      },
+      orderNumber: params.orderNumber,
+      amountLabel: params.amountPaid,
+      packageName: params.packageName,
+      addons: params.addons,
+      dashboardUrl: params.dashboardUrl,
+      variant: params.variant,
+    });
+  }
+
+  private async sendRefundConfirmationWhatsApp(params: {
+    userName: string;
+    phoneNumber?: string | null;
+    preferredLanguage?: string | null;
+    whatsAppNotificationsEnabled?: boolean;
+    orderNumber: string;
+    originalAmount: string;
+    refundAmount: string;
+    refundReason: string;
+    dashboardUrl?: string | null;
+  }): Promise<void> {
+    await this.whatsappNotificationsService.sendRefundConfirmation({
+      recipient: {
+        userName: params.userName,
+        phoneNumber: params.phoneNumber,
+        preferredLanguage: params.preferredLanguage,
+        whatsAppNotificationsEnabled: params.whatsAppNotificationsEnabled,
+      },
+      orderNumber: params.orderNumber,
+      originalAmountLabel: params.originalAmount,
+      refundAmountLabel: params.refundAmount,
+      refundReason: params.refundReason,
+      dashboardUrl: params.dashboardUrl,
+    });
+  }
+
+  private async sendExtraPagesPaymentConfirmationWhatsApp(orderId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        orderNumber: true,
+        totalAmount: true,
+        package: {
+          select: {
+            name: true,
+          },
+        },
+        payments: {
+          where: {
+            type: PaymentType.EXTRA_PAGES,
+            status: PaymentStatus.SUCCESS,
+          },
+          orderBy: [{ processedAt: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: {
+            amount: true,
+          },
+        },
+        user: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+            preferredLanguage: true,
+            whatsAppNotificationsEnabled: true,
+          },
+        },
+      },
+    });
+
+    if (!order) return;
+
+    const locale = this.resolveLocale(order.user.preferredLanguage);
+    await this.sendPaymentConfirmationWhatsApp({
+      userName: this.pickDisplayName(
+        [order.user.firstName, order.user.lastName].filter(Boolean).join(" ") || undefined,
+        order.user.email
+      ),
+      phoneNumber: order.user.phoneNumber ?? null,
+      preferredLanguage: order.user.preferredLanguage,
+      whatsAppNotificationsEnabled: order.user.whatsAppNotificationsEnabled,
+      orderNumber: order.orderNumber,
+      packageName: order.package.name,
+      amountPaid: this.formatNaira(this.toCurrency(order.payments[0]?.amount ?? order.totalAmount)),
+      addons: [],
+      variant: "extra_pages",
+      dashboardUrl: this.buildLocalizedDashboardUrl(locale),
+    });
   }
 
   private buildAdminPaymentsWhere(
@@ -4290,7 +4614,17 @@ export class PaymentsService {
     originalAmount: number;
     refundedAmount: number;
     refundReason: string;
+    emailNotificationsEnabled?: boolean | null;
   }): Promise<boolean> {
+    if (
+      !isUserNotificationChannelEnabled({
+        enabled: params.emailNotificationsEnabled,
+        kind: "refund_confirmation",
+      })
+    ) {
+      return false;
+    }
+
     if (!this.resend) {
       this.logger.warn("RESEND_API_KEY not set — refund confirmation email skipped");
       return false;
@@ -4382,6 +4716,10 @@ export class PaymentsService {
     const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
     if (normalized === "fr" || normalized === "es") return normalized;
     return "en";
+  }
+
+  private buildLocalizedDashboardUrl(locale: Locale): string {
+    return `${this.frontendBaseUrl}/${locale}${DEFAULT_DASHBOARD_PATH}`;
   }
 
   private toCurrency(value: unknown): number {
@@ -4493,13 +4831,6 @@ export class PaymentsService {
     return undefined;
   }
 
-  private normalizeBaseUrl(baseUrl: string): string {
-    const normalized = baseUrl.trim().replace(/\/+$/, "");
-    if (!normalized) return "";
-    if (/^https?:\/\//i.test(normalized)) return normalized;
-    return `https://${normalized}`;
-  }
-
   private resolveCustomerFacingFromEmail(): string {
     const configured =
       process.env.CONTACT_FROM_EMAIL ||
@@ -4550,58 +4881,6 @@ export class PaymentsService {
     const candidate = bracketMatch?.[1]?.trim() || normalized;
     if (!candidate.includes("@")) return null;
     return candidate;
-  }
-
-  private normalizeWhatsAppPhone(value: string): string {
-    const trimmed = value.trim();
-    if (!trimmed) return "";
-
-    if (trimmed.startsWith("+")) {
-      const digits = trimmed.slice(1).replace(/\D/g, "");
-      return digits ? `+${digits}` : "";
-    }
-
-    return trimmed.replace(/\D/g, "");
-  }
-
-  private async sendInfobipTextMessage(to: string, text: string, kind: string): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.infobipBaseUrl}/whatsapp/1/message/text`, {
-        method: "POST",
-        headers: {
-          Authorization: `App ${this.infobipApiKey}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          from: this.infobipWhatsAppFrom,
-          to,
-          content: { text },
-        }),
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        this.logger.error(`Infobip ${kind} WhatsApp failed (${response.status}): ${body}`);
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Infobip ${kind} WhatsApp failed: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return false;
-    }
-  }
-
-  private logMissingInfobipConfig(kind: string): void {
-    const missing: string[] = [];
-    if (!this.infobipBaseUrl) missing.push("INFOBIP_BASE_URL");
-    if (!this.infobipApiKey) missing.push("INFOBIP_API_KEY");
-    if (!this.infobipWhatsAppFrom) missing.push("INFOBIP_WHATSAPP_FROM");
-    const details = missing.length > 0 ? ` (${missing.join(", ")})` : "";
-    this.logger.warn(`Infobip WhatsApp config missing${details} — ${kind} skipped`);
   }
 
   private resolveFrontendBaseUrl(): string {

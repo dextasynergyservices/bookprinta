@@ -183,6 +183,7 @@ function baseResolution(): ProductionDelayStatusResolution {
         email: "ada@example.com",
         firstName: "Ada",
         preferredLanguage: "en",
+        emailNotificationsEnabled: true,
         books: [],
       },
       {
@@ -190,6 +191,7 @@ function baseResolution(): ProductionDelayStatusResolution {
         email: "chi@example.com",
         firstName: "Chi",
         preferredLanguage: "fr",
+        emailNotificationsEnabled: true,
         books: [],
       },
     ],

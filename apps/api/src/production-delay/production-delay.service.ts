@@ -46,6 +46,7 @@ const AFFECTED_BOOK_SELECT = {
       email: true,
       firstName: true,
       preferredLanguage: true,
+      emailNotificationsEnabled: true,
     },
   },
   order: {
@@ -88,6 +89,7 @@ export type ProductionDelayAffectedUser = {
   email: string;
   firstName: string;
   preferredLanguage: string;
+  emailNotificationsEnabled: boolean;
   books: ProductionDelayAffectedBook[];
 };
 
@@ -227,6 +229,7 @@ export class ProductionDelayService {
         email: row.user.email,
         firstName: row.user.firstName,
         preferredLanguage: row.user.preferredLanguage,
+        emailNotificationsEnabled: row.user.emailNotificationsEnabled,
         books: [book],
       });
     }

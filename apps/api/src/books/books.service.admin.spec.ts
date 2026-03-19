@@ -6,6 +6,7 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { FilesService } from "../files/files.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
+import { WhatsappNotificationsService } from "../notifications/whatsapp-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { BooksService } from "./books.service.js";
@@ -18,6 +19,7 @@ jest.mock("@bookprinta/emails/render", () => ({
 
 const txBookUpdateMany = jest.fn();
 const txBookFindUnique = jest.fn();
+const txOrderUpdate = jest.fn();
 const txFileFindFirst = jest.fn();
 const txFileCreate = jest.fn();
 const txAuditLogCreate = jest.fn();
@@ -34,6 +36,9 @@ const mockPrismaService = {
   file: {
     findFirst: jest.fn(),
   },
+  order: {
+    update: jest.fn(),
+  },
   auditLog: {
     create: jest.fn(),
   },
@@ -49,6 +54,9 @@ const mockPrismaService = {
         book: {
           updateMany: txBookUpdateMany,
           findUnique: txBookFindUnique,
+        },
+        order: {
+          update: txOrderUpdate,
         },
         file: {
           findFirst: txFileFindFirst,
@@ -89,6 +97,12 @@ const mockNotificationsService = {
   createSystemNotification: jest.fn(),
 };
 
+const mockWhatsappNotificationsService = {
+  sendBookStatusUpdate: jest.fn(),
+  sendShippingNotification: jest.fn(),
+  sendManuscriptRejected: jest.fn(),
+};
+
 const mockRolloutService = {
   resolveBookRolloutState: jest.fn(),
   assertBookWorkspaceAccess: jest.fn(),
@@ -120,6 +134,7 @@ describe("BooksService admin workflows", () => {
         { provide: BooksPipelineService, useValue: mockBooksPipelineService },
         { provide: ManuscriptAnalysisService, useValue: mockManuscriptAnalysisService },
         { provide: NotificationsService, useValue: mockNotificationsService },
+        { provide: WhatsappNotificationsService, useValue: mockWhatsappNotificationsService },
         { provide: RolloutService, useValue: mockRolloutService },
         { provide: CloudinaryService, useValue: mockCloudinaryService },
       ],
@@ -129,6 +144,7 @@ describe("BooksService admin workflows", () => {
     jest.clearAllMocks();
     txBookUpdateMany.mockReset();
     txBookFindUnique.mockReset();
+    txOrderUpdate.mockReset();
     txFileFindFirst.mockReset();
     txFileCreate.mockReset();
     txAuditLogCreate.mockReset();
@@ -345,6 +361,19 @@ describe("BooksService admin workflows", () => {
       status: "PAYMENT_RECEIVED",
       productionStatus: null,
       version: 3,
+      order: {
+        orderNumber: "BP-2026-0001",
+        trackingNumber: null,
+        shippingProvider: null,
+      },
+      user: {
+        email: "ada@example.com",
+        firstName: "Ada",
+        lastName: "Okafor",
+        phoneNumber: "+2348012345678",
+        preferredLanguage: "en",
+        whatsAppNotificationsEnabled: true,
+      },
     });
     txBookUpdateMany.mockResolvedValue({ count: 1 });
     txBookFindUnique.mockResolvedValue({
@@ -416,6 +445,12 @@ describe("BooksService admin workflows", () => {
         }),
       })
     );
+    expect(mockWhatsappNotificationsService.sendBookStatusUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bookTitle: "The Lagos Chronicle",
+        newStatus: "DESIGNING",
+      })
+    );
     expect(result).toEqual({
       bookId: "cm1111111111111111111111111",
       previousStatus: "PAYMENT_RECEIVED",
@@ -435,6 +470,82 @@ describe("BooksService admin workflows", () => {
         reason: "Kick off design",
       },
     });
+  });
+
+  it("stores tracking details and sends shipping WhatsApp when a book moves to shipping", async () => {
+    mockPrismaService.book.findFirst.mockResolvedValue({
+      id: "cm1111111111111111111111111",
+      orderId: "cm2222222222222222222222222",
+      userId: "cm3333333333333333333333333",
+      title: "The Lagos Chronicle",
+      status: "PAYMENT_RECEIVED",
+      productionStatus: "PRINTED",
+      version: 7,
+      order: {
+        orderNumber: "BP-2026-0008",
+        trackingNumber: null,
+        shippingProvider: null,
+      },
+      user: {
+        email: "ada@example.com",
+        firstName: "Ada",
+        lastName: "Okafor",
+        phoneNumber: "+2348012345678",
+        preferredLanguage: "en",
+        whatsAppNotificationsEnabled: true,
+      },
+    });
+    txBookUpdateMany.mockResolvedValue({ count: 1 });
+    txBookFindUnique.mockResolvedValue({
+      id: "cm1111111111111111111111111",
+      orderId: "cm2222222222222222222222222",
+      userId: "cm3333333333333333333333333",
+      title: "The Lagos Chronicle",
+      status: "PAYMENT_RECEIVED",
+      productionStatus: "SHIPPING",
+      version: 8,
+      updatedAt: new Date("2026-03-12T16:00:00.000Z"),
+    });
+    txAuditLogCreate
+      .mockResolvedValueOnce({
+        id: "audit_ship",
+        action: "ADMIN_BOOK_STATUS_UPDATED",
+        entityType: "BOOK",
+        entityId: "cm1111111111111111111111111",
+        details: {},
+        createdAt: new Date("2026-03-12T16:00:00.000Z"),
+      })
+      .mockResolvedValueOnce({
+        id: "audit_ship_tracking",
+        createdAt: new Date("2026-03-12T16:00:01.000Z"),
+      });
+
+    await service.updateAdminBookStatus(
+      "cm1111111111111111111111111",
+      {
+        nextStatus: "SHIPPING",
+        expectedVersion: 7,
+        trackingNumber: "TRACK-123",
+        shippingProvider: "DHL",
+      },
+      "admin_1"
+    );
+
+    expect(txOrderUpdate).toHaveBeenCalledWith({
+      where: { id: "cm2222222222222222222222222" },
+      data: {
+        trackingNumber: "TRACK-123",
+        shippingProvider: "DHL",
+      },
+    });
+    expect(mockWhatsappNotificationsService.sendShippingNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bookTitle: "The Lagos Chronicle",
+        orderNumber: "BP-2026-0008",
+        trackingNumber: "TRACK-123",
+        shippingProvider: "DHL",
+      })
+    );
   });
 
   it("returns a conflict when the admin book version is stale", async () => {
@@ -474,7 +585,9 @@ describe("BooksService admin workflows", () => {
         email: "ada@example.com",
         firstName: "Ada",
         lastName: "Okafor",
+        phoneNumber: "+2348012345678",
         preferredLanguage: "en",
+        whatsAppNotificationsEnabled: true,
       },
     });
     txBookUpdateMany.mockResolvedValue({ count: 1 });
@@ -535,6 +648,12 @@ describe("BooksService admin workflows", () => {
       expect.objectContaining({
         to: "ada@example.com",
         subject: "Needs revision",
+      })
+    );
+    expect(mockWhatsappNotificationsService.sendManuscriptRejected).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bookTitle: "The Lagos Chronicle",
+        rejectionReason: "Please fix the chapter headings.",
       })
     );
     expect(result).toEqual({

@@ -4,6 +4,7 @@ import type { NotificationTemplateParams } from "@bookprinta/shared";
 import { Injectable, Logger } from "@nestjs/common";
 import { Resend } from "resend";
 import type { Prisma } from "../generated/prisma/client.js";
+import { isUserNotificationChannelEnabled } from "../notifications/notification-preference-policy.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { ProductionDelayAffectedUser } from "./production-delay.service.js";
@@ -161,6 +162,15 @@ export class ProductionDelayDeliveryService {
     for (const row of recipientRows) {
       const user = usersById.get(row.userId);
       if (!user) continue;
+
+      if (
+        !isUserNotificationChannelEnabled({
+          enabled: user.emailNotificationsEnabled,
+          kind: "production_delay",
+        })
+      ) {
+        continue;
+      }
 
       try {
         const locale = this.resolveLocale(user.preferredLanguage);
