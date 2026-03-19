@@ -1,5 +1,6 @@
 import { dehydrate, HydrationBoundary, QueryClient } from "@tanstack/react-query";
 import { getTranslations } from "next-intl/server";
+import { Suspense } from "react";
 
 import { FeatureComparisonTable } from "@/components/marketing/pricing/FeatureComparisonTable";
 import { PricingCards } from "@/components/marketing/pricing/PricingCards";
@@ -39,7 +40,9 @@ export default async function PricingPage({ params: { locale } }: { params: { lo
 
         {/* Package cards — grouped by category */}
         <section className="relative z-10 w-full pb-10 pt-10 md:pt-14">
-          <PricingCards />
+          <Suspense>
+            <PricingCards />
+          </Suspense>
         </section>
 
         {/* Feature comparison table */}

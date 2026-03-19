@@ -6,6 +6,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
+import { usePublicMarketingSettings } from "@/hooks/usePublicMarketingSettings";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import { ScrollBook } from "./scroll-book";
@@ -67,6 +68,7 @@ const ctaVariants = {
 export function HeroSection() {
   const t = useTranslations("hero");
   const prefersReducedMotion = useReducedMotion();
+  const { settings } = usePublicMarketingSettings();
 
   const sectionRef = useRef<HTMLElement>(null);
 
@@ -96,11 +98,26 @@ export function HeroSection() {
     return () => ctx.revert();
   }, [prefersReducedMotion]);
 
+  const managedTitle = settings?.hero.title?.trim() ?? "";
+  const managedTitleParts = managedTitle
+    .split("\n")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  const usesManagedHero = managedTitle.length > 0;
+
+  const headlinePrimary = usesManagedHero
+    ? (managedTitleParts[0] ?? managedTitle)
+    : t("headline_1");
+  const headlineSecondary = usesManagedHero ? (managedTitleParts[1] ?? "") : t("headline_2");
+  const heroSubtitle = settings?.hero.subtitle?.trim() || t("tagline");
+  const primaryCtaLabel = settings?.hero.primaryCtaLabel?.trim() || t("cta");
+  const secondaryCtaLabel = settings?.hero.secondaryCtaLabel?.trim() || t("secondary_cta");
+
   return (
     <section
       ref={sectionRef}
       className="relative h-[130vh] lg:h-[150vh]"
-      aria-label={`${t("headline_1")} ${t("headline_2")}`}
+      aria-label={`${headlinePrimary} ${headlineSecondary}`.trim()}
     >
       {/* ── Sticky 100vh hero — pins to viewport while scroll drives the book ── */}
       <div className="sticky top-0 h-[100dvh] overflow-hidden bg-primary">
@@ -159,8 +176,10 @@ export function HeroSection() {
                 {/* Headline */}
                 <motion.div variants={itemVariants} className="mb-6 lg:mb-8">
                   <h1 className="font-display text-[2.5rem] font-bold leading-[1.05] tracking-tight text-primary-foreground md:text-6xl lg:text-7xl xl:text-8xl">
-                    <span className="block">{t("headline_1")}</span>
-                    <span className="block text-accent">{t("headline_2")}</span>
+                    <span className="block">{headlinePrimary}</span>
+                    {headlineSecondary ? (
+                      <span className="block text-accent">{headlineSecondary}</span>
+                    ) : null}
                   </h1>
                 </motion.div>
 
@@ -169,7 +188,7 @@ export function HeroSection() {
                   variants={itemVariants}
                   className="mb-8 max-w-lg font-serif text-base leading-relaxed text-primary-foreground/70 md:text-lg lg:mb-10 lg:text-xl"
                 >
-                  {t("tagline")}
+                  {heroSubtitle}
                 </motion.p>
 
                 {/* CTAs */}
@@ -187,7 +206,7 @@ export function HeroSection() {
                         "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary"
                       )}
                     >
-                      {t("cta")}
+                      {primaryCtaLabel}
                       <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-0.5" />
                     </Link>
                   </motion.div>
@@ -200,7 +219,7 @@ export function HeroSection() {
                         "transition-colors duration-300 hover:text-primary-foreground"
                       )}
                     >
-                      {t("secondary_cta")}
+                      {secondaryCtaLabel}
                       <ArrowRight className="size-3.5" />
                     </Link>
                   </motion.div>

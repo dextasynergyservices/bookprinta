@@ -43,7 +43,7 @@ export function DashboardTableViewport({
     <div
       className={cn(
         "relative min-w-0 overflow-x-auto overscroll-x-contain rounded-2xl border border-[#2A2A2A] bg-[#0A0A0A]",
-        "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        "[scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[#2F2F2F]",
         className
       )}
       data-lenis-prevent
