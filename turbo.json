@@ -6,7 +6,15 @@
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "env": ["SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT", "NODE_ENV"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "dist/**",
+        "public/sw.js",
+        "public/sw.js.map",
+        "public/swe-worker-*.js",
+        "public/swe-worker-*.js.map"
+      ]
     },
     "lint": {
       "dependsOn": ["^lint"]

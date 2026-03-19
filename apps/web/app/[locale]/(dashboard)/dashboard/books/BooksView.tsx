@@ -11,6 +11,7 @@ import { ManuscriptUploadFlow } from "@/components/dashboard/manuscript-upload-f
 import { ReprintSameModal } from "@/components/dashboard/reprint-same-modal";
 import { Button } from "@/components/ui/button";
 import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 import {
   approveBookForProduction,
   reprocessBookManuscript,
@@ -754,6 +755,8 @@ type BillingGatePanelProps = {
   forceProcessing?: boolean;
   isPaymentGatewayLoading: boolean;
   isPaymentGatewayUnavailable: boolean;
+  isOffline: boolean;
+  offlineNotice: string;
   isPayingExtra: boolean;
   isApprovingBook: boolean;
   actionError: string | null;
@@ -774,6 +777,8 @@ function BillingGatePanel({
   forceProcessing,
   isPaymentGatewayLoading,
   isPaymentGatewayUnavailable,
+  isOffline,
+  offlineNotice,
   isPayingExtra,
   isApprovingBook,
   actionError,
@@ -898,12 +903,24 @@ function BillingGatePanel({
           </p>
         ) : null}
 
+        {isOffline && gateState === "payment_required" ? (
+          <p
+            aria-live="polite"
+            aria-atomic="true"
+            className="font-sans rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-2 text-sm text-[#d0d0d0]"
+          >
+            {offlineNotice}
+          </p>
+        ) : null}
+
         <div className="flex flex-col gap-2 sm:flex-row">
           {gateState === "payment_required" ? (
             <Button
               type="button"
               onClick={onPayExtraPages}
-              disabled={isPayingExtra || isPaymentGatewayLoading || isPaymentGatewayUnavailable}
+              disabled={
+                isPayingExtra || isPaymentGatewayLoading || isPaymentGatewayUnavailable || isOffline
+              }
               className="font-sans min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0066d1] disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
             >
               {isPayingExtra
@@ -952,6 +969,7 @@ export function BooksView() {
   const tDashboard = useTranslations("dashboard");
   const tCommon = useTranslations("common");
   const locale = useLocale();
+  const isOnline = useOnlineStatus();
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [resourceActionError, setResourceActionError] = useState<string | null>(null);
@@ -1250,6 +1268,12 @@ export function BooksView() {
 
   async function handlePayExtraPages() {
     if (!activeBookId) return;
+
+    if (!isOnline) {
+      setActionSuccess(null);
+      setActionError(tCommon("offline_banner"));
+      return;
+    }
 
     const dueExtraAmount = typeof extraAmount === "number" ? extraAmount : null;
     const computedExtraPages =
@@ -1614,6 +1638,8 @@ export function BooksView() {
               forceProcessing={isLayoutReprocessing}
               isPaymentGatewayLoading={isPaymentGatewaysLoading}
               isPaymentGatewayUnavailable={isPaymentGatewayUnavailable}
+              isOffline={!isOnline}
+              offlineNotice={tCommon("offline_banner")}
               isPayingExtra={isPayingExtra}
               isApprovingBook={isApprovingBook}
               actionError={actionError}

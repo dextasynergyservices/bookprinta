@@ -1,6 +1,7 @@
-import { defaultCache } from "@serwist/next/worker";
-import type { PrecacheEntry, RuntimeCaching, SerwistGlobalConfig } from "serwist";
-import { NetworkOnly, Serwist } from "serwist";
+import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
+import { Serwist } from "serwist";
+import { pwaRuntimeCaching } from "@/lib/pwa/cache-rules";
+import { offlineDocumentFallbackEntries } from "@/lib/pwa/offline-fallback";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -10,28 +11,15 @@ declare global {
 
 declare const self: ServiceWorkerGlobalScope;
 
-const paymentAndMutationNetworkOnlyRules: RuntimeCaching[] = [
-  {
-    matcher: ({ url }: { url: URL }) => url.pathname.startsWith("/api/v1/"),
-    handler: new NetworkOnly(),
-  },
-];
-
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
-  skipWaiting: true,
+  // Keep updates waiting until the client explicitly confirms the reload.
+  skipWaiting: false,
   clientsClaim: true,
   navigationPreload: true,
-  runtimeCaching: [...paymentAndMutationNetworkOnlyRules, ...defaultCache],
+  runtimeCaching: pwaRuntimeCaching,
   fallbacks: {
-    entries: [
-      {
-        url: "/offline",
-        matcher({ request }) {
-          return request.destination === "document";
-        },
-      },
-    ],
+    entries: offlineDocumentFallbackEntries,
   },
 });
 

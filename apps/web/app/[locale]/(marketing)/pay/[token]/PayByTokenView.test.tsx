@@ -1,9 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { PayByTokenView } from "./PayByTokenView";
 
 const useSearchParamsMock = jest.fn();
 const usePaymentGatewaysMock = jest.fn();
+const useOnlineStatusMock = jest.fn();
 const resolveQuotePaymentTokenMock = jest.fn();
 const payQuoteByTokenMock = jest.fn();
 const verifyQuotePaymentReferenceMock = jest.fn();
@@ -40,6 +42,7 @@ const translations: Record<string, string> = {
   awaiting_webhook: "Payment received. Waiting for confirmation...",
   awaiting_confirmation: "Still confirming your payment. Please wait...",
   awaiting_email: "Verification is taking longer than expected. Check your email shortly.",
+  offline_banner: "You're offline — some features require an internet connection",
 };
 
 jest.mock("next/navigation", () => ({
@@ -49,6 +52,10 @@ jest.mock("next/navigation", () => ({
 jest.mock("next-intl", () => ({
   useTranslations: (_namespace?: string) => (key: string) => translations[key] ?? key,
   useLocale: () => "en",
+}));
+
+jest.mock("@/hooks/use-online-status", () => ({
+  useOnlineStatus: () => useOnlineStatusMock(),
 }));
 
 jest.mock("@/hooks/usePayments", () => ({
@@ -74,7 +81,47 @@ describe("PayByTokenView", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     useSearchParamsMock.mockReturnValue(new URLSearchParams());
-    usePaymentGatewaysMock.mockReturnValue({ data: [] });
+    useOnlineStatusMock.mockReturnValue(true);
+    usePaymentGatewaysMock.mockReturnValue({
+      data: [
+        {
+          id: "gateway_paystack",
+          provider: "PAYSTACK",
+          name: "Paystack",
+          isEnabled: true,
+        },
+        {
+          id: "gateway_bank",
+          provider: "BANK_TRANSFER",
+          name: "Bank Transfer",
+          isEnabled: true,
+          bankDetails: {
+            accounts: [
+              {
+                accountName: "BookPrinta",
+                accountNumber: "0123456789",
+                bank: "Demo Bank",
+              },
+            ],
+          },
+        },
+      ],
+    });
+    resolveQuotePaymentTokenMock.mockResolvedValue({
+      tokenStatus: "VALID",
+      quote: {
+        id: "cmquote-valid",
+        workingTitle: "Fresh Draft",
+        fullName: "Ada Writer",
+        email: "ada@example.com",
+        bookPrintSize: "A5",
+        quantity: 100,
+        finalPrice: 180000,
+        status: "PAYMENT_LINK_SENT",
+        paymentLinkExpiresAt: "2026-03-30T10:00:00.000Z",
+      },
+      message: "Use one of the options below to complete payment.",
+    });
     verifyQuotePaymentReferenceMock.mockResolvedValue({
       status: "PENDING",
       reference: "ref_test",
@@ -129,5 +176,26 @@ describe("PayByTokenView", () => {
     );
     expect(screen.getByRole("link", { name: "See pricing" })).toHaveAttribute("href", "/pricing");
     expect(screen.queryByRole("button", { name: "Pay with Paystack" })).not.toBeInTheDocument();
+  });
+
+  it("disables quote payment actions offline", async () => {
+    const user = userEvent.setup();
+    useOnlineStatusMock.mockReturnValue(false);
+
+    render(<PayByTokenView token="offline_token" />);
+
+    const paystackButton = await screen.findByRole("button", { name: "Pay with Paystack" });
+    const bankButton = screen.getByRole("button", { name: "Bank transfer" });
+
+    expect(paystackButton).toBeDisabled();
+    expect(bankButton).toBeDisabled();
+    expect(
+      screen.getByText("You're offline — some features require an internet connection")
+    ).toBeInTheDocument();
+
+    await user.click(paystackButton);
+
+    expect(payQuoteByTokenMock).not.toHaveBeenCalled();
+    expect(submitBankTransferMock).not.toHaveBeenCalled();
   });
 });

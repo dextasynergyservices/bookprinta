@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.ts",
+    "test:pwa": "jest --config jest.config.ts --runTestsByPath \"hooks/use-online-status.test.tsx\" \"components/shared/offline-status-banner.test.tsx\" \"app/[locale]/offline/page.test.tsx\" \"app/[locale]/offline/offline-reload-button.test.tsx\" \"app/[locale]/checkout/CheckoutView.test.tsx\" \"components/checkout/PaymentMethodModal.test.tsx\" \"app/[locale]/(marketing)/pay/[token]/PayByTokenView.test.tsx\" \"components/dashboard/manuscript-upload-flow.test.tsx\" \"components/dashboard/reprint-same-modal.test.tsx\" \"app/[locale]/(dashboard)/dashboard/books/BooksView.test.tsx\" \"lib/pwa/cache-rules.test.ts\" \"lib/pwa/offline-fallback.test.ts\" \"lib/pwa/plugin-config.test.ts\" \"lib/pwa/service-worker-update.test.ts\" \"lib/pwa/sw-runtime-config.test.ts\" \"components/shared/service-worker-update-prompt.test.tsx\" \"messages/messages-i18n-coverage.test.ts\"",
     "test:watch": "jest --config jest.config.ts --watch",
     "test:cov": "jest --config jest.config.ts --coverage"
   },

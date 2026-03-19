@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 import { submitBankTransfer, usePaymentGateways } from "@/hooks/usePayments";
 import {
   payQuoteByToken,
@@ -70,7 +71,10 @@ function normalizeProvider(provider: string | null | undefined): OnlineProvider 
 
 export function PayByTokenView({ token }: { token: string }) {
   const t = useTranslations("quote_pay");
+  const tCommon = useTranslations("common");
   const locale = useLocale();
+  const isOnline = useOnlineStatus();
+  const isOffline = !isOnline;
   const searchParams = useSearchParams();
   const { data: gateways } = usePaymentGateways(true);
   const [isLoading, setIsLoading] = useState(true);
@@ -244,6 +248,11 @@ export function PayByTokenView({ token }: { token: string }) {
     bankReceiptFile !== null;
 
   const handlePay = async (provider: Provider) => {
+    if (isOffline) {
+      setErrorMessage(tCommon("offline_banner"));
+      return;
+    }
+
     const now = Date.now();
     if (now - lastPayClickAtRef.current < PAY_CLICK_DEBOUNCE_MS) return;
     lastPayClickAtRef.current = now;
@@ -278,6 +287,10 @@ export function PayByTokenView({ token }: { token: string }) {
     setBankReceiptFile(null);
 
     if (!file) return;
+    if (isOffline) {
+      setBankReceiptError(tCommon("offline_banner"));
+      return;
+    }
 
     if (file.size > MAX_RECEIPT_SIZE_BYTES) {
       setBankReceiptError(t("bank_receipt_too_large"));
@@ -293,6 +306,11 @@ export function PayByTokenView({ token }: { token: string }) {
   };
 
   const handleBankTransferSubmit = async () => {
+    if (isOffline) {
+      setErrorMessage(tCommon("offline_banner"));
+      return;
+    }
+
     const now = Date.now();
     if (now - lastPayClickAtRef.current < PAY_CLICK_DEBOUNCE_MS) return;
     lastPayClickAtRef.current = now;
@@ -404,11 +422,22 @@ export function PayByTokenView({ token }: { token: string }) {
 
         {isValid ? (
           <div className="mt-8 space-y-3">
+            {isOffline ? (
+              <p
+                aria-live="polite"
+                aria-atomic="true"
+                className="rounded-2xl border border-black/10 bg-[#eef4fb] px-4 py-3 text-sm text-[#1f2a3d]"
+              >
+                {tCommon("offline_banner")}
+              </p>
+            ) : null}
             {canPayWithPaystack ? (
               <button
                 type="button"
                 onClick={() => void handlePay("PAYSTACK")}
-                disabled={Boolean(isPaying) || isVerifyingCallback || isRedirectingToProvider}
+                disabled={
+                  Boolean(isPaying) || isVerifyingCallback || isRedirectingToProvider || isOffline
+                }
                 className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isPaying === "PAYSTACK"
@@ -422,7 +451,9 @@ export function PayByTokenView({ token }: { token: string }) {
               <button
                 type="button"
                 onClick={() => void handlePay("STRIPE")}
-                disabled={Boolean(isPaying) || isVerifyingCallback || isRedirectingToProvider}
+                disabled={
+                  Boolean(isPaying) || isVerifyingCallback || isRedirectingToProvider || isOffline
+                }
                 className="w-full rounded-xl border border-black/20 bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-black/[0.03] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isPaying === "STRIPE"
@@ -436,7 +467,9 @@ export function PayByTokenView({ token }: { token: string }) {
               <button
                 type="button"
                 onClick={() => void handlePay("BANK_TRANSFER")}
-                disabled={Boolean(isPaying) || isVerifyingCallback || isRedirectingToProvider}
+                disabled={
+                  Boolean(isPaying) || isVerifyingCallback || isRedirectingToProvider || isOffline
+                }
                 className="w-full rounded-xl border border-black/20 bg-[#f7f1e6] px-4 py-3 text-sm font-semibold text-black transition hover:bg-[#f3e7d2] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isPaying === "BANK_TRANSFER" ? t("processing") : t("bank_transfer")}
@@ -515,10 +548,11 @@ export function PayByTokenView({ token }: { token: string }) {
                     id="quote-bank-receipt"
                     type="file"
                     accept=".pdf,image/jpeg,image/png"
+                    disabled={isOffline}
                     onChange={(event) =>
                       handleReceiptFileChange(event.currentTarget.files?.[0] ?? null)
                     }
-                    className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black"
+                    className="w-full rounded-xl border border-black/15 bg-white px-3 py-2 text-sm text-black disabled:cursor-not-allowed disabled:opacity-60"
                   />
 
                   <p className="text-xs text-black/55">{t("bank_receipt_help")}</p>
@@ -538,7 +572,8 @@ export function PayByTokenView({ token }: { token: string }) {
                       !isBankFormComplete ||
                       isPaying === "BANK_TRANSFER" ||
                       isVerifyingCallback ||
-                      isRedirectingToProvider
+                      isRedirectingToProvider ||
+                      isOffline
                     }
                     className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                   >

@@ -4,6 +4,11 @@
     "error": "Une erreur est survenue",
     "retry": "Réessayer",
     "offline_banner": "Vous êtes hors ligne — certaines fonctionnalités nécessitent une connexion internet",
+    "sw_update_title": "Mise à jour disponible",
+    "sw_update_body": "Une nouvelle version de BookPrinta est prête. Rechargez quand vous êtes prêt à l'appliquer.",
+    "sw_update_reload": "Recharger",
+    "sw_update_reloading": "Rechargement...",
+    "sw_update_later": "Plus tard",
     "back": "Retour",
     "next": "Suivant",
     "submit": "Envoyer",
@@ -3330,5 +3335,11 @@
     "back_home": "Retour à l'accueil",
     "browse_books": "Voir la vitrine",
     "contact_us": "Nous contacter"
+  },
+  "offline": {
+    "eyebrow": "Mode hors ligne",
+    "title": "Vous êtes hors ligne",
+    "description": "Vérifiez votre connexion et réessayez.",
+    "retry": "Réessayer"
   }
 }

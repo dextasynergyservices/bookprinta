@@ -15,6 +15,7 @@ const usePaymentGatewaysMock = jest.fn();
 const payExtraPagesMock = jest.fn();
 const payReprintMock = jest.fn();
 const verifyPaymentMock = jest.fn();
+const useOnlineStatusMock = jest.fn();
 const toastSuccessMock = jest.fn();
 const routerReplaceMock = jest.fn();
 let currentBookId: string | null = null;
@@ -216,6 +217,7 @@ const TRANSLATIONS: Record<string, string> = {
   book_progress_billing_gate_provider_unavailable:
     "No online payment gateway is available right now.",
   book_progress_billing_gate_payment_error: "Unable to start extra-page payment right now.",
+  offline_banner: "You're offline — some features require an internet connection",
   book_progress_rollout_title: "Release Control",
   book_progress_rollout_heading: "This automated step is not enabled here yet",
   book_progress_rollout_workspace_disabled:
@@ -284,6 +286,10 @@ jest.mock("@/hooks/useBookProgress", () => ({
 jest.mock("@/hooks/useBookResources", () => ({
   useBookPreview: (...args: unknown[]) => useBookPreviewMock(...args),
   useBookFiles: (...args: unknown[]) => useBookFilesMock(...args),
+}));
+
+jest.mock("@/hooks/use-online-status", () => ({
+  useOnlineStatus: () => useOnlineStatusMock(),
 }));
 
 jest.mock("@/hooks/use-book-reprint-config", () => ({
@@ -591,6 +597,7 @@ describe("BooksView route integration", () => {
       amountPaid: null,
       addons: [],
     });
+    useOnlineStatusMock.mockReturnValue(true);
   });
 
   it("shows empty state when no bookId query param is provided", () => {
@@ -841,6 +848,62 @@ describe("BooksView route integration", () => {
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pay Extra Pages" })).toBeInTheDocument();
+  });
+
+  it("disables extra-page payment offline", async () => {
+    const user = userEvent.setup();
+    useOnlineStatusMock.mockReturnValue(false);
+    currentBookId = "cm1111111111111111111111111";
+    useBookProgressMock.mockReturnValue({
+      data: createBookProgressData({
+        bookId: currentBookId,
+        orderId: "ord_123",
+        currentStage: "REVIEW",
+        currentStatus: "PREVIEW_READY",
+        timeline: [
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-01T08:00:00.000Z",
+            sourceStatus: "PREVIEW_READY",
+          },
+        ],
+        estimatedPages: 132,
+        pageCount: 142,
+        wordCount: 41000,
+        previewPdfUrl: "https://example.com/preview.pdf",
+      }),
+      isInitialLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: jest.fn(),
+      error: null,
+    });
+    useOrderDetailMock.mockReturnValue({
+      data: {
+        status: "PENDING_EXTRA_PAYMENT",
+        extraAmount: 200,
+        latestExtraPaymentStatus: null,
+      },
+      status: "PENDING_EXTRA_PAYMENT",
+      extraAmount: 200,
+      latestExtraPaymentStatus: null,
+      isInitialLoading: false,
+      refetch: jest.fn(),
+    });
+
+    render(<BooksView />);
+
+    const payButton = screen.getByRole("button", { name: "Pay Extra Pages" });
+
+    expect(payButton).toBeDisabled();
+    expect(
+      screen.getByText("You're offline — some features require an internet connection")
+    ).toBeInTheDocument();
+
+    await user.click(payButton);
+
+    expect(payExtraPagesMock).not.toHaveBeenCalled();
   });
 
   it("renders the production progress block between manuscript upload and book workspace", () => {

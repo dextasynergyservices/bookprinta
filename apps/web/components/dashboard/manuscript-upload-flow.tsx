@@ -5,6 +5,7 @@ import { FileUp, UploadCloud } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { type ChangeEvent, type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import {
   type BookFontSize,
@@ -62,7 +63,10 @@ export function ManuscriptUploadFlow({
   onUploadSuccess,
 }: ManuscriptUploadFlowProps) {
   const tDashboard = useTranslations("dashboard");
+  const tCommon = useTranslations("common");
   const locale = useLocale();
+  const isOnline = useOnlineStatus();
+  const isOffline = !isOnline;
   const prefersReducedMotion = useReducedMotion();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -211,6 +215,11 @@ export function ManuscriptUploadFlow({
   const handleFileUpload = async (file: File) => {
     clearError();
 
+    if (isOffline) {
+      setErrorMessage(tCommon("offline_banner"));
+      return;
+    }
+
     if (!selectedPageSize || !selectedFontSize) {
       setErrorMessage(tDashboard("manuscript_upload_error_settings_required"));
       setStep("settings");
@@ -280,13 +289,13 @@ export function ManuscriptUploadFlow({
   };
 
   const onDropZoneClick = () => {
-    if (!hasRequiredSettings || isBusy) return;
+    if (!hasRequiredSettings || isBusy || isOffline) return;
     fileInputRef.current?.click();
   };
 
   const onDragOver = (event: DragEvent<HTMLButtonElement>) => {
     event.preventDefault();
-    if (!hasRequiredSettings || isBusy) return;
+    if (!hasRequiredSettings || isBusy || isOffline) return;
     setDragActive(true);
   };
 
@@ -300,7 +309,7 @@ export function ManuscriptUploadFlow({
   const onDrop = async (event: DragEvent<HTMLButtonElement>) => {
     event.preventDefault();
     setDragActive(false);
-    if (!hasRequiredSettings || isBusy) return;
+    if (!hasRequiredSettings || isBusy || isOffline) return;
 
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
@@ -356,6 +365,16 @@ export function ManuscriptUploadFlow({
       {errorMessage ? (
         <div className="font-sans mt-4 rounded-xl border border-[#ef4444] bg-[#2a1111] px-3 py-3 text-sm text-[#fecaca]">
           {errorMessage}
+        </div>
+      ) : null}
+
+      {isOffline && (step === "upload" || step === "result") ? (
+        <div
+          aria-live="polite"
+          aria-atomic="true"
+          className="font-sans mt-4 rounded-xl border border-[#2A2A2A] bg-[#090909] px-3 py-3 text-sm text-[#d0d0d0]"
+        >
+          {tCommon("offline_banner")}
         </div>
       ) : null}
 
@@ -520,7 +539,7 @@ export function ManuscriptUploadFlow({
 
           <button
             type="button"
-            disabled={!hasRequiredSettings || isBusy}
+            disabled={!hasRequiredSettings || isBusy || isOffline}
             onClick={onDropZoneClick}
             onDragOver={onDragOver}
             onDragEnter={onDragOver}
@@ -529,7 +548,7 @@ export function ManuscriptUploadFlow({
             aria-label={tDashboard("manuscript_upload_dropzone_aria")}
             className={cn(
               "w-full rounded-2xl border-2 border-dashed px-4 py-8 text-center outline-none transition-colors",
-              !hasRequiredSettings
+              !hasRequiredSettings || isOffline
                 ? "cursor-not-allowed border-[#393939] bg-[#080808]"
                 : dragActive
                   ? "border-[#007eff] bg-[#0b1725]"
@@ -560,6 +579,7 @@ export function ManuscriptUploadFlow({
             ref={fileInputRef}
             type="file"
             accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            disabled={isOffline}
             onChange={(event) => void onFileInputChange(event)}
             className="hidden"
           />
@@ -638,6 +658,7 @@ export function ManuscriptUploadFlow({
                 clearError();
                 setStep("upload");
               }}
+              disabled={isOffline}
               className="font-sans min-h-11 w-full rounded-full border-[#2A2A2A] bg-[#000000] text-sm text-white hover:bg-[#131313]"
             >
               {tDashboard("manuscript_upload_replace_file")}

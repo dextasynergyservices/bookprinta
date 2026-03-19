@@ -5,6 +5,8 @@ import { routing } from "@/lib/i18n/routing";
 
 const intlMiddleware = createMiddleware(routing);
 const ACCESS_TOKEN_COOKIE = "access_token";
+const DEFAULT_LOCALE_OFFLINE_PATH = "/en/offline";
+const OFFLINE_COMPATIBILITY_PATH = "/offline";
 
 function decodeBase64Url(value: string): string | null {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -60,6 +62,15 @@ function localizeLoginRedirect(loginRedirectHref: string, pathname: string): str
 
 export default function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+
+  if (pathname === OFFLINE_COMPATIBILITY_PATH) {
+    return NextResponse.rewrite(new URL(DEFAULT_LOCALE_OFFLINE_PATH, request.url));
+  }
+
+  if (pathname === DEFAULT_LOCALE_OFFLINE_PATH) {
+    return NextResponse.next();
+  }
+
   const currentPathWithQuery = `${pathname}${request.nextUrl.search}`;
   const isProtectedRoute = getProtectedScope(currentPathWithQuery) !== "none";
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
