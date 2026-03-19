@@ -7,13 +7,13 @@ import {
   ShowcaseListQueryDto,
   ShowcaseListResponseDto,
 } from "./dto/index.js";
-import { ShowcaseService } from "./showcase.service.js";
+import { PublicShowcaseService } from "./public-showcase.service.js";
 
 @ApiTags("Showcase")
 @Controller("showcase")
 @SkipThrottle()
 export class ShowcaseController {
-  constructor(private readonly showcaseService: ShowcaseService) {}
+  constructor(private readonly publicShowcaseService: PublicShowcaseService) {}
 
   @Get()
   @Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300")
@@ -45,7 +45,7 @@ export class ShowcaseController {
     type: ShowcaseListResponseDto,
   })
   async list(@Query() query: ShowcaseListQueryDto): Promise<ShowcaseListResponseDto> {
-    return this.showcaseService.listPublic(query);
+    return this.publicShowcaseService.listPublic(query);
   }
 
   @Get("categories")
@@ -60,7 +60,7 @@ export class ShowcaseController {
     type: ShowcaseCategoriesResponseDto,
   })
   async listCategories(): Promise<ShowcaseCategoriesResponseDto> {
-    return this.showcaseService.listCategories();
+    return this.publicShowcaseService.listCategories();
   }
 
   @Get(":id/author")
@@ -85,6 +85,6 @@ export class ShowcaseController {
     description: "Showcase entry or public author profile not found",
   })
   async getAuthorProfile(@Param("id") id: string): Promise<AuthorProfileResponseDto> {
-    return this.showcaseService.getAuthorProfile(id);
+    return this.publicShowcaseService.getAuthorProfile(id);
   }
 }
