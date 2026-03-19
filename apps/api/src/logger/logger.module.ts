@@ -35,9 +35,33 @@ import { LoggerModule as PinoLoggerModule } from "nestjs-pino";
         // Log level: configurable via env, sensible defaults per environment
         level: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
 
-        // Redact sensitive headers from logged request objects
+        // Redact sensitive headers and request body fields from logged HTTP traces
         redact: {
-          paths: ["req.headers.authorization", "req.headers.cookie"],
+          paths: [
+            // HTTP headers
+            "req.headers.authorization",
+            "req.headers.cookie",
+            "req.headers['x-api-key']",
+
+            // Request body (authentication, credentials, secrets)
+            "req.body.password",
+            "req.body.token",
+            "req.body.secret",
+            "req.body.apiKey",
+            "req.body.secretKey",
+            "req.body.publicKey",
+            "req.body.credentials",
+            "req.body.clientSecret",
+            "req.body.webhookSecret",
+            "req.body.refreshToken",
+
+            // Response body (should not leak secrets, but include as safeguard)
+            "res.body.token",
+            "res.body.secret",
+            "res.body.password",
+            "res.body.accessToken",
+            "res.body.refreshToken",
+          ],
           censor: "[REDACTED]",
         },
 

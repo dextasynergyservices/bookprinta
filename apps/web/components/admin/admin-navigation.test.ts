@@ -20,6 +20,7 @@ describe("admin navigation config", () => {
       "/admin/quotes",
       "/admin/packages",
       "/admin/coupons",
+      "/admin/reviews",
       "/admin/system-settings",
       "/admin/audit-logs",
     ]);
@@ -105,6 +106,10 @@ describe("admin navigation config", () => {
           "/admin/packages",
           "/admin/coupons",
         ],
+      },
+      {
+        labelKey: "section_content",
+        hrefs: ["/admin/reviews"],
       },
       {
         labelKey: "section_control",

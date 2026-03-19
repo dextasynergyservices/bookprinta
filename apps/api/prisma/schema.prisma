@@ -368,6 +368,8 @@ model Order {
   @@index([userId])
   @@index([status])
   @@index([orderNumber])
+  @@index([createdAt])
+  @@index([status, createdAt])
 }
 
 
@@ -422,6 +424,7 @@ model Book {
   @@index([status])
   @@index([productionStatus])
   @@index([userId])
+  @@index([status, createdAt])
 }
 
 // ==========================================
@@ -493,6 +496,10 @@ model Payment {
 
   @@index([providerRef])
   @@index([orderId])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([provider, status, createdAt])
+  @@index([type, status, createdAt])
 }
 
 // ==========================================

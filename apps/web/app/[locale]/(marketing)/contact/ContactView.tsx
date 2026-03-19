@@ -11,6 +11,7 @@ import { ContactForm } from "@/components/marketing/contact/ContactForm";
 import { ScrollProgress } from "@/components/marketing/showcase/ScrollProgress";
 import { useLenis } from "@/hooks/use-lenis";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { usePublicMarketingSettings } from "@/hooks/usePublicMarketingSettings";
 import { Link } from "@/lib/i18n/navigation";
 
 // Register GSAP plugins
@@ -28,33 +29,44 @@ const lineRevealVariants = {
   }),
 };
 
-// ── Business Details Config ─────────────────────────────────────────────────
-const DETAILS = [
-  {
-    icon: MailIcon,
-    labelKey: "details_email_label",
-    valueKey: "details_email",
-    href: "mailto:hello@bookprinta.com",
-  },
-  {
-    icon: PhoneIcon,
-    labelKey: "details_phone_label",
-    valueKey: "details_phone",
-    href: "tel:+234XXXXXXXXX",
-  },
-  {
-    icon: MessageCircleIcon,
-    labelKey: "details_whatsapp_label",
-    valueKey: "details_whatsapp",
-    href: "https://wa.me/234XXXXXXXXX",
-  },
-  { icon: ClockIcon, labelKey: "details_hours_label", valueKey: "details_hours", href: null },
-  { icon: MapPinIcon, labelKey: "details_address_label", valueKey: "details_address", href: null },
-] as const;
-
 export function ContactView() {
   const t = useTranslations("contact");
   const prefersReduced = useReducedMotion();
+  const { settings } = usePublicMarketingSettings();
+
+  const supportEmail = settings?.contact.supportEmail?.trim() || t("details_email");
+  const supportPhone = settings?.contact.supportPhone?.trim() || t("details_phone");
+  const whatsappNumber = settings?.contact.whatsappNumber?.trim() || "";
+  const officeAddress = settings?.contact.officeAddress?.trim() || t("details_address");
+  const detailsTitle = settings?.contact.heading?.trim() || t("details_title");
+
+  const normalizedPhoneLink = supportPhone.replace(/\s+/g, "");
+  const normalizedWhatsappLink = whatsappNumber
+    ? `https://wa.me/${whatsappNumber.replace(/[^0-9]/g, "")}`
+    : null;
+
+  const DETAILS = [
+    {
+      icon: MailIcon,
+      labelKey: "details_email_label",
+      value: supportEmail,
+      href: `mailto:${supportEmail}`,
+    },
+    {
+      icon: PhoneIcon,
+      labelKey: "details_phone_label",
+      value: supportPhone,
+      href: `tel:${normalizedPhoneLink}`,
+    },
+    {
+      icon: MessageCircleIcon,
+      labelKey: "details_whatsapp_label",
+      value: whatsappNumber || t("details_whatsapp"),
+      href: normalizedWhatsappLink,
+    },
+    { icon: ClockIcon, labelKey: "details_hours_label", value: t("details_hours"), href: null },
+    { icon: MapPinIcon, labelKey: "details_address_label", value: officeAddress, href: null },
+  ] as const;
 
   // ── Lenis smooth scroll ──
   const { lenis } = useLenis();
@@ -289,7 +301,7 @@ export function ContactView() {
               {/* ── Details (takes 2 cols) ── */}
               <div ref={detailsSectionRef} className="md:col-span-2">
                 <h3 className="mb-8 font-display text-xl font-semibold text-primary-foreground md:text-2xl">
-                  {t("details_title")}
+                  {detailsTitle}
                 </h3>
 
                 <ul className="space-y-6">
@@ -311,7 +323,7 @@ export function ContactView() {
                             {t(detail.labelKey)}
                           </p>
                           <p className="mt-0.5 font-serif text-sm leading-relaxed text-primary-foreground/70 md:text-base">
-                            {t(detail.valueKey)}
+                            {detail.value}
                           </p>
                         </div>
                       </li>
