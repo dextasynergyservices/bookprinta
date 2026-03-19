@@ -81,6 +81,7 @@ const DASHBOARD_TRANSLATIONS: Record<string, string> = {
   reprint_same_payment_processing: "Redirecting...",
   reprint_same_payment_error: "Unable to start reprint payment right now.",
   book_progress_meta_value_unavailable: "Unavailable",
+  offline_banner: "You're offline — some features require an internet connection",
 };
 
 const CHECKOUT_TRANSLATIONS: Record<string, string> = {
@@ -109,7 +110,8 @@ function interpolate(template: string, values?: Record<string, unknown>) {
 
 jest.mock("next-intl", () => ({
   useTranslations:
-    (namespace: "dashboard" | "checkout") => (key: string, values?: Record<string, unknown>) => {
+    (namespace: "dashboard" | "checkout" | "common") =>
+    (key: string, values?: Record<string, unknown>) => {
       const table = namespace === "checkout" ? CHECKOUT_TRANSLATIONS : DASHBOARD_TRANSLATIONS;
       const template = table[key] ?? key;
       return interpolate(template, values);
@@ -124,6 +126,11 @@ jest.mock("@/hooks/use-reduced-motion", () => ({
 const usePaymentGatewaysMock = jest.fn();
 const payReprintMock = jest.fn();
 const redirectToUrlMock = jest.fn();
+const useOnlineStatusMock = jest.fn();
+
+jest.mock("@/hooks/use-online-status", () => ({
+  useOnlineStatus: () => useOnlineStatusMock(),
+}));
 
 jest.mock("@/hooks/usePayments", () => ({
   usePaymentGateways: (...args: unknown[]) => usePaymentGatewaysMock(...args),
@@ -251,6 +258,7 @@ describe("ReprintSameModal", () => {
       reference: "rp_ref_123",
       provider: "PAYSTACK",
     });
+    useOnlineStatusMock.mockReturnValue(true);
   });
 
   it("uses the mobile sheet layout at 375px", async () => {
@@ -420,5 +428,33 @@ describe("ReprintSameModal", () => {
       })
     );
     expect(redirectToUrlMock).toHaveBeenCalledWith("https://checkout.example.com/reprint");
+  });
+
+  it("disables reprint payment actions offline", async () => {
+    const user = userEvent.setup();
+    useOnlineStatusMock.mockReturnValue(false);
+
+    render(
+      <ReprintSameModal
+        open
+        onOpenChange={jest.fn()}
+        bookTitle="The Last Story"
+        config={reprintConfig}
+        isLoading={false}
+        isError={false}
+      />
+    );
+
+    const paystackButton = screen.getByRole("button", { name: "Pay with Paystack" });
+
+    expect(paystackButton).toBeDisabled();
+    expect(
+      screen.getByText("You're offline — some features require an internet connection")
+    ).toBeInTheDocument();
+
+    await user.click(paystackButton);
+
+    expect(payReprintMock).not.toHaveBeenCalled();
+    expect(redirectToUrlMock).not.toHaveBeenCalled();
   });
 });

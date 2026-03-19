@@ -4,6 +4,11 @@
     "error": "Algo salió mal",
     "retry": "Reintentar",
     "offline_banner": "Estás sin conexión — algunas funciones requieren conexión a internet",
+    "sw_update_title": "Actualización disponible",
+    "sw_update_body": "Una nueva versión de BookPrinta está lista. Recarga cuando quieras aplicarla.",
+    "sw_update_reload": "Recargar",
+    "sw_update_reloading": "Recargando...",
+    "sw_update_later": "Más tarde",
     "back": "Atrás",
     "next": "Siguiente",
     "submit": "Enviar",
@@ -3328,5 +3333,11 @@
     "back_home": "Volver al inicio",
     "browse_books": "Ver galería",
     "contact_us": "Contáctanos"
+  },
+  "offline": {
+    "eyebrow": "Modo sin conexión",
+    "title": "Estás sin conexión",
+    "description": "Comprueba tu conexión y vuelve a intentarlo.",
+    "retry": "Intentar de nuevo"
   }
 }

@@ -4,6 +4,11 @@
     "error": "Something went wrong",
     "retry": "Try Again",
     "offline_banner": "You're offline — some features require an internet connection",
+    "sw_update_title": "Update available",
+    "sw_update_body": "A new version of BookPrinta is ready. Reload when you're ready to apply it.",
+    "sw_update_reload": "Reload",
+    "sw_update_reloading": "Reloading...",
+    "sw_update_later": "Later",
     "back": "Back",
     "next": "Next",
     "submit": "Submit",
@@ -3328,5 +3333,11 @@
     "back_home": "Back to Home",
     "browse_books": "Browse Showcase",
     "contact_us": "Contact Us"
+  },
+  "offline": {
+    "eyebrow": "Offline Mode",
+    "title": "You're Offline",
+    "description": "Check your connection and try again.",
+    "retry": "Try Again"
   }
 }

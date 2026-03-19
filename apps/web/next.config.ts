@@ -2,6 +2,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 import withSerwist from "@serwist/next";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
+import { pwaPluginConfig } from "./lib/pwa/plugin-config";
 
 const withNextIntl = createNextIntlPlugin("./lib/i18n/request.ts");
 
@@ -20,13 +21,7 @@ const nextConfig: NextConfig = {
   },
 };
 
-const withPWA = withSerwist({
-  swSrc: "sw.ts",
-  swDest: "public/sw.js",
-  cacheOnNavigation: true,
-  reloadOnOnline: true,
-  disable: process.env.NODE_ENV === "development",
-});
+const withPWA = withSerwist(pwaPluginConfig);
 
 const hasSentryBuildAuth = Boolean(
   process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT

@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 import {
   initializePayment,
   type OnlinePaymentProvider,
@@ -101,9 +102,12 @@ export function PaymentMethodModal({
   paymentMetadata,
 }: PaymentMethodModalProps) {
   const t = useTranslations("checkout");
+  const tCommon = useTranslations("common");
   const locale = useLocale();
   const router = useRouter();
   const isMobile = useIsMobile();
+  const isOnline = useOnlineStatus();
+  const isOffline = !isOnline;
   const { user, isAuthenticated } = useAuthSession();
   const { data: gateways, isLoading, isError, refetch } = usePaymentGateways(open);
 
@@ -284,6 +288,11 @@ export function PaymentMethodModal({
   const isBankRateLimited = bankRateLimitSeconds > 0;
 
   const submitOnlinePayment = () => {
+    if (isOffline) {
+      toast.error(tCommon("offline_banner"));
+      return;
+    }
+
     const now = Date.now();
     if (now - lastPaymentClickAtRef.current < PAYMENT_CLICK_DEBOUNCE_MS) return;
     lastPaymentClickAtRef.current = now;
@@ -319,6 +328,10 @@ export function PaymentMethodModal({
     setBankReceiptFile(null);
 
     if (!file) return;
+    if (isOffline) {
+      setBankReceiptError(tCommon("offline_banner"));
+      return;
+    }
 
     if (file.size > MAX_RECEIPT_SIZE_BYTES) {
       setBankReceiptError(t("payment_modal_bank_receipt_too_large"));
@@ -334,6 +347,11 @@ export function PaymentMethodModal({
   };
 
   const submitBankPayment = () => {
+    if (isOffline) {
+      toast.error(tCommon("offline_banner"));
+      return;
+    }
+
     const now = Date.now();
     if (now - lastPaymentClickAtRef.current < PAYMENT_CLICK_DEBOUNCE_MS) return;
     lastPaymentClickAtRef.current = now;
@@ -364,12 +382,14 @@ export function PaymentMethodModal({
     !isOnlineFormComplete ||
     initializeMutation.isPending ||
     isOnlineRateLimited ||
-    isRedirectingToProvider;
+    isRedirectingToProvider ||
+    isOffline;
   const bankSubmitDisabled =
     !isBankFormComplete ||
     bankTransferMutation.isPending ||
     isBankRateLimited ||
-    isRedirectingToProvider;
+    isRedirectingToProvider ||
+    isOffline;
 
   const onlineButtonText = isRedirectingToProvider
     ? t("payment_modal_redirecting")
@@ -477,6 +497,16 @@ export function PaymentMethodModal({
                     </p>
                   </div>
 
+                  {isOffline ? (
+                    <p
+                      aria-live="polite"
+                      aria-atomic="true"
+                      className="mt-4 rounded-2xl border border-[#2A2A2A] bg-[#0f0f0f] px-4 py-3 font-sans text-sm text-[#d0d0d0]"
+                    >
+                      {tCommon("offline_banner")}
+                    </p>
+                  ) : null}
+
                   <div className="mt-5 flex-1 overflow-y-auto pb-4" data-lenis-prevent>
                     {paymentChoice && (
                       <button
@@ -494,7 +524,11 @@ export function PaymentMethodModal({
                         <button
                           type="button"
                           onClick={() => setPaymentChoice("online")}
-                          className="flex min-h-11 min-w-11 flex-col items-start gap-2 rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] p-4 text-left transition-colors duration-150 hover:border-[#007eff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                          disabled={isOffline}
+                          className={cn(
+                            "flex min-h-11 min-w-11 flex-col items-start gap-2 rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] p-4 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                            isOffline ? "cursor-not-allowed opacity-55" : "hover:border-[#007eff]"
+                          )}
                         >
                           <span className="flex size-9 items-center justify-center rounded-full border border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]">
                             <CreditCard className="size-4" aria-hidden="true" />
@@ -510,7 +544,11 @@ export function PaymentMethodModal({
                         <button
                           type="button"
                           onClick={() => setPaymentChoice("bank_transfer")}
-                          className="flex min-h-11 min-w-11 flex-col items-start gap-2 rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] p-4 text-left transition-colors duration-150 hover:border-[#007eff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                          disabled={isOffline}
+                          className={cn(
+                            "flex min-h-11 min-w-11 flex-col items-start gap-2 rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] p-4 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                            isOffline ? "cursor-not-allowed opacity-55" : "hover:border-[#007eff]"
+                          )}
                         >
                           <span className="flex size-9 items-center justify-center rounded-full border border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]">
                             <Landmark className="size-4" aria-hidden="true" />
@@ -581,10 +619,10 @@ export function PaymentMethodModal({
                                     if (!supportedProvider) return;
                                     setOnlineProvider(supportedProvider);
                                   }}
-                                  disabled={!isSupported}
+                                  disabled={!isSupported || isOffline}
                                   className={cn(
                                     "flex min-h-11 min-w-11 flex-col items-start rounded-2xl border p-4 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
-                                    isSupported
+                                    isSupported && !isOffline
                                       ? "border-[#2A2A2A] bg-[#0d0d0d] hover:border-[#007eff]"
                                       : "cursor-not-allowed border-[#2A2A2A] bg-[#0b0b0b] opacity-60",
                                     isSelected && "border-[#007eff] bg-[#06101a]"
@@ -795,7 +833,13 @@ export function PaymentMethodModal({
                               <button
                                 type="button"
                                 onClick={() => setShowBankReceiptForm(true)}
-                                className="inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                                disabled={isOffline}
+                                className={cn(
+                                  "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full px-5 font-sans text-sm font-semibold text-white transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                                  isOffline
+                                    ? "cursor-not-allowed bg-[#121212] text-white/45"
+                                    : "bg-[#007eff] hover:brightness-110"
+                                )}
                               >
                                 <CheckCircle2 className="mr-2 size-4" aria-hidden="true" />
                                 {t("payment_modal_bank_payment_done")}
@@ -840,12 +884,13 @@ export function PaymentMethodModal({
                                   <input
                                     type="file"
                                     accept=".pdf,image/jpeg,image/png"
+                                    disabled={isOffline}
                                     onChange={(event) =>
                                       handleReceiptFileChange(
                                         event.currentTarget.files?.[0] ?? null
                                       )
                                     }
-                                    className="min-h-11 w-full cursor-pointer rounded-xl border border-[#2A2A2A] bg-black px-4 py-2 font-sans text-sm text-white file:mr-3 file:rounded-md file:border-0 file:bg-[#007eff] file:px-3 file:py-1 file:font-sans file:text-xs file:font-semibold file:text-white hover:border-[#007eff]"
+                                    className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 py-2 font-sans text-sm text-white file:mr-3 file:rounded-md file:border-0 file:bg-[#007eff] file:px-3 file:py-1 file:font-sans file:text-xs file:font-semibold file:text-white hover:border-[#007eff] disabled:cursor-not-allowed disabled:opacity-60"
                                   />
                                 </label>
 

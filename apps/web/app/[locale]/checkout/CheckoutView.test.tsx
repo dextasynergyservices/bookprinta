@@ -6,6 +6,7 @@ import { CheckoutView } from "./CheckoutView";
 
 const pushMock = jest.fn();
 const refetchMock = jest.fn();
+const useOnlineStatusMock = jest.fn();
 let currentSearchParams = new URLSearchParams([["package", "first-draft"]]);
 
 const mockUsePackages = jest.fn();
@@ -25,6 +26,10 @@ jest.mock("@/lib/i18n/navigation", () => ({
   useRouter: () => ({
     push: pushMock,
   }),
+}));
+
+jest.mock("@/hooks/use-online-status", () => ({
+  useOnlineStatus: () => useOnlineStatusMock(),
 }));
 
 jest.mock("@/hooks/usePackages", () => ({
@@ -112,6 +117,7 @@ describe("CheckoutView coupon display", () => {
       discountAmount: 5_000,
     });
     paymentMethodModalMock.mockReset();
+    useOnlineStatusMock.mockReturnValue(true);
 
     const store = usePricingStore.getState();
     store.reset();
@@ -247,10 +253,10 @@ describe("CheckoutView coupon display", () => {
 
     await waitFor(() => {
       expect(mockValidateCouponCode).toHaveBeenCalledWith(
-        {
+        expect.objectContaining({
           code: "SAVE10",
           amount: 100_000,
-        },
+        }),
         expect.any(Object)
       );
     });
@@ -268,5 +274,23 @@ describe("CheckoutView coupon display", () => {
     await waitFor(() => {
       expect(continueButtons.some((button) => !button.hasAttribute("disabled"))).toBe(true);
     });
+  });
+
+  it("disables checkout payment entry points offline", async () => {
+    useOnlineStatusMock.mockReturnValue(false);
+
+    renderWithProviders();
+
+    await waitFor(() => {
+      expect(paymentMethodModalMock).toHaveBeenCalled();
+    });
+
+    const continueButtons = screen.getAllByRole("button", { name: "addons_continue" });
+    expect(continueButtons.every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(paymentMethodModalMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({
+        open: false,
+      })
+    );
   });
 });

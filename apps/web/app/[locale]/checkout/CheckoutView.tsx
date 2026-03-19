@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AddonCard } from "@/components/checkout/AddonCard";
 import { PaymentMethodModal } from "@/components/checkout/PaymentMethodModal";
+import { useOnlineStatus } from "@/hooks/use-online-status";
 import { type Addon, useAddons } from "@/hooks/useAddons";
 import { usePackages } from "@/hooks/usePackages";
 import { CouponValidationError, validateCouponCode } from "@/hooks/usePayments";
@@ -105,6 +106,7 @@ function AnimatedAmount({ value }: { value: number }) {
 export function CheckoutView() {
   const t = useTranslations("checkout");
   const router = useRouter();
+  const isOnline = useOnlineStatus();
   const searchParams = useSearchParams();
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [couponMessage, setCouponMessage] = useState<{
@@ -195,7 +197,10 @@ export function CheckoutView() {
     });
   }, [addons]);
 
-  const openPaymentModal = () => setIsPaymentModalOpen(true);
+  const openPaymentModal = () => {
+    if (!isOnline) return;
+    setIsPaymentModalOpen(true);
+  };
 
   const visibleAddons = checkoutAddons;
 
@@ -704,8 +709,8 @@ export function CheckoutView() {
                 <button
                   type="button"
                   onClick={openPaymentModal}
-                  disabled={isCouponBlockingCheckout}
-                  className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                  disabled={isCouponBlockingCheckout || !isOnline}
+                  className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 >
                   <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
                   {t("addons_continue")}
@@ -840,8 +845,8 @@ export function CheckoutView() {
               <button
                 type="button"
                 onClick={openPaymentModal}
-                disabled={isCouponBlockingCheckout}
-                className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                disabled={isCouponBlockingCheckout || !isOnline}
+                className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
               >
                 <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
                 {t("addons_continue")}
@@ -867,8 +872,8 @@ export function CheckoutView() {
           <button
             type="button"
             onClick={openPaymentModal}
-            disabled={isCouponBlockingCheckout}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+            disabled={isCouponBlockingCheckout || !isOnline}
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
             {t("addons_continue")}
           </button>
