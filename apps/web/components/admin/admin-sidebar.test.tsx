@@ -27,6 +27,7 @@ jest.mock("next-intl", () => ({
         coupons: "Coupons",
         showcase: "Showcase",
         resources: "Resources",
+        reviews: "Reviews",
         system_settings: "System Settings",
         audit_logs: "Audit Logs",
         title: "Admin Panel",
@@ -71,8 +72,9 @@ describe("AdminSidebar", () => {
     expect(container.querySelector('[data-src="/logo-main-white.png"]')).not.toBeNull();
     expect(screen.getByText("Overview")).toBeInTheDocument();
     expect(screen.getByText("Operations")).toBeInTheDocument();
+    expect(screen.getByText("Content")).toBeInTheDocument();
     expect(screen.getByText("Control")).toBeInTheDocument();
-    expect(screen.queryByText("Content")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reviews" })).toBeInTheDocument();
   });
 
   it("marks the current admin route as active", () => {

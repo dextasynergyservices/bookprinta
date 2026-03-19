@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { Suspense } from "react";
 import { PricingCards } from "@/components/marketing/pricing/PricingCards";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -42,7 +43,9 @@ export function PricingPreview() {
 
         {/* Cards */}
         <div className="-mx-5 lg:-mx-8">
-          <PricingCards />
+          <Suspense>
+            <PricingCards />
+          </Suspense>
         </div>
 
         {/* CTA */}
