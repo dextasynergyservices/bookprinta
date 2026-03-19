@@ -28,6 +28,7 @@ describe("AdminShowcaseUploadService", () => {
         apiKey: "key",
         folder: "bookprinta/showcase/covers",
       }),
+      isWithinSizeLimit: jest.fn().mockReturnValue(true),
     };
 
     const service = new AdminShowcaseUploadService(
@@ -183,5 +184,36 @@ describe("AdminShowcaseUploadService", () => {
         "admin_1"
       )
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it("rejects cover uploads that exceed the maximum file size", async () => {
+    const adminShowcaseService = {
+      setEntryCoverFromUpload: jest.fn(),
+    };
+
+    const cloudinary = {
+      generateSignature: jest.fn(),
+      isWithinSizeLimit: jest.fn().mockReturnValue(false),
+    };
+
+    const service = new AdminShowcaseUploadService(
+      adminShowcaseService as never,
+      cloudinary as unknown as CloudinaryService
+    );
+
+    await expect(
+      service.requestAdminShowcaseCoverUpload(
+        {
+          action: "authorize",
+          fileName: "huge-cover.png",
+          fileSize: 4 * 1024 * 1024, // 4 MB — passes Zod but rejected by cloudinary
+          mimeType: "image/png",
+        },
+        "admin_1"
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(cloudinary.isWithinSizeLimit).toHaveBeenCalledWith(4 * 1024 * 1024);
+    expect(cloudinary.generateSignature).not.toHaveBeenCalled();
   });
 });

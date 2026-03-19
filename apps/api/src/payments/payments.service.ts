@@ -152,6 +152,7 @@ type NormalizedBankTransferInput = {
   receiptUrl?: string;
   orderId?: string;
   metadata?: Record<string, unknown>;
+  recaptchaToken?: string;
 };
 
 type CheckoutFinalizationInfo = {
@@ -671,6 +672,14 @@ export class PaymentsService {
    * completes signup at /signup/finish.
    */
   async submitBankTransfer(dto: NormalizedBankTransferInput, receiptFile?: Express.Multer.File) {
+    // Verify reCAPTCHA before processing
+    if (dto.recaptchaToken) {
+      const isHuman = await this.verifyRecaptcha(dto.recaptchaToken);
+      if (!isHuman) {
+        throw new BadRequestException("reCAPTCHA verification failed. Please try again.");
+      }
+    }
+
     // Check bank transfer gateway is enabled
     await this.ensureGatewayEnabled(PaymentProvider.BANK_TRANSFER);
 
@@ -5266,6 +5275,38 @@ export class PaymentsService {
     }
 
     return false;
+  }
+
+  /**
+   * Validate reCAPTCHA token with Google's API.
+   * Skips verification in development or when secret key is missing.
+   */
+  private async verifyRecaptcha(token: string): Promise<boolean> {
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+    if (!secretKey) {
+      this.logger.warn("RECAPTCHA_SECRET_KEY not set — skipping verification");
+      return true;
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      this.logger.warn("Development mode — skipping reCAPTCHA verification");
+      return true;
+    }
+
+    try {
+      const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ secret: secretKey, response: token }),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      const data = (await response.json()) as { success?: boolean; score?: number };
+      return data.success === true && (data.score === undefined || data.score >= 0.5);
+    } catch (error) {
+      this.logger.error("reCAPTCHA verification failed", error);
+      return false;
+    }
   }
 
   /**

@@ -68,6 +68,8 @@ export const UserNotificationPreferencesSchema = z
   .strict();
 export type UserNotificationPreferences = z.infer<typeof UserNotificationPreferencesSchema>;
 
+export const PROFILE_IMAGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+
 export const ProfileImageUploadMimeTypeSchema = z.enum(["image/jpeg", "image/png"]);
 export type ProfileImageUploadMimeType = z.infer<typeof ProfileImageUploadMimeTypeSchema>;
 
@@ -148,6 +150,7 @@ export const AuthorizeMyProfileImageUploadBodySchema = z
   .object({
     action: z.literal("authorize"),
     mimeType: ProfileImageUploadMimeTypeSchema,
+    fileSize: z.number().int().min(1).max(PROFILE_IMAGE_UPLOAD_MAX_BYTES),
   })
   .strict();
 export type AuthorizeMyProfileImageUploadBodyInput = z.infer<
@@ -169,6 +172,7 @@ export const RequestMyProfileImageUploadBodySchema = z
   .object({
     action: z.enum(["authorize", "finalize"]),
     mimeType: ProfileImageUploadMimeTypeSchema.optional(),
+    fileSize: z.number().int().min(1).max(PROFILE_IMAGE_UPLOAD_MAX_BYTES).optional(),
     secureUrl: UserProfileImageUrlSchema.optional(),
     publicId: z.string().trim().min(1).max(255).optional(),
   })
@@ -180,6 +184,13 @@ export const RequestMyProfileImageUploadBodySchema = z
           code: z.ZodIssueCode.custom,
           path: ["mimeType"],
           message: "mimeType is required when action is authorize",
+        });
+      }
+      if (value.fileSize === undefined || value.fileSize === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["fileSize"],
+          message: "fileSize is required when action is authorize",
         });
       }
       return;

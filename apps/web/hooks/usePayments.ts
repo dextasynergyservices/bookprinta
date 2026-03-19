@@ -84,6 +84,7 @@ export interface BankTransferInput {
   receiptFile?: File;
   orderId?: string;
   metadata?: Record<string, unknown>;
+  recaptchaToken?: string;
 }
 
 export interface BankTransferResponse {
@@ -265,6 +266,7 @@ export async function submitBankTransfer(payload: BankTransferInput) {
             if (payload.orderId) formData.append("orderId", payload.orderId);
             if (payload.receiptUrl) formData.append("receiptUrl", payload.receiptUrl);
             if (payload.metadata) formData.append("metadata", JSON.stringify(payload.metadata));
+            if (payload.recaptchaToken) formData.append("recaptchaToken", payload.recaptchaToken);
             formData.append("receipt", payload.receiptFile as File);
             return formData;
           })(),

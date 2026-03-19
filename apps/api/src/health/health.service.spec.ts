@@ -8,6 +8,8 @@ describe("HealthService", () => {
   afterEach(() => {
     process.env.GEMINI_API_KEY = originalGeminiApiKey;
     process.env.GOTENBERG_URL = originalGotenbergUrl;
+    delete process.env.GOTENBERG_USERNAME;
+    delete process.env.GOTENBERG_PASSWORD;
     jest.restoreAllMocks();
   });
 
@@ -168,5 +170,232 @@ describe("HealthService", () => {
     expect(result.status).toBe("ok");
     expect(result.runtime.processStartedAt).toBe("2026-03-10T10:00:00.000Z");
     expect(prisma.$queryRawUnsafe).toHaveBeenCalledWith("SELECT 1");
+  });
+
+  it("sends Basic auth headers to Gotenberg when credentials are configured", async () => {
+    process.env.GEMINI_API_KEY = "test-key";
+    process.env.GOTENBERG_URL = "http://gotenberg:3000";
+    process.env.GOTENBERG_USERNAME = "admin";
+    process.env.GOTENBERG_PASSWORD = "secret";
+
+    const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+    } as Response);
+
+    const prisma = {
+      $queryRawUnsafe: jest.fn().mockResolvedValue([{ 1: 1 }]),
+    };
+    const redisService = {
+      getClient: jest.fn().mockReturnValue({
+        ping: jest.fn().mockResolvedValue("PONG"),
+      }),
+    };
+    const scanner = {
+      isAvailable: jest.fn().mockResolvedValue(true),
+      getProviderName: jest.fn().mockReturnValue("clamav"),
+    };
+    const rollout = {
+      getMonitoringSnapshot: jest.fn().mockReturnValue({
+        environment: "development",
+        allowInFlightAccess: true,
+        features: {
+          bookWorkspace: true,
+          manuscriptPipeline: true,
+          billingGate: true,
+          finalPdf: true,
+        },
+      }),
+    };
+    const queueAdmin = {
+      collectSummary: jest.fn().mockResolvedValue({
+        status: "ok",
+        provider: "bullmq",
+        connectionSource: "env",
+        aiFormatting: {
+          status: "ok",
+          queueName: "ai-formatting",
+          latencyMs: 1,
+          counts: {
+            waiting: 0,
+            active: 0,
+            delayed: 0,
+            failed: 0,
+            completed: 0,
+            prioritized: 0,
+            waitingChildren: 0,
+          },
+        },
+        pageCount: {
+          status: "ok",
+          queueName: "page-count",
+          latencyMs: 1,
+          counts: {
+            waiting: 0,
+            active: 0,
+            delayed: 0,
+            failed: 0,
+            completed: 0,
+            prioritized: 0,
+            waitingChildren: 0,
+          },
+        },
+        pdfGeneration: {
+          status: "ok",
+          queueName: "pdf-generation",
+          latencyMs: 1,
+          counts: {
+            waiting: 0,
+            active: 0,
+            delayed: 0,
+            failed: 0,
+            completed: 0,
+            prioritized: 0,
+            waitingChildren: 0,
+          },
+        },
+        persistedJobs: { activeTotal: 0, staleTotal: 0, byType: {} },
+      }),
+    };
+    const runtimeTelemetry = {
+      getSnapshot: jest.fn().mockReturnValue({
+        processStartedAt: "2026-03-10T10:00:00.000Z",
+        bootstrapStartedAt: null,
+        bootstrapCompletedAt: null,
+        startupDurationMs: null,
+        firstRequest: null,
+      }),
+    };
+
+    const service = new HealthService(
+      prisma as never,
+      redisService as never,
+      scanner as never,
+      rollout as never,
+      queueAdmin as never,
+      runtimeTelemetry as never
+    );
+
+    await service.detailedStatus();
+
+    const expectedToken = Buffer.from("admin:secret", "utf-8").toString("base64");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://gotenberg:3000/health",
+      expect.objectContaining({
+        headers: { Authorization: `Basic ${expectedToken}` },
+      })
+    );
+  });
+
+  it("sends no auth headers to Gotenberg when credentials are not set", async () => {
+    process.env.GEMINI_API_KEY = "test-key";
+    process.env.GOTENBERG_URL = "http://gotenberg:3000";
+    delete process.env.GOTENBERG_USERNAME;
+    delete process.env.GOTENBERG_PASSWORD;
+
+    const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+    } as Response);
+
+    const prisma = {
+      $queryRawUnsafe: jest.fn().mockResolvedValue([{ 1: 1 }]),
+    };
+    const redisService = {
+      getClient: jest.fn().mockReturnValue({
+        ping: jest.fn().mockResolvedValue("PONG"),
+      }),
+    };
+    const scanner = {
+      isAvailable: jest.fn().mockResolvedValue(true),
+      getProviderName: jest.fn().mockReturnValue("clamav"),
+    };
+    const rollout = {
+      getMonitoringSnapshot: jest.fn().mockReturnValue({
+        environment: "development",
+        allowInFlightAccess: true,
+        features: {
+          bookWorkspace: true,
+          manuscriptPipeline: true,
+          billingGate: true,
+          finalPdf: true,
+        },
+      }),
+    };
+    const queueAdmin = {
+      collectSummary: jest.fn().mockResolvedValue({
+        status: "ok",
+        provider: "bullmq",
+        connectionSource: "env",
+        aiFormatting: {
+          status: "ok",
+          queueName: "ai-formatting",
+          latencyMs: 1,
+          counts: {
+            waiting: 0,
+            active: 0,
+            delayed: 0,
+            failed: 0,
+            completed: 0,
+            prioritized: 0,
+            waitingChildren: 0,
+          },
+        },
+        pageCount: {
+          status: "ok",
+          queueName: "page-count",
+          latencyMs: 1,
+          counts: {
+            waiting: 0,
+            active: 0,
+            delayed: 0,
+            failed: 0,
+            completed: 0,
+            prioritized: 0,
+            waitingChildren: 0,
+          },
+        },
+        pdfGeneration: {
+          status: "ok",
+          queueName: "pdf-generation",
+          latencyMs: 1,
+          counts: {
+            waiting: 0,
+            active: 0,
+            delayed: 0,
+            failed: 0,
+            completed: 0,
+            prioritized: 0,
+            waitingChildren: 0,
+          },
+        },
+        persistedJobs: { activeTotal: 0, staleTotal: 0, byType: {} },
+      }),
+    };
+    const runtimeTelemetry = {
+      getSnapshot: jest.fn().mockReturnValue({
+        processStartedAt: "2026-03-10T10:00:00.000Z",
+        bootstrapStartedAt: null,
+        bootstrapCompletedAt: null,
+        startupDurationMs: null,
+        firstRequest: null,
+      }),
+    };
+
+    const service = new HealthService(
+      prisma as never,
+      redisService as never,
+      scanner as never,
+      rollout as never,
+      queueAdmin as never,
+      runtimeTelemetry as never
+    );
+
+    await service.detailedStatus();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://gotenberg:3000/health",
+      expect.objectContaining({
+        headers: {},
+      })
+    );
   });
 });
