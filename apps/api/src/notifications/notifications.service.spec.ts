@@ -29,6 +29,7 @@ describe("NotificationsService", () => {
 
     service = module.get<NotificationsService>(NotificationsService);
     jest.resetAllMocks();
+    mockPrismaService.user.findMany.mockResolvedValue([]);
   });
 
   describe("getUnreadCount", () => {
@@ -385,6 +386,12 @@ describe("NotificationsService", () => {
 
   describe("createOrderStatusNotification", () => {
     it("creates a typed ORDER_STATUS notification with dashboard navigation", async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([
+        {
+          id: "cmuser111111111111111111111111",
+          inAppNotificationsEnabled: true,
+        },
+      ]);
       mockPrismaService.notification.createMany.mockResolvedValue({ count: 1 });
 
       await service.createOrderStatusNotification({
@@ -425,10 +432,35 @@ describe("NotificationsService", () => {
         ],
       });
     });
+
+    it("skips ORDER_STATUS notification creation when in-app notifications are disabled", async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([
+        {
+          id: "cmuser111111111111111111111111",
+          inAppNotificationsEnabled: false,
+        },
+      ]);
+
+      await service.createOrderStatusNotification({
+        userId: "cmuser111111111111111111111111",
+        orderId: "cmorder11111111111111111111111",
+        orderNumber: "BP-2026-0002",
+        status: "PAID",
+        source: "order",
+      });
+
+      expect(mockPrismaService.notification.createMany).not.toHaveBeenCalled();
+    });
   });
 
   describe("createReviewRequestNotification", () => {
     it("creates a typed REVIEW_REQUEST notification with dialog action", async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([
+        {
+          id: "cmuser222222222222222222222222",
+          inAppNotificationsEnabled: true,
+        },
+      ]);
       mockPrismaService.notification.createMany.mockResolvedValue({ count: 1 });
 
       await service.createReviewRequestNotification({
@@ -469,6 +501,16 @@ describe("NotificationsService", () => {
 
   describe("createProductionDelayNotifications", () => {
     it("creates typed PRODUCTION_DELAY notifications with persistent banner metadata", async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([
+        {
+          id: "cmuser333333333333333333333333",
+          inAppNotificationsEnabled: true,
+        },
+        {
+          id: "cmuser444444444444444444444444",
+          inAppNotificationsEnabled: true,
+        },
+      ]);
       mockPrismaService.notification.createMany.mockResolvedValue({ count: 2 });
 
       await service.createProductionDelayNotifications({
@@ -535,6 +577,12 @@ describe("NotificationsService", () => {
 
   describe("createSystemNotification", () => {
     it("creates a typed SYSTEM notification with caller-supplied metadata", async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([
+        {
+          id: "cmuser555555555555555555555555",
+          inAppNotificationsEnabled: true,
+        },
+      ]);
       mockPrismaService.notification.createMany.mockResolvedValue({ count: 1 });
 
       await service.createSystemNotification({
