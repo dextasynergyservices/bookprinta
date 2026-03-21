@@ -36,6 +36,9 @@ import { hashRefreshToken } from "./refresh-token.util.js";
 const AUTH_ACCOUNT_DEACTIVATED_MESSAGE =
   "This account has been deactivated. Use the account recovery/reactivation flow, or contact support or an administrator for assistance.";
 
+const AUTH_ACCOUNT_DELETED_MESSAGE =
+  "This account has been permanently deleted. If you believe this is an error, please contact support.";
+
 /**
  * Auth Service — Core authentication and authorization logic.
  *
@@ -106,6 +109,7 @@ export class AuthService {
         phoneNumber: true,
         password: true,
         isActive: true,
+        isDeleted: true,
         isVerified: true,
         tokenExpiry: true,
       },
@@ -155,6 +159,7 @@ export class AuthService {
         phoneNumber: true,
         password: true,
         isActive: true,
+        isDeleted: true,
         isVerified: true,
         tokenExpiry: true,
       },
@@ -237,6 +242,7 @@ export class AuthService {
         preferredLanguage: true,
         emailNotificationsEnabled: true,
         isActive: true,
+        isDeleted: true,
         isVerified: true,
         verificationCode: true,
         tokenExpiry: true,
@@ -290,6 +296,7 @@ export class AuthService {
         preferredLanguage: true,
         emailNotificationsEnabled: true,
         isActive: true,
+        isDeleted: true,
         isVerified: true,
         password: true,
         tokenExpiry: true,
@@ -412,6 +419,7 @@ export class AuthService {
       lastName: string | null;
       password: string | null;
       isActive: boolean;
+      isDeleted: boolean;
       isVerified: boolean;
     } | null = null;
 
@@ -531,6 +539,7 @@ export class AuthService {
         lastName: true,
         role: true,
         isActive: true,
+        isDeleted: true,
       },
     });
 
@@ -562,7 +571,7 @@ export class AuthService {
   async refresh(userId: string, email: string, role: UserRole): Promise<TokenPair> {
     const session = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, isActive: true, refreshTokenExp: true },
+      select: { id: true, isActive: true, isDeleted: true, refreshTokenExp: true },
     });
 
     if (!session?.refreshTokenExp) {
@@ -617,12 +626,13 @@ export class AuthService {
         firstName: true,
         preferredLanguage: true,
         isActive: true,
+        isDeleted: true,
         isVerified: true,
       },
     });
 
     // Always return success to prevent email enumeration
-    if (!user || !user.isVerified || !user.isActive) {
+    if (!user || !user.isVerified || !user.isActive || user.isDeleted) {
       return { message: "If the email exists, a password reset link has been sent." };
     }
 
@@ -714,13 +724,14 @@ export class AuthService {
         phoneNumber: true,
         preferredLanguage: true,
         isActive: true,
+        isDeleted: true,
         isVerified: true,
         password: true,
       },
     });
 
     // Always return success to prevent email enumeration
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || user.isDeleted) {
       return { message: "If the email exists, a new signup link has been sent." };
     }
 
@@ -1058,6 +1069,7 @@ export class AuthService {
     lastName: string | null;
     password: string | null;
     isActive: boolean;
+    isDeleted: boolean;
     isVerified: boolean;
   } | null> {
     const select = {
@@ -1068,6 +1080,7 @@ export class AuthService {
       lastName: true,
       password: true,
       isActive: true,
+      isDeleted: true,
       isVerified: true,
     } as const;
 
@@ -1094,6 +1107,7 @@ export class AuthService {
       lastName: string | null;
       password: string | null;
       isActive: boolean;
+      isDeleted: boolean;
       isVerified: boolean;
     } | null;
     userLookupDurationMs: number;
@@ -1127,6 +1141,7 @@ export class AuthService {
         lastName: true,
         password: true,
         isActive: true,
+        isDeleted: true,
         isVerified: true,
       },
     });
@@ -1188,10 +1203,12 @@ export class AuthService {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
   }
 
-  private async getValidResetTokenUser(token: string): Promise<{ id: string; isActive: boolean }> {
+  private async getValidResetTokenUser(
+    token: string
+  ): Promise<{ id: string; isActive: boolean; isDeleted: boolean }> {
     const user = await this.prisma.user.findUnique({
       where: { resetToken: token },
-      select: { id: true, isActive: true, tokenExpiry: true },
+      select: { id: true, isActive: true, isDeleted: true, tokenExpiry: true },
     });
 
     if (!user) {
@@ -1204,13 +1221,27 @@ export class AuthService {
       throw new BadRequestException("Reset link has expired. Please request a new one.");
     }
 
-    return { id: user.id, isActive: user.isActive };
+    return { id: user.id, isActive: user.isActive, isDeleted: user.isDeleted };
   }
 
   private async ensureAccountIsActive(
-    user: { id: string; isActive: boolean },
+    user: { id: string; isActive: boolean; isDeleted?: boolean },
     options: { revokeRefreshToken?: boolean } = {}
   ): Promise<void> {
+    if (user.isDeleted) {
+      if (options.revokeRefreshToken) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { refreshToken: null, refreshTokenExp: null },
+        });
+      }
+
+      throw new UnauthorizedException({
+        message: AUTH_ACCOUNT_DELETED_MESSAGE,
+        errorCode: "AUTH_ACCOUNT_DELETED",
+      });
+    }
+
     if (user.isActive) {
       return;
     }

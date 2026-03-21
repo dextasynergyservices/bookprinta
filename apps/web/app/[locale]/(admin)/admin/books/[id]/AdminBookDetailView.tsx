@@ -45,6 +45,7 @@ import {
   useAdminBookDownloadMutation,
   useAdminBookHtmlUploadMutation,
   useAdminBookRejectMutation,
+  useAdminBookResetProcessingMutation,
   useAdminBookStatusMutation,
   useAdminBookVersionFileDownloadMutation,
   validateAdminBookHtmlFile,
@@ -367,6 +368,7 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
   });
   const statusMutation = useAdminBookStatusMutation(bookId);
   const rejectMutation = useAdminBookRejectMutation(bookId);
+  const resetProcessingMutation = useAdminBookResetProcessingMutation(bookId);
   const htmlUploadMutation = useAdminBookHtmlUploadMutation(bookId);
   const downloadMutation = useAdminBookDownloadMutation(bookId);
   const fileVersionDownloadMutation = useAdminBookVersionFileDownloadMutation(bookId);
@@ -493,6 +495,38 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
 
       toast.error(tAdmin("books_detail_reject_error_title"), {
         description: getErrorMessage(error, tAdmin("books_detail_reject_error_description")),
+      });
+    }
+  }
+
+  async function handleResetProcessing() {
+    if (!book) return;
+
+    setConflictMessage(null);
+
+    try {
+      await resetProcessingMutation.mutateAsync({
+        expectedVersion: book.statusControl.expectedVersion,
+      });
+
+      toast.success(tAdmin("books_detail_reset_processing_success"), {
+        description: tAdmin("books_detail_reset_processing_success_description"),
+      });
+    } catch (error) {
+      if (isAdminBookConflictError(error)) {
+        const message = getErrorMessage(error, tAdmin("books_detail_conflict_description"));
+        setConflictMessage(message);
+        toast.error(tAdmin("books_detail_conflict_title"), {
+          description: message,
+        });
+        return;
+      }
+
+      toast.error(tAdmin("books_detail_reset_processing_error_title"), {
+        description: getErrorMessage(
+          error,
+          tAdmin("books_detail_reset_processing_error_description")
+        ),
       });
     }
   }
@@ -1175,6 +1209,34 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
                       </>
                     ) : (
                       tAdmin("books_detail_reject_button")
+                    )}
+                  </Button>
+                </div>
+
+                <div className="rounded-[1.35rem] border border-[#202020] bg-[#0B0B0B] p-4">
+                  <h3 className="font-display text-lg font-semibold tracking-tight text-white">
+                    {tAdmin("books_detail_reset_processing_heading")}
+                  </h3>
+                  <p className="font-sans mt-2 text-sm leading-6 text-[#AFAFAF]">
+                    {book.statusControl.canResetProcessing
+                      ? tAdmin("books_detail_reset_processing_description")
+                      : tAdmin("books_detail_reset_processing_locked")}
+                  </p>
+                  <Button
+                    type="button"
+                    disabled={
+                      !book.statusControl.canResetProcessing || resetProcessingMutation.isPending
+                    }
+                    onClick={handleResetProcessing}
+                    className="mt-4 min-h-11 w-full rounded-full bg-[#b45309] px-5 font-sans text-sm font-medium text-white hover:bg-[#92400e] disabled:bg-[#1C1C1C] disabled:text-[#7D7D7D]"
+                  >
+                    {resetProcessingMutation.isPending ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                        {tAdmin("books_detail_reset_processing_submitting")}
+                      </>
+                    ) : (
+                      tAdmin("books_detail_reset_processing_button")
                     )}
                   </Button>
                 </div>

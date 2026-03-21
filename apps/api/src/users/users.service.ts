@@ -86,6 +86,7 @@ const ADMIN_USER_LIST_SELECT = {
   role: true,
   isVerified: true,
   isActive: true,
+  isDeleted: true,
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
@@ -98,6 +99,8 @@ const ADMIN_USER_PROFILE_SELECT = {
   role: true,
   isVerified: true,
   isActive: true,
+  isDeleted: true,
+  deletedAt: true,
   preferredLanguage: true,
   bio: true,
   profileImageUrl: true,
@@ -115,9 +118,11 @@ const ADMIN_USER_PROFILE_SELECT = {
 
 const ADMIN_USER_STATE_SELECT = {
   id: true,
+  email: true,
   role: true,
   isVerified: true,
   isActive: true,
+  isDeleted: true,
   updatedAt: true,
 } satisfies Prisma.UserSelect;
 
@@ -525,11 +530,13 @@ export class UsersService {
       role: input.role ?? current.role,
       isVerified: input.isVerified ?? current.isVerified,
       isActive: input.isActive ?? current.isActive,
+      isDeleted: current.isDeleted,
     };
     const previousState: AdminUpdateUserResponse["previousState"] = {
       role: current.role,
       isVerified: current.isVerified,
       isActive: current.isActive,
+      isDeleted: current.isDeleted,
     };
     const changedFields = (
       [
@@ -537,7 +544,7 @@ export class UsersService {
         previousState.isVerified !== nextState.isVerified ? "isVerified" : null,
         previousState.isActive !== nextState.isActive ? "isActive" : null,
       ] as const
-    ).filter((field): field is keyof AdminUpdateUserResponse["currentState"] => field !== null);
+    ).filter((field): field is "role" | "isVerified" | "isActive" => field !== null);
 
     if (changedFields.length === 0) {
       throw new BadRequestException("No user changes detected.");
@@ -575,12 +582,14 @@ export class UsersService {
               role: updated.role,
               isVerified: updated.isVerified,
               isActive: updated.isActive,
+              isDeleted: updated.isDeleted,
             },
             previousValues: previousState,
             nextValues: {
               role: updated.role,
               isVerified: updated.isVerified,
               isActive: updated.isActive,
+              isDeleted: updated.isDeleted,
             },
             note: null,
             reason: null,
@@ -601,6 +610,7 @@ export class UsersService {
         role: updatedUser.role,
         isVerified: updatedUser.isVerified,
         isActive: updatedUser.isActive,
+        isDeleted: updatedUser.isDeleted,
       },
       updatedAt: updatedUser.updatedAt.toISOString(),
       audit: this.serializeAdminAuditEntry(audit, adminId),
@@ -617,62 +627,81 @@ export class UsersService {
       throw new NotFoundException("User not found");
     }
 
-    if (!current.isActive) {
-      throw new BadRequestException("User is already inactive.");
+    if (current.isDeleted) {
+      throw new BadRequestException("User has already been permanently deleted.");
     }
 
-    const { updatedUser, audit } = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.user.update({
+    const anonymizedEmail = `deleted_${userId}@bookprinta.local`;
+    const deletedAt = new Date();
+
+    const { audit } = await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id: userId },
         data: {
-          isActive: false,
+          // Anonymize PII
+          email: anonymizedEmail,
+          firstName: "Deleted",
+          lastName: "User",
+          password: null,
+          phoneNumber: null,
+          phoneNumberNormalized: null,
+          bio: null,
+          profileImageUrl: null,
+          profileImagePublicId: null,
+          whatsAppNumber: null,
+          websiteUrl: null,
+          purchaseLinks: [],
+          socialLinks: [],
+          isProfileComplete: false,
+          // Revoke auth
           refreshToken: null,
           refreshTokenExp: null,
+          verificationToken: null,
+          verificationCode: null,
+          resetToken: null,
+          tokenExpiry: null,
+          // Mark as deleted
+          isActive: false,
+          isDeleted: true,
+          deletedAt,
         },
-        select: ADMIN_USER_STATE_SELECT,
       });
 
       const auditLog = await tx.auditLog.create({
         data: {
           userId: adminId,
-          action: "ADMIN_USER_DELETED",
+          action: "ADMIN_USER_PERMANENTLY_DELETED",
           entityType: "USER",
           entityId: userId,
           details: {
-            changedFields: ["isActive"],
+            changedFields: ["isDeleted", "isActive", "email", "firstName", "lastName"],
             previousState: {
               role: current.role,
               isVerified: current.isVerified,
               isActive: current.isActive,
+              isDeleted: current.isDeleted,
+              email: current.email,
             },
             currentState: {
-              role: updated.role,
-              isVerified: updated.isVerified,
-              isActive: updated.isActive,
+              isActive: false,
+              isDeleted: true,
+              email: anonymizedEmail,
             },
-            previousValues: {
-              isActive: current.isActive,
-            },
-            nextValues: {
-              isActive: updated.isActive,
-            },
-            note: "Soft delete via admin users panel",
-            reason: "ADMIN_REQUESTED_DELETE",
+            note: "Permanent deletion with PII anonymization via admin panel",
+            reason: "ADMIN_REQUESTED_PERMANENT_DELETE",
           },
         },
       });
 
-      return {
-        updatedUser: updated,
-        audit: auditLog,
-      };
+      return { audit: auditLog };
     });
 
     return {
-      userId: updatedUser.id,
+      userId,
       deleted: true,
-      isActive: false,
-      deletedAt: updatedUser.updatedAt.toISOString(),
+      isDeleted: true,
+      anonymizedEmail,
+      deletedAt: deletedAt.toISOString(),
       audit: this.serializeAdminAuditEntry(audit, adminId),
     };
   }
@@ -701,8 +730,14 @@ export class UsersService {
   }
 
   private buildAdminUsersWhere(query: AdminUsersListQuery): Prisma.UserWhereInput {
-    // Admin users table is active-only by default; deleted users remain in DB/audit history.
-    const filters: Prisma.UserWhereInput[] = [{ isActive: true }];
+    const filters: Prisma.UserWhereInput[] = [];
+
+    if (query.includeDeleted) {
+      // Show all users (active, deactivated, and deleted)
+    } else {
+      // Default: exclude permanently deleted users
+      filters.push({ isDeleted: false });
+    }
 
     if (query.role) {
       filters.push({ role: query.role });
@@ -785,6 +820,7 @@ export class UsersService {
       role: row.role,
       isVerified: row.isVerified,
       isActive: row.isActive,
+      isDeleted: row.isDeleted,
       createdAt: row.createdAt.toISOString(),
       detailUrl: `/admin/users/${row.id}`,
     };
@@ -804,6 +840,8 @@ export class UsersService {
       role: row.role,
       isVerified: row.isVerified,
       isActive: row.isActive,
+      isDeleted: row.isDeleted,
+      deletedAt: row.deletedAt?.toISOString() ?? null,
       preferredLanguage: this.normalizePreferredLanguage(row.preferredLanguage),
       bio: this.sanitizeStringWithSchema(row.bio, UserProfileBioSchema),
       profileImageUrl: this.sanitizeStringWithSchema(

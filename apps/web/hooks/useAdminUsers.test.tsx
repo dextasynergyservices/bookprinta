@@ -67,6 +67,7 @@ describe("useAdminUsers", () => {
         q: "Ada",
         role: "EDITOR",
         isVerified: true,
+        includeDeleted: "",
         sortBy: "createdAt",
         sortDirection: "desc",
       })

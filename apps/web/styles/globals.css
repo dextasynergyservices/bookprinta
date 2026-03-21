@@ -2,23 +2,6 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* ─── Miller Display (self-hosted) ─── */
-@font-face {
-  font-family: "Miller Display";
-  src: url("/fonts/fonnts.com-Miller-Display-.otf") format("opentype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Miller Display";
-  src: url("/fonts/fonnts.com-Miller-Display-Light.otf") format("opentype");
-  font-weight: 300;
-  font-style: normal;
-  font-display: swap;
-}
-
 @custom-variant dark (&:is(.dark *));
 
 @theme {
@@ -54,7 +37,7 @@
 @theme inline {
   /* ─── Fonts (three-font system, resolved at runtime via next/font) ─── */
   --font-display: var(--font-space-grotesk), sans-serif;
-  --font-serif: var(--font-miller-text), Georgia, serif;
+  --font-serif: var(--font-miller-text), serif;
   --font-sans: var(--font-dm-sans), sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
@@ -99,7 +82,7 @@
 
 /* ─── BookPrinta Light Theme (Slate base) ─── */
 :root {
-  --font-miller-text: "Miller Display";
+  --font-miller-text: "Miller Text";
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.129 0.042 264.695);
@@ -261,9 +244,8 @@ html.lenis body {
 
 /* Force Miller Text serif on the hero "Beautifully" word */
 .hero-miller {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Miller Text", serif;
   font-weight: 400;
-  font-style: italic;
 }
 
 /* Mobile: dark overlay on top of the hero background video so text is readable */

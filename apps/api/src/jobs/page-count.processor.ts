@@ -108,37 +108,32 @@ export class PageCountProcessor extends WorkerHost {
 
       await this.markProgressStep(payload.jobRecordId, "COUNTING_PAGES");
       const cleanedHtml = await this.fetchCleanedHtml(payload.cleanedHtmlUrl);
-      const countResult = await this.gotenbergPageCount.countPages({
-        html: cleanedHtml,
-        pageSize: payload.pageSize,
-        fontSize: payload.fontSize,
-      });
-      await this.markProgressStep(payload.jobRecordId, "RENDERING_PREVIEW");
-      const previewPdf = await this.gotenbergPageCount.renderPdf({
+      const countAndPreview = await this.gotenbergPageCount.countAndRenderPreview({
         html: cleanedHtml,
         pageSize: payload.pageSize,
         fontSize: payload.fontSize,
         watermarkText: "Preview",
       });
+      await this.markProgressStep(payload.jobRecordId, "RENDERING_PREVIEW");
       const previewFile = await this.filesService.saveGeneratedFile({
         bookId: payload.bookId,
         fileType: "PREVIEW_PDF",
         fileName: `preview-${String(job.id ?? payload.jobRecordId)}.pdf`,
         mimeType: "application/pdf",
-        content: previewPdf.pdfBuffer,
+        content: countAndPreview.pdfBuffer,
         publicId: `bookprinta/preview-pdfs/${payload.bookId}/${String(job.id ?? payload.jobRecordId)}`,
       });
 
-      const overagePages = Math.max(0, countResult.pageCount - payload.bundlePageLimit);
+      const overagePages = Math.max(0, countAndPreview.pageCount - payload.bundlePageLimit);
       const extraAmount = overagePages * COST_PER_EXTRA_PAGE;
       const gateStatus = overagePages > 0 ? "PAYMENT_REQUIRED" : "CLEAR";
 
       const result: CompletedCountPagesResult = {
-        pageCount: countResult.pageCount,
+        pageCount: countAndPreview.pageCount,
         overagePages,
         extraAmount,
         gateStatus,
-        renderedPdfSha256: countResult.renderedPdfSha256,
+        renderedPdfSha256: countAndPreview.renderedPdfSha256,
         previewPdfFileId: previewFile.id,
         previewPdfUrl: previewFile.url,
         pageLimit: payload.bundlePageLimit,

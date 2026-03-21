@@ -163,6 +163,8 @@ model User {
   phoneNumberNormalized String?        @unique
   role              UserRole       @default(USER)
   isActive          Boolean        @default(true)
+  isDeleted         Boolean        @default(false)
+  deletedAt         DateTime?
 
   // Auth: "Pay First, Signup Later" flow
   isVerified        Boolean        @default(false)

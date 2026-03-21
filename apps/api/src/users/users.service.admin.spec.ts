@@ -57,6 +57,7 @@ describe("UsersService admin user management", () => {
         role: "EDITOR",
         isVerified: true,
         isActive: true,
+        isDeleted: false,
         createdAt: new Date("2026-03-10T10:00:00.000Z"),
       },
     ]);
@@ -99,6 +100,7 @@ describe("UsersService admin user management", () => {
           role: "EDITOR",
           isVerified: true,
           isActive: true,
+          isDeleted: false,
           createdAt: "2026-03-10T10:00:00.000Z",
           detailUrl: "/admin/users/cmuser_1",
         },
@@ -123,6 +125,8 @@ describe("UsersService admin user management", () => {
       role: "MANAGER",
       isVerified: false,
       isActive: true,
+      isDeleted: false,
+      deletedAt: null,
       preferredLanguage: "fr",
       bio: " Author bio ",
       profileImageUrl:
@@ -203,6 +207,8 @@ describe("UsersService admin user management", () => {
         role: "MANAGER",
         isVerified: false,
         isActive: true,
+        isDeleted: false,
+        deletedAt: null,
         preferredLanguage: "fr",
         bio: "Author bio",
         profileImageUrl:
@@ -277,9 +283,11 @@ describe("UsersService admin user management", () => {
   it("updates role and verification state and records an audit entry", async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: "cmuser_1",
+      email: "ada@example.com",
       role: "USER",
       isVerified: false,
       isActive: true,
+      isDeleted: false,
       updatedAt: new Date("2026-03-10T10:00:00.000Z"),
     });
     prisma.user.update.mockResolvedValue({
@@ -287,6 +295,7 @@ describe("UsersService admin user management", () => {
       role: "EDITOR",
       isVerified: true,
       isActive: true,
+      isDeleted: false,
       updatedAt: new Date("2026-03-14T12:00:00.000Z"),
     });
     prisma.auditLog.create.mockResolvedValue({
@@ -300,11 +309,13 @@ describe("UsersService admin user management", () => {
           role: "USER",
           isVerified: false,
           isActive: true,
+          isDeleted: false,
         },
         currentState: {
           role: "EDITOR",
           isVerified: true,
           isActive: true,
+          isDeleted: false,
         },
       },
       createdAt: new Date("2026-03-14T12:00:01.000Z"),
@@ -325,11 +336,13 @@ describe("UsersService admin user management", () => {
         role: "USER",
         isVerified: false,
         isActive: true,
+        isDeleted: false,
       },
       currentState: {
         role: "EDITOR",
         isVerified: true,
         isActive: true,
+        isDeleted: false,
       },
       updatedAt: "2026-03-14T12:00:00.000Z",
       audit: {
@@ -364,11 +377,13 @@ describe("UsersService admin user management", () => {
               role: "USER",
               isVerified: false,
               isActive: true,
+              isDeleted: false,
             },
             currentState: {
               role: "EDITOR",
               isVerified: true,
               isActive: true,
+              isDeleted: false,
             },
           }),
         }),
@@ -379,9 +394,11 @@ describe("UsersService admin user management", () => {
   it("deactivates a user, clears refresh tokens, and records the audit trail", async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: "cmuser_2",
+      email: "admin@example.com",
       role: "ADMIN",
       isVerified: true,
       isActive: true,
+      isDeleted: false,
       updatedAt: new Date("2026-03-10T10:00:00.000Z"),
     });
     prisma.user.update.mockResolvedValue({
@@ -389,6 +406,7 @@ describe("UsersService admin user management", () => {
       role: "ADMIN",
       isVerified: true,
       isActive: false,
+      isDeleted: false,
       updatedAt: new Date("2026-03-14T13:00:00.000Z"),
     });
     prisma.auditLog.create.mockResolvedValue({
@@ -426,9 +444,11 @@ describe("UsersService admin user management", () => {
   it("rejects admin updates when the payload would not change the user", async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: "cmuser_3",
+      email: "user3@example.com",
       role: "USER",
       isVerified: false,
       isActive: true,
+      isDeleted: false,
       updatedAt: new Date("2026-03-10T10:00:00.000Z"),
     });
 
@@ -443,66 +463,94 @@ describe("UsersService admin user management", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it("soft-deletes an active user and writes an audit trail", async () => {
+  it("permanently deletes a user by anonymizing PII and writes an audit trail", async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: "cmuser_4",
+      email: "author@example.com",
       role: "USER",
       isVerified: true,
       isActive: true,
+      isDeleted: false,
       updatedAt: new Date("2026-03-10T10:00:00.000Z"),
     });
-    prisma.user.update.mockResolvedValue({
-      id: "cmuser_4",
-      role: "USER",
-      isVerified: true,
-      isActive: false,
-      updatedAt: new Date("2026-03-14T14:00:00.000Z"),
-    });
+    prisma.user.update.mockResolvedValue({ id: "cmuser_4" });
     prisma.auditLog.create.mockResolvedValue({
       id: "cmaudit_4",
-      action: "ADMIN_USER_DELETED",
+      action: "ADMIN_USER_PERMANENTLY_DELETED",
       entityType: "USER",
       entityId: "cmuser_4",
       details: {
-        changedFields: ["isActive"],
+        changedFields: ["isDeleted", "isActive", "email", "firstName", "lastName"],
       },
       createdAt: new Date("2026-03-14T14:00:01.000Z"),
     });
 
-    await expect(service.deleteAdminUser("cmuser_4", "cmadmin_1")).resolves.toEqual({
-      userId: "cmuser_4",
-      deleted: true,
-      isActive: false,
-      deletedAt: "2026-03-14T14:00:00.000Z",
-      audit: {
-        auditId: "cmaudit_4",
-        action: "ADMIN_USER_DELETED",
-        entityType: "USER",
-        entityId: "cmuser_4",
-        recordedAt: "2026-03-14T14:00:01.000Z",
-        recordedBy: "cmadmin_1",
-        note: null,
-        reason: null,
-      },
-    });
+    const result = await service.deleteAdminUser("cmuser_4", "cmadmin_1");
 
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: "cmuser_4" },
-      data: {
-        isActive: false,
-        refreshToken: null,
-        refreshTokenExp: null,
-      },
-      select: expect.any(Object),
-    });
+    expect(result.userId).toBe("cmuser_4");
+    expect(result.deleted).toBe(true);
+    expect(result.isDeleted).toBe(true);
+    expect(result.anonymizedEmail).toBe("deleted_cmuser_4@bookprinta.local");
+    expect(result.deletedAt).toBeDefined();
+    expect(result.audit.action).toBe("ADMIN_USER_PERMANENTLY_DELETED");
+    expect(result.audit.recordedBy).toBe("cmadmin_1");
+
+    // Verify PII anonymization in the transaction
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "cmuser_4" },
+        data: expect.objectContaining({
+          email: "deleted_cmuser_4@bookprinta.local",
+          firstName: "Deleted",
+          lastName: "User",
+          password: null,
+          phoneNumber: null,
+          phoneNumberNormalized: null,
+          bio: null,
+          profileImageUrl: null,
+          whatsAppNumber: null,
+          websiteUrl: null,
+          purchaseLinks: [],
+          socialLinks: [],
+          isActive: false,
+          isDeleted: true,
+          refreshToken: null,
+          refreshTokenExp: null,
+          verificationToken: null,
+          verificationCode: null,
+          resetToken: null,
+        }),
+      })
+    );
+
+    // Verify audit records the previous email
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "ADMIN_USER_PERMANENTLY_DELETED",
+          details: expect.objectContaining({
+            previousState: expect.objectContaining({
+              email: "author@example.com",
+              isDeleted: false,
+            }),
+            currentState: expect.objectContaining({
+              isDeleted: true,
+              email: "deleted_cmuser_4@bookprinta.local",
+            }),
+          }),
+        }),
+      })
+    );
   });
 
-  it("rejects delete when user is already inactive", async () => {
+  it("rejects delete when user is already permanently deleted", async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: "cmuser_5",
+      email: "deleted_cmuser_5@bookprinta.local",
       role: "USER",
       isVerified: true,
       isActive: false,
+      isDeleted: true,
       updatedAt: new Date("2026-03-10T10:00:00.000Z"),
     });
 
@@ -515,16 +563,20 @@ describe("UsersService admin user management", () => {
     prisma.user.findUnique
       .mockResolvedValueOnce({
         id: "cmuser_6",
+        email: "user6@example.com",
         role: "USER",
         isVerified: true,
         isActive: false,
+        isDeleted: false,
         updatedAt: new Date("2026-03-10T10:00:00.000Z"),
       })
       .mockResolvedValueOnce({
         id: "cmuser_6",
+        email: "user6@example.com",
         role: "USER",
         isVerified: true,
         isActive: false,
+        isDeleted: false,
         updatedAt: new Date("2026-03-10T10:00:00.000Z"),
       });
     prisma.user.update.mockResolvedValue({
@@ -532,6 +584,7 @@ describe("UsersService admin user management", () => {
       role: "USER",
       isVerified: true,
       isActive: true,
+      isDeleted: false,
       updatedAt: new Date("2026-03-14T16:00:00.000Z"),
     });
     prisma.auditLog.create.mockResolvedValue({
@@ -551,11 +604,13 @@ describe("UsersService admin user management", () => {
         role: "USER",
         isVerified: true,
         isActive: false,
+        isDeleted: false,
       },
       currentState: {
         role: "USER",
         isVerified: true,
         isActive: true,
+        isDeleted: false,
       },
       updatedAt: "2026-03-14T16:00:00.000Z",
       audit: {
@@ -574,9 +629,11 @@ describe("UsersService admin user management", () => {
   it("rejects reactivation when user is already active", async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: "cmuser_7",
+      email: "user7@example.com",
       role: "USER",
       isVerified: true,
       isActive: true,
+      isDeleted: false,
       updatedAt: new Date("2026-03-10T10:00:00.000Z"),
     });
 

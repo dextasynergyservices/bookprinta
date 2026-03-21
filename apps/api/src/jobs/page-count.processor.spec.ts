@@ -36,6 +36,7 @@ const mockPrismaService = {
 const mockGotenbergPageCountService = {
   countPages: jest.fn(),
   renderPdf: jest.fn(),
+  countAndRenderPreview: jest.fn(),
 };
 
 const mockFilesService = {
@@ -84,13 +85,10 @@ describe("PageCountProcessor", () => {
       id: "cmhtml1",
       url: "https://cdn.example.com/books/cleaned.html",
     });
-    mockGotenbergPageCountService.countPages.mockResolvedValue({
+    mockGotenbergPageCountService.countAndRenderPreview.mockResolvedValue({
       pageCount: 128,
-      renderedPdfSha256: "a".repeat(64),
-    });
-    mockGotenbergPageCountService.renderPdf.mockResolvedValue({
       pdfBuffer: Buffer.from("%PDF-preview%", "latin1"),
-      renderedPdfSha256: "p".repeat(64),
+      renderedPdfSha256: "a".repeat(64),
     });
     mockFilesService.saveGeneratedFile.mockResolvedValue({
       id: "cmpreview1",
@@ -159,13 +157,10 @@ describe("PageCountProcessor", () => {
       id: "cmhtml2",
       url: "https://cdn.example.com/books/cleaned2.html",
     });
-    mockGotenbergPageCountService.countPages.mockResolvedValue({
+    mockGotenbergPageCountService.countAndRenderPreview.mockResolvedValue({
       pageCount: 173,
-      renderedPdfSha256: "b".repeat(64),
-    });
-    mockGotenbergPageCountService.renderPdf.mockResolvedValue({
       pdfBuffer: Buffer.from("%PDF-preview-2%", "latin1"),
-      renderedPdfSha256: "q".repeat(64),
+      renderedPdfSha256: "b".repeat(64),
     });
     mockFilesService.saveGeneratedFile.mockResolvedValue({
       id: "cmpreview2",
@@ -211,7 +206,9 @@ describe("PageCountProcessor", () => {
       id: "cmhtml3",
       url: "https://cdn.example.com/books/cleaned3.html",
     });
-    mockGotenbergPageCountService.countPages.mockRejectedValue(new Error("Gotenberg timeout"));
+    mockGotenbergPageCountService.countAndRenderPreview.mockRejectedValue(
+      new Error("Gotenberg timeout")
+    );
 
     const job = {
       id: "bull-count-3",
@@ -259,7 +256,9 @@ describe("PageCountProcessor", () => {
       id: "cmhtml4",
       url: "https://cdn.example.com/books/cleaned4.html",
     });
-    mockGotenbergPageCountService.countPages.mockRejectedValue(new Error("Gotenberg timeout"));
+    mockGotenbergPageCountService.countAndRenderPreview.mockRejectedValue(
+      new Error("Gotenberg timeout")
+    );
 
     const job = {
       id: "bull-count-4",
@@ -316,13 +315,10 @@ describe("PageCountProcessor", () => {
         url: "https://cdn.example.com/books/cleaned-stale.html",
       })
       .mockResolvedValueOnce(null);
-    mockGotenbergPageCountService.countPages.mockResolvedValue({
+    mockGotenbergPageCountService.countAndRenderPreview.mockResolvedValue({
       pageCount: 128,
-      renderedPdfSha256: "c".repeat(64),
-    });
-    mockGotenbergPageCountService.renderPdf.mockResolvedValue({
       pdfBuffer: Buffer.from("%PDF-preview-stale%", "latin1"),
-      renderedPdfSha256: "r".repeat(64),
+      renderedPdfSha256: "c".repeat(64),
     });
     mockFilesService.saveGeneratedFile.mockResolvedValue({
       id: "cmpreview-stale",
@@ -379,13 +375,10 @@ describe("PageCountProcessor", () => {
       id: "cmhtml-race",
       url: "https://cdn.example.com/books/new-cleaned.html",
     });
-    mockGotenbergPageCountService.countPages.mockResolvedValue({
+    mockGotenbergPageCountService.countAndRenderPreview.mockResolvedValue({
       pageCount: 74,
-      renderedPdfSha256: "d".repeat(64),
-    });
-    mockGotenbergPageCountService.renderPdf.mockResolvedValue({
       pdfBuffer: Buffer.from("%PDF-preview-race%", "latin1"),
-      renderedPdfSha256: "s".repeat(64),
+      renderedPdfSha256: "d".repeat(64),
     });
     mockFilesService.saveGeneratedFile.mockResolvedValue({
       id: "cmpreview-race",

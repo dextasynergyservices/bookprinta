@@ -244,19 +244,36 @@ function AdminUserVerificationBadge({ isVerified, label }: { isVerified: boolean
   );
 }
 
-function AdminUserAccountBadge({ isActive, label }: { isActive: boolean; label: string }) {
+function AdminUserAccountBadge({
+  isActive,
+  isDeleted,
+  label,
+}: {
+  isActive: boolean;
+  isDeleted?: boolean;
+  label: string;
+}) {
+  const tone = isDeleted
+    ? "border-[#ef4444]/60 bg-[#ef4444]/20 text-[#ff8a8a]"
+    : isActive
+      ? "border-[#2A2A2A] bg-[#0F0F0F] text-[#bdbdbd]"
+      : "border-[#ef4444]/45 bg-[#ef4444]/15 text-[#ef4444]";
+
   return (
     <Badge
       variant="outline"
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-sans text-[11px] leading-none font-medium tracking-[0.01em]",
-        isActive
-          ? "border-[#2A2A2A] bg-[#0F0F0F] text-[#bdbdbd]"
-          : "border-[#ef4444]/45 bg-[#ef4444]/15 text-[#ef4444]"
+        tone
       )}
     >
-      {isActive ? <UserRoundCog className="size-3.5" aria-hidden="true" /> : null}
-      {!isActive ? <UserRoundX className="size-3.5" aria-hidden="true" /> : null}
+      {isDeleted ? (
+        <UserRoundX className="size-3.5" aria-hidden="true" />
+      ) : isActive ? (
+        <UserRoundCog className="size-3.5" aria-hidden="true" />
+      ) : (
+        <UserRoundX className="size-3.5" aria-hidden="true" />
+      )}
       <span>{label}</span>
     </Badge>
   );
@@ -558,27 +575,32 @@ function AdminUsersFilterBar({
   searchDraft,
   role,
   isVerified,
+  includeDeleted,
   activeFilterCount,
   hasActiveFilters,
   onSearchDraftChange,
   onRoleChange,
   onVerificationChange,
+  onIncludeDeletedChange,
   onClearFilters,
 }: {
   searchDraft: string;
   role: UserRoleValue | "";
   isVerified: boolean | "";
+  includeDeleted: boolean | "";
   activeFilterCount: number;
   hasActiveFilters: boolean;
   onSearchDraftChange: (value: string) => void;
   onRoleChange: (value: UserRoleValue | "") => void;
   onVerificationChange: (value: boolean | "") => void;
+  onIncludeDeletedChange: (value: boolean) => void;
   onClearFilters: () => void;
 }) {
   const tAdmin = useTranslations("admin");
   const sectionTitleId = useId();
   const searchInputId = useId();
   const roleSelectId = useId();
+  const includeDeletedId = useId();
   const verificationSelectId = useId();
   const verificationValue = typeof isVerified === "boolean" ? String(isVerified) : "";
 
@@ -704,6 +726,19 @@ function AdminUsersFilterBar({
             <option value="false">{tAdmin("users_filters_verified_false")}</option>
           </select>
         </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          id={includeDeletedId}
+          type="checkbox"
+          checked={includeDeleted === true}
+          onChange={(event) => onIncludeDeletedChange(event.target.checked)}
+          className="size-4 rounded border-[#2A2A2A] bg-[#0B0B0B] accent-[#007eff]"
+        />
+        <label htmlFor={includeDeletedId} className="font-sans text-xs font-medium text-[#8f8f8f]">
+          {tAdmin("users_filters_include_deleted")}
+        </label>
       </div>
     </section>
   );
@@ -1124,12 +1159,14 @@ export function AdminUsersView() {
     hasActiveFilters,
     setRole,
     setVerification,
+    setIncludeDeleted,
     setSearch,
     clearFilters,
     setSort,
     goToNextCursor,
     goToPreviousCursor,
     trail,
+    includeDeleted,
   } = useAdminUsersFilters();
 
   const [searchDraft, setSearchDraft] = useState(q);
@@ -1164,6 +1201,7 @@ export function AdminUsersView() {
     q,
     role,
     isVerified,
+    includeDeleted,
     sortBy,
     sortDirection,
   });
@@ -1339,6 +1377,13 @@ export function AdminUsersView() {
               {!row.original.isActive ? (
                 <AdminUserAccountBadge isActive={false} label={tAdmin("users_status_inactive")} />
               ) : null}
+              {row.original.isDeleted ? (
+                <AdminUserAccountBadge
+                  isActive={false}
+                  isDeleted
+                  label={tAdmin("users_status_deleted")}
+                />
+              ) : null}
             </div>
           </div>
         ),
@@ -1395,10 +1440,13 @@ export function AdminUsersView() {
             />
             <AdminUserAccountBadge
               isActive={row.original.isActive}
+              isDeleted={row.original.isDeleted}
               label={
-                row.original.isActive
-                  ? tAdmin("users_status_active")
-                  : tAdmin("users_status_inactive")
+                row.original.isDeleted
+                  ? tAdmin("users_status_deleted")
+                  : row.original.isActive
+                    ? tAdmin("users_status_active")
+                    : tAdmin("users_status_inactive")
               }
             />
           </div>
@@ -1469,7 +1517,14 @@ export function AdminUsersView() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="my-1 bg-[#2A2A2A]" />
 
-                  {row.original.isActive ? (
+                  {row.original.isDeleted ? (
+                    <DropdownMenuItem
+                      disabled
+                      className="min-h-11 rounded-xl font-sans text-sm text-[#666]"
+                    >
+                      <span>{tAdmin("users_status_deleted")}</span>
+                    </DropdownMenuItem>
+                  ) : row.original.isActive ? (
                     <DropdownMenuItem
                       disabled={isDeactivatePending}
                       onSelect={(event) => {
@@ -1497,20 +1552,22 @@ export function AdminUsersView() {
                     </DropdownMenuItem>
                   )}
 
-                  <DropdownMenuItem
-                    disabled={isDeletePending}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      void handleDeleteFromList(row.original);
-                    }}
-                    className="min-h-11 rounded-xl font-sans text-sm text-[#ffb3b3] focus:text-[#ffb3b3]"
-                  >
-                    <span>
-                      {isDeletePending
-                        ? tAdmin("users_detail_deleting")
-                        : tAdmin("users_detail_delete")}
-                    </span>
-                  </DropdownMenuItem>
+                  {!row.original.isDeleted ? (
+                    <DropdownMenuItem
+                      disabled={isDeletePending}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void handleDeleteFromList(row.original);
+                      }}
+                      className="min-h-11 rounded-xl font-sans text-sm text-[#ffb3b3] focus:text-[#ffb3b3]"
+                    >
+                      <span>
+                        {isDeletePending
+                          ? tAdmin("users_detail_deleting")
+                          : tAdmin("users_detail_delete")}
+                      </span>
+                    </DropdownMenuItem>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -1554,11 +1611,13 @@ export function AdminUsersView() {
         searchDraft={searchDraft}
         role={role}
         isVerified={isVerified}
+        includeDeleted={includeDeleted}
         activeFilterCount={activeFilterCount}
         hasActiveFilters={hasActiveFilters}
         onSearchDraftChange={setSearchDraft}
         onRoleChange={setRole}
         onVerificationChange={setVerification}
+        onIncludeDeletedChange={setIncludeDeleted}
         onClearFilters={clearFilters}
       />
 

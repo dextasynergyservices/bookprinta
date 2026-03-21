@@ -35,6 +35,12 @@ export type RenderPdfResult = {
   renderedPdfSha256: string;
 };
 
+export type CountAndRenderResult = {
+  pageCount: number;
+  pdfBuffer: Buffer;
+  renderedPdfSha256: string;
+};
+
 export type AuthoritativePageCountResult = {
   pageCount: number;
   renderedPdfSha256: string;
@@ -45,12 +51,17 @@ export class GotenbergPageCountService {
   private readonly logger = new Logger(GotenbergPageCountService.name);
 
   async countPages(input: AuthoritativePageCountInput): Promise<AuthoritativePageCountResult> {
-    const rendered = await this.renderPdf(input);
-    const pageCount = this.countPagesFromPdf(rendered.pdfBuffer);
+    const html = this.prepareCountHtml(input);
+    const renderedPdf = await this.renderWithGotenberg(html, input.pageSize);
+    const pageCount = this.countPagesFromPdf(renderedPdf);
+
+    if (pageCount < 1) {
+      throw new Error("Unable to extract page count from rendered PDF.");
+    }
 
     return {
       pageCount,
-      renderedPdfSha256: rendered.renderedPdfSha256,
+      renderedPdfSha256: createHash("sha256").update(renderedPdf).digest("hex"),
     };
   }
 
@@ -63,6 +74,29 @@ export class GotenbergPageCountService {
     }
 
     return {
+      pdfBuffer: renderedPdf,
+      renderedPdfSha256: createHash("sha256").update(renderedPdf).digest("hex"),
+    };
+  }
+
+  /**
+   * Single Gotenberg call that counts pages AND produces the preview PDF.
+   * The watermark is `position: fixed` and does not affect layout/page count,
+   * so counting from the watermarked buffer is safe.
+   */
+  async countAndRenderPreview(
+    input: AuthoritativePageCountInput & { watermarkText?: string | null }
+  ): Promise<CountAndRenderResult> {
+    const html = this.prepareCountHtml(input);
+    const renderedPdf = await this.renderWithGotenberg(html, input.pageSize);
+    const pageCount = this.countPagesFromPdf(renderedPdf);
+
+    if (pageCount < 1) {
+      throw new Error("Unable to extract page count from rendered PDF.");
+    }
+
+    return {
+      pageCount,
       pdfBuffer: renderedPdf,
       renderedPdfSha256: createHash("sha256").update(renderedPdf).digest("hex"),
     };
@@ -150,7 +184,7 @@ export class GotenbergPageCountService {
           form.append("printBackground", "true");
 
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 15_000);
+          const timeout = setTimeout(() => controller.abort(), 30_000);
 
           let response: Response | null = null;
           try {
@@ -219,6 +253,9 @@ export class GotenbergPageCountService {
       return Math.max(...counts);
     }
 
+    this.logger.error(
+      `Page count extraction failed. PDF buffer size: ${pdfBuffer.length} bytes, starts with: ${source.slice(0, 20)}`
+    );
     throw new Error("Unable to extract page count from rendered PDF.");
   }
 
