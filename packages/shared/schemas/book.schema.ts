@@ -475,6 +475,7 @@ export const AdminBookStatusControlSchema = z.object({
   nextAllowedStatuses: z.array(BookStatusSchema),
   canRejectManuscript: z.boolean(),
   canUploadHtmlFallback: z.boolean(),
+  canResetProcessing: z.boolean(),
 });
 export type AdminBookStatusControl = z.infer<typeof AdminBookStatusControlSchema>;
 
@@ -524,6 +525,32 @@ export const AdminRejectBookResponseSchema = z.object({
   audit: AdminAuditEntrySchema,
 });
 export type AdminRejectBookResponse = z.infer<typeof AdminRejectBookResponseSchema>;
+
+/**
+ * POST /api/v1/admin/books/:id/reset-processing
+ */
+export const AdminResetProcessingSchema = z.object({
+  expectedVersion: z.number().int().min(1),
+  reason: z.string().trim().max(5000).optional(),
+});
+export type AdminResetProcessingInput = z.infer<typeof AdminResetProcessingSchema>;
+
+export const AdminResetProcessingResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  previousStatus: BookStatusSchema,
+  bookStatus: BookStatusSchema,
+  orderStatus: OrderStatusSchema,
+  bookVersion: z.number().int().min(1),
+  queuedJob: z
+    .object({
+      queue: z.literal("ai-formatting"),
+      name: z.literal("format-manuscript"),
+      jobId: z.string().nullable(),
+    })
+    .nullable(),
+  audit: AdminAuditEntrySchema,
+});
+export type AdminResetProcessingResponse = z.infer<typeof AdminResetProcessingResponseSchema>;
 
 export const ADMIN_BOOK_HTML_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 

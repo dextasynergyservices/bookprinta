@@ -26,6 +26,7 @@ export type AdminUsersQueryInput = {
   q?: string;
   role?: UserRoleValue | "";
   isVerified?: boolean | "";
+  includeDeleted?: boolean | "";
   sortBy?: AdminUserSortField;
   sortDirection?: "asc" | "desc";
 };
@@ -58,6 +59,7 @@ export const adminUsersQueryKeys = {
       input.q,
       input.role,
       input.isVerified,
+      input.includeDeleted,
       input.sortBy,
       input.sortDirection,
     ] as const,
@@ -71,6 +73,7 @@ function resolveQueryInput(input: AdminUsersQueryInput): Required<AdminUsersQuer
     q: input.q?.trim() || "",
     role: input.role ?? "",
     isVerified: input.isVerified ?? "",
+    includeDeleted: input.includeDeleted ?? "",
     sortBy: input.sortBy ?? DEFAULT_ADMIN_USER_SORT_BY,
     sortDirection: input.sortDirection ?? DEFAULT_ADMIN_USER_SORT_DIRECTION,
   };
@@ -91,6 +94,9 @@ export async function fetchAdminUsers(
   if (query.role) params.set("role", query.role);
   if (typeof query.isVerified === "boolean") {
     params.set("isVerified", String(query.isVerified));
+  }
+  if (query.includeDeleted === true) {
+    params.set("includeDeleted", "true");
   }
 
   let response: Response;

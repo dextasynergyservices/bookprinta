@@ -13,6 +13,17 @@ function expectDeactivatedAuthError(error: unknown) {
   );
 }
 
+function expectDeletedAuthError(error: unknown) {
+  expect(error).toBeInstanceOf(UnauthorizedException);
+  expect((error as UnauthorizedException).getResponse()).toEqual(
+    expect.objectContaining({
+      message:
+        "This account has been permanently deleted. If you believe this is an error, please contact support.",
+      errorCode: "AUTH_ACCOUNT_DELETED",
+    })
+  );
+}
+
 describe("AuthService login instrumentation", () => {
   const originalEnv = { ...process.env };
 
@@ -237,6 +248,7 @@ describe("AuthService login instrumentation", () => {
       firstName: "  Ada   ",
       lastName: "  Okafor  ",
       isActive: true,
+      isDeleted: false,
     });
 
     await expect(service.getSessionUser("user-session-1")).resolves.toEqual({
@@ -257,6 +269,7 @@ describe("AuthService login instrumentation", () => {
         lastName: true,
         role: true,
         isActive: true,
+        isDeleted: true,
       },
     });
   });
@@ -273,6 +286,7 @@ describe("AuthService login instrumentation", () => {
       lastName: "Writer",
       password: storedPasswordHash,
       isActive: false,
+      isDeleted: false,
       isVerified: true,
     });
 
@@ -318,6 +332,7 @@ describe("AuthService login instrumentation", () => {
       firstName: "Inactive",
       lastName: "Editor",
       isActive: false,
+      isDeleted: false,
     });
 
     try {
@@ -325,6 +340,75 @@ describe("AuthService login instrumentation", () => {
       throw new Error("Expected inactive session lookup to be rejected.");
     } catch (error) {
       expectDeactivatedAuthError(error);
+    }
+  });
+
+  it("rejects login attempts for permanently deleted accounts", async () => {
+    const { prisma, pinoLogger, service } = buildService();
+    const storedPasswordHash = await bcrypt.hash("Password123!", 4);
+
+    prisma.user.findFirst.mockResolvedValue({
+      id: "user-deleted-1",
+      email: "deleted_user-deleted-1@bookprinta.local",
+      role: "USER",
+      firstName: "Deleted",
+      lastName: "User",
+      password: storedPasswordHash,
+      isActive: false,
+      isDeleted: true,
+      isVerified: true,
+    });
+
+    jest.spyOn(global, "fetch").mockResolvedValue({
+      json: async () => ({ success: true, score: 0.96 }),
+    } as Response);
+
+    try {
+      await service.login(
+        {
+          identifier: "deleted_user-deleted-1@bookprinta.local",
+          password: "Password123!",
+          recaptchaToken: "recaptcha-token",
+        } as never,
+        {
+          correlationId: "corr-deleted-login",
+          clientRecaptchaDurationMs: 155,
+        }
+      );
+      throw new Error("Expected deleted account login to be rejected.");
+    } catch (error) {
+      expectDeletedAuthError(error);
+    }
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(pinoLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlationId: "corr-deleted-login",
+        outcome: "failure",
+        errorCode: "AUTH_ACCOUNT_DELETED",
+      }),
+      "Auth login timing"
+    );
+  });
+
+  it("rejects session lookups for permanently deleted accounts", async () => {
+    const { prisma, service } = buildService();
+
+    prisma.user.findUnique.mockResolvedValue({
+      id: "user-session-deleted",
+      email: "deleted_user-session-deleted@bookprinta.local",
+      role: "USER",
+      firstName: "Deleted",
+      lastName: "User",
+      isActive: false,
+      isDeleted: true,
+    });
+
+    try {
+      await service.getSessionUser("user-session-deleted");
+      throw new Error("Expected deleted session lookup to be rejected.");
+    } catch (error) {
+      expectDeletedAuthError(error);
     }
   });
 

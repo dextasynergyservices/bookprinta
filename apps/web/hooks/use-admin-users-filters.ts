@@ -97,6 +97,7 @@ export function useAdminUsersFilters() {
   const filters = useMemo(() => {
     const role = normalizeEnumParam(searchParams.get("role"), ADMIN_USER_ROLE_OPTIONS, "");
     const isVerified = normalizeBooleanParam(searchParams.get("isVerified"));
+    const includeDeleted = normalizeBooleanParam(searchParams.get("includeDeleted"));
     const q = normalizeTextParam(searchParams.get("q"));
     const cursor = normalizeTextParam(searchParams.get("cursor"));
     const trail = decodeCursorTrail(searchParams.get("trail"));
@@ -106,13 +107,19 @@ export function useAdminUsersFilters() {
     return {
       role,
       isVerified,
+      includeDeleted,
       q,
       cursor,
       trail,
       sortBy,
       sortDirection,
       currentPage: trail.length + 1,
-      activeFilterCount: [Boolean(role), isVerified !== "", Boolean(q)].filter(Boolean).length,
+      activeFilterCount: [
+        Boolean(role),
+        isVerified !== "",
+        includeDeleted === true,
+        Boolean(q),
+      ].filter(Boolean).length,
     };
   }, [searchParams]);
 
@@ -161,6 +168,21 @@ export function useAdminUsersFilters() {
     [replaceParams]
   );
 
+  const setIncludeDeleted = useCallback(
+    (includeDeleted: boolean) => {
+      replaceParams((params) => {
+        if (includeDeleted) {
+          params.set("includeDeleted", "true");
+        } else {
+          params.delete("includeDeleted");
+        }
+
+        resetCursorParams(params);
+      });
+    },
+    [replaceParams]
+  );
+
   const setSearch = useCallback(
     (value: string) => {
       replaceParams((params) => {
@@ -181,6 +203,7 @@ export function useAdminUsersFilters() {
     replaceParams((params) => {
       params.delete("role");
       params.delete("isVerified");
+      params.delete("includeDeleted");
       params.delete("q");
       resetCursorParams(params);
     });
@@ -246,6 +269,7 @@ export function useAdminUsersFilters() {
     hasActiveFilters: filters.activeFilterCount > 0,
     setRole,
     setVerification,
+    setIncludeDeleted,
     setSearch,
     clearFilters,
     setSort,

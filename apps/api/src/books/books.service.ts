@@ -11,6 +11,8 @@ import type {
   AdminBooksListResponse,
   AdminRejectBookInput,
   AdminRejectBookResponse,
+  AdminResetProcessingInput,
+  AdminResetProcessingResponse,
   AdminUpdateBookStatusInput,
   AdminUpdateBookStatusResponse,
   ApproveBookInput,
@@ -60,6 +62,7 @@ import {
 import { RolloutService } from "../rollout/rollout.service.js";
 import {
   canRejectAdminBook,
+  canResetProcessingPipeline,
   canUploadAdminHtmlFallback,
   humanizeAdminBookStatus,
   resolveAdminBookStatusProjection,
@@ -1178,6 +1181,109 @@ export class BooksService {
     };
   }
 
+  async resetAdminBookProcessing(
+    bookId: string,
+    input: AdminResetProcessingInput,
+    adminId: string
+  ): Promise<AdminResetProcessingResponse> {
+    const current = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        orderId: true,
+        userId: true,
+        status: true,
+        productionStatus: true,
+        version: true,
+        pageSize: true,
+        fontSize: true,
+      },
+    });
+
+    if (!current) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    if (
+      !canResetProcessingPipeline({
+        status: current.status,
+        productionStatus: current.productionStatus,
+      })
+    ) {
+      throw new BadRequestException(
+        "This book's processing pipeline cannot be reset at its current stage."
+      );
+    }
+
+    const previousStatus = current.status;
+
+    const { audit } = await this.prisma.$transaction(async (tx) => {
+      const updatedCount = await tx.book.updateMany({
+        where: {
+          id: current.id,
+          version: input.expectedVersion,
+        },
+        data: {
+          status: "AI_PROCESSING",
+          pageCount: null,
+          version: { increment: 1 },
+        },
+      });
+
+      if (updatedCount.count === 0) {
+        throw new ConflictException("Book was updated by another admin. Refresh and try again.");
+      }
+
+      await tx.order.updateMany({
+        where: { id: current.orderId },
+        data: { status: "FORMATTING" },
+      });
+
+      const auditLog = await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_BOOK_RESET_PROCESSING",
+          entityType: "BOOK",
+          entityId: current.id,
+          details: {
+            previousStatus,
+            nextStatus: "AI_PROCESSING",
+            reason: input.reason?.trim() || null,
+            expectedVersion: input.expectedVersion,
+          },
+        },
+      });
+
+      return { audit: auditLog };
+    });
+
+    const queueResult = await this.booksPipeline.enqueueFormatManuscript({
+      bookId: current.id,
+      trigger: "upload",
+    });
+
+    const updatedBook = await this.prisma.book.findUnique({
+      where: { id: current.id },
+      select: { version: true },
+    });
+
+    return {
+      bookId: current.id,
+      previousStatus,
+      bookStatus: "AI_PROCESSING",
+      orderStatus: "FORMATTING",
+      bookVersion: updatedBook?.version ?? input.expectedVersion + 1,
+      queuedJob: queueResult.queued
+        ? {
+            queue: "ai-formatting",
+            name: "format-manuscript",
+            jobId: queueResult.queueJobId,
+          }
+        : null,
+      audit: this.serializeAdminAuditEntry(audit, adminId),
+    };
+  }
+
   async requestAdminBookHtmlUpload(
     bookId: string,
     input: AdminBookHtmlUploadBodyInput,
@@ -1793,6 +1899,10 @@ export class BooksService {
         productionStatus: params.productionStatus,
       }),
       canUploadHtmlFallback: canUploadAdminHtmlFallback({
+        status: params.status,
+        productionStatus: params.productionStatus,
+      }),
+      canResetProcessing: canResetProcessingPipeline({
         status: params.status,
         productionStatus: params.productionStatus,
       }),
@@ -2558,12 +2668,23 @@ export class BooksService {
       return "AI formatting is temporarily unavailable because the current Gemini quota is exhausted. Retry later or switch to a higher-capacity Gemini key.";
     }
 
-    if (lower.includes("timed out")) {
-      return "AI formatting timed out before the preview was generated. Retry processing to start a fresh run.";
+    if (lower.includes("timed out") || lower.includes("aborted")) {
+      return "Processing timed out before completing. Retry processing to start a fresh run.";
+    }
+
+    if (lower.includes("gotenberg") || lower.includes("page count")) {
+      return "Page counting failed during PDF rendering. Retry processing to start a fresh run.";
     }
 
     if (lower.includes("503") || lower.includes("unavailable") || lower.includes("high demand")) {
       return "AI formatting is temporarily unavailable because Gemini is under high demand. Retry processing shortly.";
+    }
+
+    if (
+      lower.includes("failed to fetch cleaned html") ||
+      lower.includes("failed to fetch manuscript")
+    ) {
+      return "Could not retrieve the manuscript file from storage. Retry processing or re-upload the manuscript.";
     }
 
     return normalizedError;

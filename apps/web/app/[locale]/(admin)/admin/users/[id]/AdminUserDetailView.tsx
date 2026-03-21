@@ -247,20 +247,24 @@ function UserRoleBadge({ role, label }: { role: UserRoleValue; label: string }) 
 function AccountStateBadge({
   active,
   verified,
+  deleted,
   label,
 }: {
   active?: boolean;
   verified?: boolean;
+  deleted?: boolean;
   label: string;
 }) {
   const toneClassName =
-    active === false
-      ? "border-[#ef4444]/45 bg-[#ef4444]/15 text-[#ef4444]"
-      : verified === true
-        ? "border-[#22c55e]/45 bg-[#22c55e]/15 text-[#22c55e]"
-        : verified === false
-          ? "border-[#f59e0b]/45 bg-[#f59e0b]/15 text-[#f59e0b]"
-          : "border-[#2A2A2A] bg-[#0F0F0F] text-[#bdbdbd]";
+    deleted === true
+      ? "border-[#ef4444]/60 bg-[#ef4444]/20 text-[#ff8a8a]"
+      : active === false
+        ? "border-[#ef4444]/45 bg-[#ef4444]/15 text-[#ef4444]"
+        : verified === true
+          ? "border-[#22c55e]/45 bg-[#22c55e]/15 text-[#22c55e]"
+          : verified === false
+            ? "border-[#f59e0b]/45 bg-[#f59e0b]/15 text-[#f59e0b]"
+            : "border-[#2A2A2A] bg-[#0F0F0F] text-[#bdbdbd]";
 
   return (
     <Badge
@@ -270,8 +274,11 @@ function AccountStateBadge({
         toneClassName
       )}
     >
-      {active === false ? <UserRoundX className="size-3.5" aria-hidden="true" /> : null}
-      {active === true ? <UserRoundCheck className="size-3.5" aria-hidden="true" /> : null}
+      {deleted === true ? <Trash2 className="size-3.5" aria-hidden="true" /> : null}
+      {!deleted && active === false ? <UserRoundX className="size-3.5" aria-hidden="true" /> : null}
+      {!deleted && active === true ? (
+        <UserRoundCheck className="size-3.5" aria-hidden="true" />
+      ) : null}
       {verified === true ? <ShieldCheck className="size-3.5" aria-hidden="true" /> : null}
       {verified === false ? <ShieldX className="size-3.5" aria-hidden="true" /> : null}
       <span>{label}</span>
@@ -423,6 +430,7 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
 
   const user = detailQuery.user;
   const profile = user?.profile ?? null;
+  const isUserDeleted = profile?.isDeleted === true;
   const isSavePending = updateMutation.isPending && pendingAction === "save";
   const isReactivatePending = reactivateMutation.isPending && pendingAction === "reactivate";
   const isDeactivatePending = updateMutation.isPending && pendingAction === "deactivate";
@@ -695,6 +703,9 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                       : tAdmin("users_status_inactive")
                   }
                 />
+                {profile.isDeleted ? (
+                  <AccountStateBadge deleted label={tAdmin("users_status_deleted")} />
+                ) : null}
               </div>
             </div>
 
@@ -1019,7 +1030,7 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                     value={roleDraft}
                     onChange={(event) => setRoleDraft(event.target.value as UserRoleValue)}
                     aria-label={tAdmin("users_detail_role_label")}
-                    disabled={isSavePending}
+                    disabled={isSavePending || isUserDeleted}
                     className="min-h-11 w-full rounded-2xl border border-[#2A2A2A] bg-[#0B0B0B] px-4 font-sans text-sm text-white outline-none transition-colors duration-150 focus-visible:border-[#007eff] focus-visible:ring-2 focus-visible:ring-[#007eff]/25"
                   >
                     {ADMIN_USER_ROLE_OPTIONS.map((roleOption) => (
@@ -1035,7 +1046,7 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                   title={tAdmin("users_detail_verified_label")}
                   description={tAdmin("users_detail_verified_description")}
                   checked={verifiedDraft}
-                  disabled={isSavePending}
+                  disabled={isSavePending || isUserDeleted}
                   onCheckedChange={setVerifiedDraft}
                 />
 
@@ -1043,14 +1054,16 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                   titleId={deactivateSwitchTitleId}
                   title={tAdmin("users_detail_deactivate_label")}
                   description={
-                    profile.isActive
-                      ? tAdmin("users_detail_deactivate_description")
-                      : tAdmin("users_detail_deactivate_locked")
+                    isUserDeleted
+                      ? tAdmin("users_detail_deleted_account_notice")
+                      : profile.isActive
+                        ? tAdmin("users_detail_deactivate_description")
+                        : tAdmin("users_detail_deactivate_locked")
                   }
                   checked={!profile.isActive}
-                  disabled={!profile.isActive || isDeactivatePending}
+                  disabled={!profile.isActive || isDeactivatePending || isUserDeleted}
                   onCheckedChange={(checked) => {
-                    if (checked && profile.isActive && !isDeactivatePending) {
+                    if (checked && profile.isActive && !isDeactivatePending && !isUserDeleted) {
                       setIsDeactivateDialogOpen(true);
                     }
                   }}
@@ -1104,7 +1117,7 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                 <Button
                   type="button"
                   onClick={handleSaveManagement}
-                  disabled={!hasManagementChanges || isSavePending}
+                  disabled={!hasManagementChanges || isSavePending || isUserDeleted}
                   className="min-h-11 w-full rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8] disabled:bg-[#1C1C1C] disabled:text-[#7D7D7D]"
                 >
                   {isSavePending ? (
@@ -1117,25 +1130,27 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                   )}
                 </Button>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsDeleteDialogOpen(true)}
-                  disabled={isDeletePending}
-                  className="min-h-11 w-full rounded-full border-[#5E1E1E] bg-[#1A0D0D] px-5 font-sans text-sm font-medium text-[#FFB3B3] hover:border-[#7A2727] hover:bg-[#220F0F]"
-                >
-                  {isDeletePending ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                      {tAdmin("users_detail_deleting")}
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 className="size-4" aria-hidden="true" />
-                      {tAdmin("users_detail_delete")}
-                    </>
-                  )}
-                </Button>
+                {!isUserDeleted ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsDeleteDialogOpen(true)}
+                    disabled={isDeletePending}
+                    className="min-h-11 w-full rounded-full border-[#5E1E1E] bg-[#1A0D0D] px-5 font-sans text-sm font-medium text-[#FFB3B3] hover:border-[#7A2727] hover:bg-[#220F0F]"
+                  >
+                    {isDeletePending ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                        {tAdmin("users_detail_deleting")}
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="size-4" aria-hidden="true" />
+                        {tAdmin("users_detail_delete")}
+                      </>
+                    )}
+                  </Button>
+                ) : null}
               </div>
             </InfoCard>
 
@@ -1319,6 +1334,9 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
             <DialogDescription className="font-sans text-sm leading-6 text-[#FFCFCF]">
               {tAdmin("users_detail_delete_dialog_description")}
             </DialogDescription>
+            <p className="font-sans text-xs leading-5 text-[#FF9999]">
+              {tAdmin("users_detail_delete_dialog_warning")}
+            </p>
           </DialogHeader>
 
           <DialogFooter className="pt-2 md:justify-between">

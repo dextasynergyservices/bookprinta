@@ -10,6 +10,8 @@ import {
   AdminBookVersionFileDownloadParamsSchema,
   AdminRejectBookResponseSchema,
   AdminRejectBookSchema,
+  AdminResetProcessingResponseSchema,
+  AdminResetProcessingSchema,
   AdminUpdateBookStatusResponseSchema,
   AdminUpdateBookStatusSchema,
   ApproveBookSchema,
@@ -169,3 +171,11 @@ export class AdminBookVersionFileDownloadParamsDto extends createZodDto(
 
 /** Response for GET /api/v1/books/:id/reprint-config */
 export class BookReprintConfigResponseDto extends createZodDto(BookReprintConfigResponseSchema) {}
+
+/** Body for POST /api/v1/admin/books/:id/reset-processing */
+export class AdminResetProcessingDto extends createZodDto(AdminResetProcessingSchema) {}
+
+/** Response for POST /api/v1/admin/books/:id/reset-processing */
+export class AdminResetProcessingResponseDto extends createZodDto(
+  AdminResetProcessingResponseSchema
+) {}

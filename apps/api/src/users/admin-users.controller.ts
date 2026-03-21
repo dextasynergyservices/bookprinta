@@ -129,9 +129,9 @@ export class AdminUsersController {
   @Header("Cache-Control", "private, no-store")
   @Header("Vary", "Cookie")
   @ApiOperation({
-    summary: "Delete a user account",
+    summary: "Permanently delete a user account",
     description:
-      "Soft-deletes a user by deactivating the account, clearing active refresh tokens, and recording an audit entry.",
+      "Permanently deletes a user by anonymizing all PII (name, email, phone, profile data), revoking tokens, and recording an audit entry. This action is irreversible.",
   })
   @ApiParam({
     name: "id",
@@ -140,10 +140,10 @@ export class AdminUsersController {
   })
   @ApiResponse({
     status: 200,
-    description: "User deleted successfully",
+    description: "User permanently deleted — PII anonymized",
     type: AdminDeleteUserResponseDto,
   })
-  @ApiResponse({ status: 400, description: "User is already deleted/inactive" })
+  @ApiResponse({ status: 400, description: "User is already permanently deleted" })
   @ApiResponse({ status: 404, description: "User not found" })
   async deleteAdminUser(
     @Param("id") userId: string,
