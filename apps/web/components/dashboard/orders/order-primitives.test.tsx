@@ -67,7 +67,7 @@ describe("order typography primitives", () => {
     expect(text.className).toContain("font-bold");
   });
 
-  it("uses Poppins mapping for metadata text", () => {
+  it("uses DM Sans mapping for metadata text", () => {
     render(<OrderMetaText>Mar 3, 2026</OrderMetaText>);
     const text = screen.getByText("Mar 3, 2026");
 

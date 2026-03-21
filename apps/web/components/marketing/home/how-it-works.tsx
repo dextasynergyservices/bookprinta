@@ -9,9 +9,9 @@ import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 const steps = [
-  { key: "step1", icon: Upload, accent: "from-[#007eff]/18 via-[#007eff]/6 to-transparent" },
-  { key: "step2", icon: Palette, accent: "from-white/20 via-white/8 to-transparent" },
-  { key: "step3", icon: Package, accent: "from-[#007eff]/14 via-[#007eff]/5 to-transparent" },
+  { key: "step1", icon: Upload, accent: "from-accent/10 via-accent/4 to-transparent" },
+  { key: "step2", icon: Palette, accent: "from-primary/8 via-primary/3 to-transparent" },
+  { key: "step3", icon: Package, accent: "from-accent/10 via-accent/4 to-transparent" },
 ] as const;
 
 export function HowItWorks() {
@@ -27,17 +27,17 @@ export function HowItWorks() {
   return (
     <section
       ref={sectionRef}
-      className="relative overflow-hidden bg-primary py-20 md:py-24 lg:py-32"
+      className="relative overflow-hidden bg-primary-foreground py-20 md:py-24 lg:py-32"
       id="how-it-works"
       aria-labelledby="how-it-works-heading"
     >
-      {/* Atmosphere */}
+      {/* Subtle atmosphere on light bg */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-[0.04]"
+        className="pointer-events-none absolute inset-0 opacity-[0.03]"
         aria-hidden="true"
         style={{
           backgroundImage:
-            "linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.08) 1px, transparent 1px)",
+            "linear-gradient(rgba(0,0,0,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,.06) 1px, transparent 1px)",
           backgroundSize: "52px 52px",
         }}
       />
@@ -46,7 +46,7 @@ export function HowItWorks() {
         aria-hidden="true"
         style={{
           background:
-            "radial-gradient(70% 44% at 8% 10%, rgba(0,126,255,0.16), transparent 70%), radial-gradient(58% 38% at 93% 88%, rgba(255,255,255,0.08), transparent 75%)",
+            "radial-gradient(70% 44% at 8% 10%, rgba(0,126,255,0.06), transparent 70%), radial-gradient(58% 38% at 93% 88%, rgba(0,0,0,0.03), transparent 75%)",
         }}
       />
 
@@ -61,21 +61,21 @@ export function HowItWorks() {
         >
           <h2
             id="how-it-works-heading"
-            className="font-display text-3xl font-bold tracking-tight text-primary-foreground md:text-4xl lg:text-5xl"
+            className="font-display text-3xl font-bold tracking-tight text-primary md:text-4xl lg:text-5xl"
           >
             {t("how_title")}
           </h2>
-          <p className="mx-auto mt-4 max-w-2xl font-serif text-base text-primary-foreground/58 lg:text-lg">
+          <p className="mx-auto mt-4 max-w-2xl font-serif text-base text-primary/55 lg:text-lg">
             {t("how_subtitle")}
           </p>
         </motion.div>
 
         {/* Mobile timeline guide */}
         <div className="relative md:hidden" aria-hidden="true">
-          <span className="absolute left-5 top-3.5 h-[calc(100%-3rem)] w-px bg-white/15" />
+          <span className="absolute left-5 top-3.5 h-[calc(100%-3rem)] w-px bg-primary/10" />
           <motion.span
             style={{ scaleY: lineScaleY }}
-            className="absolute left-5 top-3.5 h-[calc(100%-3rem)] w-px origin-top bg-[#007eff]"
+            className="absolute left-5 top-3.5 h-[calc(100%-3rem)] w-px origin-top bg-accent"
           />
         </div>
 
@@ -92,8 +92,8 @@ export function HowItWorks() {
                 viewport={{ once: true, margin: "-70px" }}
                 transition={{ duration: 0.6, delay: i * 0.1, ease: [0.22, 1, 0.36, 1] }}
                 className={cn(
-                  "group relative overflow-hidden rounded-3xl border border-white/12 bg-black/55 p-6 pl-12 backdrop-blur-[2px] transition-all duration-300",
-                  "hover:border-[#007eff]/45 hover:shadow-[0_22px_46px_rgba(0,126,255,0.15)]",
+                  "group relative overflow-hidden rounded-3xl border border-primary/8 bg-primary-foreground p-6 pl-12 shadow-sm transition-all duration-300",
+                  "hover:border-accent/30 hover:shadow-[0_22px_46px_rgba(0,126,255,0.1)]",
                   "md:p-7 md:pl-7 lg:p-8"
                 )}
               >
@@ -107,7 +107,7 @@ export function HowItWorks() {
 
                 {/* Mobile timeline pin */}
                 <span
-                  className="absolute left-[0.5rem] top-8 block h-3 w-3 rounded-full border border-[#007eff] bg-black md:hidden"
+                  className="absolute left-[0.5rem] top-8 block h-3 w-3 rounded-full border border-accent bg-primary-foreground md:hidden"
                   aria-hidden="true"
                 />
 
@@ -118,25 +118,25 @@ export function HowItWorks() {
                     whileInView={{ scaleX: 1 }}
                     viewport={{ once: true }}
                     transition={{ duration: 0.45, delay: 0.2 + i * 0.1 }}
-                    className="pointer-events-none absolute top-[2.85rem] right-[-1.85rem] hidden h-px w-[2rem] origin-left bg-white/25 md:block lg:right-[-2.25rem] lg:w-[2.6rem]"
+                    className="pointer-events-none absolute top-[2.85rem] right-[-1.85rem] hidden h-px w-[2rem] origin-left bg-primary/15 md:block lg:right-[-2.25rem] lg:w-[2.6rem]"
                     aria-hidden="true"
                   />
                 )}
 
                 <div className="relative z-10 mb-5 flex items-center justify-between gap-4">
-                  <span className="inline-flex h-10 min-w-10 items-center justify-center rounded-full border border-white/20 bg-white/5 px-3 font-display text-xs font-bold tracking-[0.18em] text-primary-foreground/80">
+                  <span className="inline-flex h-10 min-w-10 items-center justify-center rounded-full border border-primary/12 bg-primary/5 px-3 font-display text-xs font-bold tracking-[0.18em] text-primary/70">
                     0{i + 1}
                   </span>
 
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[#007eff]/35 bg-[#007eff]/12 text-[#76baff]">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10 text-accent">
                     <Icon className="size-5" strokeWidth={1.7} aria-hidden="true" />
                   </div>
                 </div>
 
-                <h3 className="relative z-10 mb-2 font-display text-xl font-semibold text-primary-foreground">
+                <h3 className="relative z-10 mb-2 font-display text-xl font-semibold text-primary">
                   {t(`how_${step.key}_title`)}
                 </h3>
-                <p className="relative z-10 font-serif text-sm leading-relaxed text-primary-foreground/58 lg:text-base">
+                <p className="relative z-10 font-serif text-sm leading-relaxed text-primary/55 lg:text-base">
                   {t(`how_${step.key}_desc`)}
                 </p>
               </motion.article>
@@ -158,7 +158,7 @@ export function HowItWorks() {
               "group inline-flex items-center gap-2 rounded-full bg-accent px-8 py-3.5 shadow-[0_12px_28px_rgba(0,126,255,0.28)]",
               "font-display text-sm font-semibold tracking-wide text-accent-foreground",
               "transition-all duration-300 hover:bg-accent/90 hover:shadow-[0_16px_34px_rgba(0,126,255,0.35)]",
-              "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary"
+              "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary-foreground"
             )}
           >
             {t("how_cta")}

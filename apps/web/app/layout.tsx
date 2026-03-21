@@ -3,9 +3,9 @@ import "@/styles/globals.css";
 
 export const metadata: Metadata = {
   applicationName: "BookPrinta",
-  title: "BookPrinta - Publish Your Book",
+  title: "BookPrinta",
   description:
-    "Turn your manuscript into a professional, print-ready book. Professional publishing made simple for Nigerian authors.",
+    "Your Book. Beautifully Printed. Publish fearlessly \u2014 from as low as 25 copies.",
   manifest: "/manifest.webmanifest",
   other: {
     "apple-mobile-web-app-capable": "yes",

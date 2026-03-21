@@ -1,47 +1,43 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePublicMarketingSettings } from "@/hooks/usePublicMarketingSettings";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
-import { ScrollBook } from "./scroll-book";
-
-/* ─── Register GSAP plugin ─── */
-if (typeof window !== "undefined") {
-  gsap.registerPlugin(ScrollTrigger);
-}
+import type { TypewriterSegment } from "./hero-typewriter";
+import { HeroTypewriter } from "./hero-typewriter";
+import { HeroVideo } from "./hero-video";
+import { PursuitTyper } from "./pursuit-typer";
 
 /* ─── Animation variants ─── */
-const containerVariants = {
+const contentVariants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.15,
-      delayChildren: 0.3,
+      staggerChildren: 0.18,
+      delayChildren: 0.15,
     },
   },
 };
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 30 },
+  hidden: { opacity: 0, y: 24 },
   visible: {
     opacity: 1,
     y: 0,
     transition: {
-      duration: 0.8,
+      duration: 0.7,
       ease: "easeOut" as const,
     },
   },
 };
 
 const ctaVariants = {
-  hidden: { opacity: 0, y: 20, scale: 0.95 },
+  hidden: { opacity: 0, y: 16, scale: 0.95 },
   visible: {
     opacity: 1,
     y: 0,
@@ -49,7 +45,7 @@ const ctaVariants = {
     transition: {
       duration: 0.6,
       ease: "easeOut" as const,
-      delay: 0.1,
+      delay: 0.05,
     },
   },
 };
@@ -57,136 +53,116 @@ const ctaVariants = {
 /* ─────────────────────────────────────────────
  * HeroSection
  *
- * The outer section is tall (200vh) for scroll distance, but the
- * visible hero (book + text) is a sticky 100vh block pinned to the top.
- * This gives the scroll trigger room to drive the book flip while the
- * hero itself never visually exceeds 100vh.
+ * Mobile-first hero with autoplay video.
+ * - Mobile: video fills the background, title uses typewriter animation,
+ *   remaining content reveals after typewriter completes.
+ * - Desktop (lg+): 2-column layout — text left, video card right.
+ *   Standard stagger animation (no typewriter).
  *
- * When the user scrolls past the section, the next sections
- * (wrapped in z-10) cover it.
+ * Slanted badges on the video animate (bend) on hover.
  * ───────────────────────────────────────────── */
 export function HeroSection() {
   const t = useTranslations("hero");
   const prefersReducedMotion = useReducedMotion();
   const { settings } = usePublicMarketingSettings();
 
-  const sectionRef = useRef<HTMLElement>(null);
+  /* ── Typewriter completion drives content reveal on ALL breakpoints ── */
+  const [contentReady, setContentReady] = useState(false);
 
-  /* ── Scroll progress state (0 → 1) drives book open/close ── */
-  const [scrollProgress, setScrollProgress] = useState(0);
+  const handleTypewriterComplete = useCallback(() => {
+    setContentReady(true);
+  }, []);
 
-  /* ── GSAP scroll trigger for book flip ── */
+  /* ── Reduced-motion: reveal content immediately ── */
   useEffect(() => {
-    if (prefersReducedMotion) return;
-
-    const ctx = gsap.context(() => {
-      /* ── Book flip scroll trigger ──
-       * Scrubs from 0→1 as the user scrolls through the section.
-       * The section is 200vh tall so there's a full 100vh of
-       * scroll distance after the initial viewport for the flip. */
-      ScrollTrigger.create({
-        trigger: sectionRef.current,
-        start: "top top",
-        end: "bottom bottom",
-        scrub: 0.6,
-        onUpdate: (self) => {
-          setScrollProgress(self.progress);
-        },
-      });
-    }, sectionRef);
-
-    return () => ctx.revert();
+    if (prefersReducedMotion) {
+      setContentReady(true);
+    }
   }, [prefersReducedMotion]);
 
+  /* ── Resolve hero text (admin overrides → i18n fallback) ── */
   const managedTitle = settings?.hero.title?.trim() ?? "";
-  const managedTitleParts = managedTitle
-    .split("\n")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
   const usesManagedHero = managedTitle.length > 0;
 
-  const headlinePrimary = usesManagedHero
-    ? (managedTitleParts[0] ?? managedTitle)
-    : t("headline_1");
-  const headlineSecondary = usesManagedHero ? (managedTitleParts[1] ?? "") : t("headline_2");
   const heroSubtitle = settings?.hero.subtitle?.trim() || t("tagline");
   const primaryCtaLabel = settings?.hero.primaryCtaLabel?.trim() || t("cta");
   const secondaryCtaLabel = settings?.hero.secondaryCtaLabel?.trim() || t("secondary_cta");
 
+  /* Typewriter uses the full flat title (not the split headline) */
+  const typewriterText = usesManagedHero ? managedTitle.replace(/\n/g, " ") : t("title");
+
+  /* ── Mixed-font segments for the typewriter ── */
+  const heroSegments: TypewriterSegment[] = usesManagedHero
+    ? [{ text: typewriterText }]
+    : [
+        { text: t("title_your") },
+        { text: " " },
+        { text: t("title_book") },
+        { text: "\n" },
+        {
+          text: t("title_beautifully"),
+          className: "hero-miller",
+        },
+        { text: " " },
+        { text: t("title_printed") },
+      ];
+
   return (
     <section
-      ref={sectionRef}
-      className="relative h-[130vh] lg:h-[150vh]"
-      aria-label={`${headlinePrimary} ${headlineSecondary}`.trim()}
+      className="relative min-h-[100dvh] overflow-hidden bg-primary"
+      aria-label={typewriterText}
     >
-      {/* ── Sticky 100vh hero — pins to viewport while scroll drives the book ── */}
-      <div className="sticky top-0 h-[100dvh] overflow-hidden bg-primary">
-        {/* Subtle grid pattern */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.03]"
-          aria-hidden="true"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)",
-            backgroundSize: "60px 60px",
-          }}
-        />
+      {/* ── Subtle grid pattern ── */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.03]"
+        aria-hidden="true"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)",
+          backgroundSize: "60px 60px",
+        }}
+      />
 
-        {/* ── Mobile only: Book as centered background ── */}
-        <div className="absolute inset-0 z-0 lg:hidden" aria-hidden="true">
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <ScrollBook scrollProgress={scrollProgress} bookScale={1.8} />
-          </div>
+      {/* ── Mobile: Video as full-bleed background ── */}
+      <div className="absolute inset-0 z-0 lg:hidden" aria-hidden="true">
+        <HeroVideo className="h-full w-full" showBadges={false} />
+      </div>
 
-          {/* Glow effect behind the book */}
-          <div
-            className="pointer-events-none absolute inset-0 flex items-center justify-center"
-            aria-hidden="true"
-          >
-            <div className="h-96 w-96 rounded-full bg-accent/10 blur-[100px]" />
-          </div>
-        </div>
+      {/* ── Mobile: Dark overlay for text readability ── */}
+      <div
+        className="hero-video-overlay pointer-events-none absolute inset-0 z-[1] lg:hidden"
+        aria-hidden="true"
+      />
 
-        {/* ── Dark overlay so text is readable (mobile only) ── */}
-        <div
-          className="book-mobile-overlay absolute inset-0 z-[1] pointer-events-none lg:hidden"
-          aria-hidden="true"
-        />
+      {/* ── Content ── */}
+      <div className="relative z-[2] flex min-h-[100dvh] flex-col md:pb-14 lg:pb-16">
+        <div className="mx-auto flex w-full max-w-7xl flex-1 items-center px-5 pt-20 pb-8 lg:px-8 lg:pt-24">
+          {/* ── Grid: text left, video right on lg+ ── */}
+          <div className="grid w-full grid-cols-1 items-start gap-8 lg:items-center lg:grid-cols-2 lg:gap-12">
+            {/* ── Left: Text content ── */}
+            <div className="flex max-w-2xl flex-col justify-center">
+              {/* Headline */}
+              <div className="mb-4 md:mb-5 lg:mb-8">
+                <h1 className="whitespace-pre-line font-display text-[2.25rem] font-bold leading-[1.08] tracking-tight text-primary-foreground md:text-[2.75rem] lg:text-5xl xl:text-6xl">
+                  <HeroTypewriter
+                    segments={heroSegments}
+                    onComplete={handleTypewriterComplete}
+                    speed={prefersReducedMotion ? 0 : 60}
+                    startDelay={prefersReducedMotion ? 0 : 600}
+                  />
+                </h1>
+              </div>
 
-        {/* ── Content layout ── */}
-        <div className="relative z-[2] flex h-full flex-col">
-          <div className="mx-auto flex w-full max-w-7xl flex-1 items-center px-5 pt-24 pb-12 lg:px-8">
-            {/* ── Grid: text left, book right on lg+ ── */}
-            <div className="grid w-full grid-cols-1 items-center gap-8 lg:grid-cols-2 lg:gap-12">
-              {/* Left: Text content */}
+              {/* Remaining content — reveals after typewriter on mobile, immediate on desktop */}
               <motion.div
-                className="flex max-w-2xl flex-col justify-center"
-                variants={containerVariants}
+                variants={contentVariants}
                 initial={prefersReducedMotion ? "visible" : "hidden"}
-                animate="visible"
+                animate={contentReady ? "visible" : "hidden"}
               >
-                {/* Headline */}
-                <motion.div variants={itemVariants} className="mb-6 lg:mb-8">
-                  <h1 className="font-display text-[2.5rem] font-bold leading-[1.05] tracking-tight text-primary-foreground md:text-6xl lg:text-7xl xl:text-8xl">
-                    <span className="block">{headlinePrimary}</span>
-                    {headlineSecondary ? (
-                      <span className="block text-accent">{headlineSecondary}</span>
-                    ) : null}
-                  </h1>
-                </motion.div>
-
                 {/* Tagline */}
                 <motion.p
                   variants={itemVariants}
-                  className="mb-8 max-w-lg font-serif text-base leading-relaxed text-primary-foreground/70 md:text-lg lg:mb-10 lg:text-xl"
+                  className="mb-5 max-w-lg font-sans text-sm leading-relaxed text-primary-foreground/70 md:mb-6 md:text-base lg:mb-10 lg:text-xl"
                 >
                   {heroSubtitle}
                 </motion.p>
@@ -200,7 +176,7 @@ export function HeroSection() {
                     <Link
                       href="/pricing"
                       className={cn(
-                        "group inline-flex min-h-[52px] items-center justify-center gap-2 rounded-full bg-accent px-8 py-3.5",
+                        "group inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-accent px-6 py-2.5",
                         "font-display text-sm font-semibold tracking-wide text-accent-foreground",
                         "transition-all duration-300 hover:bg-accent/90 hover:shadow-lg hover:shadow-accent/20",
                         "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary"
@@ -213,7 +189,7 @@ export function HeroSection() {
 
                   <motion.div variants={ctaVariants}>
                     <Link
-                      href="/showcase"
+                      href="/quote"
                       className={cn(
                         "font-display inline-flex min-h-[44px] items-center gap-1.5 text-sm font-medium tracking-wide text-primary-foreground/60",
                         "transition-colors duration-300 hover:text-primary-foreground"
@@ -224,20 +200,37 @@ export function HeroSection() {
                     </Link>
                   </motion.div>
                 </motion.div>
-              </motion.div>
 
-              {/* Right: Book (desktop/medium only) */}
+                {/* Pursuit typing animation */}
+                <motion.div variants={itemVariants} className="mt-5 md:mt-6 lg:mt-10">
+                  <PursuitTyper
+                    prefix={t("pursuit")}
+                    phrases={[t("pursuit_titles"), t("pursuit_copies")]}
+                  />
+                </motion.div>
+              </motion.div>
+            </div>
+
+            {/* ── Right: Video card (desktop only) ── */}
+            <motion.div
+              className="relative hidden items-center justify-center lg:flex"
+              initial={prefersReducedMotion ? { opacity: 1 } : { opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 1, ease: "easeOut", delay: 0.5 }}
+            >
+              {/* Glow behind video */}
               <div
-                className="relative hidden items-center justify-center lg:flex"
+                className="pointer-events-none absolute inset-0 flex items-center justify-center"
                 aria-hidden="true"
               >
-                {/* Glow effect behind the book */}
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="h-96 w-96 rounded-full bg-accent/10 blur-[100px]" />
-                </div>
-                <ScrollBook scrollProgress={scrollProgress} bookScale={1.4} />
+                <div className="h-96 w-96 rounded-full bg-accent/10 blur-[100px]" />
               </div>
-            </div>
+
+              <HeroVideo
+                className="aspect-[4/5] w-full max-w-xs overflow-hidden rounded-2xl shadow-2xl shadow-black/50 ring-1 ring-white/10 lg:max-w-sm"
+                showBadges={false}
+              />
+            </motion.div>
           </div>
         </div>
       </div>
