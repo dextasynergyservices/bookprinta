@@ -204,8 +204,8 @@ function ChartTooltip({
 function ChartCardSkeleton() {
   return (
     <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
-      <Skeleton className="h-5 w-52" />
-      <Skeleton className="mt-2 h-4 w-72" />
+      <Skeleton className="h-5 w-full max-w-52" />
+      <Skeleton className="mt-2 h-4 w-full max-w-72" />
       <div className="mt-5 h-[290px] rounded-xl border border-[#1A1A1A] bg-[#0B0B0B] p-4">
         <Skeleton className="h-4 w-20" />
         <Skeleton className="mt-4 h-40 w-full" />
@@ -335,18 +335,18 @@ export function AdminAnalyticsLanding() {
 
   return (
     <section className="grid min-w-0 gap-4">
-      <div className="rounded-[1.75rem] border border-[#1D1D1D] bg-[linear-gradient(180deg,#050505_0%,#0B0B0B_100%)] p-6 md:p-8">
+      <div className="overflow-hidden rounded-[1.75rem] border border-[#1D1D1D] bg-[linear-gradient(180deg,#050505_0%,#0B0B0B_100%)] p-4 sm:p-6 md:p-8">
         <p className="font-sans text-xs font-medium uppercase tracking-[0.32em] text-[#7D7D7D]">
           {tAdmin("panel_label")}
         </p>
-        <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
+        <h1 className="font-display mt-3 text-2xl font-semibold tracking-tight text-white sm:text-3xl md:text-4xl">
           {tAdmin("analytics_scope_title")}
         </h1>
         <p className="font-sans mt-3 max-w-3xl text-sm leading-6 text-[#B4B4B4] md:text-base">
           {tAdmin("analytics_scope_description")}
         </p>
 
-        <fieldset className="mt-5 flex items-center gap-2 overflow-x-auto pb-1 md:flex-wrap">
+        <fieldset className="-mx-4 mt-5 flex items-center gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0 md:flex-wrap">
           <legend className="sr-only">Analytics time range selector</legend>
           {RANGE_KEYS.map((rangeKey) => (
             <Button
@@ -356,8 +356,8 @@ export function AdminAnalyticsLanding() {
               variant={range === rangeKey ? "default" : "outline"}
               className={
                 range === rangeKey
-                  ? "min-w-[70px] rounded-full bg-[#007eff] text-white hover:bg-[#0066d1]"
-                  : "min-w-[70px] rounded-full border-[#2A2A2A] bg-[#0D0D0D] text-[#E8E8E8] hover:bg-[#171717] hover:text-white"
+                  ? "shrink-0 rounded-full bg-[#007eff] px-4 text-white hover:bg-[#0066d1]"
+                  : "shrink-0 rounded-full border-[#2A2A2A] bg-[#0D0D0D] px-4 text-[#E8E8E8] hover:bg-[#171717] hover:text-white"
               }
               onClick={() => setRange(rangeKey)}
               aria-pressed={range === rangeKey}
@@ -419,7 +419,7 @@ export function AdminAnalyticsLanding() {
         </p>
       </div>
 
-      <div className="grid gap-2 sm:gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid min-w-0 gap-2 sm:gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           {
             key: "orders",
@@ -455,15 +455,15 @@ export function AdminAnalyticsLanding() {
           },
         ].map((card, index) => {
           const content = (
-            <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-sans text-xs uppercase tracking-[0.12em] text-[#969696]">
+            <div className="overflow-hidden rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="min-w-0 truncate font-sans text-xs uppercase tracking-[0.12em] text-[#969696]">
                   {card.label}
                 </p>
                 <DeltaBadge deltaPercent={card.delta} />
               </div>
               <p
-                className="font-display mt-3 text-3xl leading-none tracking-tight text-white md:text-4xl"
+                className="font-display mt-3 truncate text-2xl leading-none tracking-tight text-white sm:text-3xl md:text-4xl"
                 aria-hidden="true"
               >
                 {statsQuery.widget.isLoading ? "--" : card.formatter(card.value)}
@@ -500,7 +500,7 @@ export function AdminAnalyticsLanding() {
         })}
       </div>
 
-      <div className="grid gap-3 rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
+      <div className="grid min-w-0 gap-3 overflow-hidden rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
         <div className="flex items-center gap-2">
           <Layers className="size-4 text-[#8EC9FF]" />
           <p className="font-sans text-sm text-[#E4E4E4]">{tAdmin("analytics_insights_title")}</p>
@@ -553,8 +553,8 @@ export function AdminAnalyticsLanding() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
+      <div className="grid min-w-0 gap-3 sm:gap-4 lg:grid-cols-2">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
           <h2 className="font-display text-lg text-white">
             {tAdmin("analytics_chart_revenue_orders")}
           </h2>
@@ -582,13 +582,13 @@ export function AdminAnalyticsLanding() {
             <div
               role="img"
               aria-label={tAdmin("analytics_chart_revenue_orders")}
-              className="mt-3 h-64 sm:mt-4 sm:h-[320px]"
+              className="mt-3 h-64 overflow-hidden sm:mt-4 sm:h-[320px]"
             >
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
                   key={`trend-${animationSeed}`}
                   data={trendData}
-                  margin={{ top: 16, right: 8, left: -12, bottom: 0 }}
+                  margin={{ top: 16, right: 4, left: -16, bottom: 0 }}
                 >
                   <defs>
                     <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
@@ -613,7 +613,7 @@ export function AdminAnalyticsLanding() {
                     tick={{ fill: "#AFAFAF", fontSize: 11 }}
                     axisLine={{ stroke: "#2A2A2A" }}
                     tickLine={false}
-                    width={36}
+                    width={30}
                   />
                   <YAxis
                     yAxisId="revenue"
@@ -622,7 +622,7 @@ export function AdminAnalyticsLanding() {
                     tick={{ fill: "#AFAFAF", fontSize: 11 }}
                     axisLine={{ stroke: "#2A2A2A" }}
                     tickLine={false}
-                    width={42}
+                    width={36}
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Legend
@@ -658,7 +658,7 @@ export function AdminAnalyticsLanding() {
           )}
         </div>
 
-        <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
           <h2 className="font-display text-lg text-white">
             {tAdmin("analytics_chart_payment_methods")}
           </h2>
@@ -686,34 +686,36 @@ export function AdminAnalyticsLanding() {
             <div
               role="img"
               aria-label={tAdmin("analytics_chart_payment_methods")}
-              className="mt-4 grid h-[320px] gap-3 sm:grid-cols-[1fr_160px] md:grid-cols-[1fr_180px]"
+              className="mt-4 grid gap-3 overflow-hidden sm:h-[320px] sm:grid-cols-[1fr_160px] md:grid-cols-[1fr_180px]"
             >
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart key={`payment-${animationSeed}`}>
-                  <Tooltip content={<ChartTooltip />} />
-                  <Pie
-                    data={paymentData}
-                    dataKey="value"
-                    nameKey="label"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={58}
-                    outerRadius={95}
-                    paddingAngle={3}
-                    isAnimationActive={!prefersReducedMotion}
-                  >
-                    {paymentData.map((entry, index) => {
-                      const palette = ["#2D8CFF", "#30A46C", "#FFB547", "#B387FF"];
-                      return (
-                        <Cell
-                          key={`${entry.label}-${entry.value}`}
-                          fill={palette[index % palette.length]}
-                        />
-                      );
-                    })}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="h-56 sm:h-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart key={`payment-${animationSeed}`}>
+                    <Tooltip content={<ChartTooltip />} />
+                    <Pie
+                      data={paymentData}
+                      dataKey="value"
+                      nameKey="label"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={48}
+                      outerRadius={80}
+                      paddingAngle={3}
+                      isAnimationActive={!prefersReducedMotion}
+                    >
+                      {paymentData.map((entry, index) => {
+                        const palette = ["#2D8CFF", "#30A46C", "#FFB547", "#B387FF"];
+                        return (
+                          <Cell
+                            key={`${entry.label}-${entry.value}`}
+                            fill={palette[index % palette.length]}
+                          />
+                        );
+                      })}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
               <div className="hidden content-center gap-2 sm:grid">
                 {paymentData.map((entry, index) => {
                   const palette = ["#2D8CFF", "#30A46C", "#FFB547", "#B387FF"];
@@ -758,7 +760,7 @@ export function AdminAnalyticsLanding() {
           )}
         </div>
 
-        <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
           <h2 className="font-display text-lg text-white">
             {tAdmin("analytics_chart_order_status")}
           </h2>
@@ -786,13 +788,13 @@ export function AdminAnalyticsLanding() {
             <div
               role="img"
               aria-label={tAdmin("analytics_chart_order_status")}
-              className="mt-3 h-64 sm:mt-4 sm:h-[320px]"
+              className="mt-3 h-64 overflow-hidden sm:mt-4 sm:h-[320px]"
             >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   key={`status-${animationSeed}`}
                   data={statusData}
-                  margin={{ top: 16, right: 8, left: -10, bottom: 0 }}
+                  margin={{ top: 16, right: 4, left: -16, bottom: 0 }}
                 >
                   <CartesianGrid stroke="#222" strokeDasharray="3 3" />
                   <XAxis
@@ -831,7 +833,7 @@ export function AdminAnalyticsLanding() {
           )}
         </div>
 
-        <div className="rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4 md:p-5">
           <h2 className="font-display text-lg text-white">
             {tAdmin("analytics_chart_transfer_sla")}
           </h2>
@@ -859,13 +861,13 @@ export function AdminAnalyticsLanding() {
             <div
               role="img"
               aria-label={tAdmin("analytics_chart_transfer_sla")}
-              className="mt-3 h-64 sm:mt-4 sm:h-[320px]"
+              className="mt-3 h-64 overflow-hidden sm:mt-4 sm:h-[320px]"
             >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   key={`sla-${animationSeed}`}
                   data={slaData}
-                  margin={{ top: 16, right: 8, left: -10, bottom: 0 }}
+                  margin={{ top: 16, right: 4, left: -16, bottom: 0 }}
                 >
                   <CartesianGrid stroke="#222" strokeDasharray="3 3" />
                   <XAxis

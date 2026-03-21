@@ -1,10 +1,10 @@
 "use client";
 
 import { isAdminRole } from "@bookprinta/shared";
-import { CircleUserRound, LayoutDashboard, LogOut, MenuIcon } from "lucide-react";
+import { ChevronDown, CircleUserRound, LayoutDashboard, LogOut, MenuIcon } from "lucide-react";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { Button } from "@/components/ui/button";
@@ -25,9 +25,12 @@ const navLinks = [
   { href: "/", labelKey: "home" },
   { href: "/pricing", labelKey: "pricing" },
   { href: "/showcase", labelKey: "showcase" },
-  { href: "/about", labelKey: "about" },
-  { href: "/resources", labelKey: "resources" },
   { href: "/contact", labelKey: "contact" },
+] as const;
+
+const resourcesDropdownLinks = [
+  { href: "/about", labelKey: "about" },
+  { href: "/resources", labelKey: "blog" },
 ] as const;
 
 const PRESERVE_RETURN_TO_ON_EXPLICIT_LOGOUT = true;
@@ -137,13 +140,15 @@ export function Navbar() {
                   aria-current={isActive ? "page" : undefined}
                 >
                   {t(labelKey)}
-                  {/* Active indicator underline */}
                   {isActive && (
                     <span className="absolute right-3 bottom-0 left-3 h-0.5 rounded-full bg-accent" />
                   )}
                 </Link>
               );
             })}
+
+            {/* Resources dropdown — hover on desktop */}
+            <ResourcesDesktopDropdown pathname={pathname} t={t} />
           </nav>
 
           {/* Desktop right actions */}
@@ -286,5 +291,72 @@ export function Navbar() {
         isLoggingOut={isLoggingOut}
       />
     </>
+  );
+}
+
+/* ─── Resources Desktop Dropdown (hover-open) ─── */
+function ResourcesDesktopDropdown({
+  pathname,
+  t,
+}: {
+  pathname: string;
+  t: (key: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const isChildActive = resourcesDropdownLinks.some(({ href }) => pathname === href);
+
+  const handleEnter = () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    setOpen(true);
+  };
+
+  const handleLeave = () => {
+    closeTimerRef.current = setTimeout(() => setOpen(false), 150);
+  };
+
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover wrapper for dropdown, button inside handles keyboard
+    <div className="relative" onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
+      <button
+        type="button"
+        className={cn(
+          "font-display relative inline-flex items-center gap-1 px-3 py-2 text-sm font-medium tracking-wide transition-colors duration-300",
+          isChildActive ? "text-accent" : "text-dexta hover:text-accent"
+        )}
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        {t("resources")}
+        <ChevronDown
+          className={cn("size-3.5 transition-transform duration-200", open && "rotate-180")}
+        />
+        {isChildActive && (
+          <span className="absolute right-3 bottom-0 left-3 h-0.5 rounded-full bg-accent" />
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute top-full left-0 z-50 mt-1 min-w-[160px] rounded-lg border border-white/10 bg-[#0A0A0A] py-1 shadow-xl">
+          {resourcesDropdownLinks.map(({ href, labelKey }) => {
+            const isActive = pathname === href;
+            return (
+              <Link
+                key={href}
+                href={href}
+                onClick={() => setOpen(false)}
+                className={cn(
+                  "font-display block px-4 py-2.5 text-sm font-medium tracking-wide transition-colors duration-200",
+                  isActive ? "text-accent" : "text-white/80 hover:bg-white/5 hover:text-accent"
+                )}
+              >
+                {t(labelKey)}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { useRef, useState } from "react";
 import { AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Link } from "@/lib/i18n/navigation";
+import { cn } from "@/lib/utils";
 
 // ═════════════════════════════════════════════════════════════════════════════
 // FAQ ACCORDION ITEM — numbered, with feedback + optional related links
@@ -28,6 +29,8 @@ interface FaqAccordionItemProps {
   displayNumber: number;
   /** Optional related links shown below the answer */
   relatedLinks?: RelatedLink[];
+  /** Color variant for light or dark backgrounds */
+  variant?: "dark" | "light";
 }
 
 const answerVariants = {
@@ -51,9 +54,11 @@ export function FaqAccordionItem({
   index,
   displayNumber,
   relatedLinks,
+  variant = "dark",
 }: FaqAccordionItemProps) {
   const t = useTranslations("faq");
   const [feedback, setFeedback] = useState<"yes" | "no" | null>(null);
+  const isLight = variant === "light";
 
   // Format number as 2-digit: 1 → "01"
   const num = String(displayNumber).padStart(2, "0");
@@ -69,8 +74,21 @@ export function FaqAccordionItem({
         ease: [0.22, 1, 0.36, 1],
       }}
     >
-      <AccordionItem value={value} className="group/item border-b border-white/10 last:border-b-0">
-        <AccordionTrigger className="gap-4 py-5 font-display text-base font-bold tracking-tight text-white transition-colors duration-300 hover:text-accent hover:no-underline md:py-7 md:text-lg [&>svg]:text-white/30 [&>svg]:transition-colors [&>svg]:duration-300 [&[data-state=open]>svg]:text-accent">
+      <AccordionItem
+        value={value}
+        className={cn(
+          "group/item border-b last:border-b-0",
+          isLight ? "border-primary/10" : "border-white/10"
+        )}
+      >
+        <AccordionTrigger
+          className={cn(
+            "gap-4 py-5 font-display text-base font-bold tracking-tight transition-colors duration-300 hover:text-accent hover:no-underline md:py-7 md:text-lg",
+            isLight
+              ? "text-primary [&>svg]:text-primary/30 [&[data-state=open]>svg]:text-accent"
+              : "text-white [&>svg]:text-white/30 [&[data-state=open]>svg]:text-accent"
+          )}
+        >
           <span className="flex items-baseline gap-3 transition-transform duration-300 group-hover/item:translate-x-1">
             {/* #4 — Numbered prefix */}
             <span className="font-sans text-xs font-medium text-accent/50">{num}</span>
@@ -80,7 +98,12 @@ export function FaqAccordionItem({
         <AccordionContent className="pb-6 md:pb-8">
           {/* Answer with blur-to-clear reveal */}
           <motion.div initial="collapsed" animate="expanded" variants={answerVariants}>
-            <p className="max-w-2xl pl-8 font-serif text-sm leading-relaxed text-white/45 md:text-base">
+            <p
+              className={cn(
+                "max-w-2xl pl-8 font-serif text-sm leading-relaxed md:text-base",
+                isLight ? "text-primary/50" : "text-white/45"
+              )}
+            >
               {answer}
             </p>
 
@@ -104,11 +127,23 @@ export function FaqAccordionItem({
             <div className="mt-5 pl-8">
               {feedback === null ? (
                 <div className="flex items-center gap-3">
-                  <span className="font-sans text-xs text-white/25">{t("helpful_question")}</span>
+                  <span
+                    className={cn(
+                      "font-sans text-xs",
+                      isLight ? "text-primary/25" : "text-white/25"
+                    )}
+                  >
+                    {t("helpful_question")}
+                  </span>
                   <button
                     type="button"
                     onClick={() => setFeedback("yes")}
-                    className="inline-flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 font-sans text-xs text-white/40 transition-all duration-200 hover:border-green-500/50 hover:text-green-400"
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 font-sans text-xs transition-all duration-200 hover:border-green-500/50 hover:text-green-400",
+                      isLight
+                        ? "border-primary/10 text-primary/40"
+                        : "border-white/10 text-white/40"
+                    )}
                     aria-label={t("helpful_yes")}
                   >
                     <ThumbsUpIcon className="size-3" />
@@ -117,7 +152,12 @@ export function FaqAccordionItem({
                   <button
                     type="button"
                     onClick={() => setFeedback("no")}
-                    className="inline-flex items-center gap-1 rounded-full border border-white/10 px-3 py-1.5 font-sans text-xs text-white/40 transition-all duration-200 hover:border-red-500/50 hover:text-red-400"
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 font-sans text-xs transition-all duration-200 hover:border-red-500/50 hover:text-red-400",
+                      isLight
+                        ? "border-primary/10 text-primary/40"
+                        : "border-white/10 text-white/40"
+                    )}
                     aria-label={t("helpful_no")}
                   >
                     <ThumbsDownIcon className="size-3" />
@@ -181,7 +221,14 @@ export function FaqDividerImage({ src, alt }: { src: string; alt: string }) {
 // CATEGORY HEADING — border-draw animation (scaleY 0→1)
 // ═════════════════════════════════════════════════════════════════════════════
 
-export function FaqCategoryHeading({ children }: { children: ReactNode }) {
+export function FaqCategoryHeading({
+  children,
+  variant = "dark",
+}: {
+  children: ReactNode;
+  variant?: "dark" | "light";
+}) {
+  const isLight = variant === "light";
   return (
     <motion.div
       initial="hidden"
@@ -208,7 +255,10 @@ export function FaqCategoryHeading({ children }: { children: ReactNode }) {
             transition: { duration: 0.5, delay: 0.15, ease: [0.22, 1, 0.36, 1] },
           },
         }}
-        className="font-display text-xs font-semibold uppercase tracking-widest text-white/30 md:text-sm"
+        className={cn(
+          "font-display text-xs font-semibold uppercase tracking-widest md:text-sm",
+          isLight ? "text-primary/30" : "text-white/30"
+        )}
       >
         {children}
       </motion.h2>

@@ -141,7 +141,7 @@ export function FeatureComparisonTable() {
         <h2 className="font-display text-3xl font-bold text-primary-foreground md:text-4xl lg:text-5xl">
           {t("compare_title")}
         </h2>
-        <p className="mx-auto mt-4 max-w-lg font-serif text-base text-primary-foreground/50 md:text-lg">
+        <p className="mx-auto mt-4 max-w-lg font-serif text-base text-primary-foreground/70 md:text-lg">
           {t("compare_subtitle")}
         </p>
       </div>
@@ -311,7 +311,7 @@ export function FeatureComparisonTable() {
               {/* Feature column header */}
               <th
                 scope="col"
-                className="sticky top-0 z-20 w-2/5 border-b border-white/[0.08] bg-primary px-5 py-5 font-display text-xs font-semibold tracking-wider text-primary-foreground/40 uppercase md:px-6 md:py-6"
+                className="sticky top-0 z-20 w-2/5 border-b border-white/[0.08] bg-primary px-5 py-5 font-display text-xs font-semibold tracking-wider text-primary-foreground/55 uppercase md:px-6 md:py-6"
               >
                 {t("feature")}
               </th>
@@ -342,7 +342,7 @@ export function FeatureComparisonTable() {
           <tbody>
             {/* Page limit row */}
             <tr className="feature-row border-b border-white/[0.04] transition-colors hover:bg-white/[0.02]">
-              <td className="px-5 py-4 font-sans text-sm text-primary-foreground/70 md:px-6">
+              <td className="px-5 py-4 font-sans text-sm text-primary-foreground/85 md:px-6">
                 {t("pages_up_to", { limit: "" }).replace(/\s+$/, "")}
               </td>
               {packages.map((pkg, idx) => (
@@ -360,7 +360,7 @@ export function FeatureComparisonTable() {
 
             {/* ISBN row */}
             <tr className="feature-row border-b border-white/[0.04] transition-colors hover:bg-white/[0.02]">
-              <td className="px-5 py-4 font-sans text-sm text-primary-foreground/70 md:px-6">
+              <td className="px-5 py-4 font-sans text-sm text-primary-foreground/85 md:px-6">
                 ISBN
               </td>
               {packages.map((pkg, idx) => (
@@ -389,7 +389,7 @@ export function FeatureComparisonTable() {
                 key={size}
                 className="feature-row border-b border-white/[0.04] transition-colors hover:bg-white/[0.02]"
               >
-                <td className="px-5 py-4 font-sans text-sm text-primary-foreground/70 md:px-6">
+                <td className="px-5 py-4 font-sans text-sm text-primary-foreground/85 md:px-6">
                   {t("copies_count", { count: size })}
                 </td>
                 {packages.map((pkg, idx) => (
@@ -410,7 +410,7 @@ export function FeatureComparisonTable() {
             <tr>
               <td
                 colSpan={packages.length + 1}
-                className="border-y border-white/[0.06] bg-secondary/30 px-5 py-3 font-display text-[11px] font-bold tracking-widest text-primary-foreground/40 uppercase md:px-6"
+                className="border-y border-white/[0.06] bg-secondary/30 px-5 py-3 font-display text-[11px] font-bold tracking-widest text-primary-foreground/60 uppercase md:px-6"
               >
                 {t("whats_included")}
               </td>
@@ -422,7 +422,7 @@ export function FeatureComparisonTable() {
                 key={featureName}
                 className="feature-row border-b border-white/[0.04] transition-colors hover:bg-white/[0.02]"
               >
-                <td className="px-5 py-4 font-sans text-sm text-primary-foreground/70 md:px-6">
+                <td className="px-5 py-4 font-sans text-sm text-primary-foreground/85 md:px-6">
                   {featureName}
                 </td>
                 {packages.map((pkg, idx) => {

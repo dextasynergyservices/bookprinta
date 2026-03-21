@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { usePublicMarketingSettings } from "@/hooks/usePublicMarketingSettings";
 import { Link } from "@/lib/i18n/navigation";
@@ -96,6 +97,19 @@ export function Footer() {
       {/* ─── Links + Info Grid ─── */}
       <div className="border-b border-white/10">
         <div className="mx-auto max-w-7xl px-6 py-12 lg:px-8 lg:py-16">
+          {/* Logo */}
+          <div className="mb-10">
+            <Link href="/" aria-label="BookPrinta home">
+              <Image
+                src="/logo-main-white.png"
+                alt="BookPrinta"
+                width={154}
+                height={42}
+                className="h-8 w-auto"
+              />
+            </Link>
+          </div>
+
           <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
             {/* Pages column */}
             <div>

@@ -805,7 +805,7 @@ function AdminUsersMobileCards({
         return (
           <article
             key={row.id}
-            className="rounded-[1.35rem] border border-[#2A2A2A] bg-[#111111] p-4 transition-colors duration-150 hover:bg-[#1A1A1A]"
+            className="overflow-hidden rounded-[1.35rem] border border-[#2A2A2A] bg-[#111111] p-4 transition-colors duration-150 hover:bg-[#1A1A1A]"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
@@ -1562,12 +1562,12 @@ export function AdminUsersView() {
         onClearFilters={clearFilters}
       />
 
-      <section className="flex flex-col gap-3 rounded-[1.35rem] border border-[#2A2A2A] bg-[#0A0A0A] p-4 md:flex-row md:items-center md:justify-between">
+      <section className="flex flex-col gap-3 overflow-hidden rounded-[1.35rem] border border-[#2A2A2A] bg-[#0A0A0A] p-4 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <p className="font-sans text-xs font-medium uppercase tracking-[0.08em] text-[#8f8f8f]">
             {tAdmin("users_summary_label")}
           </p>
-          <p className="mt-1 font-sans text-sm text-[#d0d0d0] md:text-base">
+          <p className="mt-1 truncate font-sans text-sm text-[#d0d0d0] md:text-base">
             {tAdmin("users_summary_total", {
               shown: items.length,
               total: data.totalItems,

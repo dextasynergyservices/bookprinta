@@ -335,7 +335,7 @@ export class ContactService {
         to: submission.email,
         subject: replySubject,
         html: `
-          <div style="font-family: 'Poppins', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px;">
+          <div style="font-family: 'DM Sans', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px;">
             <p style="font-size: 15px; line-height: 24px; color: #2A2A2A;">Hi ${submission.name.split(" ")[0]},</p>
             <div style="font-size: 15px; line-height: 24px; color: #2A2A2A; white-space: pre-wrap;">${dto.replyMessage}</div>
             <hr style="border-top: 1px solid #ededed; margin: 24px 0;" />

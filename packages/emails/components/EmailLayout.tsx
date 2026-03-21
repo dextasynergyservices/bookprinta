@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
-import { extname, resolve } from "node:path";
 import {
   Body,
   Button,
@@ -28,8 +26,8 @@ const BRAND = {
   fontDisplay: "'Space Grotesk', Arial, sans-serif",
   /** Miller Text — Body copy, long-form text (Georgia as fallback) */
   fontSerif: "'Miller Text', Georgia, 'Times New Roman', serif",
-  /** Poppins — UI elements, buttons, labels, form inputs */
-  fontSans: "'Poppins', Helvetica, Arial, sans-serif",
+  /** DM Sans — UI elements, buttons, labels, form inputs */
+  fontSans: "'DM Sans', Helvetica, Arial, sans-serif",
 } as const;
 
 interface EmailLayoutProps {
@@ -45,20 +43,20 @@ export function EmailLayout({ locale, preview, children }: EmailLayoutProps) {
     <Html lang={locale} dir="ltr">
       <Head>
         <Font
-          fontFamily="Poppins"
+          fontFamily="DM Sans"
           fallbackFontFamily="Helvetica"
           webFont={{
-            url: "https://fonts.gstatic.com/s/poppins/v22/pxiEyp8kv8JHgFVrJJfecg.woff2",
+            url: "https://fonts.gstatic.com/s/dmsans/v15/rP2tp2ywxg089UriI5-g4vlH9VoD8CmcqZG40F9JadbnoEwAopxhS23bUA.woff2",
             format: "woff2",
           }}
           fontWeight={400}
           fontStyle="normal"
         />
         <Font
-          fontFamily="Poppins"
+          fontFamily="DM Sans"
           fallbackFontFamily="Helvetica"
           webFont={{
-            url: "https://fonts.gstatic.com/s/poppins/v22/pxiByp8kv8JHgFVrLEj6Z1xlFQ.woff2",
+            url: "https://fonts.gstatic.com/s/dmsans/v15/rP2tp2ywxg089UriI5-g4vlH9VoD8CmcqZG40F9JadbnoEwAkJxhS23bUA.woff2",
             format: "woff2",
           }}
           fontWeight={600}
@@ -86,17 +84,7 @@ export function EmailLayout({ locale, preview, children }: EmailLayoutProps) {
         <Container style={container}>
           {/* Header */}
           <Section style={header}>
-            {EMAIL_LOGO_SRC ? (
-              <Img
-                src={EMAIL_LOGO_SRC}
-                alt="BookPrinta"
-                width="194"
-                height="40"
-                style={logoImage}
-              />
-            ) : (
-              <Text style={logoText}>BookPrinta</Text>
-            )}
+            <Img src={EMAIL_LOGO_SRC} alt="BookPrinta" width="194" height="40" style={logoImage} />
           </Section>
 
           {/* Main Content */}
@@ -148,20 +136,16 @@ const header: React.CSSProperties = {
   padding: "24px 0 16px",
 };
 
-const logoText: React.CSSProperties = {
-  fontFamily: BRAND.fontDisplay,
-  fontSize: "28px",
-  fontWeight: 700,
-  color: BRAND.black,
-  margin: "0",
-  letterSpacing: "-0.5px",
-};
-
 const logoImage: React.CSSProperties = {
   display: "block",
   margin: "0 auto",
   height: "auto",
   maxWidth: "194px",
+  /* Alt-text styling — applied by email clients when the image doesn't load */
+  fontFamily: BRAND.fontDisplay,
+  fontSize: "28px",
+  fontWeight: 700,
+  color: BRAND.black,
 };
 
 const main: React.CSSProperties = {
@@ -221,34 +205,11 @@ const footerMuted: React.CSSProperties = {
 };
 
 const WHATSAPP_URL = "https://wa.me/2348103208297";
-const EMAIL_LOGO_SRC = resolveEmailLogoSrc();
 
-function resolveEmailLogoSrc(): string | null {
-  const candidates = [
-    resolve(process.cwd(), "../../apps/web/public/logo-main-black.png"),
-    resolve(process.cwd(), "../web/public/logo-main-black.png"),
-    resolve(process.cwd(), "apps/web/public/logo-main-black.png"),
-    resolve(process.cwd(), "public/logo-main-black.png"),
-  ];
-
-  for (const candidate of candidates) {
-    if (!existsSync(candidate)) continue;
-
-    try {
-      const bytes = readFileSync(candidate);
-      const ext = extname(candidate).toLowerCase();
-      const mime =
-        ext === ".svg"
-          ? "image/svg+xml"
-          : ext === ".jpg" || ext === ".jpeg"
-            ? "image/jpeg"
-            : "image/png";
-
-      return `data:${mime};base64,${bytes.toString("base64")}`;
-    } catch {}
-  }
-
-  return null;
-}
+/**
+ * Email logo URL — served from the frontend's public directory.
+ * Uses FRONTEND_URL env var in production, falls back to the production domain.
+ */
+const EMAIL_LOGO_SRC = `${process.env.FRONTEND_URL || "https://bookprinta.com"}/logo-main-black.png`;
 
 export { BRAND };

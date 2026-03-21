@@ -70,8 +70,8 @@ export function DashboardResponsiveDataRegion({
 }: DashboardResponsiveDataRegionProps) {
   return (
     <section className={cn("min-w-0", className)}>
-      <div className="grid gap-3 md:hidden">{mobileCards}</div>
-      <div className="hidden md:block">{desktopTable}</div>
+      <div className="grid min-w-0 gap-3 md:hidden">{mobileCards}</div>
+      <div className="hidden min-w-0 md:block">{desktopTable}</div>
     </section>
   );
 }
