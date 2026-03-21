@@ -80,8 +80,9 @@ export function PricingHero() {
           id="pricing-hero-heading"
           className="max-w-3xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-primary-foreground md:text-6xl lg:text-7xl"
         >
-          <span className="pricing-hero-title block">{t("hero_title")}</span>
-          <span className="pricing-hero-title block text-accent">{t("hero_title_em")}</span>
+          <span className="pricing-hero-title block">{t("hero_title_line1")}</span>
+          <span className="pricing-hero-title block">{t("hero_title_line2")}</span>
+          <span className="pricing-hero-title block text-accent">{t("hero_title_line3")}</span>
         </h1>
 
         <p className="pricing-hero-subtitle mt-6 max-w-xl font-serif text-lg leading-relaxed text-primary-foreground/50 md:mt-8 md:text-xl">

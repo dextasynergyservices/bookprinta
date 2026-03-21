@@ -36,6 +36,8 @@ import {
   AdminBookVersionFileDownloadParamsDto,
   AdminRejectBookDto,
   AdminRejectBookResponseDto,
+  AdminResetProcessingDto,
+  AdminResetProcessingResponseDto,
   AdminUpdateBookStatusDto,
   AdminUpdateBookStatusResponseDto,
   BookParamsDto,
@@ -270,5 +272,37 @@ export class AdminBooksController {
     response.setHeader("Content-Type", file.mimeType);
     response.setHeader("Content-Disposition", `attachment; filename="${file.fileName}"`);
     return new StreamableFile(file.buffer);
+  }
+
+  @Post(":id/reset-processing")
+  @HttpCode(HttpStatus.OK)
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Reset manuscript processing pipeline",
+    description:
+      "Resets a stuck or failed book back to AI_PROCESSING and re-enqueues the formatting pipeline. " +
+      "Use this when AI formatting or page counting has failed and you want to retry from scratch.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Book CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiOkResponse({
+    description: "Processing pipeline reset and re-queued successfully",
+    type: AdminResetProcessingResponseDto,
+  })
+  @ApiResponse({ status: 400, description: "Book cannot be reset at its current stage" })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 403, description: "Forbidden — admin role required" })
+  @ApiResponse({ status: 409, description: "Conflict — book version is stale" })
+  @ApiResponse({ status: 404, description: "Book not found" })
+  async resetProcessing(
+    @Param() params: BookParamsDto,
+    @Body() dto: AdminResetProcessingDto,
+    @CurrentUser("sub") adminId: string
+  ): Promise<AdminResetProcessingResponseDto> {
+    return this.booksService.resetAdminBookProcessing(params.id, dto, adminId);
   }
 }

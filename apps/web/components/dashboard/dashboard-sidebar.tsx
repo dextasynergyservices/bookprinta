@@ -11,6 +11,7 @@ import {
   Package,
   UserRound,
 } from "lucide-react";
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useReviewState } from "@/hooks/use-dashboard-shell-data";
@@ -96,11 +97,23 @@ export function DashboardSidebar({
           )}
         >
           {isCollapsed ? (
-            <span className="sr-only">{tDashboard("title")}</span>
+            <Image
+              src="/icons/icon-192.png"
+              alt="BookPrinta"
+              width={32}
+              height={32}
+              className="size-8 rounded"
+            />
           ) : (
-            <p className="font-display min-w-0 truncate text-xl font-semibold tracking-tight text-white">
-              {tDashboard("title")}
-            </p>
+            <Link href="/dashboard" className="min-w-0">
+              <Image
+                src="/logo-main-white.png"
+                alt="BookPrinta"
+                width={140}
+                height={36}
+                className="h-9 w-auto"
+              />
+            </Link>
           )}
 
           {canCollapseDesktop ? (

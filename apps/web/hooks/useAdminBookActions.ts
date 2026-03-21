@@ -6,6 +6,8 @@ import type {
   AdminBookHtmlUploadResponse,
   AdminRejectBookInput,
   AdminRejectBookResponse,
+  AdminResetProcessingInput,
+  AdminResetProcessingResponse,
   AdminUpdateBookStatusInput,
   AdminUpdateBookStatusResponse,
   AuthorizeAdminBookHtmlUploadResponse,
@@ -33,6 +35,11 @@ type UpdateAdminBookStatusVariables = {
 type RejectAdminBookVariables = {
   bookId: string;
   input: AdminRejectBookInput;
+};
+
+type ResetAdminBookProcessingVariables = {
+  bookId: string;
+  input: AdminResetProcessingInput;
 };
 
 type RequestAdminBookHtmlUploadVariables = {
@@ -232,6 +239,33 @@ async function rejectAdminBook({
   }
 
   return (await response.json()) as AdminRejectBookResponse;
+}
+
+async function resetAdminBookProcessing({
+  bookId,
+  input,
+}: ResetAdminBookProcessingVariables): Promise<AdminResetProcessingResponse> {
+  let response: Response;
+
+  try {
+    response = await fetchApiV1WithRefresh(`/admin/books/${bookId}/reset-processing`, {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new Error("Unable to reset processing right now.");
+  }
+
+  if (!response.ok) {
+    await throwAdminBookApiError(response, "Unable to reset processing");
+  }
+
+  return (await response.json()) as AdminResetProcessingResponse;
 }
 
 async function requestAdminBookHtmlUpload({
@@ -478,6 +512,23 @@ export function useAdminBookRejectMutation(bookId: string) {
   return useMutation({
     mutationFn: (input: AdminRejectBookInput) =>
       rejectAdminBook({
+        bookId,
+        input,
+      }),
+    onSuccess: async () => {
+      await Promise.all(
+        createInvalidationTargets(bookId).map((target) => queryClient.invalidateQueries(target))
+      );
+    },
+  });
+}
+
+export function useAdminBookResetProcessingMutation(bookId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: AdminResetProcessingInput) =>
+      resetAdminBookProcessing({
         bookId,
         input,
       }),

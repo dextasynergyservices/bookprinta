@@ -444,7 +444,6 @@ export function ManuscriptPreviewPanel({
     !forceReprocessing &&
     !isSavingSettings &&
     !processing.isActive &&
-    !currentHtmlUrl &&
     normalizedBookStatus === "FORMATTING_REVIEW";
   const isServerCountPending =
     !hasFormattingFailure &&

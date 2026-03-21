@@ -177,6 +177,7 @@ export class ManuscriptAnalysisService {
       };
 
       if (typeof mammothModule.extractRawText !== "function") {
+        this.logger.warn("mammoth module loaded but extractRawText not found");
         return null;
       }
 
@@ -184,7 +185,10 @@ export class ManuscriptAnalysisService {
       if (typeof result.value !== "string") return null;
       const value = result.value.trim();
       return value.length > 0 ? value : null;
-    } catch {
+    } catch (error) {
+      this.logger.error(
+        `mammoth extraction failed: ${error instanceof Error ? error.message : String(error)}`
+      );
       return null;
     }
   }
@@ -195,6 +199,7 @@ export class ManuscriptAnalysisService {
       return parsedText;
     }
 
+    this.logger.warn("pdf-parse returned no text; falling back to heuristic extraction");
     const heuristicText = this.extractPdfTextHeuristically(buffer);
     return heuristicText;
   }
@@ -214,12 +219,24 @@ export class ManuscriptAnalysisService {
         }
       }
 
-      if (!parseFn) return null;
+      if (!parseFn) {
+        this.logger.warn("pdf-parse module loaded but no parse function found");
+        return null;
+      }
       const result = await parseFn(buffer);
-      if (typeof result.text !== "string") return null;
+      if (typeof result.text !== "string") {
+        this.logger.warn("pdf-parse returned non-string text field");
+        return null;
+      }
       const text = result.text.trim();
+      if (text.length === 0) {
+        this.logger.warn("pdf-parse returned empty text (scanned/image-based PDF?)");
+      }
       return text.length > 0 ? text : null;
-    } catch {
+    } catch (error) {
+      this.logger.error(
+        `pdf-parse failed: ${error instanceof Error ? error.message : String(error)}`
+      );
       return null;
     }
   }

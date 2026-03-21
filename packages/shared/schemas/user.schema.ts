@@ -355,6 +355,7 @@ export const AdminUsersListQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   role: UserRoleSchema.optional(),
   isVerified: AdminUserQueryBooleanSchema.optional(),
+  includeDeleted: AdminUserQueryBooleanSchema.optional(),
   sortBy: AdminUserSortFieldSchema.default("createdAt"),
   sortDirection: AdminSortDirectionSchema.default("desc"),
 });
@@ -367,6 +368,7 @@ export const AdminUsersListItemSchema = z.object({
   role: UserRoleSchema,
   isVerified: z.boolean(),
   isActive: z.boolean(),
+  isDeleted: z.boolean(),
   createdAt: z.string().datetime(),
   detailUrl: z.string().trim().min(1),
 });
@@ -441,6 +443,8 @@ export const AdminUserProfileSchema = z.object({
   role: UserRoleSchema,
   isVerified: z.boolean(),
   isActive: z.boolean(),
+  isDeleted: z.boolean(),
+  deletedAt: z.string().datetime().nullable(),
   preferredLanguage: SupportedLanguageSchema,
   bio: UserProfileBioSchema.nullable(),
   profileImageUrl: UserProfileImageUrlSchema.nullable(),
@@ -467,6 +471,7 @@ export const AdminUserStateSnapshotSchema = z.object({
   role: UserRoleSchema,
   isVerified: z.boolean(),
   isActive: z.boolean(),
+  isDeleted: z.boolean(),
 });
 export type AdminUserStateSnapshot = z.infer<typeof AdminUserStateSnapshotSchema>;
 
@@ -498,7 +503,8 @@ export type AdminUpdateUserResponse = z.infer<typeof AdminUpdateUserResponseSche
 export const AdminDeleteUserResponseSchema = z.object({
   userId: z.string().cuid(),
   deleted: z.literal(true),
-  isActive: z.literal(false),
+  isDeleted: z.literal(true),
+  anonymizedEmail: z.string(),
   deletedAt: z.string().datetime(),
   audit: AdminAuditEntrySchema,
 });
