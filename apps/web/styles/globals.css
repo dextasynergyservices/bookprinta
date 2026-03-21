@@ -2,6 +2,23 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* ─── Miller Display (self-hosted) ─── */
+@font-face {
+  font-family: "Miller Display";
+  src: url("/fonts/fonnts.com-Miller-Display-.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Miller Display";
+  src: url("/fonts/fonnts.com-Miller-Display-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme {
@@ -38,7 +55,7 @@
   /* ─── Fonts (three-font system, resolved at runtime via next/font) ─── */
   --font-display: var(--font-space-grotesk), sans-serif;
   --font-serif: var(--font-miller-text), Georgia, serif;
-  --font-sans: var(--font-poppins), sans-serif;
+  --font-sans: var(--font-dm-sans), sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -82,7 +99,7 @@
 
 /* ─── BookPrinta Light Theme (Slate base) ─── */
 :root {
-  --font-miller-text: "Miller Text";
+  --font-miller-text: "Miller Display";
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.129 0.042 264.695);
@@ -242,20 +259,21 @@ html.lenis body {
 
 /* ─── Hero Section ─────────────────────────────────────────────────────── */
 
-/* Mobile: dark overlay on top of the 3D book background so text is readable */
-.book-mobile-overlay {
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.88) 0%,
-    rgba(0, 0, 0, 0.75) 40%,
-    rgba(0, 0, 0, 0.9) 100%
-  );
-  backdrop-filter: blur(4px);
+/* Force Miller Text serif on the hero "Beautifully" word */
+.hero-miller {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  font-style: italic;
 }
 
-/* Text reveal animation for GSAP — initial state handled by JS */
-.hero-text-reveal {
-  will-change: clip-path, transform;
+/* Mobile: dark overlay on top of the hero background video so text is readable */
+.hero-video-overlay {
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.78) 0%,
+    rgba(0, 0, 0, 0.55) 45%,
+    rgba(0, 0, 0, 0.82) 100%
+  );
 }
 
 /* ─── Homepage Sections ───────────────────────────────────────────────── */

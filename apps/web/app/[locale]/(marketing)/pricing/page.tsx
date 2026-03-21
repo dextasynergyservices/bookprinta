@@ -51,23 +51,20 @@ export default async function PricingPage({ params: { locale } }: { params: { lo
         </section>
 
         {/* FAQ */}
-        <section
-          className="border-t border-white/[0.06] bg-[#0a0a0a]"
-          aria-labelledby="pricing-faq-heading"
-        >
+        <section className="bg-primary-foreground" aria-labelledby="pricing-faq-heading">
           <div className="mx-auto max-w-7xl px-5 py-20 md:py-28 lg:px-8">
             <div className="mb-12 text-center md:mb-16">
               <h2
                 id="pricing-faq-heading"
-                className="font-display text-3xl font-bold tracking-tight text-primary-foreground md:text-4xl lg:text-5xl"
+                className="font-display text-3xl font-bold tracking-tight text-primary md:text-4xl lg:text-5xl"
               >
                 {t("faq_title")}
               </h2>
-              <p className="mx-auto mt-4 max-w-lg font-serif text-base text-primary-foreground/40 md:text-lg">
+              <p className="mx-auto mt-4 max-w-lg font-serif text-base text-primary/55 md:text-lg">
                 {t("faq_subtitle")}
               </p>
             </div>
-            <PricingFAQ />
+            <PricingFAQ variant="light" />
           </div>
         </section>
 

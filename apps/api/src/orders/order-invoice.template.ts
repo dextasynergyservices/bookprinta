@@ -112,7 +112,7 @@ export function renderOrderInvoiceHtml(input: RenderOrderInvoiceTemplateInput): 
         margin: 0;
         background: #f5f5f5;
         color: #111111;
-        font-family: "Poppins", "Segoe UI", Arial, sans-serif;
+        font-family: "DM Sans", "Segoe UI", Arial, sans-serif;
       }
       .sheet {
         max-width: 860px;

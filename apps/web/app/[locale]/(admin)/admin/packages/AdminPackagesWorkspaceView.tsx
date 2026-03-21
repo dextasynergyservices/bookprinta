@@ -3059,7 +3059,7 @@ export function AdminPackagesWorkspaceView() {
             type="button"
             variant="ghost"
             onClick={() => setMobileSection("categories")}
-            className={`min-h-10 rounded-full px-3 font-sans text-xs font-medium ${
+            className={`min-h-10 whitespace-normal rounded-full px-2 text-center font-sans text-[11px] font-medium leading-tight ${
               mobileSection === "categories"
                 ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
                 : "bg-[#121212] text-[#D0D0D0] hover:bg-[#1A1A1A]"
@@ -3071,7 +3071,7 @@ export function AdminPackagesWorkspaceView() {
             type="button"
             variant="ghost"
             onClick={() => setMobileSection("packages")}
-            className={`min-h-10 rounded-full px-3 font-sans text-xs font-medium ${
+            className={`min-h-10 whitespace-normal rounded-full px-2 text-center font-sans text-[11px] font-medium leading-tight ${
               mobileSection === "packages"
                 ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
                 : "bg-[#121212] text-[#D0D0D0] hover:bg-[#1A1A1A]"
@@ -3083,7 +3083,7 @@ export function AdminPackagesWorkspaceView() {
             type="button"
             variant="ghost"
             onClick={() => setMobileSection("addons")}
-            className={`min-h-10 rounded-full px-3 font-sans text-xs font-medium ${
+            className={`min-h-10 whitespace-normal rounded-full px-2 text-center font-sans text-[11px] font-medium leading-tight ${
               mobileSection === "addons"
                 ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
                 : "bg-[#121212] text-[#D0D0D0] hover:bg-[#1A1A1A]"

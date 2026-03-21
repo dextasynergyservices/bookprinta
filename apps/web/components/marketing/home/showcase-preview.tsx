@@ -3,6 +3,8 @@
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useCallback, useState } from "react";
+import { AuthorModal } from "@/components/marketing/showcase/AuthorModal";
 import { ShowcaseCard } from "@/components/marketing/showcase/ShowcaseCard";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -15,8 +17,20 @@ interface ShowcasePreviewProps {
 export function ShowcasePreview({ entries }: ShowcasePreviewProps) {
   const t = useTranslations("home");
 
-  // No-op for homepage — no author modal needed
-  const handleContactAuthor = (_entry: ShowcaseEntry) => {};
+  const [authorModalEntry, setAuthorModalEntry] = useState<ShowcaseEntry | null>(null);
+  const [authorModalOpen, setAuthorModalOpen] = useState(false);
+
+  const handleContactAuthor = useCallback((entry: ShowcaseEntry) => {
+    setAuthorModalEntry(entry);
+    setAuthorModalOpen(true);
+  }, []);
+
+  const handleAuthorModalChange = useCallback((open: boolean) => {
+    setAuthorModalOpen(open);
+    if (!open) {
+      setAuthorModalEntry(null);
+    }
+  }, []);
 
   return (
     <section
@@ -83,6 +97,12 @@ export function ShowcasePreview({ entries }: ShowcasePreviewProps) {
           </Link>
         </motion.div>
       </div>
+
+      <AuthorModal
+        entry={authorModalEntry}
+        open={authorModalOpen}
+        onOpenChange={handleAuthorModalChange}
+      />
     </section>
   );
 }

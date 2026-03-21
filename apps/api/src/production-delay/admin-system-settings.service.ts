@@ -222,8 +222,8 @@ const SETTING_DEFINITIONS: Record<AdminSystemSettingKey, SettingDefinition> = {
     valueType: "json_object",
     description: "Editable hero copy for homepage",
     defaultValue: {
-      title: "Turn Your Manuscript Into a Book",
-      subtitle: "Professional publishing made simple for Nigerian authors",
+      title: "Your Book. Beautifully Printed.",
+      subtitle: "Publish fearlessly \u2014 from as low as 25 copies.",
       primaryCtaLabel: "Start Publishing",
       secondaryCtaLabel: "Get Custom Quote",
     },
@@ -535,10 +535,10 @@ export class AdminSystemSettingsService {
 
     return {
       hero: {
-        title: String(hero.title ?? "").trim() || "Turn Your Manuscript Into a Book",
+        title: String(hero.title ?? "").trim() || "Your Book. Beautifully Printed.",
         subtitle:
           String(hero.subtitle ?? "").trim() ||
-          "Professional publishing made simple for Nigerian authors",
+          "Publish fearlessly \u2014 from as low as 25 copies.",
         primaryCtaLabel: String(hero.primaryCtaLabel ?? "").trim() || "Start Publishing",
         secondaryCtaLabel: String(hero.secondaryCtaLabel ?? "").trim() || "Get Custom Quote",
       },

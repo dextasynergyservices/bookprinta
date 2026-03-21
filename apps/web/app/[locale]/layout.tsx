@@ -1,9 +1,10 @@
-import { Poppins, Space_Grotesk } from "next/font/google";
+import { DM_Sans, Space_Grotesk } from "next/font/google";
 import { notFound } from "next/navigation";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
 import { LenisProvider } from "@/components/shared/lenis-provider";
 import { OfflineStatusBanner } from "@/components/shared/offline-status-banner";
+import { PwaInstallBanner } from "@/components/shared/pwa-install-banner";
 import { ServiceWorkerUpdatePrompt } from "@/components/shared/service-worker-update-prompt";
 import { Toaster } from "@/components/ui/sonner";
 import { routing } from "@/lib/i18n/routing";
@@ -15,10 +16,10 @@ const spaceGrotesk = Space_Grotesk({
   display: "swap",
 });
 
-const poppins = Poppins({
+const dmSans = DM_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-poppins",
+  variable: "--font-dm-sans",
   display: "swap",
 });
 
@@ -44,11 +45,12 @@ export default async function LocaleLayout({
 
   return (
     <html lang={locale}>
-      <body className={`${spaceGrotesk.variable} ${poppins.variable} antialiased`}>
+      <body className={`${spaceGrotesk.variable} ${dmSans.variable} antialiased`}>
         <NextIntlClientProvider messages={messages}>
           <Providers>
             <OfflineStatusBanner />
             <ServiceWorkerUpdatePrompt />
+            <PwaInstallBanner />
             <LenisProvider>{children}</LenisProvider>
             <Toaster />
           </Providers>

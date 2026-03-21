@@ -5,7 +5,8 @@ export default function manifest(): MetadataRoute.Manifest {
     id: "/",
     name: "BookPrinta — Publish Your Book",
     short_name: "BookPrinta",
-    description: "Turn your manuscript into a professional, print-ready book.",
+    description:
+      "Your Book. Beautifully Printed. Publish fearlessly \u2014 from as low as 25 copies.",
     start_url: "/",
     scope: "/",
     lang: "en",

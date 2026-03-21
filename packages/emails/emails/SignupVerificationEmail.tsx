@@ -85,7 +85,7 @@ const codeText: React.CSSProperties = {
   margin: "0",
   fontWeight: 700,
   letterSpacing: "0.2em",
-  fontFamily: "'Poppins', Helvetica, Arial, sans-serif",
+  fontFamily: "'DM Sans', Helvetica, Arial, sans-serif",
 };
 
 const ctaSection: React.CSSProperties = {

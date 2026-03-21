@@ -40,6 +40,7 @@ export function setSessionMarkerCookie(): void {
     parts.push("secure");
   }
 
+  // biome-ignore lint/suspicious/noDocumentCookie: intentional cookie set for session marker
   document.cookie = parts.join("; ");
 }
 
@@ -57,5 +58,6 @@ export function clearSessionMarkerCookie(): void {
     parts.push("secure");
   }
 
+  // biome-ignore lint/suspicious/noDocumentCookie: intentional cookie clear on logout
   document.cookie = parts.join("; ");
 }

@@ -114,9 +114,38 @@ function ShowcaseViewInner() {
                 {" "}
                 {t("hero_line1").split(" ").slice(1).join(" ")}{" "}
               </span>
-              <em className="block font-serif font-normal not-italic text-primary-foreground/50 sm:inline">
-                {t("hero_line1_em")}
-              </em>
+              {/* "telling." — blue highlight bar sweeps behind text */}
+              <span className="relative inline-block">
+                {/* Blue highlight with white text inside — clipPath clips both together */}
+                <motion.span
+                  className="absolute inset-0 flex items-center rounded-sm bg-accent/80"
+                  aria-hidden="true"
+                  animate={{
+                    clipPath: [
+                      "inset(0 100% 0 0)",
+                      "inset(0 0% 0 0)",
+                      "inset(0 0% 0 0)",
+                      "inset(0 100% 0 0)",
+                      "inset(0 100% 0 0)",
+                    ],
+                  }}
+                  transition={{
+                    duration: 7,
+                    times: [0, 0.08, 0.14, 0.22, 1],
+                    ease: [0.4, 0, 0.2, 1],
+                    repeat: Number.POSITIVE_INFINITY,
+                    delay: 0.8,
+                  }}
+                >
+                  <span className="font-serif font-normal not-italic text-white">
+                    {t("hero_line1_em")}
+                  </span>
+                </motion.span>
+                {/* Base dim text — always visible underneath */}
+                <em className="relative block font-serif font-normal not-italic text-primary-foreground/50 sm:inline">
+                  {t("hero_line1_em")}
+                </em>
+              </span>
               {/* Line break between line1 and line2 — always breaks */}
               <br />
               {/* Line 2: "Books" "worth" "holding." — stacked on mobile, inline on sm+ */}
@@ -125,9 +154,39 @@ function ShowcaseViewInner() {
                 {" "}
                 {t("hero_line2").split(" ").slice(1).join(" ")}{" "}
               </span>
-              <em className="block font-serif font-normal not-italic text-primary-foreground/50 sm:inline">
-                {t("hero_line2_em")}
-              </em>
+              {/* "holding." — blue highlight bar sweeps behind text, after "telling." */}
+              <span className="relative inline-block">
+                {/* Blue highlight with white text inside — clipPath clips both together */}
+                <motion.span
+                  className="absolute inset-0 flex items-center rounded-sm bg-accent/80"
+                  aria-hidden="true"
+                  animate={{
+                    clipPath: [
+                      "inset(0 100% 0 0)",
+                      "inset(0 100% 0 0)",
+                      "inset(0 0% 0 0)",
+                      "inset(0 0% 0 0)",
+                      "inset(0 100% 0 0)",
+                      "inset(0 100% 0 0)",
+                    ],
+                  }}
+                  transition={{
+                    duration: 7,
+                    times: [0, 0.32, 0.4, 0.48, 0.56, 1],
+                    ease: [0.4, 0, 0.2, 1],
+                    repeat: Number.POSITIVE_INFINITY,
+                    delay: 0.8,
+                  }}
+                >
+                  <span className="font-serif font-normal not-italic text-white">
+                    {t("hero_line2_em")}
+                  </span>
+                </motion.span>
+                {/* Base dim text — always visible underneath */}
+                <em className="relative block font-serif font-normal not-italic text-primary-foreground/50 sm:inline">
+                  {t("hero_line2_em")}
+                </em>
+              </span>
             </h1>
           </motion.div>
 
