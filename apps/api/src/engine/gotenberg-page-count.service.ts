@@ -168,9 +168,10 @@ export class GotenbergPageCountService {
     }
 
     const headerVariants = this.buildGotenbergHeaderVariants();
-    const maxAttemptsPerEndpoint = 3;
+    const maxAttemptsPerEndpoint = 2;
     const pageConfig = PAGE_SIZE_TO_INCHES[pageSize];
     const renderTimeoutMs = this.getRenderTimeoutMs();
+    const errors: string[] = [];
 
     for (const baseUrl of baseUrls) {
       for (const headers of headerVariants) {
@@ -184,10 +185,21 @@ export class GotenbergPageCountService {
           form.append("preferCssPageSize", "true");
           form.append("printBackground", "true");
 
+          // ── Performance optimizations ──────────────────────────────────
+          // Our HTML is fully self-contained (inline CSS, no external resources).
+          // By default Gotenberg waits for "network idle" (no requests for 500ms)
+          // which is wasted time when there's nothing to fetch.
+          form.append("skipNetworkIdleEvent", "true");
+
+          // Explicitly set print media type so Chromium doesn't evaluate screen
+          // styles first, then switch to print.
+          form.append("emulatedMediaType", "print");
+
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), renderTimeoutMs);
 
           let response: Response | null = null;
+          let wasAborted = false;
           try {
             response = await fetch(`${baseUrl}/forms/chromium/convert/html`, {
               method: "POST",
@@ -196,10 +208,16 @@ export class GotenbergPageCountService {
               signal: controller.signal,
             });
           } catch (error) {
+            wasAborted = controller.signal.aborted;
+            const reason = wasAborted
+              ? `Client-side timeout after ${renderTimeoutMs}ms`
+              : error instanceof Error
+                ? error.message
+                : String(error);
             this.logger.error(
-              `Gotenberg page-count request failed on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${baseUrl}`,
-              error
+              `Gotenberg render failed on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${baseUrl}: ${reason}`
             );
+            errors.push(`[${baseUrl} attempt ${attempt}] ${reason}`);
           } finally {
             clearTimeout(timeout);
           }
@@ -209,7 +227,14 @@ export class GotenbergPageCountService {
             return Buffer.from(bytes);
           }
 
+          // Don't retry timeouts — Gotenberg is just slow, retrying wastes time
+          if (wasAborted) {
+            break;
+          }
+
           if (response && hasAuthHeader && (response.status === 401 || response.status === 403)) {
+            const msg = `Auth rejected (HTTP ${response.status})`;
+            errors.push(`[${baseUrl}] ${msg}`);
             this.logger.warn(
               `Gotenberg rejected configured basic auth via ${baseUrl}; retrying without auth headers.`
             );
@@ -221,6 +246,8 @@ export class GotenbergPageCountService {
               .text()
               .then((value) => value.slice(0, 400))
               .catch(() => "");
+            const msg = `HTTP ${response.status}${bodySnippet ? `: ${bodySnippet}` : ""}`;
+            errors.push(`[${baseUrl} attempt ${attempt}] ${msg}`);
             this.logger.error(
               `Gotenberg returned ${response.status} on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${baseUrl} while counting pages. ${bodySnippet}`
             );
@@ -233,8 +260,9 @@ export class GotenbergPageCountService {
       }
     }
 
+    const detail = errors.length > 0 ? ` Details: ${errors.join(" | ")}` : "";
     throw new ServiceUnavailableException(
-      "Unable to compute authoritative page count because Gotenberg render failed."
+      `Unable to compute authoritative page count because Gotenberg render failed.${detail}`
     );
   }
 
@@ -294,15 +322,16 @@ export class GotenbergPageCountService {
 
   /**
    * Returns the render timeout in milliseconds.
-   * Configurable via GOTENBERG_RENDER_TIMEOUT_MS (default 60s, min 30s).
-   * Production on Render free tier needs longer timeouts for cold starts.
+   * Configurable via GOTENBERG_RENDER_TIMEOUT_MS (default 120s, min 30s).
+   * Must be >= Gotenberg's own --api-timeout (120s in production) to avoid
+   * killing requests that Gotenberg would have completed.
    */
   private getRenderTimeoutMs(): number {
     const configured = Number(process.env.GOTENBERG_RENDER_TIMEOUT_MS);
     if (Number.isFinite(configured) && configured >= 30_000) {
       return Math.floor(configured);
     }
-    return 60_000;
+    return 120_000;
   }
 
   /**
