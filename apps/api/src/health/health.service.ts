@@ -119,7 +119,8 @@ export class HealthService {
     }
 
     // Gotenberg (PDF generation — separate Render service)
-    const gotenbergUrl = process.env.GOTENBERG_URL;
+    // Two checks: /health (is the service up?) + render smoke test (can it actually convert HTML?)
+    const gotenbergUrl = (process.env.GOTENBERG_URL ?? "").trim().replace(/\/+$/, "");
     if (gotenbergUrl) {
       const gbStart = Date.now();
       try {
@@ -127,10 +128,48 @@ export class HealthService {
           signal: AbortSignal.timeout(5000),
           headers: this.buildGotenbergAuthHeaders(),
         });
+        const healthOk = response.ok;
+
+        // Render smoke test: send tiny HTML to the conversion endpoint
+        // This catches auth failures, Chromium crashes, and config issues
+        // that /health alone cannot detect
+        let renderOk = false;
+        let renderError: string | undefined;
+        let renderStatus: number | undefined;
+        try {
+          const smokeHtml = "<!doctype html><html><body><p>health-check</p></body></html>";
+          const form = new FormData();
+          form.append(
+            "files",
+            new Blob([smokeHtml], { type: "text/html;charset=utf-8" }),
+            "index.html"
+          );
+          form.append("paperWidth", "8.27");
+          form.append("paperHeight", "11.69");
+
+          const renderResponse = await fetch(`${gotenbergUrl}/forms/chromium/convert/html`, {
+            method: "POST",
+            body: form,
+            headers: this.buildGotenbergAuthHeaders(),
+            signal: AbortSignal.timeout(15000),
+          });
+          renderStatus = renderResponse.status;
+          renderOk = renderResponse.ok;
+          if (!renderOk) {
+            renderError = `HTTP ${renderResponse.status}`;
+            const body = await renderResponse.text().catch(() => "");
+            if (body) renderError += `: ${body.slice(0, 200)}`;
+          }
+        } catch (err) {
+          renderError = err instanceof Error ? err.message : "Unknown render error";
+        }
+
         results.gotenberg = {
-          status: response.ok ? "ok" : "error",
+          status: healthOk && renderOk ? "ok" : healthOk ? "degraded" : "error",
           latencyMs: Date.now() - gbStart,
-        };
+          ...(renderError ? { renderError } : {}),
+          ...(renderStatus && !renderOk ? { renderStatus: String(renderStatus) } : {}),
+        } as typeof results.gotenberg;
       } catch (error) {
         results.gotenberg = {
           status: "error",
