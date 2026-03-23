@@ -30,6 +30,7 @@ type QueueMetric = {
   latencyMs: number;
   counts: QueueCountSnapshot;
   error?: string;
+  lastFailedReason?: string;
 };
 
 type PersistedJobBucket = {
@@ -224,11 +225,31 @@ export class QueueAdminService {
 
     try {
       const counts = await this.getQueueCounts(queue);
+
+      // If there are failed jobs, fetch the most recent one's error for diagnostics
+      let lastFailedReason: string | undefined;
+      if (counts.failed > 0) {
+        try {
+          const failedJobs = await this.withTimeout(
+            queue.getFailed(0, 0),
+            QUEUE_TIMEOUT_MS,
+            `Queue ${queue.name} failed jobs`
+          );
+          const lastFailed = failedJobs?.[0];
+          if (lastFailed?.failedReason) {
+            lastFailedReason = lastFailed.failedReason.slice(0, 500);
+          }
+        } catch {
+          // Non-critical — skip if we can't fetch failed job details
+        }
+      }
+
       return {
         status: "ok",
         queueName,
         latencyMs: Date.now() - startedAt,
         counts,
+        ...(lastFailedReason ? { lastFailedReason } : {}),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
