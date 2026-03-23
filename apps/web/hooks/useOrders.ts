@@ -4,17 +4,9 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { normalizeOrdersListPayload } from "@/lib/api/orders-contract";
 import { throwApiError } from "@/lib/api-error";
 import { dashboardHistoryQueryOptions } from "@/lib/dashboard/query-defaults";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import type { OrdersListNormalizedResponse } from "@/types/orders";
 
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 50;
@@ -72,7 +64,7 @@ export async function fetchOrdersPage({
 
   let response: Response;
   try {
-    response = await fetch(`${API_V1_BASE_URL}/orders?${params.toString()}`, {
+    response = await fetchApiV1WithRefresh(`/orders?${params.toString()}`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",

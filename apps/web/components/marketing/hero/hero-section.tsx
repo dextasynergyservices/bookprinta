@@ -123,6 +123,19 @@ export function HeroSection() {
         }}
       />
 
+      {/* ── Background pattern (md+ only) ── */}
+      <div
+        className="pointer-events-none absolute inset-0 hidden opacity-[0.20] md:block"
+        aria-hidden="true"
+        style={{
+          backgroundImage:
+            "url(https://res.cloudinary.com/dxoorukfj/image/upload/v1774276632/bg_-_bp_v39dky.png)",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      />
+
       {/* ── Mobile: Video as full-bleed background ── */}
       <div className="absolute inset-0 z-0 lg:hidden" aria-hidden="true">
         <HeroVideo className="h-full w-full" showBadges={false} />

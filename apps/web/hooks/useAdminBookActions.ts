@@ -4,6 +4,8 @@ import type {
   AdminBookDownloadFileType,
   AdminBookHtmlUploadBodyInput,
   AdminBookHtmlUploadResponse,
+  AdminCancelProcessingInput,
+  AdminCancelProcessingResponse,
   AdminRejectBookInput,
   AdminRejectBookResponse,
   AdminResetProcessingInput,
@@ -40,6 +42,11 @@ type RejectAdminBookVariables = {
 type ResetAdminBookProcessingVariables = {
   bookId: string;
   input: AdminResetProcessingInput;
+};
+
+type CancelAdminBookProcessingVariables = {
+  bookId: string;
+  input: AdminCancelProcessingInput;
 };
 
 type RequestAdminBookHtmlUploadVariables = {
@@ -266,6 +273,33 @@ async function resetAdminBookProcessing({
   }
 
   return (await response.json()) as AdminResetProcessingResponse;
+}
+
+async function cancelAdminBookProcessing({
+  bookId,
+  input,
+}: CancelAdminBookProcessingVariables): Promise<AdminCancelProcessingResponse> {
+  let response: Response;
+
+  try {
+    response = await fetchApiV1WithRefresh(`/admin/books/${bookId}/cancel-processing`, {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new Error("Unable to cancel processing right now.");
+  }
+
+  if (!response.ok) {
+    await throwAdminBookApiError(response, "Unable to cancel processing");
+  }
+
+  return (await response.json()) as AdminCancelProcessingResponse;
 }
 
 async function requestAdminBookHtmlUpload({
@@ -529,6 +563,23 @@ export function useAdminBookResetProcessingMutation(bookId: string) {
   return useMutation({
     mutationFn: (input: AdminResetProcessingInput) =>
       resetAdminBookProcessing({
+        bookId,
+        input,
+      }),
+    onSuccess: async () => {
+      await Promise.all(
+        createInvalidationTargets(bookId).map((target) => queryClient.invalidateQueries(target))
+      );
+    },
+  });
+}
+
+export function useAdminBookCancelProcessingMutation(bookId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: AdminCancelProcessingInput) =>
+      cancelAdminBookProcessing({
         bookId,
         input,
       }),

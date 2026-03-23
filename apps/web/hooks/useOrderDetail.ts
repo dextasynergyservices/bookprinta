@@ -3,17 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
 import { dashboardHistoryQueryOptions } from "@/lib/dashboard/query-defaults";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import { ordersQueryKeys } from "./useOrders";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -218,7 +209,7 @@ export async function fetchOrderDetail({
 }: FetchOrderDetailParams): Promise<OrderDetailSummary> {
   let response: Response;
   try {
-    response = await fetch(`${API_V1_BASE_URL}/orders/${requestedOrderId}`, {
+    response = await fetchApiV1WithRefresh(`/orders/${requestedOrderId}`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",

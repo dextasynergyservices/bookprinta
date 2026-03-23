@@ -60,9 +60,23 @@ const HTML_FALLBACK_ALLOWED_STATUSES = new Set<BookStatus>([
  * to re-enqueue AI formatting from scratch.
  */
 const RESET_PROCESSING_ALLOWED_STATUSES = new Set<BookStatus>([
-  "FORMATTING_REVIEW",
+  "UPLOADED",
   "AI_PROCESSING",
+  "FORMATTING",
   "FORMATTED",
+  "FORMATTING_REVIEW",
+]);
+
+/**
+ * Statuses where an admin can cancel processing entirely,
+ * reverting the book back to UPLOADED without re-queuing any jobs.
+ */
+const CANCEL_PROCESSING_ALLOWED_STATUSES = new Set<BookStatus>([
+  "UPLOADED",
+  "AI_PROCESSING",
+  "FORMATTING",
+  "FORMATTED",
+  "FORMATTING_REVIEW",
 ]);
 
 export type AdminBookStatusProjection = {
@@ -102,6 +116,10 @@ export function canUploadAdminHtmlFallback(book: AdminBookStatusInput): boolean 
 
 export function canResetProcessingPipeline(book: AdminBookStatusInput): boolean {
   return RESET_PROCESSING_ALLOWED_STATUSES.has(book.status) && book.status !== "REJECTED";
+}
+
+export function canCancelProcessing(book: AdminBookStatusInput): boolean {
+  return CANCEL_PROCESSING_ALLOWED_STATUSES.has(book.status) && book.status !== "REJECTED";
 }
 
 export function humanizeAdminBookStatus(status: string): string {

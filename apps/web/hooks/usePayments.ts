@@ -1,13 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
+import { fetchApiV1WithRefresh, getApiV1BaseUrl } from "@/lib/fetch-with-refresh";
 
 const API_V1_BASE_URL = getApiV1BaseUrl();
 
@@ -165,7 +158,7 @@ export async function initializePayment(payload: InitializePaymentInput) {
 }
 
 export async function payExtraPages(payload: ExtraPagesPaymentInput) {
-  const response = await fetch(`${API_V1_BASE_URL}/payments/extra-pages`, {
+  const response = await fetchApiV1WithRefresh("/payments/extra-pages", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -180,7 +173,7 @@ export async function payExtraPages(payload: ExtraPagesPaymentInput) {
 }
 
 export async function payReprint(payload: ReprintPaymentInput) {
-  const response = await fetch(`${API_V1_BASE_URL}/payments/reprint`, {
+  const response = await fetchApiV1WithRefresh("/payments/reprint", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -200,8 +193,8 @@ export async function verifyPayment(reference: string, provider?: string | null)
     query.set("provider", provider);
   }
 
-  const response = await fetch(
-    `${API_V1_BASE_URL}/payments/verify/${encodeURIComponent(reference)}${
+  const response = await fetchApiV1WithRefresh(
+    `/payments/verify/${encodeURIComponent(reference)}${
       query.size > 0 ? `?${query.toString()}` : ""
     }`,
     {
@@ -285,8 +278,8 @@ export async function submitBankTransfer(payload: BankTransferInput) {
 }
 
 export async function approveBankTransferByAdmin(paymentId: string, adminNote?: string) {
-  const response = await fetch(
-    `${API_V1_BASE_URL}/admin/payments/${encodeURIComponent(paymentId)}/approve-transfer`,
+  const response = await fetchApiV1WithRefresh(
+    `/admin/payments/${encodeURIComponent(paymentId)}/approve-transfer`,
     {
       method: "POST",
       credentials: "include",
@@ -305,8 +298,8 @@ export async function approveBankTransferByAdmin(paymentId: string, adminNote?: 
 }
 
 export async function rejectBankTransferByAdmin(paymentId: string, adminNote: string) {
-  const response = await fetch(
-    `${API_V1_BASE_URL}/admin/payments/${encodeURIComponent(paymentId)}/reject-transfer`,
+  const response = await fetchApiV1WithRefresh(
+    `/admin/payments/${encodeURIComponent(paymentId)}/reject-transfer`,
     {
       method: "POST",
       credentials: "include",

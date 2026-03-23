@@ -44,16 +44,8 @@ import {
   dashboardLiveQueryOptions,
   dashboardRealtimeQueryOptions,
 } from "@/lib/dashboard/query-defaults";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 const DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE = 50;
 
 export const dashboardNotificationsQueryKeys = {
@@ -112,7 +104,7 @@ async function fetchNotificationUnreadCount({
   signal?: AbortSignal;
 } = {}): Promise<QueryDataWithFallback<NotificationUnreadCountResponse>> {
   try {
-    const response = await fetch(`${API_V1_BASE_URL}/notifications/unread-count`, {
+    const response = await fetchApiV1WithRefresh("/notifications/unread-count", {
       method: "GET",
       credentials: "include",
       cache: "no-store",
@@ -161,7 +153,7 @@ export async function fetchNotificationsPage({
 
   let response: Response;
   try {
-    response = await fetch(`${API_V1_BASE_URL}/notifications?${params.toString()}`, {
+    response = await fetchApiV1WithRefresh(`/notifications?${params.toString()}`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",
@@ -189,7 +181,7 @@ export async function fetchNotificationsPage({
 async function markNotificationReadRequest({
   notificationId,
 }: NotificationReadMutationInput): Promise<NotificationMarkReadResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/notifications/${notificationId}/read`, {
+  const response = await fetchApiV1WithRefresh(`/notifications/${notificationId}/read`, {
     method: "PATCH",
     credentials: "include",
     cache: "no-store",
@@ -204,7 +196,7 @@ async function markNotificationReadRequest({
 }
 
 async function markAllNotificationsReadRequest(): Promise<NotificationMarkAllReadResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/notifications/read-all`, {
+  const response = await fetchApiV1WithRefresh("/notifications/read-all", {
     method: "PATCH",
     credentials: "include",
     cache: "no-store",
@@ -224,7 +216,7 @@ async function fetchReviewState({
   signal?: AbortSignal;
 } = {}): Promise<ReviewStateQueryData> {
   try {
-    const response = await fetch(`${API_V1_BASE_URL}/reviews/my`, {
+    const response = await fetchApiV1WithRefresh("/reviews/my", {
       method: "GET",
       credentials: "include",
       cache: "no-store",
@@ -254,7 +246,7 @@ async function fetchReviewState({
 }
 
 async function createReviewRequest(input: CreateReviewBodyInput): Promise<CreateReviewResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/reviews`, {
+  const response = await fetchApiV1WithRefresh("/reviews", {
     method: "POST",
     credentials: "include",
     cache: "no-store",

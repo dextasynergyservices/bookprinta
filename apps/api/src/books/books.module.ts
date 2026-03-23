@@ -2,6 +2,7 @@ import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
 import { MulterModule } from "@nestjs/platform-express";
 import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
+import { EngineModule } from "../engine/engine.module.js";
 import { FilesModule } from "../files/files.module.js";
 import {
   QUEUE_AI_FORMATTING,
@@ -31,6 +32,7 @@ import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
     FilesModule,
     NotificationsModule,
     RolloutModule,
+    EngineModule,
   ],
   controllers: [BooksController, AdminBooksController],
   providers: [BooksService, BooksPipelineService, ManuscriptAnalysisService],

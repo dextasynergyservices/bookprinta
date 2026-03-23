@@ -8,16 +8,7 @@ import {
   DASHBOARD_STATUS_STALE_TIME_MS,
   dashboardBaseQueryOptions,
 } from "@/lib/dashboard/query-defaults";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 
 function resolveBookId(bookId: string | null | undefined): string | null {
   if (typeof bookId !== "string") return null;
@@ -75,15 +66,12 @@ export async function fetchBookReprintConfig({
   let response: Response;
 
   try {
-    response = await fetch(
-      `${API_V1_BASE_URL}/books/${encodeURIComponent(bookId)}/reprint-config`,
-      {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-        signal,
-      }
-    );
+    response = await fetchApiV1WithRefresh(`/books/${encodeURIComponent(bookId)}/reprint-config`, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      signal,
+    });
   } catch (error) {
     if (isAbortError(error)) {
       throw error;

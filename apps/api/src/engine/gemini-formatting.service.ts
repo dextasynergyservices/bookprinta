@@ -1,14 +1,19 @@
+import { createHash } from "node:crypto";
 import type { BookFontSize, BookPageSize } from "@bookprinta/shared";
-import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { Injectable, Logger, Optional, ServiceUnavailableException } from "@nestjs/common";
+import { RedisService } from "../redis/redis.service.js";
 
 const GEMINI_ENDPOINT_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
-const GEMINI_TIMEOUT_FALLBACK_MODEL = "gemini-2.5-flash-lite";
-const CHUNK_TRIGGER_WORD_COUNT = 8_000;
-const TARGET_CHUNK_WORDS = 5_000;
-const DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 45_000;
+const CHUNK_TRIGGER_WORD_COUNT = 12_000;
+const TARGET_CHUNK_WORDS = 10_000;
+const DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 90_000;
 const MIN_GEMINI_REQUEST_TIMEOUT_MS = 45_000;
 const MAX_TRANSIENT_RETRIES_PER_MODEL = 2;
+const CHUNK_CACHE_TTL_SECONDS = 7200; // 2 hours
+const MAX_429_WAIT_SECONDS = 120;
+const MAX_429_RETRIES = 3;
+const PARALLEL_CHUNK_CONCURRENCY = 5;
 const MAJOR_HEADING_PREFIX_PATTERN =
   /^(chapter|part|book|appendix|prologue|epilogue|introduction|foreword|preface|afterword|conclusion|table of contents|contents)\b/i;
 const ROMAN_NUMERAL_PATTERN = /^(?:[ivxlcdm]+)$/i;
@@ -33,6 +38,15 @@ export type FormatManuscriptInput = {
   pageSize: BookPageSize;
   fontSize: BookFontSize;
   bookId: string;
+  /** Called when each chunk completes.
+   *  The fragment is raw HTML body content — NOT wrapped in a full document.
+   *  `completedCount` = total chunks finished so far (1-based). */
+  onChunkComplete?: (
+    fragment: string,
+    chunkIndex: number,
+    totalChunks: number,
+    completedCount: number
+  ) => Promise<void>;
 };
 
 export type FormatManuscriptOutput = {
@@ -52,6 +66,8 @@ type GeneratedChunkResult = {
 export class GeminiFormattingService {
   private readonly logger = new Logger(GeminiFormattingService.name);
 
+  constructor(@Optional() private readonly redis?: RedisService) {}
+
   async formatManuscript(input: FormatManuscriptInput): Promise<FormatManuscriptOutput> {
     const sourceText = input.text.trim();
     if (sourceText.length === 0) {
@@ -60,41 +76,41 @@ export class GeminiFormattingService {
 
     const inputWordCount = this.countWords(sourceText);
     const chunks = this.splitIntoChunks(sourceText, inputWordCount);
-    const fragments: string[] = [];
+    const inputHash = this.computeInputHash(sourceText, input.pageSize, input.fontSize);
     const usedModels = new Set<string>();
+    let apiCalls = 0;
+    let cacheHits = 0;
+    const formatStartedAt = Date.now();
 
-    for (let index = 0; index < chunks.length; index += 1) {
-      const chunk = chunks[index];
-      const prompt = this.buildPrompt({
-        chunk,
-        chunkIndex: index + 1,
-        chunkCount: chunks.length,
-        pageSize: input.pageSize,
-        fontSize: input.fontSize,
-      });
-      const startedAt = Date.now();
-      const generated = await this.generateChunk(prompt);
-      const durationMs = Date.now() - startedAt;
-      const durationLabel = `${durationMs}ms`;
-      if (durationMs >= 15_000) {
-        this.logger.warn(
-          `Gemini chunk ${index + 1}/${chunks.length} for book ${input.bookId} took ${durationLabel} using ${generated.model}`
-        );
-      } else {
-        this.logger.debug?.(
-          `Gemini chunk ${index + 1}/${chunks.length} for book ${input.bookId} took ${durationLabel} using ${generated.model}`
-        );
-      }
-      usedModels.add(generated.model);
-      fragments.push(this.normalizeGeneratedFragment(generated.text));
-    }
+    // Process chunks in parallel with controlled concurrency
+    const results = await this.processChunksParallel(
+      chunks,
+      input,
+      inputHash,
+      (model) => usedModels.add(model),
+      () => {
+        apiCalls += 1;
+      },
+      () => {
+        cacheHits += 1;
+      },
+      input.onChunkComplete
+    );
+    const fragments = results.map((r) => r.fragment);
 
     const mergedFragment = fragments.join("\n\n");
     const html = this.wrapFragmentAsHtml(this.applyDeterministicBookStructure(mergedFragment));
     const outputWordCount = this.countWords(this.stripHtml(html));
+    const totalDurationMs = Date.now() - formatStartedAt;
+
+    // Clean up chunk cache after successful completion
+    await this.clearChunkCache(input.bookId, inputHash, chunks.length);
 
     this.logger.log(
-      `Gemini formatting complete for book ${input.bookId}: ${chunks.length} chunk(s), ${inputWordCount} -> ${outputWordCount} words`
+      `Gemini formatting complete for book ${input.bookId}: ` +
+        `${chunks.length} chunk(s), ${apiCalls} API call(s), ${cacheHits} cache hit(s), ` +
+        `${inputWordCount} → ${outputWordCount} words, ${totalDurationMs}ms total, ` +
+        `model=${Array.from(usedModels).join(", ")}`
     );
 
     return {
@@ -104,6 +120,98 @@ export class GeminiFormattingService {
       chunkCount: chunks.length,
       model: Array.from(usedModels).join(", "),
     };
+  }
+
+  /**
+   * Processes chunks with controlled concurrency (up to PARALLEL_CHUNK_CONCURRENCY at once).
+   * Chunks are independent — results are reassembled in original order after all complete.
+   * For single-chunk manuscripts (the common case), this is effectively sequential.
+   */
+  private async processChunksParallel(
+    chunks: string[],
+    input: FormatManuscriptInput,
+    inputHash: string,
+    onModel: (model: string) => void,
+    onApiCall: () => void,
+    onCacheHit: () => void,
+    onChunkComplete?: (
+      fragment: string,
+      chunkIndex: number,
+      totalChunks: number,
+      completedCount: number
+    ) => Promise<void>
+  ): Promise<Array<{ fragment: string }>> {
+    const results = new Array<{ fragment: string }>(chunks.length);
+    let nextIndex = 0;
+    const total = chunks.length;
+    let completedCount = 0;
+
+    const processOne = async (): Promise<void> => {
+      while (nextIndex < total) {
+        const index = nextIndex;
+        nextIndex += 1;
+
+        // Checkpoint: check Redis cache for previously completed chunk
+        const cached = await this.getCachedChunk(input.bookId, inputHash, index);
+        if (cached) {
+          onCacheHit();
+          onModel(cached.model);
+          results[index] = { fragment: this.normalizeGeneratedFragment(cached.text) };
+          this.logger.debug?.(
+            `Gemini chunk ${index + 1}/${total} for book ${input.bookId} restored from cache`
+          );
+
+          // Notify progress
+          completedCount += 1;
+          if (onChunkComplete) {
+            await onChunkComplete(results[index].fragment, index, total, completedCount).catch(
+              () => {}
+            );
+          }
+          continue;
+        }
+
+        const prompt = this.buildPrompt({
+          chunk: chunks[index],
+          chunkIndex: index + 1,
+          chunkCount: total,
+          pageSize: input.pageSize,
+          fontSize: input.fontSize,
+        });
+        const startedAt = Date.now();
+        const generated = await this.generateChunk(prompt);
+        onApiCall();
+        const durationMs = Date.now() - startedAt;
+        if (durationMs >= 15_000) {
+          this.logger.warn(
+            `Gemini chunk ${index + 1}/${total} for book ${input.bookId} took ${durationMs}ms using ${generated.model}`
+          );
+        } else {
+          this.logger.debug?.(
+            `Gemini chunk ${index + 1}/${total} for book ${input.bookId} took ${durationMs}ms using ${generated.model}`
+          );
+        }
+        onModel(generated.model);
+        results[index] = { fragment: this.normalizeGeneratedFragment(generated.text) };
+
+        // Checkpoint: save completed chunk to Redis for retry resilience
+        await this.setCachedChunk(input.bookId, inputHash, index, generated);
+
+        completedCount += 1;
+        if (onChunkComplete) {
+          await onChunkComplete(results[index].fragment, index, total, completedCount).catch(
+            () => {}
+          );
+        }
+      }
+    };
+
+    // Launch up to PARALLEL_CHUNK_CONCURRENCY workers
+    const concurrency = Math.min(PARALLEL_CHUNK_CONCURRENCY, chunks.length);
+    const workers = Array.from({ length: concurrency }, () => processOne());
+    await Promise.all(workers);
+
+    return results;
   }
 
   private splitIntoChunks(text: string, totalWords: number): string[] {
@@ -229,8 +337,8 @@ export class GeminiFormattingService {
 
   private async generateChunk(prompt: string): Promise<GeneratedChunkResult> {
     const configuredModel = this.getModel();
-    const fallbackModel = this.resolveFallbackModel(configuredModel);
-    const modelsToTry = [configuredModel, fallbackModel].filter(
+    const fallbackModels = this.getFallbackModels();
+    const modelsToTry = [configuredModel, ...fallbackModels].filter(
       (value, index, all): value is string => Boolean(value) && all.indexOf(value) === index
     );
 
@@ -258,7 +366,7 @@ export class GeminiFormattingService {
           }
 
           const hasAnotherModel = model !== modelsToTry[modelsToTry.length - 1];
-          if (hasAnotherModel && isTransient && this.shouldTryAlternateModel(model, error)) {
+          if (hasAnotherModel && isTransient && this.shouldTryAlternateModel(error)) {
             this.logger.warn(
               `Gemini request using ${model} failed. Retrying with alternate model.`
             );
@@ -272,27 +380,32 @@ export class GeminiFormattingService {
     throw lastError ?? new Error("Gemini chunk generation failed.");
   }
 
-  private resolveFallbackModel(model: string): string | null {
-    if (model === GEMINI_TIMEOUT_FALLBACK_MODEL) {
-      return null;
+  /**
+   * Returns explicitly configured fallback models from GEMINI_FALLBACK_MODEL env.
+   * Supports comma-separated list for multiple fallback pools:
+   *   GEMINI_FALLBACK_MODEL=gemini-2.0-flash,gemini-1.5-flash
+   * Each model has its own rate limit, so more models = more effective RPM.
+   */
+  private getFallbackModels(): string[] {
+    const configured = process.env.GEMINI_FALLBACK_MODEL?.trim();
+    if (!configured || configured.length === 0) {
+      return [];
     }
-
-    if (model === DEFAULT_GEMINI_MODEL) {
-      return GEMINI_TIMEOUT_FALLBACK_MODEL;
-    }
-
-    return GEMINI_TIMEOUT_FALLBACK_MODEL;
+    return configured
+      .split(",")
+      .map((m) => m.trim())
+      .filter((m) => m.length > 0);
   }
 
-  private shouldTryAlternateModel(model: string, error: unknown): boolean {
-    if (model === GEMINI_TIMEOUT_FALLBACK_MODEL) {
-      return false;
-    }
-
+  private shouldTryAlternateModel(error: unknown): boolean {
     return !this.isQuotaExhaustedGeminiError(error);
   }
 
-  private async generateChunkWithModel(prompt: string, model: string): Promise<string> {
+  private async generateChunkWithModel(
+    prompt: string,
+    model: string,
+    rateLimitRetry = 0
+  ): Promise<string> {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       throw new ServiceUnavailableException(
@@ -342,8 +455,30 @@ export class GeminiFormattingService {
       clearTimeout(timeout);
     }
 
+    // Handle 429 rate limit: wait for Retry-After and retry up to MAX_429_RETRIES times
+    // without consuming a BullMQ/transient retry attempt.
+    // Free-tier 429s are per-minute rate limits that clear quickly with backoff.
+    if (response.status === 429 && rateLimitRetry < MAX_429_RETRIES) {
+      const retryAfterSeconds = this.parseRetryAfterSeconds(response);
+      const backoffMultiplier = rateLimitRetry + 1;
+      const waitSeconds = Math.min(retryAfterSeconds * backoffMultiplier, MAX_429_WAIT_SECONDS);
+      this.logger.warn(
+        `Gemini 429 rate limit on ${model} (attempt ${rateLimitRetry + 1}/${MAX_429_RETRIES}). Waiting ${waitSeconds}s before retry.`
+      );
+      await this.delay(waitSeconds * 1000);
+      return this.generateChunkWithModel(prompt, model, rateLimitRetry + 1);
+    }
+
     if (!response.ok) {
       const text = await response.text();
+      // 429 after retry: treat as transient rate limit, NOT permanent quota exhaustion.
+      // Gemini uses RESOURCE_EXHAUSTED status for per-minute rate limits too,
+      // so we must use a distinct error message that won't be misclassified.
+      if (response.status === 429) {
+        throw new Error(
+          `Gemini rate limited (429) on ${model}. Per-minute request limit likely exceeded.`
+        );
+      }
       throw new Error(`Gemini request failed (${response.status}): ${text}`);
     }
 
@@ -373,6 +508,7 @@ export class GeminiFormattingService {
 
     return (
       message.includes("timed out") ||
+      message.includes("rate limited") ||
       message.includes("429") ||
       message.includes("500") ||
       message.includes("503") ||
@@ -384,6 +520,13 @@ export class GeminiFormattingService {
   private isQuotaExhaustedGeminiError(error: unknown): boolean {
     const message =
       error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+    // 429/rate-limit errors use the same RESOURCE_EXHAUSTED gRPC status
+    // but are transient (per-minute limit), not permanent quota exhaustion.
+    // Only treat non-429 errors containing quota keywords as true exhaustion.
+    if (message.includes("rate limited") || message.includes("429")) {
+      return false;
+    }
 
     return message.includes("resource_exhausted") || message.includes("quota exceeded");
   }
@@ -599,5 +742,91 @@ export class GeminiFormattingService {
     }
 
     return DEFAULT_GEMINI_REQUEST_TIMEOUT_MS;
+  }
+
+  // ─── Chunk checkpointing (Redis) ──────────────────────────────
+
+  private computeInputHash(text: string, pageSize: string, fontSize: number): string {
+    return createHash("sha256")
+      .update(`${pageSize}|${fontSize}|${text}`)
+      .digest("hex")
+      .slice(0, 12);
+  }
+
+  private getChunkCacheKey(bookId: string, inputHash: string, chunkIndex: number): string {
+    return `bp:gemini-chunk:${bookId}:${inputHash}:${chunkIndex}`;
+  }
+
+  private async getCachedChunk(
+    bookId: string,
+    inputHash: string,
+    chunkIndex: number
+  ): Promise<GeneratedChunkResult | null> {
+    try {
+      const client = this.redis?.getClient();
+      if (!client) return null;
+      const raw = await client.get(this.getChunkCacheKey(bookId, inputHash, chunkIndex));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { text?: string; model?: string };
+      if (typeof parsed.text === "string" && typeof parsed.model === "string") {
+        return { text: parsed.text, model: parsed.model };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async setCachedChunk(
+    bookId: string,
+    inputHash: string,
+    chunkIndex: number,
+    result: GeneratedChunkResult
+  ): Promise<void> {
+    try {
+      const client = this.redis?.getClient();
+      if (!client) return;
+      await client.set(
+        this.getChunkCacheKey(bookId, inputHash, chunkIndex),
+        JSON.stringify({ text: result.text, model: result.model }),
+        "EX",
+        CHUNK_CACHE_TTL_SECONDS
+      );
+    } catch {
+      // Cache write failure is non-critical
+    }
+  }
+
+  private async clearChunkCache(
+    bookId: string,
+    inputHash: string,
+    chunkCount: number
+  ): Promise<void> {
+    try {
+      const client = this.redis?.getClient();
+      if (!client) return;
+      const keys = Array.from({ length: chunkCount }, (_, i) =>
+        this.getChunkCacheKey(bookId, inputHash, i)
+      );
+      if (keys.length > 0) {
+        await client.del(...keys);
+      }
+    } catch {
+      // Cache cleanup failure is non-critical
+    }
+  }
+
+  // ─── 429 rate-limit handling ──────────────────────────────────
+
+  private parseRetryAfterSeconds(response: Response): number {
+    const header = response.headers.get("retry-after");
+    if (header) {
+      const seconds = Number(header);
+      if (Number.isFinite(seconds) && seconds > 0) {
+        return Math.min(seconds, MAX_429_WAIT_SECONDS);
+      }
+    }
+    // Default: 60 seconds for Gemini free tier rate limits
+    return 60;
   }
 }

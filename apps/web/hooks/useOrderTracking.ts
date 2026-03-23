@@ -4,22 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { normalizeBookProgressPayload } from "@/lib/api/book-progress-contract";
 import { throwApiError } from "@/lib/api-error";
 import { dashboardStatusPollingQueryOptions } from "@/lib/dashboard/query-defaults";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import {
   BOOK_PROGRESS_STAGES,
   type BookProcessingState,
   type BookProgressNormalizedResponse,
   type BookRolloutState,
 } from "@/types/book-progress";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -130,7 +121,7 @@ export async function fetchOrderTracking({
 }: FetchOrderTrackingParams): Promise<OrderTrackingNormalizedResponse> {
   let response: Response;
   try {
-    response = await fetch(`${API_V1_BASE_URL}/orders/${requestedOrderId}/tracking`, {
+    response = await fetchApiV1WithRefresh(`/orders/${requestedOrderId}/tracking`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",
