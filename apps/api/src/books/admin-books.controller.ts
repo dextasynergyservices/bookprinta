@@ -34,6 +34,8 @@ import {
   AdminBooksListQueryDto,
   AdminBooksListResponseDto,
   AdminBookVersionFileDownloadParamsDto,
+  AdminCancelProcessingDto,
+  AdminCancelProcessingResponseDto,
   AdminRejectBookDto,
   AdminRejectBookResponseDto,
   AdminResetProcessingDto,
@@ -304,5 +306,40 @@ export class AdminBooksController {
     @CurrentUser("sub") adminId: string
   ): Promise<AdminResetProcessingResponseDto> {
     return this.booksService.resetAdminBookProcessing(params.id, dto, adminId);
+  }
+
+  @Post(":id/cancel-processing")
+  @HttpCode(HttpStatus.OK)
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Cancel manuscript processing",
+    description:
+      "Cancels all active processing jobs and reverts the book back to UPLOADED status. " +
+      "Use this to stop AI formatting or page counting that should not continue.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Book CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiOkResponse({
+    description: "Processing cancelled and book reverted to UPLOADED",
+    type: AdminCancelProcessingResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Book processing cannot be cancelled at its current stage",
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 403, description: "Forbidden — admin role required" })
+  @ApiResponse({ status: 409, description: "Conflict — book version is stale" })
+  @ApiResponse({ status: 404, description: "Book not found" })
+  async cancelProcessing(
+    @Param() params: BookParamsDto,
+    @Body() dto: AdminCancelProcessingDto,
+    @CurrentUser("sub") adminId: string
+  ): Promise<AdminCancelProcessingResponseDto> {
+    return this.booksService.cancelAdminBookProcessing(params.id, dto, adminId);
   }
 }

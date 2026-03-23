@@ -8,6 +8,8 @@ import {
   AdminBooksListQuerySchema,
   AdminBooksListResponseSchema,
   AdminBookVersionFileDownloadParamsSchema,
+  AdminCancelProcessingResponseSchema,
+  AdminCancelProcessingSchema,
   AdminRejectBookResponseSchema,
   AdminRejectBookSchema,
   AdminResetProcessingResponseSchema,
@@ -178,4 +180,12 @@ export class AdminResetProcessingDto extends createZodDto(AdminResetProcessingSc
 /** Response for POST /api/v1/admin/books/:id/reset-processing */
 export class AdminResetProcessingResponseDto extends createZodDto(
   AdminResetProcessingResponseSchema
+) {}
+
+/** Body for POST /api/v1/admin/books/:id/cancel-processing */
+export class AdminCancelProcessingDto extends createZodDto(AdminCancelProcessingSchema) {}
+
+/** Response for POST /api/v1/admin/books/:id/cancel-processing */
+export class AdminCancelProcessingResponseDto extends createZodDto(
+  AdminCancelProcessingResponseSchema
 ) {}

@@ -75,9 +75,22 @@ export function Footer() {
   };
 
   return (
-    <footer className="bg-primary text-primary-foreground">
+    <footer className="relative bg-primary text-primary-foreground">
+      {/* ── Background pattern ── */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.20]"
+        aria-hidden="true"
+        style={{
+          backgroundImage:
+            "url(https://res.cloudinary.com/dxoorukfj/image/upload/v1774276632/bg_-_bp_v39dky.png)",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      />
+
       {/* ─── CTA Section — "Say hello" ─── */}
-      <div className="border-b border-white/10">
+      <div className="relative border-b border-white/10">
         <div className="mx-auto max-w-7xl px-6 py-20 lg:px-8 lg:py-28">
           <h2 className="font-display text-4xl font-bold tracking-tight md:text-5xl lg:text-6xl">
             {t("say_hello")}
@@ -95,7 +108,7 @@ export function Footer() {
       </div>
 
       {/* ─── Links + Info Grid ─── */}
-      <div className="border-b border-white/10">
+      <div className="relative border-b border-white/10">
         <div className="mx-auto max-w-7xl px-6 py-12 lg:px-8 lg:py-16">
           {/* Logo */}
           <div className="mb-10">
@@ -209,7 +222,7 @@ export function Footer() {
       </div>
 
       {/* ─── Bottom Bar — Legal + Company number ─── */}
-      <div className="border-t border-white/10">
+      <div className="relative border-t border-white/10">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-6 py-5 md:flex-row lg:px-8">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             {legalLinks.map(({ href, labelKey }) => (

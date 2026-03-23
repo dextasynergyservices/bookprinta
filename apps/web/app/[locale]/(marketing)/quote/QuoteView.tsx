@@ -270,6 +270,7 @@ function waitForEstimateLoadingDuration(ms: number, signal?: AbortSignal): Promi
   });
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: estimated price UI commented out temporarily
 function AnimatedPriceValue({ value }: { value: number }) {
   const prefersReducedMotion = useReducedMotion();
   const previousValueRef = useRef(value);
@@ -457,8 +458,10 @@ function QuoteViewInner() {
   const disableSubmitButton =
     currentStep === STEP_COUNT - 1 &&
     (!step4Valid || isSubmitting || (shouldShowEstimator && !isEstimatorReadyForCurrentInput));
+  // biome-ignore lint/correctness/noUnusedVariables: estimated price UI commented out temporarily
   const estimateLoadingMessageKey =
     estimateLoadingStage === "finalizing" ? "estimate_loading_finalizing" : "estimate_loading";
+  // biome-ignore lint/correctness/noUnusedVariables: estimated price UI commented out temporarily
   const estimateLoadingProgress = estimateLoadingStage === "finalizing" ? "100%" : "68%";
 
   const stepTransitionVariants = {
@@ -1177,6 +1180,7 @@ function QuoteViewInner() {
               ) : null}
             </div>
 
+            {/* --- Estimated price panel commented out (uncomment when needed) ---
             {shouldShowEstimator ? (
               <div className="rounded-2xl border border-[#2A2A2A] bg-white/[0.02] p-5">
                 <p className="font-display text-xl font-bold text-white">{t("estimate_heading")}</p>
@@ -1244,6 +1248,7 @@ function QuoteViewInner() {
                 ) : null}
               </div>
             ) : null}
+            --- End estimated price panel --- */}
 
             {shouldShowManualPricingNote ? (
               <div className="rounded-2xl border border-[#2A2A2A] bg-white/[0.02] p-5">
@@ -1387,6 +1392,7 @@ function QuoteViewInner() {
                         {new Intl.NumberFormat("en-NG").format(submittedQuote.quantity)}
                       </dd>
                     </div>
+                    {/* --- Estimated price row commented out (uncomment when needed) ---
                     <div className="flex items-start justify-between gap-4">
                       <dt className="text-white/60">{t("confirmation_summary_price")}</dt>
                       <dd className="text-right text-white">
@@ -1395,6 +1401,7 @@ function QuoteViewInner() {
                           : `${formatNaira(submittedQuote.estimatedPriceLow ?? 0)} — ${formatNaira(submittedQuote.estimatedPriceHigh ?? 0)}`}
                       </dd>
                     </div>
+                    --- End estimated price row --- */}
                   </dl>
                 </motion.div>
 

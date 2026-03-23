@@ -4,22 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { normalizeBookProgressPayload } from "@/lib/api/book-progress-contract";
 import { throwApiError } from "@/lib/api-error";
 import { dashboardStatusPollingQueryOptions } from "@/lib/dashboard/query-defaults";
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 import {
   BOOK_PROGRESS_STAGES,
   type BookProcessingState,
   type BookProgressNormalizedResponse,
   type BookRolloutState,
 } from "@/types/book-progress";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
 
 export interface ApproveBookInput {
   bookId: string;
@@ -129,7 +120,7 @@ export async function fetchBookProgress({
 }: FetchBookProgressParams): Promise<BookProgressNormalizedResponse> {
   let response: Response;
   try {
-    response = await fetch(`${API_V1_BASE_URL}/books/${requestedBookId}`, {
+    response = await fetchApiV1WithRefresh(`/books/${requestedBookId}`, {
       method: "GET",
       credentials: "include",
       cache: "no-store",
@@ -165,7 +156,7 @@ export async function approveBookForProduction({
   bookId,
   gateSnapshot,
 }: ApproveBookInput): Promise<ApproveBookResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/books/${encodeURIComponent(bookId)}/approve`, {
+  const response = await fetchApiV1WithRefresh(`/books/${encodeURIComponent(bookId)}/approve`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -180,7 +171,7 @@ export async function approveBookForProduction({
 }
 
 export async function reprocessBookManuscript(bookId: string): Promise<ReprocessBookResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/books/${encodeURIComponent(bookId)}/reprocess`, {
+  const response = await fetchApiV1WithRefresh(`/books/${encodeURIComponent(bookId)}/reprocess`, {
     method: "POST",
     credentials: "include",
   });

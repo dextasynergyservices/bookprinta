@@ -27,16 +27,7 @@ import {
 } from "@/lib/api/users-contract";
 import { throwApiError } from "@/lib/api-error";
 import { dashboardLiveQueryOptions } from "@/lib/dashboard/query-defaults";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 
 export const MY_PROFILE_QUERY_KEY = ["dashboard", "user", "profile"] as const;
 
@@ -85,7 +76,7 @@ async function fetchMyProfile({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/users/me/profile`, {
+    response = await fetchApiV1WithRefresh("/users/me/profile", {
       method: "GET",
       credentials: "include",
       cache: "no-store",
@@ -110,7 +101,7 @@ async function fetchMyProfile({
 async function updateMyProfileRequest(
   input: UpdateMyProfileBodyInput
 ): Promise<UpdateMyProfileResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/users/me/profile`, {
+  const response = await fetchApiV1WithRefresh("/users/me/profile", {
     method: "PATCH",
     credentials: "include",
     cache: "no-store",
@@ -141,7 +132,7 @@ async function requestMyProfileImageUploadRequest(
         publicId: string;
       }
 ): Promise<RequestMyProfileImageUploadResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/users/me/profile/image`, {
+  const response = await fetchApiV1WithRefresh("/users/me/profile/image", {
     method: "POST",
     credentials: "include",
     cache: "no-store",
@@ -160,7 +151,7 @@ async function requestMyProfileImageUploadRequest(
 }
 
 async function deleteMyProfileImageRequest(): Promise<DeleteMyProfileImageResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/users/me/profile/image`, {
+  const response = await fetchApiV1WithRefresh("/users/me/profile/image", {
     method: "DELETE",
     credentials: "include",
     cache: "no-store",
@@ -177,7 +168,7 @@ async function deleteMyProfileImageRequest(): Promise<DeleteMyProfileImageRespon
 async function updateMyLanguageRequest(
   input: UpdateMyLanguageBodyInput
 ): Promise<UpdateMyLanguageResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/users/me/language`, {
+  const response = await fetchApiV1WithRefresh("/users/me/language", {
     method: "PATCH",
     credentials: "include",
     cache: "no-store",
@@ -198,7 +189,7 @@ async function updateMyLanguageRequest(
 async function changeMyPasswordRequest(
   input: ChangeMyPasswordBodyInput
 ): Promise<ChangeMyPasswordResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/users/me/password`, {
+  const response = await fetchApiV1WithRefresh("/users/me/password", {
     method: "PATCH",
     credentials: "include",
     cache: "no-store",
@@ -219,7 +210,7 @@ async function changeMyPasswordRequest(
 async function updateNotificationPreferencesRequest(
   input: UpdateMyNotificationPreferencesBodyInput
 ): Promise<UpdateMyNotificationPreferencesResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/users/me/notification-preferences`, {
+  const response = await fetchApiV1WithRefresh("/users/me/notification-preferences", {
     method: "PATCH",
     credentials: "include",
     cache: "no-store",

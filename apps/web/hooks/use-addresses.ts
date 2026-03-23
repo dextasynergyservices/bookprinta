@@ -18,16 +18,7 @@ import {
 } from "@/lib/api/addresses-contract";
 import { throwApiError } from "@/lib/api-error";
 import { dashboardLiveQueryOptions } from "@/lib/dashboard/query-defaults";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 
 export const DASHBOARD_ADDRESSES_QUERY_KEY = ["dashboard", "addresses"] as const;
 
@@ -107,7 +98,7 @@ export async function fetchAddresses({
   let response: Response;
 
   try {
-    response = await fetch(`${API_V1_BASE_URL}/addresses`, {
+    response = await fetchApiV1WithRefresh("/addresses", {
       method: "GET",
       credentials: "include",
       cache: "no-store",
@@ -132,7 +123,7 @@ export async function fetchAddresses({
 export async function createAddressRequest(
   input: CreateAddressBodyInput
 ): Promise<CreateAddressResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/addresses`, {
+  const response = await fetchApiV1WithRefresh("/addresses", {
     method: "POST",
     credentials: "include",
     cache: "no-store",
@@ -154,7 +145,7 @@ export async function updateAddressRequest({
   addressId,
   input,
 }: UpdateAddressRequestInput): Promise<UpdateAddressResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/addresses/${encodeURIComponent(addressId)}`, {
+  const response = await fetchApiV1WithRefresh(`/addresses/${encodeURIComponent(addressId)}`, {
     method: "PATCH",
     credentials: "include",
     cache: "no-store",
@@ -175,7 +166,7 @@ export async function updateAddressRequest({
 export async function deleteAddressRequest({
   addressId,
 }: DeleteAddressRequestInput): Promise<DeleteAddressResponse> {
-  const response = await fetch(`${API_V1_BASE_URL}/addresses/${encodeURIComponent(addressId)}`, {
+  const response = await fetchApiV1WithRefresh(`/addresses/${encodeURIComponent(addressId)}`, {
     method: "DELETE",
     credentials: "include",
     cache: "no-store",

@@ -62,15 +62,17 @@ export class JobsModule {
         // Queue: ai-formatting
         // Gemini AI manuscript formatting (CLAUDE.md Section 18.4)
         // Concurrency: 1, Rate limit: 5 jobs/min
-        // Retries: 3 with exponential backoff starting at 5s
+        // Retries: 2 with exponential backoff starting at 5s
+        // (Reduced from 3: chunk checkpointing + 429 backoff make retries cheaper,
+        //  but 3 attempts wasted too much Gemini quota on free tier)
         // ─────────────────────────────────────────────────────
         BullModule.registerQueue({
           name: QUEUE_AI_FORMATTING,
           defaultJobOptions: {
-            attempts: 3,
+            attempts: 2,
             backoff: {
               type: "exponential",
-              delay: 5000, // 5s → 10s → 20s
+              delay: 30_000, // 30s → 60s: generous spacing to let Gemini RPM limit reset
             },
             removeOnComplete: {
               count: 100, // Keep last 100 completed jobs for debugging
