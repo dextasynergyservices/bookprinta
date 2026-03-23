@@ -226,7 +226,11 @@ export class BooksPipelineService {
           jobRecordId: jobRecord.id,
           ...payload,
         },
-        { jobId: queueJobId }
+        {
+          jobId: queueJobId,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 10_000 },
+        }
       );
     } catch (error) {
       if (this.isDuplicateQueueJobError(error)) {
@@ -377,7 +381,11 @@ export class BooksPipelineService {
           jobRecordId: jobRecord.id,
           ...payload,
         },
-        { jobId: queueJobId }
+        {
+          jobId: queueJobId,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 5_000 },
+        }
       );
     } catch (error) {
       if (this.isDuplicateQueueJobError(error)) {
@@ -528,7 +536,11 @@ export class BooksPipelineService {
           jobRecordId: jobRecord.id,
           ...payload,
         },
-        { jobId: queueJobId }
+        {
+          jobId: queueJobId,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 10_000 },
+        }
       );
     } catch (error) {
       if (this.isDuplicateQueueJobError(error)) {
@@ -629,6 +641,77 @@ export class BooksPipelineService {
     this.logger.warn(
       `Removed terminal BullMQ job ${jobId} from ${queue.name} before re-enqueueing a fresh retry.`
     );
+  }
+
+  /**
+   * Cancel all active BullMQ jobs and DB job records for a book.
+   * Used by admin "Cancel Processing" to stop AI formatting / page counting mid-flight.
+   * Returns the number of queue jobs that were successfully removed.
+   */
+  async cancelActiveJobsForBook(bookId: string): Promise<number> {
+    let cancelledCount = 0;
+
+    const activeDbJobs = await this.prisma.job.findMany({
+      where: {
+        bookId,
+        status: { in: ["QUEUED", "PROCESSING"] },
+      },
+      select: { id: true, type: true },
+    });
+
+    const queues: { queue: Queue; prefix: string }[] = [
+      { queue: this.aiFormattingQueue, prefix: "format" },
+      { queue: this.pageCountQueue, prefix: "count-pages" },
+      { queue: this.pdfGenerationQueue, prefix: "generate-pdf" },
+    ];
+
+    for (const { queue, prefix } of queues) {
+      const removed = await this.removeActiveQueueJobsByPrefix(queue, `${prefix}:${bookId}:`);
+      cancelledCount += removed;
+    }
+
+    if (activeDbJobs.length > 0) {
+      await this.prisma.job.updateMany({
+        where: {
+          bookId,
+          status: { in: ["QUEUED", "PROCESSING"] },
+        },
+        data: {
+          status: "FAILED",
+          result: { cancelledByAdmin: true },
+          finishedAt: new Date(),
+        },
+      });
+
+      this.logger.warn(
+        `Marked ${activeDbJobs.length} active DB job(s) for book ${bookId} as FAILED (admin cancel).`
+      );
+    }
+
+    return cancelledCount;
+  }
+
+  private async removeActiveQueueJobsByPrefix(queue: Queue, prefix: string): Promise<number> {
+    let removed = 0;
+
+    for (const state of ["waiting", "active", "delayed"] as const) {
+      const jobs = await queue.getJobs(state);
+      for (const job of jobs) {
+        if (job.id?.startsWith(prefix)) {
+          try {
+            await job.remove();
+            removed++;
+            this.logger.warn(
+              `Removed ${state} BullMQ job ${job.id} from ${queue.name} (admin cancel).`
+            );
+          } catch {
+            // Job may have transitioned state between getJobs and remove — safe to ignore
+          }
+        }
+      }
+    }
+
+    return removed;
   }
 
   private isStaleActiveDbJob(job: {

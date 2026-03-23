@@ -3,16 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { throwApiError } from "@/lib/api-error";
 import { dashboardHistoryQueryOptions } from "@/lib/dashboard/query-defaults";
-
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
-const API_V1_BASE_URL = getApiV1BaseUrl();
+import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
 
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -143,8 +134,8 @@ export async function fetchBookPreview(params: {
   bookId: string;
   signal?: AbortSignal;
 }): Promise<BookPreviewSummary> {
-  const response = await fetch(
-    `${API_V1_BASE_URL}/books/${encodeURIComponent(params.bookId)}/preview`,
+  const response = await fetchApiV1WithRefresh(
+    `/books/${encodeURIComponent(params.bookId)}/preview`,
     {
       method: "GET",
       credentials: "include",
@@ -165,8 +156,8 @@ export async function fetchBookFiles(params: {
   bookId: string;
   signal?: AbortSignal;
 }): Promise<BookFilesSummary> {
-  const response = await fetch(
-    `${API_V1_BASE_URL}/books/${encodeURIComponent(params.bookId)}/files`,
+  const response = await fetchApiV1WithRefresh(
+    `/books/${encodeURIComponent(params.bookId)}/files`,
     {
       method: "GET",
       credentials: "include",

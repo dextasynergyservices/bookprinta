@@ -1,7 +1,8 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import type { Job } from "bullmq";
 import { GotenbergPageCountService } from "../engine/gotenberg-page-count.service.js";
+import { ProcessingEventsService } from "../engine/processing-events.service.js";
 import { FilesService } from "../files/files.service.js";
 import type { JobStatus, JobType } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -37,7 +38,8 @@ export class PdfGenerationProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gotenbergPageCount: GotenbergPageCountService,
-    private readonly filesService: FilesService
+    private readonly filesService: FilesService,
+    @Optional() private readonly processingEvents?: ProcessingEventsService
   ) {
     super();
   }
@@ -56,7 +58,28 @@ export class PdfGenerationProcessor extends WorkerHost {
 
     await this.markAttemptProcessing(payload, attempt);
 
+    // Emit SSE progress: PDF generation starting
+    await this.processingEvents?.emit(payload.bookId, {
+      type: "progress",
+      step: "GENERATING_FINAL_PDF",
+    });
+
     try {
+      // Optimization: Promote existing PREVIEW_PDF instead of re-rendering via Gotenberg.
+      // The page-count step already renders a clean (unwatermarked) PDF.
+      const promoted = await this.tryPromotePreviewPdf(payload, job);
+      if (promoted) {
+        await this.markAttemptCompleted(payload, promoted);
+        this.logger.log(
+          `Final PDF promoted from preview for book ${payload.bookId} (job=${payload.jobRecordId}) — skipped Gotenberg`
+        );
+        return promoted;
+      }
+
+      // Fallback: full Gotenberg render if no usable PREVIEW_PDF exists
+      this.logger.warn(
+        `No usable PREVIEW_PDF for book ${payload.bookId}; falling back to Gotenberg render.`
+      );
       const cleanedHtml = await this.fetchCleanedHtml(payload.cleanedHtmlUrl);
       const rendered = await this.gotenbergPageCount.renderPdf({
         html: cleanedHtml,
@@ -92,7 +115,72 @@ export class PdfGenerationProcessor extends WorkerHost {
         error: this.toErrorMessage(error),
         isFinalAttempt,
       });
+
+      if (isFinalAttempt) {
+        await this.processingEvents?.emit(payload.bookId, {
+          type: "error",
+          message: "PDF generation failed. Our team has been notified.",
+          retryable: false,
+        });
+      }
+
       throw error;
+    }
+  }
+
+  /**
+   * Try to promote the existing PREVIEW_PDF (rendered during page-count)
+   * to FINAL_PDF without calling Gotenberg again. Returns null if no
+   * usable preview exists.
+   */
+  private async tryPromotePreviewPdf(
+    payload: GeneratePdfPayload,
+    job: Job
+  ): Promise<GeneratePdfResult | null> {
+    try {
+      const previewFile = await this.prisma.file.findFirst({
+        where: {
+          bookId: payload.bookId,
+          fileType: "PREVIEW_PDF",
+        },
+        orderBy: { version: "desc" },
+        select: { id: true, url: true },
+      });
+
+      if (!previewFile?.url) return null;
+
+      // Fetch the existing PREVIEW_PDF buffer from Cloudinary
+      const response = await fetch(previewFile.url);
+      if (!response.ok) return null;
+      const arrayBuffer = await response.arrayBuffer();
+      const pdfBuffer = Buffer.from(arrayBuffer);
+
+      // Validate it's a real PDF (starts with %PDF)
+      if (pdfBuffer.length < 5 || pdfBuffer.toString("latin1", 0, 5) !== "%PDF-") {
+        return null;
+      }
+
+      // Save as FINAL_PDF
+      const { createHash } = await import("node:crypto");
+      const sha256 = createHash("sha256").update(pdfBuffer).digest("hex");
+
+      const finalFile = await this.filesService.saveGeneratedFile({
+        bookId: payload.bookId,
+        fileType: "FINAL_PDF",
+        fileName: `final-${String(job.id ?? payload.jobRecordId)}.pdf`,
+        mimeType: "application/pdf",
+        content: pdfBuffer,
+        publicId: `bookprinta/final-pdfs/${payload.bookId}/${String(job.id ?? payload.jobRecordId)}`,
+      });
+
+      return {
+        finalPdfFileId: finalFile.id,
+        finalPdfUrl: finalFile.url,
+        renderedPdfSha256: sha256,
+        progressStep: "GENERATING_FINAL_PDF",
+      };
+    } catch {
+      return null;
     }
   }
 

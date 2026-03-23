@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   ServiceUnavailableException,
   StreamableFile,
   UploadedFile,
@@ -26,9 +27,13 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { CurrentUser, JwtAuthGuard } from "../auth/index.js";
 import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
+import {
+  type ProcessingEvent,
+  ProcessingEventsService,
+} from "../engine/processing-events.service.js";
 import { BooksService } from "./books.service.js";
 import {
   ApproveBookDto,
@@ -51,7 +56,10 @@ import {
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth("access-token")
 export class BooksController {
-  constructor(private readonly booksService: BooksService) {}
+  constructor(
+    private readonly booksService: BooksService,
+    private readonly processingEvents: ProcessingEventsService
+  ) {}
 
   /**
    * GET /api/v1/books
@@ -357,6 +365,109 @@ export class BooksController {
     @Param() params: BookParamsDto
   ): Promise<BookFilesResponseDto> {
     return this.booksService.getUserBookFiles(userId, params.id);
+  }
+
+  /**
+   * GET /api/v1/books/:id/processing-stream
+   * Server-Sent Events endpoint for real-time manuscript processing updates.
+   */
+  @Get(":id/processing-stream")
+  @ApiOperation({
+    summary: "Stream processing events (SSE)",
+    description:
+      "Server-Sent Events stream for real-time manuscript processing updates. " +
+      "Emits progress, complete, and error events as the pipeline progresses. " +
+      "Auto-closes after a complete or error event. Heartbeat every 15 seconds.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Book CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiResponse({ status: 200, description: "SSE stream opened" })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 404, description: "Book not found" })
+  @ApiResponse({ status: 503, description: "Real-time streaming unavailable — use polling" })
+  async streamProcessingEvents(
+    @CurrentUser("sub") userId: string,
+    @Param() params: BookParamsDto,
+    @Res() res: Response
+  ): Promise<void> {
+    // Verify book ownership (throws 404 if not found or not owned by user)
+    await this.booksService.findUserBookById(userId, params.id);
+
+    if (!this.processingEvents.isAvailable()) {
+      res.status(503).json({ message: "Real-time streaming unavailable. Use polling." });
+      return;
+    }
+
+    // Set SSE headers
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-store");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no"); // Disable nginx buffering
+    res.flushHeaders();
+
+    // Send initial connection event
+    res.write("event: connected\ndata: {}\n\n");
+
+    // Subscribe to Redis pub/sub for this book
+    const subscription = this.processingEvents.subscribe(params.id, (event: ProcessingEvent) => {
+      try {
+        res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        // Client disconnected — cleanup handled below
+      }
+
+      // Auto-close on terminal events
+      if (event.type === "complete" || event.type === "error") {
+        cleanup();
+      }
+    });
+
+    if (!subscription) {
+      res.status(503).json({ message: "Real-time streaming unavailable. Use polling." });
+      return;
+    }
+
+    // Heartbeat every 15 seconds to keep the connection alive
+    const heartbeatInterval = setInterval(() => {
+      try {
+        res.write(":heartbeat\n\n");
+      } catch {
+        cleanup();
+      }
+    }, 15_000);
+
+    // Auto-close after 5 minutes to prevent resource leaks
+    const maxLifetimeTimeout = setTimeout(
+      () => {
+        try {
+          res.write("event: timeout\ndata: {}\n\n");
+        } catch {
+          // ignore
+        }
+        cleanup();
+      },
+      5 * 60 * 1000
+    );
+
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      clearInterval(heartbeatInterval);
+      clearTimeout(maxLifetimeTimeout);
+      subscription.unsubscribe();
+      try {
+        res.end();
+      } catch {
+        // already closed
+      }
+    };
+
+    // Clean up when client disconnects
+    res.on("close", cleanup);
   }
 
   /**

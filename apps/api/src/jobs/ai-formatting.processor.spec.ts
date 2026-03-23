@@ -6,8 +6,10 @@ import { BooksPipelineService } from "../books/books-pipeline.service.js";
 import { ManuscriptAnalysisService } from "../books/manuscript-analysis.service.js";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { GeminiFormattingService } from "../engine/gemini-formatting.service.js";
+import { GotenbergPageCountService } from "../engine/gotenberg-page-count.service.js";
 import { HtmlValidationService } from "../engine/html-validation.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 import { AiFormattingProcessor } from "./ai-formatting.processor.js";
 import { JOB_NAMES } from "./jobs.constants.js";
 
@@ -62,6 +64,17 @@ const mockHtmlValidationService = {
   validateFormattedHtml: jest.fn(),
 };
 
+const mockGotenbergPageCountService = {
+  countPages: jest.fn(),
+  warmUp: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockRedisService = {
+  get: jest.fn(),
+  set: jest.fn(),
+  del: jest.fn(),
+};
+
 describe("AiFormattingProcessor", () => {
   let processor: AiFormattingProcessor;
   const originalFetch = global.fetch;
@@ -76,6 +89,8 @@ describe("AiFormattingProcessor", () => {
         { provide: ManuscriptAnalysisService, useValue: mockManuscriptAnalysisService },
         { provide: GeminiFormattingService, useValue: mockGeminiFormattingService },
         { provide: HtmlValidationService, useValue: mockHtmlValidationService },
+        { provide: GotenbergPageCountService, useValue: mockGotenbergPageCountService },
+        { provide: RedisService, useValue: mockRedisService },
       ],
     }).compile();
 

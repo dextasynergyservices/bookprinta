@@ -291,6 +291,32 @@ export class GotenbergPageCountService {
     await new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /**
+   * Lightweight health ping to wake Gotenberg from cold start.
+   * Fire-and-forget — failures are silently ignored.
+   * Call this proactively (e.g. when AI formatting completes)
+   * so Gotenberg's Chromium is warm by the time page-count runs.
+   */
+  async warmUp(): Promise<void> {
+    const baseUrls = this.buildGotenbergBaseUrls();
+    if (baseUrls.length === 0) return;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetch(`${baseUrls[0]}/health`, {
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        this.logger.debug?.("Gotenberg warm-up successful");
+      }
+    } catch {
+      // Warm-up failure is non-critical
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private escapeHtml(value: string): string {
     return value
       .replaceAll("&", "&amp;")

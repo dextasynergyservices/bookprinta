@@ -9,6 +9,8 @@ import type {
   AdminBookProductionStatusResponse,
   AdminBooksListQuery,
   AdminBooksListResponse,
+  AdminCancelProcessingInput,
+  AdminCancelProcessingResponse,
   AdminRejectBookInput,
   AdminRejectBookResponse,
   AdminResetProcessingInput,
@@ -61,6 +63,7 @@ import {
 } from "../reviews/review-eligibility.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import {
+  canCancelProcessing,
   canRejectAdminBook,
   canResetProcessingPipeline,
   canUploadAdminHtmlFallback,
@@ -489,6 +492,10 @@ export class BooksService {
     }
 
     const mimeType = this.manuscriptAnalysis.detectMimeType(file);
+
+    // Fast structural integrity check before expensive ClamAV + Cloudinary upload
+    this.manuscriptAnalysis.validateFileIntegrity(file.buffer, mimeType);
+
     const wordCount = await this.manuscriptAnalysis.extractWordCount(file.buffer, mimeType);
     const estimatedPages = this.manuscriptAnalysis.estimatePages({
       wordCount,
@@ -1284,6 +1291,98 @@ export class BooksService {
     };
   }
 
+  async cancelAdminBookProcessing(
+    bookId: string,
+    input: AdminCancelProcessingInput,
+    adminId: string
+  ): Promise<AdminCancelProcessingResponse> {
+    const current = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        productionStatus: true,
+        version: true,
+      },
+    });
+
+    if (!current) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    if (
+      !canCancelProcessing({
+        status: current.status,
+        productionStatus: current.productionStatus,
+      })
+    ) {
+      throw new BadRequestException(
+        "This book's processing cannot be cancelled at its current stage."
+      );
+    }
+
+    const previousStatus = current.status;
+
+    const cancelledJobs = await this.booksPipeline.cancelActiveJobsForBook(current.id);
+
+    const { audit } = await this.prisma.$transaction(async (tx) => {
+      const updatedCount = await tx.book.updateMany({
+        where: {
+          id: current.id,
+          version: input.expectedVersion,
+        },
+        data: {
+          status: "UPLOADED",
+          pageCount: null,
+          version: { increment: 1 },
+        },
+      });
+
+      if (updatedCount.count === 0) {
+        throw new ConflictException("Book was updated by another admin. Refresh and try again.");
+      }
+
+      await tx.order.updateMany({
+        where: { id: current.orderId },
+        data: { status: "AWAITING_UPLOAD" },
+      });
+
+      const auditLog = await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_BOOK_CANCEL_PROCESSING",
+          entityType: "BOOK",
+          entityId: current.id,
+          details: {
+            previousStatus,
+            nextStatus: "UPLOADED",
+            reason: input.reason?.trim() || null,
+            expectedVersion: input.expectedVersion,
+            cancelledJobs,
+          },
+        },
+      });
+
+      return { audit: auditLog };
+    });
+
+    const updatedBook = await this.prisma.book.findUnique({
+      where: { id: current.id },
+      select: { version: true },
+    });
+
+    return {
+      bookId: current.id,
+      previousStatus,
+      bookStatus: "UPLOADED",
+      orderStatus: "AWAITING_UPLOAD",
+      bookVersion: updatedBook?.version ?? input.expectedVersion + 1,
+      cancelledJobs,
+      audit: this.serializeAdminAuditEntry(audit, adminId),
+    };
+  }
+
   async requestAdminBookHtmlUpload(
     bookId: string,
     input: AdminBookHtmlUploadBodyInput,
@@ -1903,6 +2002,10 @@ export class BooksService {
         productionStatus: params.productionStatus,
       }),
       canResetProcessing: canResetProcessingPipeline({
+        status: params.status,
+        productionStatus: params.productionStatus,
+      }),
+      canCancelProcessing: canCancelProcessing({
         status: params.status,
         productionStatus: params.productionStatus,
       }),
@@ -2663,6 +2766,10 @@ export class BooksService {
   private toUserFacingProcessingError(error: string): string {
     const normalizedError = error.trim();
     const lower = normalizedError.toLowerCase();
+
+    if (lower.includes("rate limited") || lower.includes("per-minute")) {
+      return "AI formatting was temporarily rate-limited. Retry processing — the next attempt will likely succeed.";
+    }
 
     if (lower.includes("resource_exhausted") || lower.includes("quota exceeded")) {
       return "AI formatting is temporarily unavailable because the current Gemini quota is exhausted. Retry later or switch to a higher-capacity Gemini key.";

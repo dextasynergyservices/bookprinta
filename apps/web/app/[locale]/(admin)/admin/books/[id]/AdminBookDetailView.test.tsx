@@ -7,6 +7,8 @@ import { AdminBookDetailView } from "./AdminBookDetailView";
 const useAdminBookDetailMock = jest.fn();
 const useAdminBookStatusMutationMock = jest.fn();
 const useAdminBookRejectMutationMock = jest.fn();
+const useAdminBookResetProcessingMutationMock = jest.fn();
+const useAdminBookCancelProcessingMutationMock = jest.fn();
 const useAdminBookHtmlUploadMutationMock = jest.fn();
 const useAdminBookDownloadMutationMock = jest.fn();
 const useAdminBookVersionFileDownloadMutationMock = jest.fn();
@@ -183,6 +185,10 @@ jest.mock("@/hooks/useAdminBookActions", () => {
     ...actual,
     useAdminBookStatusMutation: (bookId: string) => useAdminBookStatusMutationMock(bookId),
     useAdminBookRejectMutation: (bookId: string) => useAdminBookRejectMutationMock(bookId),
+    useAdminBookResetProcessingMutation: (bookId: string) =>
+      useAdminBookResetProcessingMutationMock(bookId),
+    useAdminBookCancelProcessingMutation: (bookId: string) =>
+      useAdminBookCancelProcessingMutationMock(bookId),
     useAdminBookHtmlUploadMutation: (bookId: string) => useAdminBookHtmlUploadMutationMock(bookId),
     useAdminBookDownloadMutation: (bookId: string) => useAdminBookDownloadMutationMock(bookId),
     useAdminBookVersionFileDownloadMutation: (bookId: string) =>
@@ -314,6 +320,8 @@ function createBookDetail() {
       nextAllowedStatuses: ["PREVIEW_READY", "REVIEW"],
       canRejectManuscript: true,
       canUploadHtmlFallback: true,
+      canResetProcessing: true,
+      canCancelProcessing: true,
     },
   };
 }
@@ -344,6 +352,8 @@ describe("AdminBookDetailView", () => {
     useAdminBookDetailMock.mockReturnValue(createDetailQueryState());
     useAdminBookStatusMutationMock.mockReturnValue(createMutationState());
     useAdminBookRejectMutationMock.mockReturnValue(createMutationState());
+    useAdminBookResetProcessingMutationMock.mockReturnValue(createMutationState());
+    useAdminBookCancelProcessingMutationMock.mockReturnValue(createMutationState());
     useAdminBookHtmlUploadMutationMock.mockReturnValue(createMutationState());
     useAdminBookDownloadMutationMock.mockReturnValue(createMutationState());
     useAdminBookVersionFileDownloadMutationMock.mockReturnValue(createMutationState());

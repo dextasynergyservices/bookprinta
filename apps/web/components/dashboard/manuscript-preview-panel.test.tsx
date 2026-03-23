@@ -6,6 +6,30 @@ const updateBookSettingsMock = jest.fn();
 const toastSuccessMock = jest.fn();
 
 const TRANSLATIONS: Record<string, string> = {
+  processing_title: "Formatting your manuscript",
+  processing_reprocessing_title: "Reprocessing with new settings",
+  processing_complete_title: "Formatting complete",
+  processing_complete_message: "Your manuscript is ready for preview!",
+  processing_view_preview_cta: "View Preview",
+  processing_estimated_remaining: "Estimated time remaining: ~{seconds}s",
+  processing_started_ago: "Started {minutes}m ago",
+  processing_preview_placeholder: "Your preview will appear here once formatting is complete.",
+  processing_step_uploaded: "Manuscript uploaded",
+  processing_step_extracted: "Text extracted",
+  processing_step_extracted_detail: "{wordCount} words detected",
+  processing_step_formatting: "Formatting manuscript with AI",
+  processing_step_formatting_detail: "Applying your layout settings to the manuscript",
+  processing_step_counting: "Counting authoritative pages",
+  processing_step_counting_detail: "Rendering final layout to calculate billing page count",
+  processing_step_preview: "Generating preview",
+  processing_step_preview_detail: "Building your browser preview and updating workspace",
+  processing_chunks_info: "Processing {total} chunks",
+  processing_chunks_progress: "Processed {completed} of {total} chunks",
+  processing_tip_1: "Tip 1",
+  processing_tip_2: "Tip 2",
+  processing_tip_3: "Tip 3",
+  processing_tip_4: "Tip 4",
+  processing_tip_5: "Tip 5",
   book_progress_browser_preview_title: "Browser Preview",
   book_progress_browser_preview_heading: "Live layout preview",
   book_progress_browser_preview_subtitle:
@@ -153,7 +177,11 @@ jest.mock("framer-motion", () => {
     }
   );
 
-  return { motion };
+  function AnimatePresence({ children }: { children: React.ReactNode }) {
+    return React.createElement(React.Fragment, null, children);
+  }
+
+  return { motion, AnimatePresence };
 });
 
 jest.mock("@/hooks/useManuscriptUpload", () => {
@@ -210,6 +238,7 @@ describe("ManuscriptPreviewPanel", () => {
         currentHtmlUrl="https://example.com/current.html"
         currentStatus="PREVIEW_READY"
         pageCount={176}
+        wordCount={12500}
         processing={createProcessingState()}
         hasUploadedManuscript
         forceReprocessing={false}
@@ -263,6 +292,7 @@ describe("ManuscriptPreviewPanel", () => {
         currentHtmlUrl={null}
         currentStatus="PREVIEW_READY"
         pageCount={176}
+        wordCount={12500}
         processing={createProcessingState()}
         hasUploadedManuscript
         forceReprocessing={false}
@@ -273,7 +303,7 @@ describe("ManuscriptPreviewPanel", () => {
     await user.click(screen.getByRole("button", { name: "14pt" }));
 
     await act(async () => {
-      jest.advanceTimersByTime(500);
+      jest.advanceTimersByTime(2000);
       await Promise.resolve();
     });
 
@@ -299,6 +329,7 @@ describe("ManuscriptPreviewPanel", () => {
         currentHtmlUrl="https://example.com/current.html"
         currentStatus="AI_PROCESSING"
         pageCount={null}
+        wordCount={12500}
         processing={createProcessingState({
           isActive: true,
           currentStep: "AI_FORMATTING",
@@ -313,23 +344,14 @@ describe("ManuscriptPreviewPanel", () => {
       />
     );
 
-    expect(screen.getByText(/Reprocessing preview/)).toBeInTheDocument();
-    expect(screen.getByText("Processing")).toBeInTheDocument();
-    expect(screen.getByText("Elapsed 00:00")).toBeInTheDocument();
-    expect(screen.getByText("Attempt 1 of 3")).toBeInTheDocument();
+    expect(screen.getByText(/Reprocessing with new settings/)).toBeInTheDocument();
     expect(screen.getByText("Formatting manuscript with AI")).toBeInTheDocument();
-    expect(
-      screen.getByText("Cleaning and formatting your manuscript with AI.")
-    ).toBeInTheDocument();
     expect(
       screen.getByText(
         "You can leave this page while we keep processing your manuscript in the background."
       )
     ).toBeInTheDocument();
     expect(screen.queryByTitle("Formatted manuscript browser preview")).not.toBeInTheDocument();
-    expect(
-      screen.getByText("Approval stays locked until the updated server count finishes.")
-    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /A4/ })).toBeDisabled();
   });
 
@@ -344,6 +366,7 @@ describe("ManuscriptPreviewPanel", () => {
         currentHtmlUrl={null}
         currentStatus="AI_PROCESSING"
         pageCount={null}
+        wordCount={12500}
         processing={createProcessingState({
           isActive: true,
           currentStep: "AI_FORMATTING",
@@ -356,12 +379,8 @@ describe("ManuscriptPreviewPanel", () => {
       />
     );
 
-    expect(screen.getByText(/Processing manuscript/)).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Approval stays locked until the first browser preview and server count are ready."
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Formatting your manuscript/)).toBeInTheDocument();
+    expect(screen.getByText("Formatting manuscript with AI")).toBeInTheDocument();
   });
 
   it("shows a retry state instead of live processing when formatting needs attention", () => {
@@ -374,6 +393,7 @@ describe("ManuscriptPreviewPanel", () => {
         currentStatus="FORMATTING_REVIEW"
         latestProcessingError='Gemini request failed (429): {"error":{"message":"Rate limit exceeded"}}'
         pageCount={null}
+        wordCount={12500}
         processing={createProcessingState()}
         hasUploadedManuscript
         forceReprocessing={false}
@@ -407,6 +427,7 @@ describe("ManuscriptPreviewPanel", () => {
         currentHtmlUrl={null}
         currentStatus="FORMATTING"
         pageCount={null}
+        wordCount={12500}
         processing={createProcessingState({
           isActive: true,
           currentStep: "AI_FORMATTING",
@@ -427,6 +448,7 @@ describe("ManuscriptPreviewPanel", () => {
         currentHtmlUrl="https://example.com/current.html"
         currentStatus="PREVIEW_READY"
         pageCount={176}
+        wordCount={12500}
         processing={createProcessingState()}
         hasUploadedManuscript
         forceReprocessing={false}
@@ -440,7 +462,7 @@ describe("ManuscriptPreviewPanel", () => {
     );
   });
 
-  it("shows a delayed notice when server-side processing no longer has a trustworthy timer", () => {
+  it("renders the stepper instead of the preview when processing with no startedAt", () => {
     render(
       <ManuscriptPreviewPanel
         bookId="cm_book_1"
@@ -449,6 +471,7 @@ describe("ManuscriptPreviewPanel", () => {
         currentHtmlUrl={null}
         currentStatus="FORMATTING"
         pageCount={null}
+        wordCount={12500}
         processing={createProcessingState({
           isActive: true,
           currentStep: "AI_FORMATTING",
@@ -463,16 +486,14 @@ describe("ManuscriptPreviewPanel", () => {
       />
     );
 
+    expect(screen.getByText(/Formatting your manuscript/)).toBeInTheDocument();
+    expect(screen.getByText("Formatting manuscript with AI")).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "This run is taking longer than expected. You can leave this page while we continue processing in the background."
-      )
+      screen.getByText("Your preview will appear here once formatting is complete.")
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry processing" })).toBeInTheDocument();
-    expect(screen.queryByText(/Elapsed /)).not.toBeInTheDocument();
   });
 
-  it("calls the retry handler when the delayed retry action is pressed", async () => {
+  it("calls the retry handler when the retry action is pressed in failure state", async () => {
     const user = userEvent.setup();
     const onRetryProcessing = jest.fn();
 
@@ -482,15 +503,10 @@ describe("ManuscriptPreviewPanel", () => {
         pageSize="A4"
         fontSize={12}
         currentHtmlUrl={null}
-        currentStatus="FORMATTING"
+        currentStatus="FORMATTING_REVIEW"
         pageCount={null}
-        processing={createProcessingState({
-          isActive: true,
-          currentStep: "AI_FORMATTING",
-          jobStatus: "processing",
-          trigger: "upload",
-          startedAt: null,
-        })}
+        wordCount={12500}
+        processing={createProcessingState()}
         hasUploadedManuscript
         forceReprocessing={false}
         canRetryProcessing

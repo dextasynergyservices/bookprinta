@@ -1,10 +1,12 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import type { Job } from "bullmq";
 import { GotenbergPageCountService } from "../engine/gotenberg-page-count.service.js";
+import { ProcessingEventsService } from "../engine/processing-events.service.js";
 import { FilesService } from "../files/files.service.js";
 import type { JobStatus, JobType } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 import { JOB_NAMES, QUEUE_PAGE_COUNT } from "./jobs.constants.js";
 
 type OrchestrationTrigger = "upload" | "settings_change";
@@ -63,7 +65,9 @@ export class PageCountProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gotenbergPageCount: GotenbergPageCountService,
-    private readonly filesService: FilesService
+    private readonly filesService: FilesService,
+    @Optional() private readonly processingEvents?: ProcessingEventsService,
+    @Optional() private readonly redis?: RedisService
   ) {
     super();
   }
@@ -81,6 +85,9 @@ export class PageCountProcessor extends WorkerHost {
         : 1;
 
     await this.markAttemptProcessing(payload, attempt);
+
+    // Pre-warm Gotenberg in case it's cold (absorbs Chromium startup latency)
+    this.gotenbergPageCount.warmUp().catch(() => {});
 
     try {
       const stillCurrentBeforeRender = await this.isCurrentPageCountRequest(payload);
@@ -107,14 +114,39 @@ export class PageCountProcessor extends WorkerHost {
       }
 
       await this.markProgressStep(payload.jobRecordId, "COUNTING_PAGES");
-      const cleanedHtml = await this.fetchCleanedHtml(payload.cleanedHtmlUrl);
+
+      // Emit SSE progress: page count starting
+      await this.processingEvents?.emit(payload.bookId, {
+        type: "progress",
+        step: "COUNTING_PAGES",
+        estimatedSecondsRemaining: 12,
+      });
+
+      const cleanedHtml = await this.fetchCleanedHtmlWithCache(payload.cleanedHtmlUrl);
       const countAndPreview = await this.gotenbergPageCount.countAndRenderPreview({
         html: cleanedHtml,
         pageSize: payload.pageSize,
         fontSize: payload.fontSize,
-        watermarkText: "Preview",
+        // No watermark: produces a clean PDF reusable as the final PDF on approval.
+        // Preview watermark is applied client-side via CSS overlay.
       });
+
+      // Compute billing gate immediately after Gotenberg render (before preview upload)
+      const overagePages = Math.max(0, countAndPreview.pageCount - payload.bundlePageLimit);
+      const extraAmount = overagePages * COST_PER_EXTRA_PAGE;
+      const gateStatus = overagePages > 0 ? "PAYMENT_REQUIRED" : "CLEAR";
+
+      // Emit early SSE with page count + billing gate so user sees result instantly
+      await this.processingEvents?.emit(payload.bookId, {
+        type: "progress",
+        step: "RENDERING_PREVIEW",
+        pageCount: countAndPreview.pageCount,
+        gateStatus,
+        estimatedSecondsRemaining: 4,
+      });
+
       await this.markProgressStep(payload.jobRecordId, "RENDERING_PREVIEW");
+
       const previewFile = await this.filesService.saveGeneratedFile({
         bookId: payload.bookId,
         fileType: "PREVIEW_PDF",
@@ -123,10 +155,6 @@ export class PageCountProcessor extends WorkerHost {
         content: countAndPreview.pdfBuffer,
         publicId: `bookprinta/preview-pdfs/${payload.bookId}/${String(job.id ?? payload.jobRecordId)}`,
       });
-
-      const overagePages = Math.max(0, countAndPreview.pageCount - payload.bundlePageLimit);
-      const extraAmount = overagePages * COST_PER_EXTRA_PAGE;
-      const gateStatus = overagePages > 0 ? "PAYMENT_REQUIRED" : "CLEAR";
 
       const result: CompletedCountPagesResult = {
         pageCount: countAndPreview.pageCount,
@@ -159,6 +187,14 @@ export class PageCountProcessor extends WorkerHost {
 
       await this.markAttemptCompleted(payload, result);
 
+      // Emit SSE complete: page count done with results
+      await this.processingEvents?.emit(payload.bookId, {
+        type: "complete",
+        pageCount: result.pageCount,
+        previewUrl: result.previewPdfUrl,
+        gateStatus: result.gateStatus,
+      });
+
       this.logger.log(
         `Authoritative page count completed for book ${payload.bookId}: ${result.pageCount} pages (limit=${payload.bundlePageLimit}, overage=${overagePages})`
       );
@@ -172,6 +208,15 @@ export class PageCountProcessor extends WorkerHost {
         error: this.toErrorMessage(error),
         isFinalAttempt,
       });
+
+      if (isFinalAttempt) {
+        await this.processingEvents?.emit(payload.bookId, {
+          type: "error",
+          message: "Page counting failed. Our team has been notified.",
+          retryable: true,
+        });
+      }
+
       throw error;
     }
   }
@@ -239,6 +284,26 @@ export class PageCountProcessor extends WorkerHost {
       throw new Error(`Failed to fetch cleaned HTML from storage (${response.status}).`);
     }
     return response.text();
+  }
+
+  /**
+   * Try Redis first (cached by ai-formatting processor), fall back to Cloudinary.
+   * Saves 500ms-2s per page-count/recount when HTML is still cached.
+   */
+  private async fetchCleanedHtmlWithCache(url: string): Promise<string> {
+    try {
+      const client = this.redis?.getClient();
+      if (client) {
+        const cached = await client.get(`bp:cleaned-html:${url}`);
+        if (cached) {
+          this.logger.debug?.("Cleaned HTML loaded from Redis cache");
+          return cached;
+        }
+      }
+    } catch {
+      // Cache miss — fall through to Cloudinary fetch
+    }
+    return this.fetchCleanedHtml(url);
   }
 
   private async markAttemptProcessing(payload: CountPagesPayload, attempt: number): Promise<void> {

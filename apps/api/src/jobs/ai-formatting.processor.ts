@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import type { Job } from "bullmq";
 import { BooksPipelineService } from "../books/books-pipeline.service.js";
 import {
@@ -8,7 +8,9 @@ import {
 } from "../books/manuscript-analysis.service.js";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { GeminiFormattingService } from "../engine/gemini-formatting.service.js";
+import { GotenbergPageCountService } from "../engine/gotenberg-page-count.service.js";
 import { HtmlValidationService } from "../engine/html-validation.service.js";
+import { ProcessingEventsService } from "../engine/processing-events.service.js";
 import type {
   BookStatus,
   FileType,
@@ -17,7 +19,15 @@ import type {
   OrderStatus,
 } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 import { JOB_NAMES, QUEUE_AI_FORMATTING } from "./jobs.constants.js";
+
+const CLEANED_HTML_CACHE_TTL_SECONDS = 7200; // 2 hours
+
+/** Wraps a partial fragment (chunk 0) as a minimal HTML document for early preview. */
+function wrapPartialFragment(fragment: string): string {
+  return `<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1" />\n  <title>BookPrinta Partial Preview</title>\n</head>\n<body>\n${fragment}\n</body>\n</html>`;
+}
 
 type OrchestrationTrigger = "upload" | "settings_change";
 type SupportedPageSize = "A4" | "A5";
@@ -34,6 +44,7 @@ type FormatManuscriptPayload = {
   mimeType?: string | null;
   pageSize: SupportedPageSize;
   fontSize: SupportedFontSize;
+  estimatedPages?: number | null;
 };
 
 type FormatManuscriptResult = {
@@ -76,7 +87,10 @@ export class AiFormattingProcessor extends WorkerHost {
     private readonly booksPipeline: BooksPipelineService,
     private readonly manuscriptAnalysis: ManuscriptAnalysisService,
     private readonly geminiFormatting: GeminiFormattingService,
-    private readonly htmlValidation: HtmlValidationService
+    private readonly htmlValidation: HtmlValidationService,
+    private readonly gotenbergPageCount: GotenbergPageCountService,
+    @Optional() private readonly processingEvents?: ProcessingEventsService,
+    @Optional() private readonly redis?: RedisService
   ) {
     super();
   }
@@ -96,6 +110,15 @@ export class AiFormattingProcessor extends WorkerHost {
     await this.markAttemptProcessing(payload, attempt);
     await this.markBookFormatting(payload);
 
+    // Emit SSE progress: AI formatting started (include estimated pages for instant UI feedback)
+    await this.processingEvents?.emit(payload.bookId, {
+      type: "progress",
+      step: "AI_FORMATTING",
+      ...(typeof payload.estimatedPages === "number"
+        ? { estimatedPages: payload.estimatedPages }
+        : {}),
+    });
+
     try {
       const rawBuffer = await this.fetchRawManuscript(payload.rawManuscriptUrl);
       const mimeType = this.resolveMimeType(payload, rawBuffer);
@@ -106,6 +129,32 @@ export class AiFormattingProcessor extends WorkerHost {
         pageSize: payload.pageSize,
         fontSize: payload.fontSize,
         bookId: payload.bookId,
+        onChunkComplete: async (fragment, chunkIndex, totalChunks, completedCount) => {
+          if (totalChunks <= 1) return; // single-chunk: full preview arrives shortly anyway
+          try {
+            // Upload partial preview only for the first completed chunk
+            let partialPreviewUrl: string | undefined;
+            if (chunkIndex === 0) {
+              const partialHtml = wrapPartialFragment(fragment);
+              const partialFile = await this.saveCleanedHtmlFile({
+                bookId: payload.bookId,
+                html: partialHtml,
+                jobKey: `partial-${String(job.id ?? payload.jobRecordId)}`,
+              });
+              partialPreviewUrl = partialFile.url;
+            }
+            await this.processingEvents?.emit(payload.bookId, {
+              type: "progress",
+              step: "AI_FORMATTING",
+              chunkProgress: `${completedCount}/${totalChunks}`,
+              ...(partialPreviewUrl ? { partialPreviewUrl } : {}),
+            });
+          } catch (error) {
+            this.logger.debug?.(
+              `Chunk progress emission failed for book ${payload.bookId}: ${this.toErrorMessage(error)}`
+            );
+          }
+        },
       });
 
       const validated = await this.htmlValidation.validateFormattedHtml({
@@ -139,6 +188,12 @@ export class AiFormattingProcessor extends WorkerHost {
         jobKey: String(job.id ?? payload.jobRecordId),
       });
 
+      // Cache cleaned HTML in Redis for fast access by page-count processor
+      await this.cacheCleanedHtml(cleanedHtmlFile.url, formatted.html);
+
+      // Pre-warm Gotenberg so it's ready when page-count job starts
+      this.gotenbergPageCount.warmUp().catch(() => {});
+
       const pageCountEnqueue = await this.booksPipeline.enqueuePageCountFromAiSuccess({
         bookId: payload.bookId,
         trigger: payload.trigger,
@@ -161,6 +216,12 @@ export class AiFormattingProcessor extends WorkerHost {
 
       await this.markAttemptCompleted(payload, result);
 
+      // Emit SSE progress: AI formatting done, transitioning to page count
+      await this.processingEvents?.emit(payload.bookId, {
+        type: "progress",
+        step: "COUNTING_PAGES",
+      });
+
       this.logger.log(
         `AI formatting completed for book ${payload.bookId} (job=${payload.jobRecordId}, count=${pageCountEnqueue.reason})`
       );
@@ -173,6 +234,15 @@ export class AiFormattingProcessor extends WorkerHost {
         error: this.toErrorMessage(error),
         isFinalAttempt,
       });
+
+      if (isFinalAttempt) {
+        await this.processingEvents?.emit(payload.bookId, {
+          type: "error",
+          message: "Processing failed. Our team has been notified.",
+          retryable: true,
+        });
+      }
+
       throw error;
     }
   }
@@ -224,6 +294,10 @@ export class AiFormattingProcessor extends WorkerHost {
       mimeType: typeof payload.mimeType === "string" ? payload.mimeType : null,
       pageSize,
       fontSize,
+      estimatedPages:
+        typeof payload.estimatedPages === "number" && Number.isFinite(payload.estimatedPages)
+          ? payload.estimatedPages
+          : null,
     };
   }
 
@@ -482,5 +556,15 @@ export class AiFormattingProcessor extends WorkerHost {
       book?.fontSize === payload.fontSize &&
       latestRaw?.id === payload.rawManuscriptFileId
     );
+  }
+
+  private async cacheCleanedHtml(url: string, html: string): Promise<void> {
+    try {
+      const client = this.redis?.getClient();
+      if (!client) return;
+      await client.set(`bp:cleaned-html:${url}`, html, "EX", CLEANED_HTML_CACHE_TTL_SECONDS);
+    } catch {
+      // Cache write failure is non-critical
+    }
   }
 }

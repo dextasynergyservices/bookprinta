@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen } from "lucide-react";
+import { BookOpen, ChevronDown } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +10,7 @@ import { ManuscriptPreviewPanel } from "@/components/dashboard/manuscript-previe
 import { ManuscriptUploadFlow } from "@/components/dashboard/manuscript-upload-flow";
 import { ReprintSameModal } from "@/components/dashboard/reprint-same-modal";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import {
@@ -1505,6 +1506,7 @@ export function BooksView() {
                   currentStatus={data.currentStatus}
                   latestProcessingError={data.latestProcessingError}
                   pageCount={data.pageCount}
+                  wordCount={data.wordCount}
                   processing={data.processing}
                   hasUploadedManuscript={typeof data.wordCount === "number"}
                   forceReprocessing={isLayoutReprocessing}
@@ -1531,15 +1533,25 @@ export function BooksView() {
             </>
           )}
 
-          <div className="space-y-3">
-            <header className="space-y-1.5">
-              <h1 className="font-display text-2xl font-semibold tracking-tight text-white md:text-3xl">
-                {tDashboard("book_progress_title")}
-              </h1>
-              <p className="font-sans text-sm text-[#d0d0d0] md:text-base">
-                {tDashboard("book_progress_subtitle")}
-              </p>
-            </header>
+          <Collapsible className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <header className="space-y-1.5">
+                <h1 className="font-display text-2xl font-semibold tracking-tight text-white md:text-3xl">
+                  {tDashboard("book_progress_title")}
+                </h1>
+                <p className="font-sans text-sm text-[#d0d0d0] md:text-base">
+                  {tDashboard("book_progress_subtitle")}
+                </p>
+              </header>
+
+              <CollapsibleTrigger className="group mt-1 flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2A2A2A] bg-[#0a0a0a] px-3 py-1.5 text-xs font-medium text-[#9fbce0] transition-colors hover:border-[#007eff]/50 hover:text-white">
+                {tDashboard("book_progress_toggle")}
+                <ChevronDown
+                  className="size-3.5 transition-transform duration-200 group-data-[state=open]:rotate-180"
+                  aria-hidden="true"
+                />
+              </CollapsibleTrigger>
+            </div>
 
             <p className="font-sans text-xs text-[#bdbdbd] md:text-sm">
               {tDashboard("book_progress_current_stage", {
@@ -1547,77 +1559,113 @@ export function BooksView() {
               })}
             </p>
 
-            <BookProgressTracker
-              timeline={data.timeline}
-              currentStage={data.currentStage}
-              rejectionReason={data.rejectionReason}
-              rejectionReasonLabel={tDashboard("book_progress_rejection_reason_label")}
-              locale={locale}
-              ariaLabel={tDashboard("book_progress_aria")}
-              stageLabels={stageLabels}
-              stateLabels={stateLabels}
-              className={cn(
-                isFetching && !isInitialLoading
-                  ? "ring-1 ring-[#007eff]/20 transition-shadow"
-                  : null
-              )}
-            />
-          </div>
+            <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+              <BookProgressTracker
+                timeline={data.timeline}
+                currentStage={data.currentStage}
+                rejectionReason={data.rejectionReason}
+                rejectionReasonLabel={tDashboard("book_progress_rejection_reason_label")}
+                locale={locale}
+                ariaLabel={tDashboard("book_progress_aria")}
+                stageLabels={stageLabels}
+                stateLabels={stateLabels}
+                className={cn(
+                  isFetching && !isInitialLoading
+                    ? "ring-1 ring-[#007eff]/20 transition-shadow"
+                    : null
+                )}
+              />
+            </CollapsibleContent>
+          </Collapsible>
 
           {!isWorkspaceRolloutBlocked ? (
-            <BookWorkspacePanel
-              tDashboard={tDashboard}
-              locale={locale}
-              orderStatus={orderStatus}
-              bookStatus={data.currentStatus}
-              estimatedPages={data.estimatedPages}
-              pageCount={data.pageCount}
-              extraAmount={extraAmount}
-              isOrderLoading={isOrderDetailInitialLoading}
-              latestExtraPaymentStatus={latestExtraPaymentStatus}
-              forceProcessing={isLayoutReprocessing}
-            />
+            <Collapsible className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-sans text-[11px] font-semibold tracking-[0.08em] text-[#8f8f8f] uppercase">
+                  {tDashboard("book_progress_workspace_title")}
+                </p>
+                <CollapsibleTrigger className="group flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2A2A2A] bg-[#0a0a0a] px-3 py-1.5 text-xs font-medium text-[#9fbce0] transition-colors hover:border-[#007eff]/50 hover:text-white">
+                  {tDashboard("book_workspace_toggle")}
+                  <ChevronDown
+                    className="size-3.5 transition-transform duration-200 group-data-[state=open]:rotate-180"
+                    aria-hidden="true"
+                  />
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                <BookWorkspacePanel
+                  tDashboard={tDashboard}
+                  locale={locale}
+                  orderStatus={orderStatus}
+                  bookStatus={data.currentStatus}
+                  estimatedPages={data.estimatedPages}
+                  pageCount={data.pageCount}
+                  extraAmount={extraAmount}
+                  isOrderLoading={isOrderDetailInitialLoading}
+                  latestExtraPaymentStatus={latestExtraPaymentStatus}
+                  forceProcessing={isLayoutReprocessing}
+                />
+              </CollapsibleContent>
+            </Collapsible>
           ) : null}
 
-          <BookMetadataPanel
-            tDashboard={tDashboard}
-            bookId={
-              data.bookId ?? resolvedBookId ?? tDashboard("book_progress_meta_value_unavailable")
-            }
-            manuscriptStatus={
-              toStatusLabel(data.currentStatus) ??
-              tDashboard("book_progress_meta_value_unavailable")
-            }
-            formattingState={resolveFormattingSnapshotLabel({
-              tDashboard,
-              bookStatus: data.currentStatus,
-              currentHtmlUrl: data.currentHtmlUrl,
-              processingActive: data.processing.isActive,
-              forceProcessing: isLayoutReprocessing,
-            })}
-            reviewState={resolveReviewSnapshotLabel({
-              tDashboard,
-              bookStatus: data.currentStatus,
-              pageCount: data.pageCount,
-              forceProcessing: isLayoutReprocessing,
-            })}
-            previewReady={
-              data.previewPdfUrl
-                ? tDashboard("book_progress_preview_ready")
-                : tDashboard("book_progress_preview_pending")
-            }
-            rejectionReason={data.rejectionReason ?? tDashboard("book_progress_rejection_none")}
-            wordCount={
-              typeof data.wordCount === "number"
-                ? formatInteger(data.wordCount, locale)
-                : tDashboard("book_progress_meta_value_unavailable")
-            }
-            pageCount={
-              typeof data.pageCount === "number"
-                ? formatInteger(data.pageCount, locale)
-                : tDashboard("book_progress_meta_value_unavailable")
-            }
-          />
+          <Collapsible className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-sans text-[11px] font-semibold tracking-[0.08em] text-[#8f8f8f] uppercase">
+                {tDashboard("book_progress_metadata_title")}
+              </p>
+              <CollapsibleTrigger className="group flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2A2A2A] bg-[#0a0a0a] px-3 py-1.5 text-xs font-medium text-[#9fbce0] transition-colors hover:border-[#007eff]/50 hover:text-white">
+                {tDashboard("book_metadata_toggle")}
+                <ChevronDown
+                  className="size-3.5 transition-transform duration-200 group-data-[state=open]:rotate-180"
+                  aria-hidden="true"
+                />
+              </CollapsibleTrigger>
+            </div>
+            <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+              <BookMetadataPanel
+                tDashboard={tDashboard}
+                bookId={
+                  data.bookId ??
+                  resolvedBookId ??
+                  tDashboard("book_progress_meta_value_unavailable")
+                }
+                manuscriptStatus={
+                  toStatusLabel(data.currentStatus) ??
+                  tDashboard("book_progress_meta_value_unavailable")
+                }
+                formattingState={resolveFormattingSnapshotLabel({
+                  tDashboard,
+                  bookStatus: data.currentStatus,
+                  currentHtmlUrl: data.currentHtmlUrl,
+                  processingActive: data.processing.isActive,
+                  forceProcessing: isLayoutReprocessing,
+                })}
+                reviewState={resolveReviewSnapshotLabel({
+                  tDashboard,
+                  bookStatus: data.currentStatus,
+                  pageCount: data.pageCount,
+                  forceProcessing: isLayoutReprocessing,
+                })}
+                previewReady={
+                  data.previewPdfUrl
+                    ? tDashboard("book_progress_preview_ready")
+                    : tDashboard("book_progress_preview_pending")
+                }
+                rejectionReason={data.rejectionReason ?? tDashboard("book_progress_rejection_none")}
+                wordCount={
+                  typeof data.wordCount === "number"
+                    ? formatInteger(data.wordCount, locale)
+                    : tDashboard("book_progress_meta_value_unavailable")
+                }
+                pageCount={
+                  typeof data.pageCount === "number"
+                    ? formatInteger(data.pageCount, locale)
+                    : tDashboard("book_progress_meta_value_unavailable")
+                }
+              />
+            </CollapsibleContent>
+          </Collapsible>
 
           {isBillingRolloutBlocked && !data.rollout.isGrandfathered ? (
             <RolloutNoticePanel

@@ -13,6 +13,9 @@ const txOrderUpdate = jest.fn();
 const txJobUpdate = jest.fn();
 
 const mockPrismaService = {
+  file: {
+    findFirst: jest.fn().mockResolvedValue(null),
+  },
   job: {
     updateMany: jest.fn(),
   },

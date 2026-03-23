@@ -1,7 +1,7 @@
 "use client";
 
 import { throwApiError } from "@/lib/api-error";
-
+import { fetchApiV1WithRefresh, getApiV1BaseUrl } from "@/lib/fetch-with-refresh";
 export const MAX_MANUSCRIPT_FILE_BYTES = 10 * 1024 * 1024;
 export const ALLOWED_MANUSCRIPT_MIME_TYPES = [
   "application/pdf",
@@ -49,14 +49,6 @@ export interface UploadManuscriptInput {
   onProgress?: (percentage: number) => void;
 }
 
-function getApiV1BaseUrl() {
-  const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
-
-  if (base.endsWith("/api/v1")) return base;
-  if (base.endsWith("/api")) return `${base}/v1`;
-  return `${base}/api/v1`;
-}
-
 const API_V1_BASE_URL = getApiV1BaseUrl();
 
 export function normalizeBookPageSize(value: string | null | undefined): BookPageSize | null {
@@ -97,8 +89,8 @@ export function validateManuscriptFile(file: File): string | null {
 export async function updateBookSettings(
   payload: UpdateBookSettingsInput
 ): Promise<BookSettingsResponse> {
-  const response = await fetch(
-    `${API_V1_BASE_URL}/books/${encodeURIComponent(payload.bookId)}/settings`,
+  const response = await fetchApiV1WithRefresh(
+    `/books/${encodeURIComponent(payload.bookId)}/settings`,
     {
       method: "PATCH",
       credentials: "include",

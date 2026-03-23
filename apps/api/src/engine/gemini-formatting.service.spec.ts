@@ -6,17 +6,21 @@ describe("GeminiFormattingService", () => {
   const originalFetch = global.fetch;
   const originalApiKey = process.env.GEMINI_API_KEY;
   const originalModel = process.env.GEMINI_MODEL;
+  const originalFallbackModel = process.env.GEMINI_FALLBACK_MODEL;
   const originalRequestTimeout = process.env.GEMINI_REQUEST_TIMEOUT_MS;
 
   beforeEach(() => {
     service = new GeminiFormattingService();
     process.env.GEMINI_API_KEY = "test-key";
+    delete process.env.GEMINI_MODEL;
+    delete process.env.GEMINI_FALLBACK_MODEL;
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
     process.env.GEMINI_API_KEY = originalApiKey;
     process.env.GEMINI_MODEL = originalModel;
+    process.env.GEMINI_FALLBACK_MODEL = originalFallbackModel;
     process.env.GEMINI_REQUEST_TIMEOUT_MS = originalRequestTimeout;
     jest.restoreAllMocks();
   });
@@ -88,8 +92,9 @@ describe("GeminiFormattingService", () => {
     ).rejects.toThrow("Gemini request timed out after 45000ms.");
   });
 
-  it("retries timed-out chunks with flash-lite before failing", async () => {
+  it("retries timed-out chunks with fallback model when GEMINI_FALLBACK_MODEL is set", async () => {
     process.env.GEMINI_MODEL = "gemini-2.5-flash";
+    process.env.GEMINI_FALLBACK_MODEL = "gemini-2.5-flash-lite";
     global.fetch = jest
       .fn()
       .mockRejectedValueOnce({ name: "AbortError" })
@@ -199,5 +204,106 @@ describe("GeminiFormattingService", () => {
     );
     expect(result.html).toContain('<section class="book-section">');
     expect(result.html).toContain('<h3 class="book-subheading">Reflection</h3>');
+  });
+
+  it("does not use fallback model when GEMINI_FALLBACK_MODEL is not set", async () => {
+    process.env.GEMINI_MODEL = "gemini-2.5-flash";
+    delete process.env.GEMINI_FALLBACK_MODEL;
+    global.fetch = jest
+      .fn()
+      .mockRejectedValueOnce({ name: "AbortError" })
+      .mockRejectedValueOnce({ name: "AbortError" }) as unknown as typeof fetch;
+
+    await expect(
+      service.formatManuscript({
+        text: "Chapter 1 Hello world.",
+        pageSize: "A5",
+        fontSize: 12,
+        bookId: "cmbook-no-fallback",
+      })
+    ).rejects.toThrow("Gemini request timed out after");
+
+    // Only 2 attempts on the primary model, no fallback
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      1,
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      expect.any(Object)
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+      expect.any(Object)
+    );
+  });
+
+  it("handles 429 rate limit by waiting and retrying once without burning retry attempts", async () => {
+    process.env.GEMINI_MODEL = "gemini-2.5-flash-lite";
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ "retry-after": "1" }),
+        text: async () => '{"error":{"message":"Rate limit exceeded"}}',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "<p>After rate limit.</p>" }] } }],
+        }),
+      }) as unknown as typeof fetch;
+
+    const result = await service.formatManuscript({
+      text: "Chapter 1 Hello world.",
+      pageSize: "A5",
+      fontSize: 12,
+      bookId: "cmbook-429",
+    });
+
+    expect(result.html).toContain("After rate limit.");
+    // 2 fetch calls: first 429, then successful retry
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    // Both calls use the same model (no model switch on 429)
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      1,
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+      expect.any(Object)
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      2,
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+      expect.any(Object)
+    );
+  });
+
+  it("fails on repeated 429 with rate-limit message (does not show quota exhausted)", async () => {
+    process.env.GEMINI_MODEL = "gemini-2.5-flash-lite";
+    // Stub delay to make test instant (actual waits would be 60-120s)
+    const delaySpy = jest.fn<Promise<void>, [number]>().mockResolvedValue(undefined);
+    Object.defineProperty(service, "delay", { value: delaySpy });
+    // Mock enough 429 responses to exhaust all retry layers:
+    // MAX_429_RETRIES (3) + 1 initial = 4 per transient attempt,
+    // MAX_TRANSIENT_RETRIES_PER_MODEL (2) = 8 total fetches.
+    const make429 = () => ({
+      ok: false,
+      status: 429,
+      headers: new Headers({ "retry-after": "1" }),
+      text: async () => '{"error":{"message":"Rate limit exceeded","status":"RESOURCE_EXHAUSTED"}}',
+    });
+    const mockFetch = jest.fn().mockResolvedValue(make429());
+    global.fetch = mockFetch as unknown as typeof fetch;
+
+    await expect(
+      service.formatManuscript({
+        text: "Chapter 1 Hello world.",
+        pageSize: "A5",
+        fontSize: 12,
+        bookId: "cmbook-429-double",
+      })
+    ).rejects.toThrow("rate limited");
+
+    // Should have retried multiple times, not given up after 1
+    expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(4);
   });
 });

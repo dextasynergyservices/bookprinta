@@ -60,9 +60,17 @@ export class ManuscriptAnalysisService {
   async extractWordCount(buffer: Buffer, mimeType: ManuscriptMimeType): Promise<number> {
     const text = await this.extractText(buffer, mimeType);
     const wordCount = this.countWords(text);
+
     if (wordCount <= 0) {
+      if (mimeType === PDF_MIME_TYPE) {
+        throw new BadRequestException(
+          "This PDF appears to be a scanned image without extractable text. " +
+            "Please upload a text-based PDF or a DOCX file instead."
+        );
+      }
       throw new BadRequestException(
-        "We could not extract readable text from this manuscript. Please upload a clean DOCX or PDF file."
+        "We could not extract readable text from this manuscript. " +
+          "Please upload a valid DOCX or PDF file with typed (not scanned) content."
       );
     }
 
@@ -70,6 +78,12 @@ export class ManuscriptAnalysisService {
       throw new BadRequestException(
         "Manuscript exceeds the 100,000-word limit. Please split it into smaller files and try again."
       );
+    }
+
+    // Check text quality — reject garbled / mojibake content before queueing AI
+    const qualityIssue = this.detectTextQualityIssue(text, wordCount);
+    if (qualityIssue) {
+      throw new BadRequestException(qualityIssue);
     }
 
     return wordCount;
@@ -108,6 +122,76 @@ export class ManuscriptAnalysisService {
     );
 
     return Math.max(1, Math.ceil(wordCount / wordsPerPage));
+  }
+
+  /**
+   * Fast pre-validation that runs before ClamAV/Cloudinary upload.
+   * Checks file integrity beyond magic bytes (truncated files, corrupt structure).
+   */
+  validateFileIntegrity(buffer: Buffer, mimeType: ManuscriptMimeType): void {
+    if (buffer.length < 64) {
+      throw new BadRequestException(
+        "The uploaded file is too small to be a valid manuscript. Please check your file and try again."
+      );
+    }
+
+    if (mimeType === DOCX_MIME_TYPE) {
+      // DOCX is a ZIP: verify we can locate the end-of-central-directory record
+      const eocd = this.findEndOfCentralDirectoryOffset(buffer);
+      if (eocd < 0) {
+        throw new BadRequestException(
+          "This DOCX file appears to be corrupted or incomplete. " +
+            "Please re-export it from your word processor and try again."
+        );
+      }
+    }
+
+    if (mimeType === PDF_MIME_TYPE) {
+      // PDF must have %%EOF marker near the end
+      const tail = buffer.subarray(Math.max(0, buffer.length - 1024)).toString("ascii");
+      if (!tail.includes("%%EOF")) {
+        throw new BadRequestException(
+          "This PDF file appears to be truncated or corrupted. " +
+            "Please re-export it and try again."
+        );
+      }
+    }
+  }
+
+  /**
+   * Detects garbled / mojibake text that would waste an AI formatting call.
+   * Returns the error message string if the quality is too low, null otherwise.
+   */
+  private detectTextQualityIssue(text: string, wordCount: number): string | null {
+    if (wordCount < 10) return null; // too small to measure meaningfully
+
+    // Sample a block for analysis (max 5000 chars from the middle)
+    const sampleStart = Math.max(0, Math.floor(text.length / 2) - 2500);
+    const sample = text.slice(sampleStart, sampleStart + 5000);
+
+    // Count Unicode replacement characters (U+FFFD) and other garble indicators
+    let garbledChars = 0;
+    for (const ch of sample) {
+      const code = ch.codePointAt(0) ?? 0;
+      if (
+        code === 0xfffd || // replacement character
+        (code >= 0x80 && code <= 0x9f) || // C1 control characters (common in mojibake)
+        code === 0 // null bytes
+      ) {
+        garbledChars += 1;
+      }
+    }
+
+    const garbleRatio = garbledChars / sample.length;
+    if (garbleRatio > 0.05) {
+      return (
+        "The manuscript contains a high proportion of unreadable characters, " +
+        "which suggests an encoding problem. Please re-save the file as UTF-8 " +
+        "(DOCX is recommended) and upload again."
+      );
+    }
+
+    return null;
   }
 
   private getExtension(fileName: string): string {

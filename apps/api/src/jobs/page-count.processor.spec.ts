@@ -37,6 +37,7 @@ const mockGotenbergPageCountService = {
   countPages: jest.fn(),
   renderPdf: jest.fn(),
   countAndRenderPreview: jest.fn(),
+  warmUp: jest.fn().mockResolvedValue(undefined),
 };
 
 const mockFilesService = {

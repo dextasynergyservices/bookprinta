@@ -50,6 +50,7 @@ const mockFilesService = {
 
 const mockManuscriptAnalysisService = {
   detectMimeType: jest.fn(),
+  validateFileIntegrity: jest.fn(),
   extractWordCount: jest.fn(),
   estimatePages: jest.fn(),
 };
