@@ -170,6 +170,7 @@ export class GotenbergPageCountService {
     const headerVariants = this.buildGotenbergHeaderVariants();
     const maxAttemptsPerEndpoint = 3;
     const pageConfig = PAGE_SIZE_TO_INCHES[pageSize];
+    const renderTimeoutMs = this.getRenderTimeoutMs();
 
     for (const baseUrl of baseUrls) {
       for (const headers of headerVariants) {
@@ -184,7 +185,7 @@ export class GotenbergPageCountService {
           form.append("printBackground", "true");
 
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 30_000);
+          const timeout = setTimeout(() => controller.abort(), renderTimeoutMs);
 
           let response: Response | null = null;
           try {
@@ -292,6 +293,67 @@ export class GotenbergPageCountService {
   }
 
   /**
+   * Returns the render timeout in milliseconds.
+   * Configurable via GOTENBERG_RENDER_TIMEOUT_MS (default 60s, min 30s).
+   * Production on Render free tier needs longer timeouts for cold starts.
+   */
+  private getRenderTimeoutMs(): number {
+    const configured = Number(process.env.GOTENBERG_RENDER_TIMEOUT_MS);
+    if (Number.isFinite(configured) && configured >= 30_000) {
+      return Math.floor(configured);
+    }
+    return 60_000;
+  }
+
+  /**
+   * Waits for Gotenberg to be healthy, retrying with exponential backoff.
+   * Handles Render free-tier cold starts (30-60s spin-up time).
+   * Returns true if Gotenberg responded, false if all retries exhausted.
+   */
+  async waitForReady(maxWaitMs = 75_000): Promise<boolean> {
+    const baseUrls = this.buildGotenbergBaseUrls();
+    if (baseUrls.length === 0) return false;
+
+    const url = `${baseUrls[0]}/health`;
+    const authHeaders = this.buildGotenbergAuthHeaders();
+    const startedAt = Date.now();
+    let attempt = 0;
+
+    while (Date.now() - startedAt < maxWaitMs) {
+      attempt += 1;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+      try {
+        const response = await fetch(url, { signal: controller.signal, headers: authHeaders });
+        if (response.ok) {
+          if (attempt > 1) {
+            this.logger.log(
+              `Gotenberg became ready after ${attempt} health checks (${Date.now() - startedAt}ms)`
+            );
+          } else {
+            this.logger.debug?.("Gotenberg is ready (first check)");
+          }
+          return true;
+        }
+      } catch {
+        // Expected during cold start — Gotenberg container not yet accepting connections
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      // Exponential backoff: 2s, 4s, 8s, capped at 10s
+      const backoff = Math.min(2_000 * 2 ** (attempt - 1), 10_000);
+      if (Date.now() - startedAt + backoff >= maxWaitMs) break;
+      await this.delay(backoff);
+    }
+
+    this.logger.warn(
+      `Gotenberg not ready after ${attempt} health checks (${Date.now() - startedAt}ms). Proceeding anyway.`
+    );
+    return false;
+  }
+
+  /**
    * Lightweight health ping to wake Gotenberg from cold start.
    * Fire-and-forget — failures are silently ignored.
    * Call this proactively (e.g. when AI formatting completes)
@@ -301,11 +363,13 @@ export class GotenbergPageCountService {
     const baseUrls = this.buildGotenbergBaseUrls();
     if (baseUrls.length === 0) return;
 
+    const authHeaders = this.buildGotenbergAuthHeaders();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
       const response = await fetch(`${baseUrls[0]}/health`, {
         signal: controller.signal,
+        headers: authHeaders,
       });
       if (response.ok) {
         this.logger.debug?.("Gotenberg warm-up successful");

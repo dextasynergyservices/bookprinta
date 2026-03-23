@@ -86,8 +86,8 @@ export class PageCountProcessor extends WorkerHost {
 
     await this.markAttemptProcessing(payload, attempt);
 
-    // Pre-warm Gotenberg in case it's cold (absorbs Chromium startup latency)
-    this.gotenbergPageCount.warmUp().catch(() => {});
+    // Wait for Gotenberg to be healthy before rendering (handles Render cold starts)
+    await this.gotenbergPageCount.waitForReady();
 
     try {
       const stillCurrentBeforeRender = await this.isCurrentPageCountRequest(payload);
