@@ -181,6 +181,61 @@ export function DashboardOverviewView() {
       <div className="relative space-y-5 md:space-y-7">
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.86fr)]">
           <article
+            aria-labelledby={nextActionTitleId}
+            aria-describedby={nextActionDescriptionId}
+            className={cn(SURFACE, SECTION_REVEAL_CLASS, "bg-[#0A1017]")}
+          >
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background:
+                  "linear-gradient(180deg, rgba(0,126,255,0.22) 0%, rgba(14,19,26,0) 60%), radial-gradient(56% 44% at 0% 0%, rgba(0,126,255,0.18) 0%, rgba(0,0,0,0) 70%)",
+              }}
+            />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-[#007eff]/0 via-[#007eff]/70 to-[#007eff]/0"
+            />
+            <div className="relative flex h-full flex-col justify-between">
+              <div>
+                <p className={EYEBROW_PILL_CLASS}>{tDashboard("overview_next_action_eyebrow")}</p>
+                <div className="mt-4 inline-flex min-h-9 items-center gap-3 rounded-full border border-white/10 bg-black/40 px-4 py-2">
+                  <span className="font-display text-xl font-semibold tracking-[-0.05em] text-white">
+                    {pendingActions.total}
+                  </span>
+                  <span className="font-sans text-[11px] font-semibold uppercase tracking-[0.16em] text-[#A7B4C5]">
+                    {tDashboard("overview_actions_metric")}
+                  </span>
+                </div>
+                <h1
+                  id={nextActionTitleId}
+                  className="font-display mt-5 max-w-[11ch] text-[clamp(3rem,14vw,6.1rem)] leading-[0.9] font-semibold tracking-[-0.06em] text-white"
+                >
+                  {nextAction.title}
+                </h1>
+                <p
+                  id={nextActionDescriptionId}
+                  className="mt-4 max-w-[30rem] font-serif text-base leading-7 text-[#D0D7E2] md:text-lg"
+                >
+                  {nextAction.description}
+                </p>
+              </div>
+              <div className="mt-8">
+                <Button asChild className={PRIMARY_BUTTON_CLASS}>
+                  <Link
+                    href={nextAction.href}
+                    aria-label={`${nextAction.cta}: ${nextAction.title}`}
+                  >
+                    {nextAction.cta}
+                    <ArrowRight className="size-4" aria-hidden="true" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </article>
+
+          <article
             aria-labelledby={heroTitleId}
             aria-describedby={heroDescriptionId}
             className={cn(SURFACE, SECTION_REVEAL_CLASS, "bg-[#060606]")}
@@ -203,15 +258,15 @@ export function DashboardOverviewView() {
                   <p className={EYEBROW_PILL_CLASS}>
                     {tDashboard("overview_welcome_back", { name: displayName })}
                   </p>
-                  <h1
+                  <h2
                     id={heroTitleId}
-                    className="font-display mt-5 max-w-[11ch] text-[clamp(3rem,14vw,6.1rem)] leading-[0.9] font-semibold tracking-[-0.06em] text-white"
+                    className="font-display mt-5 max-w-[10ch] text-[2.6rem] leading-[0.94] font-semibold tracking-[-0.05em] text-white md:text-[3.3rem]"
                   >
                     {tDashboard("overview_editorial_title")}
-                  </h1>
+                  </h2>
                   <p
                     id={heroDescriptionId}
-                    className="mt-4 max-w-[30rem] font-serif text-base leading-7 text-[#CFCFCF] md:text-lg"
+                    className="mt-4 max-w-[26rem] font-serif text-base leading-7 text-[#CFCFCF]"
                   >
                     {tDashboard("overview_editorial_description")}
                   </p>
@@ -239,61 +294,6 @@ export function DashboardOverviewView() {
                   label={tDashboard("overview_metric_unread_updates")}
                   value={String(notifications.unreadCount)}
                 />
-              </div>
-            </div>
-          </article>
-
-          <article
-            aria-labelledby={nextActionTitleId}
-            aria-describedby={nextActionDescriptionId}
-            className={cn(SURFACE, SECTION_REVEAL_CLASS, "bg-[#0A1017]")}
-          >
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background:
-                  "linear-gradient(180deg, rgba(0,126,255,0.22) 0%, rgba(14,19,26,0) 60%), radial-gradient(56% 44% at 100% 0%, rgba(0,126,255,0.18) 0%, rgba(0,0,0,0) 70%)",
-              }}
-            />
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-[#007eff]/0 via-[#007eff]/70 to-[#007eff]/0"
-            />
-            <div className="relative flex h-full flex-col justify-between">
-              <div>
-                <p className={EYEBROW_PILL_CLASS}>{tDashboard("overview_next_action_eyebrow")}</p>
-                <div className="mt-4 inline-flex min-h-9 items-center gap-3 rounded-full border border-white/10 bg-black/40 px-4 py-2">
-                  <span className="font-display text-xl font-semibold tracking-[-0.05em] text-white">
-                    {pendingActions.total}
-                  </span>
-                  <span className="font-sans text-[11px] font-semibold uppercase tracking-[0.16em] text-[#A7B4C5]">
-                    {tDashboard("overview_actions_metric")}
-                  </span>
-                </div>
-                <h2
-                  id={nextActionTitleId}
-                  className="font-display mt-5 max-w-[10ch] text-[2.6rem] leading-[0.94] font-semibold tracking-[-0.05em] text-white md:text-[3.3rem]"
-                >
-                  {nextAction.title}
-                </h2>
-                <p
-                  id={nextActionDescriptionId}
-                  className="mt-4 max-w-[26rem] font-serif text-base leading-7 text-[#D0D7E2]"
-                >
-                  {nextAction.description}
-                </p>
-              </div>
-              <div className="mt-8">
-                <Button asChild className={PRIMARY_BUTTON_CLASS}>
-                  <Link
-                    href={nextAction.href}
-                    aria-label={`${nextAction.cta}: ${nextAction.title}`}
-                  >
-                    {nextAction.cta}
-                    <ArrowRight className="size-4" aria-hidden="true" />
-                  </Link>
-                </Button>
               </div>
             </div>
           </article>

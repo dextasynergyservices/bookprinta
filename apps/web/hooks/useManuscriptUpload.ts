@@ -34,6 +34,7 @@ export interface BookManuscriptUploadResponse {
   fontSize: BookFontSize;
   wordCount: number;
   estimatedPages: number;
+  documentPageCount: number | null;
 }
 
 export interface UpdateBookSettingsInput {

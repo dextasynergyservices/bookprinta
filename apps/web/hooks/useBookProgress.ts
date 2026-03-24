@@ -86,6 +86,7 @@ function createFallbackBookProgress(bookId: string | null): BookProgressNormaliz
     pageCount: null,
     wordCount: null,
     estimatedPages: null,
+    documentPageCount: null,
     fontFamily: null,
     fontSize: null,
     pageSize: null,
