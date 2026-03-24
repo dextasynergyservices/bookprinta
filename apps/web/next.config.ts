@@ -7,6 +7,9 @@ import { pwaPluginConfig } from "./lib/pwa/plugin-config";
 const withNextIntl = createNextIntlPlugin("./lib/i18n/request.ts");
 
 const nextConfig: NextConfig = {
+  // Keep pagedjs out of the webpack bundle so require.resolve works at runtime
+  // during Next.js page data collection (build) and in serverless functions.
+  serverExternalPackages: ["pagedjs"],
   // Ensure pagedjs polyfill file is included in Vercel serverless function bundles.
   // Next.js output file tracing doesn't detect fs.readFileSync of node_modules files
   // unless we explicitly list them here.
