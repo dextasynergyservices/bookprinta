@@ -59,7 +59,7 @@ const TRANSLATIONS: Record<string, string> = {
   book_progress_stage_printed: "Printed",
   book_progress_stage_shipping: "Shipping",
   book_progress_stage_delivered: "Delivered",
-  book_progress_cta_open_workspace: "Open Book Workspace",
+  book_progress_cta_open_workspace: "Open Book",
   book_progress_cta_review_preview: "Review Preview",
   book_progress_cta_review_preview_loading: "Opening Preview...",
   book_progress_cta_view_files: "View File Versions",
@@ -337,6 +337,24 @@ jest.mock("@/components/dashboard/manuscript-upload-flow", () => ({
   ManuscriptUploadFlow: () => <section data-testid="manuscript-upload-flow" />,
 }));
 
+jest.mock("@/components/ui/collapsible", () => ({
+  Collapsible: ({ children, ...props }: { children: ReactNode; [key: string]: unknown }) => (
+    <div data-slot="collapsible" {...props}>
+      {children}
+    </div>
+  ),
+  CollapsibleTrigger: ({ children, ...props }: { children: ReactNode; [key: string]: unknown }) => (
+    <button data-slot="collapsible-trigger" type="button" {...props}>
+      {children}
+    </button>
+  ),
+  CollapsibleContent: ({ children, ...props }: { children: ReactNode; [key: string]: unknown }) => (
+    <div data-slot="collapsible-content" {...props}>
+      {children}
+    </div>
+  ),
+}));
+
 jest.mock("@/hooks/use-reduced-motion", () => ({
   useReducedMotion: () => false,
 }));
@@ -426,9 +444,12 @@ function createBookProgressData(overrides: Record<string, unknown> = {}) {
     currentStage: "PAYMENT_RECEIVED",
     isRejected: false,
     timeline: [],
+    title: null,
+    coverImageUrl: null,
     pageCount: null,
     wordCount: null,
     estimatedPages: null,
+    documentPageCount: null,
     fontFamily: null,
     fontSize: null,
     pageSize: null,
@@ -829,7 +850,7 @@ describe("BooksView route integration", () => {
 
     render(<BooksView />);
 
-    expect(screen.getByText("Book Workspace")).toBeInTheDocument();
+    expect(screen.getAllByText("Book Workspace").length).toBeGreaterThan(0);
     expect(screen.getByText("Extra-page payment required")).toBeInTheDocument();
     expect(screen.getByText("Estimated Pages Before Formatting")).toBeInTheDocument();
     expect(screen.getByText("Final Pages After Formatting")).toBeInTheDocument();
@@ -950,7 +971,7 @@ describe("BooksView route integration", () => {
 
     const uploadFlow = screen.getByTestId("manuscript-upload-flow");
     const progressTracker = screen.getByTestId("book-progress-tracker");
-    const workspaceHeading = screen.getByText("Book Workspace");
+    const workspaceHeading = screen.getAllByText("Book Workspace")[0];
 
     expect(
       uploadFlow.compareDocumentPosition(progressTracker) & Node.DOCUMENT_POSITION_FOLLOWING
@@ -1169,14 +1190,14 @@ describe("BooksView route integration", () => {
       data: createBookProgressData({
         bookId: currentBookId,
         orderId: "ord_123",
-        currentStage: "FORMATTING",
-        currentStatus: "FORMATTING",
+        currentStage: "REVIEW",
+        currentStatus: "FORMATTING_REVIEW",
         timeline: [
           {
-            stage: "FORMATTING",
+            stage: "REVIEW",
             state: "current",
             reachedAt: "2026-03-01T08:00:00.000Z",
-            sourceStatus: "FORMATTING",
+            sourceStatus: "FORMATTING_REVIEW",
           },
         ],
         rejectionReason: null,
@@ -1187,11 +1208,12 @@ describe("BooksView route integration", () => {
         fontSize: 12,
         currentHtmlUrl: null,
         previewPdfUrl: null,
+        latestProcessingError: "AI formatting failed after 3 retries",
         processing: createProcessingState({
-          isActive: true,
-          currentStep: "AI_FORMATTING",
-          jobStatus: "processing",
-          trigger: "upload",
+          isActive: false,
+          currentStep: null,
+          jobStatus: null,
+          trigger: null,
           startedAt: null,
         }),
       }),
@@ -1203,11 +1225,11 @@ describe("BooksView route integration", () => {
     });
     useOrderDetailMock.mockReturnValue({
       data: {
-        status: "FORMATTING",
+        status: "ACTION_REQUIRED",
         extraAmount: 0,
         latestExtraPaymentStatus: null,
       },
-      status: "FORMATTING",
+      status: "ACTION_REQUIRED",
       extraAmount: 0,
       latestExtraPaymentStatus: null,
       isInitialLoading: false,
@@ -1277,48 +1299,6 @@ describe("BooksView route integration", () => {
       screen.queryByRole("button", { name: "Approve for Production" })
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Extra Amount Due")).not.toBeInTheDocument();
-  });
-
-  it("shows file history only after the user requests it", async () => {
-    const user = userEvent.setup();
-
-    currentBookId = "cm1111111111111111111111111";
-    useBookProgressMock.mockReturnValue({
-      data: createBookProgressData({
-        bookId: currentBookId,
-        orderId: "ord_123",
-        currentStage: "REVIEW",
-        currentStatus: "PREVIEW_READY",
-        timeline: [
-          {
-            stage: "REVIEW",
-            state: "current",
-            reachedAt: "2026-03-01T08:00:00.000Z",
-            sourceStatus: "PREVIEW_READY",
-          },
-        ],
-        rejectionReason: null,
-        estimatedPages: 132,
-        pageCount: 142,
-        wordCount: 41000,
-        previewPdfUrl: "https://example.com/preview.pdf",
-      }),
-      isInitialLoading: false,
-      isError: false,
-      isFetching: false,
-      refetch: jest.fn(),
-      error: null,
-    });
-
-    render(<BooksView />);
-
-    expect(screen.queryByText("Version history and exports")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "View File Versions" }));
-
-    expect(screen.getByText("Version history and exports")).toBeInTheDocument();
-    expect(screen.getByText("preview.pdf")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hide File Versions" })).toBeInTheDocument();
   });
 
   it("shows payment-pending state after extra-page payment has started", () => {

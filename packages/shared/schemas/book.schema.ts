@@ -200,6 +200,7 @@ export const BookManuscriptUploadResponseSchema = z.object({
   fontSize: BookFontSizeSchema,
   wordCount: z.number().int().positive(),
   estimatedPages: z.number().int().positive(),
+  documentPageCount: z.number().int().positive().nullable(),
 });
 export type BookManuscriptUploadResponse = z.infer<typeof BookManuscriptUploadResponseSchema>;
 
@@ -338,6 +339,7 @@ export const UserBookListItemSchema = z.object({
   pageCount: z.number().int().nullable(),
   wordCount: z.number().int().nullable(),
   estimatedPages: z.number().int().nullable(),
+  documentPageCount: z.number().int().nullable(),
   fontSize: BookFontSizeSchema.nullable(),
   pageSize: BookPageSizeSchema.nullable(),
   previewPdfUrlPresent: z.boolean(),
@@ -373,6 +375,7 @@ export const BookDetailResponseSchema = z.object({
   pageCount: z.number().int().nullable(),
   wordCount: z.number().int().nullable(),
   estimatedPages: z.number().int().nullable(),
+  documentPageCount: z.number().int().nullable(),
   fontFamily: z.string().nullable(),
   fontSize: z.number().int().nullable(),
   pageSize: z.string().nullable(),

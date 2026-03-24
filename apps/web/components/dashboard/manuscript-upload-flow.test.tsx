@@ -5,6 +5,15 @@ import { ManuscriptUploadFlow } from "./manuscript-upload-flow";
 const updateBookSettingsMock = jest.fn();
 const uploadManuscriptWithProgressMock = jest.fn();
 const useOnlineStatusMock = jest.fn();
+const toastSuccessMock = jest.fn();
+
+jest.mock("sonner", () => ({
+  toast: {
+    success: (...args: unknown[]) => toastSuccessMock(...args),
+    error: jest.fn(),
+    info: jest.fn(),
+  },
+}));
 
 const TRANSLATIONS: Record<string, string> = {
   manuscript_upload_title: "Upload manuscript",
@@ -49,6 +58,15 @@ const TRANSLATIONS: Record<string, string> = {
   manuscript_upload_estimated_pages_helper:
     "Quick guide from word count and your selected trim size and font size.",
   manuscript_upload_word_count_label: "{count} words",
+  manuscript_upload_word_count_approximate_label: "Approximate word count: ~{count}",
+  manuscript_upload_word_count_label_standalone: "Words in your manuscript",
+  manuscript_upload_word_count_approximate_label_standalone: "Approximate words extracted",
+  manuscript_upload_pages_confirmed_after_formatting:
+    "Your exact page count will be confirmed once formatting is complete.",
+  manuscript_upload_received_label: "Manuscript received",
+  manuscript_upload_success_toast: "Manuscript uploaded successfully",
+  manuscript_upload_document_pages_label: "Approximate pages in your document",
+  manuscript_upload_document_pages_helper: "Extracted from your file metadata.",
   manuscript_upload_replace_file: "Replace file",
   offline_banner: "You're offline — some features require an internet connection",
 };
@@ -152,6 +170,7 @@ describe("ManuscriptUploadFlow", () => {
         initialFontSize={null}
         initialEstimatedPages={null}
         initialWordCount={null}
+        initialDocumentPageCount={null}
       />
     );
 
@@ -190,6 +209,7 @@ describe("ManuscriptUploadFlow", () => {
         initialFontSize={null}
         initialEstimatedPages={null}
         initialWordCount={null}
+        initialDocumentPageCount={null}
       />
     );
 
@@ -225,6 +245,7 @@ describe("ManuscriptUploadFlow", () => {
         initialFontSize={12}
         initialEstimatedPages={null}
         initialWordCount={null}
+        initialDocumentPageCount={null}
       />
     );
 
@@ -245,6 +266,7 @@ describe("ManuscriptUploadFlow", () => {
         initialFontSize={12}
         initialEstimatedPages={150}
         initialWordCount={42000}
+        initialDocumentPageCount={null}
       />
     );
 
@@ -274,6 +296,7 @@ describe("ManuscriptUploadFlow", () => {
         initialFontSize={12}
         initialEstimatedPages={null}
         initialWordCount={null}
+        initialDocumentPageCount={null}
         onUploadSuccess={onUploadSuccess}
       />
     );
@@ -315,16 +338,15 @@ describe("ManuscriptUploadFlow", () => {
       fontSize: 12,
       wordCount: 42000,
       estimatedPages: 150,
+      documentPageCount: null,
     });
 
-    await waitFor(() =>
-      expect(screen.getByText("Estimated pages before formatting")).toBeInTheDocument()
-    );
-    expect(screen.getByText("150")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Words in your manuscript")).toBeInTheDocument());
+    expect(screen.getByText("42,000")).toBeInTheDocument();
     expect(
-      screen.getByText("Quick guide from word count and your selected trim size and font size.")
+      screen.getByText("Your exact page count will be confirmed once formatting is complete.")
     ).toBeInTheDocument();
-    expect(screen.getByText("42,000 words")).toBeInTheDocument();
+    expect(screen.queryByText(/~\s*150/)).not.toBeInTheDocument();
     expect(onUploadSuccess).toHaveBeenCalledTimes(1);
   });
 
@@ -337,6 +359,7 @@ describe("ManuscriptUploadFlow", () => {
         initialFontSize={11}
         initialEstimatedPages={null}
         initialWordCount={null}
+        initialDocumentPageCount={null}
       />
     );
 
@@ -378,6 +401,7 @@ describe("ManuscriptUploadFlow", () => {
         initialFontSize={14}
         initialEstimatedPages={null}
         initialWordCount={null}
+        initialDocumentPageCount={null}
       />
     );
 
@@ -395,6 +419,190 @@ describe("ManuscriptUploadFlow", () => {
     );
   });
 
+  it("shows approximate word count label for PDF uploads", async () => {
+    uploadManuscriptWithProgressMock.mockImplementation(
+      ({ onProgress }: { onProgress?: (percentage: number) => void }) => {
+        onProgress?.(100);
+        return Promise.resolve({
+          bookId: "cm_book_1",
+          fileId: "file_1",
+          fileUrl: "https://example.com/raw.pdf",
+          fileName: "story.pdf",
+          fileSize: 2048,
+          mimeType: "application/pdf",
+          pageSize: "A4",
+          fontSize: 12,
+          wordCount: 35000,
+          estimatedPages: 120,
+          documentPageCount: 6,
+        });
+      }
+    );
+
+    render(
+      <ManuscriptUploadFlow
+        bookId="cm_book_1"
+        initialTitle="Story Title"
+        initialPageSize="A4"
+        initialFontSize={12}
+        initialEstimatedPages={null}
+        initialWordCount={null}
+        initialDocumentPageCount={null}
+      />
+    );
+
+    const dropZone = screen.getByRole("button", { name: "Drag and drop your manuscript" });
+    fireEvent.drop(dropZone, {
+      dataTransfer: {
+        files: [new File(["content"], "story.pdf", { type: "application/pdf" })],
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText(/Approximate word count/)).toBeInTheDocument());
+    expect(screen.getByText(/~35,000/)).toBeInTheDocument();
+    expect(screen.queryByText("35,000 words")).not.toBeInTheDocument();
+  });
+
+  it("shows exact word count label for DOCX uploads", async () => {
+    uploadManuscriptWithProgressMock.mockImplementation(
+      ({ onProgress }: { onProgress?: (percentage: number) => void }) => {
+        onProgress?.(100);
+        return Promise.resolve({
+          bookId: "cm_book_1",
+          fileId: "file_1",
+          fileUrl: "https://example.com/raw.docx",
+          fileName: "story.docx",
+          fileSize: 1024,
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          pageSize: "A5",
+          fontSize: 12,
+          wordCount: 42000,
+          estimatedPages: 150,
+          documentPageCount: null,
+        });
+      }
+    );
+
+    render(
+      <ManuscriptUploadFlow
+        bookId="cm_book_1"
+        initialTitle="Story Title"
+        initialPageSize="A5"
+        initialFontSize={12}
+        initialEstimatedPages={null}
+        initialWordCount={null}
+        initialDocumentPageCount={null}
+      />
+    );
+
+    const dropZone = screen.getByRole("button", { name: "Drag and drop your manuscript" });
+    fireEvent.drop(dropZone, {
+      dataTransfer: {
+        files: [
+          new File(["content"], "story.docx", {
+            type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          }),
+        ],
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText("Words in your manuscript")).toBeInTheDocument());
+    expect(screen.getByText("42,000")).toBeInTheDocument();
+    expect(screen.queryByText(/Approximate word count/)).not.toBeInTheDocument();
+  });
+
+  it("fires a success toast when manuscript upload completes", async () => {
+    uploadManuscriptWithProgressMock.mockImplementation(
+      ({ onProgress }: { onProgress?: (percentage: number) => void }) => {
+        onProgress?.(100);
+        return Promise.resolve({
+          bookId: "cm_book_1",
+          fileId: "file_1",
+          fileUrl: "https://example.com/raw.docx",
+          fileName: "story.docx",
+          fileSize: 1024,
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          pageSize: "A5",
+          fontSize: 12,
+          wordCount: 42000,
+          estimatedPages: 150,
+          documentPageCount: null,
+        });
+      }
+    );
+
+    render(
+      <ManuscriptUploadFlow
+        bookId="cm_book_1"
+        initialTitle="Story Title"
+        initialPageSize="A5"
+        initialFontSize={12}
+        initialEstimatedPages={null}
+        initialWordCount={null}
+        initialDocumentPageCount={null}
+      />
+    );
+
+    const dropZone = screen.getByRole("button", { name: "Drag and drop your manuscript" });
+    fireEvent.drop(dropZone, {
+      dataTransfer: {
+        files: [
+          new File(["content"], "story.docx", {
+            type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          }),
+        ],
+      },
+    });
+
+    await waitFor(() =>
+      expect(toastSuccessMock).toHaveBeenCalledWith("Manuscript uploaded successfully")
+    );
+  });
+
+  it("renders success checkmark icon on fresh upload", async () => {
+    uploadManuscriptWithProgressMock.mockImplementation(
+      ({ onProgress }: { onProgress?: (percentage: number) => void }) => {
+        onProgress?.(100);
+        return Promise.resolve({
+          bookId: "cm_book_1",
+          fileId: "file_1",
+          fileUrl: "https://example.com/raw.pdf",
+          fileName: "story.pdf",
+          fileSize: 2048,
+          mimeType: "application/pdf",
+          pageSize: "A4",
+          fontSize: 12,
+          wordCount: 35000,
+          estimatedPages: 120,
+          documentPageCount: 6,
+        });
+      }
+    );
+
+    const { container } = render(
+      <ManuscriptUploadFlow
+        bookId="cm_book_1"
+        initialTitle="Story Title"
+        initialPageSize="A4"
+        initialFontSize={12}
+        initialEstimatedPages={null}
+        initialWordCount={null}
+        initialDocumentPageCount={null}
+      />
+    );
+
+    const dropZone = screen.getByRole("button", { name: "Drag and drop your manuscript" });
+    fireEvent.drop(dropZone, {
+      dataTransfer: {
+        files: [new File(["content"], "story.pdf", { type: "application/pdf" })],
+      },
+    });
+
+    await waitFor(() =>
+      expect(container.querySelector(".lucide-circle-check")).toBeInTheDocument()
+    );
+  });
+
   it("disables manuscript upload actions offline", () => {
     useOnlineStatusMock.mockReturnValue(false);
 
@@ -406,6 +614,7 @@ describe("ManuscriptUploadFlow", () => {
         initialFontSize={12}
         initialEstimatedPages={null}
         initialWordCount={null}
+        initialDocumentPageCount={null}
       />
     );
 

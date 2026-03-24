@@ -89,6 +89,7 @@ export interface BookProgressNormalizedResponse {
   pageCount: number | null;
   wordCount: number | null;
   estimatedPages: number | null;
+  documentPageCount: number | null;
   fontFamily: string | null;
   fontSize: number | null;
   pageSize: string | null;

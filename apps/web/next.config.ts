@@ -7,6 +7,12 @@ import { pwaPluginConfig } from "./lib/pwa/plugin-config";
 const withNextIntl = createNextIntlPlugin("./lib/i18n/request.ts");
 
 const nextConfig: NextConfig = {
+  // Ensure pagedjs polyfill file is included in Vercel serverless function bundles.
+  // Next.js output file tracing doesn't detect fs.readFileSync of node_modules files
+  // unless we explicitly list them here.
+  outputFileTracingIncludes: {
+    "/vendor/pagedjs-polyfill.js": ["./node_modules/pagedjs/dist/**"],
+  },
   images: {
     remotePatterns: [
       {

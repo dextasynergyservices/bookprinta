@@ -81,7 +81,7 @@ export class ManuscriptAnalysisService {
     }
 
     // Check text quality — reject garbled / mojibake content before queueing AI
-    const qualityIssue = this.detectTextQualityIssue(text, wordCount);
+    const qualityIssue = this.detectTextQualityIssue(text, wordCount, mimeType);
     if (qualityIssue) {
       throw new BadRequestException(qualityIssue);
     }
@@ -125,6 +125,101 @@ export class ManuscriptAnalysisService {
   }
 
   /**
+   * Extract the page count embedded in the user's original document.
+   * - PDF: reads `numpages` from pdf-parse result (reliable).
+   * - DOCX: reads `<Pages>N</Pages>` from `docProps/app.xml` inside the ZIP
+   *   (set by MS Word on last save; may be absent in Google Docs / LibreOffice exports).
+   * Returns null if page count cannot be determined.
+   */
+  async extractDocumentPageCount(
+    buffer: Buffer,
+    mimeType: ManuscriptMimeType
+  ): Promise<number | null> {
+    try {
+      if (mimeType === PDF_MIME_TYPE) {
+        return await this.extractPdfPageCount(buffer);
+      }
+      return this.extractDocxPageCount(buffer);
+    } catch (error) {
+      this.logger.warn(
+        `Document page count extraction failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return null;
+    }
+  }
+
+  private async extractPdfPageCount(buffer: Buffer): Promise<number | null> {
+    // Try pdf-parse first (most accurate)
+    try {
+      const moduleName = "pdf-parse";
+      const loadedModule = (await import(moduleName)) as unknown;
+
+      let parseFn: ((input: Buffer) => Promise<{ numpages?: unknown }>) | null = null;
+      if (typeof loadedModule === "function") {
+        parseFn = loadedModule as (input: Buffer) => Promise<{ numpages?: unknown }>;
+      } else if (loadedModule && typeof loadedModule === "object") {
+        const defaultExport = (loadedModule as { default?: unknown }).default;
+        if (typeof defaultExport === "function") {
+          parseFn = defaultExport as (input: Buffer) => Promise<{ numpages?: unknown }>;
+        }
+      }
+
+      if (parseFn) {
+        const result = await parseFn(buffer);
+        if (typeof result.numpages === "number" && result.numpages > 0) {
+          this.logger.log(`PDF page count from pdf-parse: ${result.numpages}`);
+          return result.numpages;
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `pdf-parse page count failed, trying binary fallback: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    // Fallback: count /Type /Page objects in the raw PDF binary.
+    // This is very reliable — every PDF page object has "/Type /Page"
+    // (as opposed to "/Type /Pages" which is the page tree node).
+    const fallback = this.countPdfPagesBinary(buffer);
+    if (fallback !== null) {
+      this.logger.log(`PDF page count from binary fallback: ${fallback}`);
+    }
+    return fallback;
+  }
+
+  /**
+   * Count PDF pages by scanning for `/Type /Page` entries in the raw binary.
+   * Matches `/Type/Page` and `/Type /Page` but NOT `/Type /Pages` (tree node).
+   */
+  private countPdfPagesBinary(buffer: Buffer): number | null {
+    const text = buffer.toString("latin1");
+    // Match /Type followed by optional whitespace then /Page, but NOT /Pages
+    const regex = /\/Type\s*\/Page(?![s\w])/g;
+    let count = 0;
+    while (regex.exec(text) !== null) {
+      count++;
+    }
+    return count > 0 ? count : null;
+  }
+
+  private extractDocxPageCount(buffer: Buffer): number | null {
+    let appXml: Buffer | null = null;
+    try {
+      appXml = this.readZipEntry(buffer, "docProps/app.xml");
+    } catch {
+      return null;
+    }
+    if (!appXml) return null;
+
+    const xml = appXml.toString("utf8");
+    const match = xml.match(/<Pages>\s*(\d+)\s*<\/Pages>/i);
+    if (!match?.[1]) return null;
+
+    const pages = Number.parseInt(match[1], 10);
+    return pages > 0 ? pages : null;
+  }
+
+  /**
    * Fast pre-validation that runs before ClamAV/Cloudinary upload.
    * Checks file integrity beyond magic bytes (truncated files, corrupt structure).
    */
@@ -161,8 +256,16 @@ export class ManuscriptAnalysisService {
   /**
    * Detects garbled / mojibake text that would waste an AI formatting call.
    * Returns the error message string if the quality is too low, null otherwise.
+   *
+   * PDF text extraction is inherently lossy — custom font encodings, glyph IDs,
+   * and CID fonts commonly produce C1 control characters (0x80–0x9F) as artifacts
+   * even when the PDF renders perfectly. We use a relaxed threshold for PDFs.
    */
-  private detectTextQualityIssue(text: string, wordCount: number): string | null {
+  private detectTextQualityIssue(
+    text: string,
+    wordCount: number,
+    mimeType: ManuscriptMimeType
+  ): string | null {
     if (wordCount < 10) return null; // too small to measure meaningfully
 
     // Sample a block for analysis (max 5000 chars from the middle)
@@ -183,12 +286,25 @@ export class ManuscriptAnalysisService {
     }
 
     const garbleRatio = garbledChars / sample.length;
-    if (garbleRatio > 0.05) {
-      return (
-        "The manuscript contains a high proportion of unreadable characters, " +
-        "which suggests an encoding problem. Please re-save the file as UTF-8 " +
-        "(DOCX is recommended) and upload again."
-      );
+
+    // PDF extraction is lossy — font encodings routinely produce C1 control chars.
+    // DOCX extraction is cleaner, so we keep a stricter threshold.
+    const threshold = mimeType === PDF_MIME_TYPE ? 0.25 : 0.05;
+
+    this.logger.log(
+      `Text quality check: garbleRatio=${(garbleRatio * 100).toFixed(1)}%, ` +
+        `threshold=${(threshold * 100).toFixed(0)}%, mimeType=${mimeType}, ` +
+        `sampleLength=${sample.length}, garbledChars=${garbledChars}`
+    );
+
+    if (garbleRatio > threshold) {
+      return mimeType === PDF_MIME_TYPE
+        ? "The text extracted from this PDF contains too many unreadable characters. " +
+            "This usually means the PDF uses image-based or custom-encoded fonts. " +
+            "Please try uploading a DOCX version instead, or re-export the PDF with standard fonts."
+        : "The manuscript contains a high proportion of unreadable characters, " +
+            "which suggests an encoding problem. Please re-save the file as UTF-8 " +
+            "(DOCX is recommended) and upload again.";
     }
 
     return null;

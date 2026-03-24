@@ -435,6 +435,10 @@ function resolveBookMetadata(payload: unknown) {
       toNumberValue(root?.estimatedPages) ??
       toNumberValue(data?.estimatedPages) ??
       toNumberValue(book?.estimatedPages),
+    documentPageCount:
+      toNumberValue(root?.documentPageCount) ??
+      toNumberValue(data?.documentPageCount) ??
+      toNumberValue(book?.documentPageCount),
     fontFamily:
       toStringValue(root?.fontFamily) ??
       toStringValue(data?.fontFamily) ??
@@ -563,6 +567,7 @@ export function normalizeBookProgressPayload(payload: unknown): BookProgressNorm
     pageCount: metadata.pageCount,
     wordCount: metadata.wordCount,
     estimatedPages: metadata.estimatedPages,
+    documentPageCount: metadata.documentPageCount,
     fontFamily: metadata.fontFamily,
     fontSize: metadata.fontSize,
     pageSize: metadata.pageSize,

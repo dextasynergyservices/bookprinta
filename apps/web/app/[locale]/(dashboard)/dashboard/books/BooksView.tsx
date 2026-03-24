@@ -18,7 +18,7 @@ import {
   reprocessBookManuscript,
   useBookProgress,
 } from "@/hooks/useBookProgress";
-import { useBookFiles, useBookPreview } from "@/hooks/useBookResources";
+import { useBookPreview } from "@/hooks/useBookResources";
 import { useOrderDetail } from "@/hooks/useOrderDetail";
 import { useOrders } from "@/hooks/useOrders";
 import {
@@ -39,7 +39,6 @@ import {
 import {
   formatDashboardCurrency,
   formatDashboardInteger,
-  resolveDashboardLocaleTag,
   toDashboardStatusLabel,
 } from "@/lib/dashboard/dashboard-formatters";
 import { Link, usePathname, useRouter } from "@/lib/i18n/navigation";
@@ -119,7 +118,6 @@ function resolveReprintInlineMessageKey(disableReason: string | null | undefined
 }
 const STAGE_LABEL_KEYS: Record<BookProgressStage, string> = BOOK_PROGRESS_STAGE_LABEL_KEYS;
 const toStatusLabel = toDashboardStatusLabel;
-const resolveLocaleTag = resolveDashboardLocaleTag;
 const formatInteger = formatDashboardInteger;
 const formatCurrency = formatDashboardCurrency;
 const normalizeStatusToken = normalizeWorkspaceStatusToken;
@@ -129,37 +127,6 @@ function formatSignedInteger(value: number, locale: string): string {
   if (value > 0) return `+${absolute}`;
   if (value < 0) return `-${absolute}`;
   return absolute;
-}
-
-function formatFileSize(value: number | null, locale: string): string | null {
-  if (typeof value !== "number" || value <= 0) return null;
-  const formatter = new Intl.NumberFormat(resolveLocaleTag(locale), {
-    maximumFractionDigits: value >= 10 * 1024 * 1024 ? 0 : 1,
-  });
-
-  if (value >= 1024 * 1024) {
-    return `${formatter.format(value / (1024 * 1024))} MB`;
-  }
-
-  if (value >= 1024) {
-    return `${formatter.format(value / 1024)} KB`;
-  }
-
-  return `${formatter.format(value)} B`;
-}
-
-function formatDateTime(value: string | null, locale: string): string | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-
-  return new Intl.DateTimeFormat(resolveLocaleTag(locale), {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(parsed);
 }
 
 function resolveExtraPagesProvider(
@@ -371,122 +338,6 @@ function BookWorkspaceMetric({
       </p>
       {helper ? <p className="font-sans mt-2 text-xs text-[#9f9f9f]">{helper}</p> : null}
     </div>
-  );
-}
-
-function BookFilesPanel({
-  tDashboard,
-  locale,
-  files,
-  isLoading,
-  errorMessage,
-}: {
-  tDashboard: DashboardTranslator;
-  locale: string;
-  files: {
-    id: string;
-    fileType: string;
-    url: string;
-    fileName: string | null;
-    fileSize: number | null;
-    version: number;
-    createdAt: string | null;
-  }[];
-  isLoading: boolean;
-  errorMessage: string | null;
-}) {
-  return (
-    <section className="rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4 md:p-5">
-      <div className="space-y-1.5">
-        <p className="font-sans text-[11px] font-semibold tracking-[0.08em] text-[#8f8f8f] uppercase">
-          {tDashboard("book_progress_files_title")}
-        </p>
-        <h2 className="font-display text-xl font-semibold tracking-tight text-white md:text-2xl">
-          {tDashboard("book_progress_files_heading")}
-        </h2>
-        <p className="font-sans text-sm text-[#d0d0d0]">
-          {tDashboard("book_progress_files_description")}
-        </p>
-      </div>
-
-      {isLoading && files.length === 0 ? (
-        <div className="mt-4 grid gap-3">
-          {[0, 1, 2].map((index) => (
-            <div
-              key={`book-files-loading-${index}`}
-              className="rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-4"
-            >
-              <div className="h-4 w-32 animate-pulse rounded bg-[#2A2A2A]" />
-              <div className="mt-3 h-3 w-48 animate-pulse rounded bg-[#2A2A2A]" />
-              <div className="mt-2 h-3 w-28 animate-pulse rounded bg-[#2A2A2A]" />
-            </div>
-          ))}
-        </div>
-      ) : errorMessage ? (
-        <p
-          role="alert"
-          className="font-sans mt-4 rounded-xl border border-[#ef4444]/45 bg-[#111111] px-3 py-2 text-sm text-[#f3b2b2]"
-        >
-          {errorMessage}
-        </p>
-      ) : files.length === 0 ? (
-        <p className="font-sans mt-4 rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] px-3 py-3 text-sm text-[#d0d0d0]">
-          {tDashboard("book_progress_files_empty")}
-        </p>
-      ) : (
-        <div className="mt-4 grid gap-3">
-          {files.map((file) => {
-            const createdAtLabel = formatDateTime(file.createdAt, locale);
-            const fileSizeLabel = formatFileSize(file.fileSize, locale);
-
-            return (
-              <article
-                key={file.id}
-                className="flex flex-col gap-3 rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] p-4 sm:flex-row sm:items-start sm:justify-between"
-              >
-                <div className="min-w-0 space-y-1.5">
-                  <p className="font-display text-lg font-semibold tracking-tight text-white">
-                    {toStatusLabel(file.fileType) ?? file.fileType}
-                  </p>
-                  <p className="font-sans text-sm text-[#d0d0d0]">
-                    {file.fileName ?? tDashboard("book_progress_meta_value_unavailable")}
-                  </p>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#9f9f9f]">
-                    <span>
-                      {tDashboard("book_progress_files_version", {
-                        version: formatInteger(file.version, locale),
-                      })}
-                    </span>
-                    {createdAtLabel ? (
-                      <span>
-                        {tDashboard("book_progress_files_uploaded", {
-                          date: createdAtLabel,
-                        })}
-                      </span>
-                    ) : null}
-                    {fileSizeLabel ? (
-                      <span>
-                        {tDashboard("book_progress_files_size", {
-                          size: fileSizeLabel,
-                        })}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <a
-                  href={file.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-sans inline-flex min-h-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
-                >
-                  {tDashboard("book_progress_files_download")}
-                </a>
-              </article>
-            );
-          })}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -979,7 +830,6 @@ export function BooksView() {
   const [isLayoutReprocessing, setIsLayoutReprocessing] = useState(false);
   const [isRetryingProcessing, setIsRetryingProcessing] = useState(false);
   const [isOpeningPreview, setIsOpeningPreview] = useState(false);
-  const [isFileHistoryOpen, setIsFileHistoryOpen] = useState(false);
   const [previewRetryError, setPreviewRetryError] = useState<string | null>(null);
   const verifiedPaymentReferenceRef = useRef<string | null>(null);
   const reprintSameTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -1061,10 +911,6 @@ export function BooksView() {
     bookId: activeBookId,
     enabled: false,
   });
-  const filesQuery = useBookFiles({
-    bookId: activeBookId,
-    enabled: isFileHistoryOpen && Boolean(activeBookId),
-  });
   const normalizedCurrentBookStatus = normalizeStatusToken(data.currentStatus);
   const billingStatus = orderStatus ?? data.currentStatus;
   const extraPagesProvider = resolveExtraPagesProvider(paymentGateways);
@@ -1134,13 +980,6 @@ export function BooksView() {
       : data.rollout.billingGate.access === "disabled"
         ? "billing_gate"
         : null;
-  const fileHistoryError =
-    filesQuery.error instanceof Error && filesQuery.error.message.trim().length > 0
-      ? filesQuery.error.message
-      : filesQuery.isError
-        ? tDashboard("book_progress_files_error")
-        : null;
-
   useEffect(() => {
     if (!isLayoutReprocessing || !activeBookId) return;
 
@@ -1421,10 +1260,6 @@ export function BooksView() {
     }
   }
 
-  function handleToggleFileHistory() {
-    setIsFileHistoryOpen((current) => !current);
-  }
-
   return (
     <section className="min-w-0 space-y-4 md:space-y-6">
       {isResolvingBookFromOrders ? (
@@ -1480,22 +1315,27 @@ export function BooksView() {
             />
           ) : (
             <>
-              <ManuscriptUploadFlow
-                bookId={data.bookId ?? resolvedBookId}
-                initialTitle={data.title}
-                initialPageSize={data.pageSize}
-                initialFontSize={data.fontSize}
-                initialEstimatedPages={data.estimatedPages}
-                initialWordCount={data.wordCount}
-                onUploadSuccess={() => {
-                  setPreviewRetryError(null);
-                  setActionError(null);
-                  setActionSuccess(null);
-                  setResourceActionError(null);
-                  void refetch();
-                  void refetchOrderDetail();
-                }}
-              />
+              {normalizedCurrentBookStatus !== null &&
+              (WORKSPACE_APPROVED_BOOK_STATUSES.has(normalizedCurrentBookStatus) ||
+                normalizedCurrentBookStatus === "CANCELLED") ? null : (
+                <ManuscriptUploadFlow
+                  bookId={data.bookId ?? resolvedBookId}
+                  initialTitle={data.title}
+                  initialPageSize={data.pageSize}
+                  initialFontSize={data.fontSize}
+                  initialEstimatedPages={data.estimatedPages}
+                  initialDocumentPageCount={data.documentPageCount}
+                  initialWordCount={data.wordCount}
+                  onUploadSuccess={() => {
+                    setPreviewRetryError(null);
+                    setActionError(null);
+                    setActionSuccess(null);
+                    setResourceActionError(null);
+                    void refetch();
+                    void refetchOrderDetail();
+                  }}
+                />
+              )}
 
               {hasManuscriptPreviewWorkspace ? (
                 <ManuscriptPreviewPanel
@@ -1717,17 +1557,6 @@ export function BooksView() {
               </Button>
             ) : null}
 
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleToggleFileHistory}
-              className="font-sans min-h-11 rounded-full border-[#2A2A2A] bg-[#000000] px-5 text-sm font-semibold text-white hover:border-[#007eff] hover:bg-[#151515]"
-            >
-              {isFileHistoryOpen
-                ? tDashboard("book_progress_cta_hide_files")
-                : tDashboard("book_progress_cta_view_files")}
-            </Button>
-
             {canShowReprintActions ? (
               <Button
                 ref={reprintSameTriggerRef}
@@ -1778,16 +1607,6 @@ export function BooksView() {
             >
               {resourceActionError}
             </p>
-          ) : null}
-
-          {isFileHistoryOpen ? (
-            <BookFilesPanel
-              tDashboard={tDashboard}
-              locale={locale}
-              files={filesQuery.data.files}
-              isLoading={filesQuery.isFetching}
-              errorMessage={fileHistoryError}
-            />
           ) : null}
         </div>
       )}

@@ -1,73 +1,39 @@
-import { access, readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
 export const runtime = "nodejs";
 
+// Force Next.js output file tracing to include this file on Vercel.
+// Without a static require/import, the bundler doesn't know pagedjs is needed
+// and strips it from the serverless function filesystem.
 const require = createRequire(import.meta.url);
-let cachedPolyfillSource: string | null = null;
-const POLYFILL_FILE_NAME = path.join("node_modules", "pagedjs", "dist", "paged.polyfill.min.js");
 
-async function fileExists(filePath: string) {
+/**
+ * Resolve the polyfill path using require.resolve — this is the ONLY strategy
+ * that works reliably across local dev, Docker, and Vercel serverless.
+ * CWD-based guessing fails on Vercel because the filesystem layout is different.
+ */
+function resolvePolyfillPath(): string {
   try {
-    await access(filePath);
-    return true;
+    // require.resolve("pagedjs") returns the package entry point (e.g., .../dist/paged.esm.js).
+    // The polyfill lives as a sibling file in the same dist/ directory.
+    const entryPath = require.resolve("pagedjs");
+    return path.resolve(path.dirname(entryPath), "paged.polyfill.min.js");
   } catch {
-    return false;
-  }
-}
-
-async function resolvePolyfillPath() {
-  const candidatePaths = new Set<string>();
-  let currentDirectory = process.cwd();
-
-  while (true) {
-    candidatePaths.add(path.join(currentDirectory, POLYFILL_FILE_NAME));
-    candidatePaths.add(path.join(currentDirectory, "apps", "web", POLYFILL_FILE_NAME));
-
-    const parentDirectory = path.dirname(currentDirectory);
-    if (parentDirectory === currentDirectory) {
-      break;
-    }
-
-    currentDirectory = parentDirectory;
-  }
-
-  try {
-    const packageEntryPath = require.resolve("pagedjs");
-    candidatePaths.add(
-      path.resolve(path.dirname(packageEntryPath), "../dist/paged.polyfill.min.js")
+    throw new Error(
+      "Unable to locate pagedjs polyfill: require.resolve('pagedjs') failed. " +
+        "Ensure 'pagedjs' is listed in dependencies (not devDependencies) in apps/web/package.json."
     );
-  } catch {
-    // Fall through to filesystem candidate search below.
   }
-
-  for (const candidatePath of candidatePaths) {
-    if (await fileExists(candidatePath)) {
-      return candidatePath;
-    }
-  }
-
-  throw new Error(
-    `Unable to locate pagedjs polyfill. Checked: ${Array.from(candidatePaths).join(", ")}`
-  );
 }
 
-async function loadPagedJsPolyfill() {
-  if (cachedPolyfillSource !== null) {
-    return cachedPolyfillSource;
-  }
-
-  const polyfillPath = await resolvePolyfillPath();
-  cachedPolyfillSource = await readFile(polyfillPath, "utf8");
-
-  return cachedPolyfillSource;
-}
+// Read once at module load time — this is a static asset that never changes at runtime.
+// Doing it at load time also ensures Next.js file tracing captures the file.
+const polyfillSource = readFileSync(resolvePolyfillPath(), "utf8");
 
 export async function GET() {
-  const source = await loadPagedJsPolyfill();
-
-  return new Response(source, {
+  return new Response(polyfillSource, {
     headers: {
       "Content-Type": "application/javascript; charset=utf-8",
       "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",

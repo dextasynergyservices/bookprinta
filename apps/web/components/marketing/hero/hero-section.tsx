@@ -2,7 +2,7 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { usePublicMarketingSettings } from "@/hooks/usePublicMarketingSettings";
 import { Link } from "@/lib/i18n/navigation";
@@ -63,6 +63,7 @@ const ctaVariants = {
  * ───────────────────────────────────────────── */
 export function HeroSection() {
   const t = useTranslations("hero");
+  const locale = useLocale();
   const prefersReducedMotion = useReducedMotion();
   const { settings } = usePublicMarketingSettings();
 
@@ -80,13 +81,18 @@ export function HeroSection() {
     }
   }, [prefersReducedMotion]);
 
-  /* ── Resolve hero text (admin overrides → i18n fallback) ── */
-  const managedTitle = settings?.hero.title?.trim() ?? "";
+  /* ── Resolve hero text (admin overrides → i18n fallback) ──
+   * Admin-managed settings are stored in English only. For non-English
+   * locales, always use the translated strings from the message files
+   * so French/Spanish visitors see their own language. */
+  const isDefaultLocale = locale === "en";
+  const managedTitle = isDefaultLocale ? (settings?.hero.title?.trim() ?? "") : "";
   const usesManagedHero = managedTitle.length > 0;
 
-  const heroSubtitle = settings?.hero.subtitle?.trim() || t("tagline");
-  const primaryCtaLabel = settings?.hero.primaryCtaLabel?.trim() || t("cta");
-  const secondaryCtaLabel = settings?.hero.secondaryCtaLabel?.trim() || t("secondary_cta");
+  const heroSubtitle = (isDefaultLocale && settings?.hero.subtitle?.trim()) || t("tagline");
+  const primaryCtaLabel = (isDefaultLocale && settings?.hero.primaryCtaLabel?.trim()) || t("cta");
+  const secondaryCtaLabel =
+    (isDefaultLocale && settings?.hero.secondaryCtaLabel?.trim()) || t("secondary_cta");
 
   /* Typewriter uses the full flat title (not the split headline) */
   const typewriterText = usesManagedHero ? managedTitle.replace(/\n/g, " ") : t("title");

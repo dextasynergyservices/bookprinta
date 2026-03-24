@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ExternalLink, LoaderCircle, X } from "lucide-react";
+import { Download, ExternalLink, LoaderCircle, X } from "lucide-react";
 import Image, { type ImageLoaderProps } from "next/image";
 import { useTranslations } from "next-intl";
 import { Dialog as DialogPrimitive } from "radix-ui";
@@ -73,6 +73,36 @@ function passthroughReceiptLoader({ src }: ImageLoaderProps): string {
   return src;
 }
 
+/**
+ * Build a Cloudinary download URL by injecting `fl_attachment` into the
+ * transformation segment. This forces the browser to download the file
+ * with its original filename and correct extension instead of opening it
+ * in a new tab or saving as `.file`.
+ *
+ * For non-Cloudinary URLs the original URL is returned as-is.
+ */
+function buildReceiptDownloadUrl(receiptUrl: string): string {
+  try {
+    const parsed = new URL(receiptUrl);
+    if (parsed.hostname !== "res.cloudinary.com") return receiptUrl;
+
+    // Cloudinary URL structure:
+    //   /image/upload/v1234567890/folder/filename.ext
+    //   /raw/upload/v1234567890/folder/filename.ext
+    // We inject `fl_attachment` before the version segment.
+    const replaced = parsed.pathname.replace(
+      /\/(image|raw)\/upload\//,
+      "/$1/upload/fl_attachment/"
+    );
+    if (replaced === parsed.pathname) return receiptUrl;
+
+    parsed.pathname = replaced;
+    return parsed.toString();
+  } catch {
+    return receiptUrl;
+  }
+}
+
 export function PaymentReceiptLightbox({
   open,
   onOpenChange,
@@ -88,6 +118,10 @@ export function PaymentReceiptLightbox({
   const canOptimizeImage = useMemo(
     () => previewKind === "image" && canOptimizeReceiptImage(preview.receiptUrl),
     [preview.receiptUrl, previewKind]
+  );
+  const downloadUrl = useMemo(
+    () => buildReceiptDownloadUrl(preview.receiptUrl),
+    [preview.receiptUrl]
   );
 
   useEffect(() => {
@@ -237,6 +271,17 @@ export function PaymentReceiptLightbox({
                           className="min-h-11 rounded-full border-[#2A2A2A] bg-[#080808] px-4 font-sans text-sm text-white hover:border-[#3A3A3A] hover:bg-[#101010]"
                         >
                           {tAdmin("payments_receipt_lightbox_close")}
+                        </Button>
+                        <Button
+                          type="button"
+                          asChild
+                          variant="outline"
+                          className="min-h-11 rounded-full border-[#2A2A2A] bg-[#080808] px-4 font-sans text-sm text-white hover:border-[#3A3A3A] hover:bg-[#101010]"
+                        >
+                          <a href={downloadUrl} download rel="noreferrer">
+                            <Download className="size-4" aria-hidden="true" />
+                            <span>{tAdmin("payments_receipt_lightbox_download")}</span>
+                          </a>
                         </Button>
                         <Button
                           type="button"
