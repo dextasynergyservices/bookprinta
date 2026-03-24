@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // Force Next.js output file tracing to include this file on Vercel.
 // Without a static require/import, the bundler doesn't know pagedjs is needed
@@ -28,11 +29,16 @@ function resolvePolyfillPath(): string {
   }
 }
 
-// Read once at module load time — this is a static asset that never changes at runtime.
-// Doing it at load time also ensures Next.js file tracing captures the file.
-const polyfillSource = readFileSync(resolvePolyfillPath(), "utf8");
+// Lazy-read on first request to avoid running require.resolve during build-time
+// page data collection (where webpack's bundled module resolution breaks it).
+// Cached after first read — the file never changes at runtime.
+let polyfillSource: string | null = null;
 
 export async function GET() {
+  if (!polyfillSource) {
+    polyfillSource = readFileSync(resolvePolyfillPath(), "utf8");
+  }
+
   return new Response(polyfillSource, {
     headers: {
       "Content-Type": "application/javascript; charset=utf-8",
