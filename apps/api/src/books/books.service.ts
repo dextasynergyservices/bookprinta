@@ -119,6 +119,7 @@ const BOOK_DETAIL_SELECT = {
   pageCount: true,
   wordCount: true,
   estimatedPages: true,
+  documentPageCount: true,
   fontFamily: true,
   fontSize: true,
   pageSize: true,
@@ -167,6 +168,7 @@ const USER_BOOK_LIST_SELECT = {
   pageCount: true,
   wordCount: true,
   estimatedPages: true,
+  documentPageCount: true,
   fontSize: true,
   pageSize: true,
   currentHtmlUrl: true,
@@ -483,6 +485,23 @@ export class BooksService {
       throw new NotFoundException(`Book "${bookId}" not found`);
     }
 
+    const UPLOAD_BLOCKED_STATUSES: ReadonlySet<string> = new Set([
+      "APPROVED",
+      "IN_PRODUCTION",
+      "PRINTING",
+      "PRINTED",
+      "SHIPPING",
+      "DELIVERED",
+      "COMPLETED",
+      "CANCELLED",
+    ]);
+
+    if (UPLOAD_BLOCKED_STATUSES.has(book.status)) {
+      throw new BadRequestException(
+        "Manuscript uploads are no longer allowed after the book has been approved for production."
+      );
+    }
+
     this.rollout.assertManuscriptPipelineAccess(book);
 
     const pageSize = this.resolvePageSize(book.pageSize);
@@ -502,6 +521,17 @@ export class BooksService {
       pageSize,
       fontSize,
     });
+    const documentPageCount = await this.manuscriptAnalysis.extractDocumentPageCount(
+      file.buffer,
+      mimeType
+    );
+
+    this.logger.log(
+      `Page count for book ${bookId}: ` +
+        `documentPageCount=${documentPageCount ?? "null"} (source: ${documentPageCount !== null ? (mimeType === "application/pdf" ? "pdf-parse numpages" : "docProps/app.xml") : "unavailable"}), ` +
+        `estimatedPages=${estimatedPages} (formula), ` +
+        `wordCount=${wordCount}, mimeType=${mimeType}`
+    );
 
     const fileType: FileType = "RAW_MANUSCRIPT";
     const uploadedFile = await (async () => {
@@ -529,6 +559,7 @@ export class BooksService {
         status: shouldMarkUploaded ? "UPLOADED" : book.status,
         wordCount,
         estimatedPages,
+        documentPageCount,
         pageSize,
         fontSize,
         ...(book.status === "REJECTED"
@@ -560,6 +591,7 @@ export class BooksService {
       fontSize,
       wordCount,
       estimatedPages,
+      documentPageCount,
     };
   }
 
@@ -627,6 +659,7 @@ export class BooksService {
       pageCount: row.pageCount,
       wordCount: row.wordCount,
       estimatedPages: row.estimatedPages,
+      documentPageCount: row.documentPageCount,
       fontFamily: row.fontFamily ?? null,
       fontSize: row.fontSize,
       pageSize: row.pageSize ?? null,
@@ -768,6 +801,7 @@ export class BooksService {
       pageCount: row.pageCount,
       wordCount: row.wordCount,
       estimatedPages: row.estimatedPages,
+      documentPageCount: row.documentPageCount,
       fontFamily: row.fontFamily ?? null,
       fontSize: row.fontSize,
       pageSize: row.pageSize ?? null,
@@ -1924,6 +1958,7 @@ export class BooksService {
       pageCount: row.pageCount,
       wordCount: row.wordCount,
       estimatedPages: row.estimatedPages,
+      documentPageCount: row.documentPageCount,
       fontSize: this.resolveFontSize(row.fontSize),
       pageSize: this.resolvePageSize(row.pageSize ?? null),
       previewPdfUrlPresent: typeof row.previewPdfUrl === "string" && row.previewPdfUrl.length > 0,

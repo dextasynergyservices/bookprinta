@@ -93,6 +93,7 @@ function createFallbackOrderTracking(orderId: string | null): OrderTrackingNorma
     pageCount: null,
     wordCount: null,
     estimatedPages: null,
+    documentPageCount: null,
     fontFamily: null,
     fontSize: null,
     pageSize: null,

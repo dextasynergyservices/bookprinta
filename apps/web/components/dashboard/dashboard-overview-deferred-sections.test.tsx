@@ -86,6 +86,7 @@ function createActiveBook(
     pageCount: 180,
     wordCount: 52000,
     estimatedPages: 176,
+    documentPageCount: null,
     fontSize: 12,
     pageSize: "A5",
     previewPdfUrlPresent: true,

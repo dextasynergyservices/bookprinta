@@ -1,9 +1,10 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { FileUp, UploadCloud } from "lucide-react";
+import { CircleCheck, FileUp, Info, UploadCloud } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { type ChangeEvent, type DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -26,6 +27,7 @@ type ManuscriptUploadFlowProps = {
   initialPageSize: string | null;
   initialFontSize: number | null;
   initialEstimatedPages: number | null;
+  initialDocumentPageCount: number | null;
   initialWordCount: number | null;
   onUploadSuccess?: () => void;
 };
@@ -59,6 +61,7 @@ export function ManuscriptUploadFlow({
   initialPageSize,
   initialFontSize,
   initialEstimatedPages,
+  initialDocumentPageCount,
   initialWordCount,
   onUploadSuccess,
 }: ManuscriptUploadFlowProps) {
@@ -80,7 +83,12 @@ export function ManuscriptUploadFlow({
     normalizeBookFontSize(initialFontSize)
   );
   const [estimatedPages, setEstimatedPages] = useState<number | null>(initialEstimatedPages);
+  const [documentPageCount, setDocumentPageCount] = useState<number | null>(
+    initialDocumentPageCount
+  );
   const [wordCount, setWordCount] = useState<number | null>(initialWordCount);
+  const [uploadedMimeType, setUploadedMimeType] = useState<string | null>(null);
+  const [showSuccessIcon, setShowSuccessIcon] = useState(false);
   const [step, setStep] = useState<ManuscriptUploadStep>(
     resolveInitialStep(
       normalizeBookTitle(initialTitle),
@@ -109,8 +117,10 @@ export function ManuscriptUploadFlow({
     setSelectedPageSize(normalizedPageSize);
     setSelectedFontSize(normalizedFontSize);
     setEstimatedPages(initialEstimatedPages);
+    setDocumentPageCount(initialDocumentPageCount);
     setWordCount(initialWordCount);
     setUploadProgress(0);
+    setUploadedMimeType(null);
     setIsSavingSettings(false);
     setIsUploading(false);
     setIsProcessing(false);
@@ -125,7 +135,14 @@ export function ManuscriptUploadFlow({
         initialEstimatedPages
       )
     );
-  }, [initialEstimatedPages, initialFontSize, initialPageSize, initialTitle, initialWordCount]);
+  }, [
+    initialEstimatedPages,
+    initialFontSize,
+    initialPageSize,
+    initialTitle,
+    initialWordCount,
+    initialDocumentPageCount,
+  ]);
 
   useEffect(() => {
     if (!isProcessing) {
@@ -155,6 +172,8 @@ export function ManuscriptUploadFlow({
     setDragActive(false);
     setIsProcessing(false);
     setUploadProgress(0);
+    setUploadedMimeType(null);
+    setShowSuccessIcon(false);
     setStep("settings");
   };
 
@@ -262,7 +281,11 @@ export function ManuscriptUploadFlow({
       setSelectedFontSize(response.fontSize);
       setWordCount(response.wordCount);
       setEstimatedPages(response.estimatedPages);
+      setDocumentPageCount(response.documentPageCount);
+      setUploadedMimeType(response.mimeType ?? null);
+      setShowSuccessIcon(true);
       setStep("result");
+      toast.success(tDashboard("manuscript_upload_success_toast"));
       onUploadSuccess?.();
     } catch (error) {
       const message =
@@ -569,6 +592,10 @@ export function ManuscriptUploadFlow({
               <span className="font-sans text-[11px] text-[#8f8f8f]">
                 {tDashboard("manuscript_upload_dropzone_formats")}
               </span>
+              <span className="font-sans inline-flex items-center gap-1.5 rounded-lg border border-[#007eff]/20 bg-[#007eff]/10 px-3 py-1.5 text-xs leading-tight text-[#007eff]">
+                <Info className="size-3.5 shrink-0" aria-hidden="true" />
+                {tDashboard("manuscript_upload_docx_recommended")}
+              </span>
               <span className="font-sans inline-flex min-h-11 items-center rounded-full border border-[#2A2A2A] bg-[#111111] px-4 text-xs font-semibold text-white">
                 {tDashboard("manuscript_upload_choose_file")}
               </span>
@@ -621,25 +648,76 @@ export function ManuscriptUploadFlow({
         </div>
       ) : null}
 
-      {step === "result" && typeof estimatedPages === "number" ? (
-        <div className="mt-4 space-y-3 rounded-2xl border border-[#2A2A2A] bg-[#0b0b0b] p-4 text-center">
+      {step === "result" &&
+      (typeof documentPageCount === "number" || typeof estimatedPages === "number") ? (
+        <motion.div
+          className="mt-4 space-y-3 rounded-2xl border border-[#2A2A2A] bg-[#0b0b0b] p-4 text-center"
+          initial={prefersReducedMotion ? false : { y: 12, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.35, ease: "easeOut" }}
+        >
           <div className="mx-auto flex size-12 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#070707]">
-            <FileUp className="size-5 text-[#007eff]" aria-hidden="true" />
+            {showSuccessIcon ? (
+              <motion.span
+                initial={prefersReducedMotion ? false : { scale: 0.5, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+              >
+                <CircleCheck className="size-5 text-emerald-400" aria-hidden="true" />
+              </motion.span>
+            ) : (
+              <FileUp className="size-5 text-[#007eff]" aria-hidden="true" />
+            )}
           </div>
-          <p className="font-display text-5xl font-semibold tracking-tight text-white md:text-6xl">
-            {estimatedPages}
-          </p>
-          <p className="font-sans text-sm text-[#d2d2d2]">
-            {tDashboard("manuscript_upload_estimated_pages_label")}
-          </p>
-          <p className="font-sans mx-auto max-w-xs text-xs text-[#9f9f9f]">
-            {tDashboard("manuscript_upload_estimated_pages_helper")}
-          </p>
-          {formattedWordCount ? (
-            <p className="font-sans text-xs text-[#9f9f9f]">
-              {tDashboard("manuscript_upload_word_count_label", { count: formattedWordCount })}
-            </p>
-          ) : null}
+
+          {typeof documentPageCount === "number" ? (
+            <>
+              <p className="font-display text-5xl font-semibold tracking-tight text-white md:text-6xl">
+                ~{documentPageCount}
+              </p>
+              <p className="font-sans text-sm text-[#d2d2d2]">
+                {tDashboard("manuscript_upload_document_pages_label")}
+              </p>
+              <p className="font-sans mx-auto max-w-xs text-xs text-[#9f9f9f]">
+                {tDashboard("manuscript_upload_document_pages_helper")}
+              </p>
+              {formattedWordCount ? (
+                <p className="font-sans text-xs text-[#9f9f9f]">
+                  {uploadedMimeType === "application/pdf"
+                    ? tDashboard("manuscript_upload_word_count_approximate_label", {
+                        count: formattedWordCount,
+                      })
+                    : tDashboard("manuscript_upload_word_count_label", {
+                        count: formattedWordCount,
+                      })}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {formattedWordCount ? (
+                <p className="font-display text-5xl font-semibold tracking-tight text-white md:text-6xl">
+                  {formattedWordCount}
+                </p>
+              ) : null}
+              <p className="font-sans text-sm text-[#d2d2d2]">
+                {formattedWordCount
+                  ? uploadedMimeType === "application/pdf"
+                    ? tDashboard("manuscript_upload_word_count_approximate_label_standalone", {
+                        count: formattedWordCount,
+                      })
+                    : tDashboard("manuscript_upload_word_count_label_standalone", {
+                        count: formattedWordCount,
+                      })
+                  : tDashboard("manuscript_upload_received_label")}
+              </p>
+              <div className="mx-auto mt-1 max-w-sm rounded-xl border border-[#007eff]/20 bg-[#007eff]/10 px-4 py-2.5">
+                <p className="font-sans text-sm leading-relaxed text-[#007eff]">
+                  {tDashboard("manuscript_upload_pages_confirmed_after_formatting")}
+                </p>
+              </div>
+            </>
+          )}
 
           <div className="mt-2 flex flex-col gap-3">
             <Button
@@ -656,6 +734,8 @@ export function ManuscriptUploadFlow({
               variant="outline"
               onClick={() => {
                 clearError();
+                setUploadedMimeType(null);
+                setShowSuccessIcon(false);
                 setStep("upload");
               }}
               disabled={isOffline}
@@ -664,7 +744,7 @@ export function ManuscriptUploadFlow({
               {tDashboard("manuscript_upload_replace_file")}
             </Button>
           </div>
-        </div>
+        </motion.div>
       ) : null}
     </section>
   );

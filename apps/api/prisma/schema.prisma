@@ -391,9 +391,10 @@ model Book {
   productionStatusUpdatedAt DateTime?
 
   // Page/word metrics
-  pageCount       Int?       // Actual count from server-side rendering
-  wordCount       Int?       // Extracted on upload
-  estimatedPages  Int?       // Math.ceil(wordCount / 300) — shown before actual count
+  pageCount          Int?    // Actual count from server-side rendering
+  wordCount          Int?    // Extracted on upload
+  estimatedPages     Int?    // Formula-based estimate (internal — not shown to user)
+  documentPageCount  Int?    // Page count extracted from the user's original PDF/DOCX
 
   // User formatting preferences
   title           String?    // User-facing book title captured before manuscript upload

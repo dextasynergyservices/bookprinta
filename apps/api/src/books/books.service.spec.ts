@@ -53,6 +53,7 @@ const mockManuscriptAnalysisService = {
   validateFileIntegrity: jest.fn(),
   extractWordCount: jest.fn(),
   estimatePages: jest.fn(),
+  extractDocumentPageCount: jest.fn(),
 };
 
 const mockBooksPipelineService = {
@@ -325,6 +326,34 @@ describe("BooksService", () => {
         service.uploadUserManuscript("user_1", "cm1111111111111111111111111", file)
       ).rejects.toThrow("Automated manuscript processing is not enabled in this environment yet.");
 
+      expect(mockFilesService.uploadFile).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      "APPROVED",
+      "IN_PRODUCTION",
+      "PRINTING",
+      "PRINTED",
+      "SHIPPING",
+      "DELIVERED",
+      "COMPLETED",
+      "CANCELLED",
+    ])("rejects upload when book status is %s", async (status) => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        status,
+        title: "Test Book",
+        pageSize: "A5",
+        fontSize: 12,
+      });
+
+      await expect(
+        service.uploadUserManuscript("user_1", "cm1111111111111111111111111", file)
+      ).rejects.toThrow(
+        "Manuscript uploads are no longer allowed after the book has been approved for production."
+      );
+
+      expect(mockManuscriptAnalysisService.detectMimeType).not.toHaveBeenCalled();
       expect(mockFilesService.uploadFile).not.toHaveBeenCalled();
     });
   });

@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --webpack",
+    "prebuild": "node scripts/copy-pagedjs-polyfill.mjs",
+    "build": "bun run prebuild && next build --webpack",
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write",

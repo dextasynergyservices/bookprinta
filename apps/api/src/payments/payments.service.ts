@@ -3685,6 +3685,23 @@ export class PaymentsService {
     return { buffer, mimeType, extension };
   }
 
+  private mimeToExtension(mimeType: string): string {
+    switch (mimeType.toLowerCase()) {
+      case "application/pdf":
+        return "pdf";
+      case "image/png":
+        return "png";
+      case "image/jpeg":
+        return "jpg";
+      case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        return "docx";
+      case "application/msword":
+        return "doc";
+      default:
+        return "bin";
+    }
+  }
+
   private async scanAndUploadReceipt(params: {
     buffer: Buffer;
     mimeType: string;
@@ -3714,7 +3731,7 @@ export class PaymentsService {
       folder: "bookprinta/payments/receipts",
       resource_type: params.mimeType.startsWith("image/") ? "image" : "raw",
       type: "upload",
-      public_id: `receipt_${params.reference}_${Date.now()}`,
+      public_id: `receipt_${params.reference}_${Date.now()}.${this.mimeToExtension(params.mimeType)}`,
     });
 
     return upload.secure_url;
