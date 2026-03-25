@@ -47,6 +47,7 @@ export function NotificationBell({ onOpenReviewDialog }: NotificationBellProps) 
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (wrapperRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest("[data-notification-panel-surface]")) return;
 
       setIsOpen(false);
     };

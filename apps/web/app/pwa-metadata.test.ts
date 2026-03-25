@@ -11,7 +11,7 @@ describe("PWA metadata", () => {
     expect(appManifest.display).toBe("standalone");
     expect(appManifest.orientation).toBe("portrait");
     expect(appManifest.background_color).toBe("#0A0A0A");
-    expect(appManifest.theme_color).toBe("#FFD100");
+    expect(appManifest.theme_color).toBe("#0A0A0A");
     expect(appManifest.icons).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

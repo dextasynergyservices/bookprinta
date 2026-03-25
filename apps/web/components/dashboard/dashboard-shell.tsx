@@ -264,7 +264,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
 
       <div
         className={cn(
-          "relative z-10 min-h-screen lg:pl-[var(--dashboard-sidebar-width)] lg:transition-[padding] lg:duration-200 lg:ease-out"
+          "relative min-h-screen lg:pl-[var(--dashboard-sidebar-width)] lg:transition-[padding] lg:duration-200 lg:ease-out"
         )}
       >
         <div className="flex min-h-screen flex-col">

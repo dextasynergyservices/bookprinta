@@ -36,6 +36,8 @@ import {
   AdminBookVersionFileDownloadParamsDto,
   AdminCancelProcessingDto,
   AdminCancelProcessingResponseDto,
+  AdminDecommissionBookDto,
+  AdminDecommissionBookResponseDto,
   AdminRejectBookDto,
   AdminRejectBookResponseDto,
   AdminResetProcessingDto,
@@ -315,8 +317,9 @@ export class AdminBooksController {
   @ApiOperation({
     summary: "Cancel manuscript processing",
     description:
-      "Cancels all active processing jobs and reverts the book back to UPLOADED status. " +
-      "Use this to stop AI formatting or page counting that should not continue.",
+      "Cancels all active processing jobs and reverts the book back to PAYMENT_RECEIVED status. " +
+      "The user will need to re-upload their manuscript. Use this to fully stop and reset " +
+      "AI formatting or page counting that should not continue.",
   })
   @ApiParam({
     name: "id",
@@ -324,7 +327,7 @@ export class AdminBooksController {
     example: "cm1234567890abcdef1234567",
   })
   @ApiOkResponse({
-    description: "Processing cancelled and book reverted to UPLOADED",
+    description: "Processing cancelled and book reverted to PAYMENT_RECEIVED",
     type: AdminCancelProcessingResponseDto,
   })
   @ApiResponse({
@@ -341,5 +344,37 @@ export class AdminBooksController {
     @CurrentUser("sub") adminId: string
   ): Promise<AdminCancelProcessingResponseDto> {
     return this.booksService.cancelAdminBookProcessing(params.id, dto, adminId);
+  }
+
+  @Post(":id/decommission")
+  @HttpCode(HttpStatus.OK)
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Decommission a book",
+    description:
+      "Permanently retire a book — cancels all pipeline jobs, sets book and order status to CANCELLED. " +
+      "Use when a book is stuck, created by mistake, or needs to be removed from the active pipeline. " +
+      "Cannot be undone. Not allowed for DELIVERED, COMPLETED, or already CANCELLED books.",
+  })
+  @ApiParam({ name: "id", description: "Book CUID" })
+  @ApiOkResponse({
+    description: "Book decommissioned and set to CANCELLED",
+    type: AdminDecommissionBookResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Book cannot be decommissioned at its current stage",
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 403, description: "Forbidden — admin role required" })
+  @ApiResponse({ status: 409, description: "Conflict — book version is stale" })
+  @ApiResponse({ status: 404, description: "Book not found" })
+  async decommissionBook(
+    @Param() params: BookParamsDto,
+    @Body() dto: AdminDecommissionBookDto,
+    @CurrentUser("sub") adminId: string
+  ): Promise<AdminDecommissionBookResponseDto> {
+    return this.booksService.decommissionAdminBook(params.id, dto, adminId);
   }
 }

@@ -107,6 +107,9 @@ describe("ServiceWorkerUpdatePrompt", () => {
       configurable: true,
       value: {
         getRegistration: getRegistrationMock,
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        controller: {},
       },
     });
 
@@ -188,6 +191,33 @@ describe("ServiceWorkerUpdatePrompt", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("Update available")).not.toBeInTheDocument();
+    });
+  });
+
+  it("detects a waiting worker via native APIs when window.serwist is unavailable", async () => {
+    delete window.serwist;
+    getRegistrationMock.mockResolvedValue({ waiting: { scriptURL: "/sw.js" }, update: jest.fn() });
+
+    render(<ServiceWorkerUpdatePrompt />);
+
+    expect(await screen.findByText("Update available")).toBeInTheDocument();
+  });
+
+  it("sends SKIP_WAITING via native postMessage when window.serwist is unavailable", async () => {
+    delete window.serwist;
+    const postMessageMock = jest.fn();
+    getRegistrationMock.mockResolvedValue({
+      waiting: { scriptURL: "/sw.js", postMessage: postMessageMock },
+      update: jest.fn(),
+    });
+
+    render(<ServiceWorkerUpdatePrompt />);
+
+    const reloadButton = await screen.findByRole("button", { name: "Reload" });
+    fireEvent.click(reloadButton);
+
+    await waitFor(() => {
+      expect(postMessageMock).toHaveBeenCalledWith({ type: "SKIP_WAITING" });
     });
   });
 });

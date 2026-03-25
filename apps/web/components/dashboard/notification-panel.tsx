@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
   DashboardErrorState,
@@ -398,7 +399,7 @@ export function NotificationPanel({
     }
   };
 
-  return (
+  const portalContent = (
     <AnimatePresence>
       {isOpen ? (
         <motion.div
@@ -413,7 +414,7 @@ export function NotificationPanel({
               onClose();
             }
           }}
-          className="fixed inset-0 z-50 flex justify-end bg-black/65 backdrop-blur-sm lg:absolute lg:inset-auto lg:right-0 lg:top-full lg:mt-3 lg:block lg:bg-transparent lg:backdrop-blur-0"
+          className="fixed inset-0 z-50 flex justify-end bg-black/65 backdrop-blur-sm"
         >
           <motion.section
             ref={panelRef}
@@ -428,7 +429,7 @@ export function NotificationPanel({
             animate={prefersReducedMotion ? { x: 0, opacity: 1 } : { x: 0, opacity: 1 }}
             exit={prefersReducedMotion ? { x: 0, opacity: 0 } : { x: "100%", opacity: 0.96 }}
             transition={prefersReducedMotion ? { duration: 0.01 } : PANEL_TRANSITION}
-            className="relative flex h-full w-full flex-col overflow-hidden border-l border-[#2A2A2A] bg-black shadow-[0_24px_80px_rgba(0,0,0,0.62)] sm:max-w-[30rem] lg:h-auto lg:w-[28rem] lg:max-w-none lg:rounded-[28px] lg:border lg:border-[#2A2A2A] lg:bg-[#111111]"
+            className="relative flex h-full w-full flex-col overflow-hidden border-l border-[#2A2A2A] bg-black shadow-[0_24px_80px_rgba(0,0,0,0.62)] sm:max-w-[30rem] lg:ml-auto lg:h-[min(80vh,42rem)] lg:w-[28rem] lg:max-w-none lg:rounded-[28px] lg:border lg:border-[#2A2A2A] lg:bg-[#111111]"
           >
             <div className="flex items-start justify-between gap-3 border-b border-[#2A2A2A] px-4 py-4 sm:px-5 lg:px-6">
               <div className="min-w-0">
@@ -518,4 +519,7 @@ export function NotificationPanel({
       ) : null}
     </AnimatePresence>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(portalContent, document.body);
 }

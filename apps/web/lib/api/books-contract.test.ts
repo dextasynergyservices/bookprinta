@@ -24,7 +24,7 @@ describe("normalizeUserBooksListPayload", () => {
           finalPdfUrlPresent: false,
           createdAt: "2026-03-01T08:00:00.000Z",
           updatedAt: "2026-03-10T08:00:00.000Z",
-          workspaceUrl: "/dashboard/books?bookId=cm1111111111111111111111111",
+          workspaceUrl: "/dashboard/books/cm1111111111111111111111111",
           trackingUrl: "/dashboard/orders/cm2222222222222222222222222",
           rollout: {
             environment: "staging",

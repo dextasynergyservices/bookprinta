@@ -79,6 +79,12 @@ function resolveActionCopy(
         description: tDashboard("overview_action_resolve_issue_description"),
         cta: tDashboard("overview_action_resolve_issue_cta"),
       };
+    case "REPRINT_AVAILABLE":
+      return {
+        title: tDashboard("overview_action_reprint_title"),
+        description: tDashboard("overview_action_reprint_description"),
+        cta: tDashboard("reprint_same"),
+      };
     default:
       return {
         title: tDashboard("overview_next_action_idle_title"),
@@ -96,11 +102,12 @@ function resolveNextAction(
   const primaryPendingAction = pendingActions[0] ?? null;
   if (primaryPendingAction) {
     const copy = resolveActionCopy(primaryPendingAction, tDashboard);
-    return { href: primaryPendingAction.href, ...copy };
+    return { type: primaryPendingAction.type, href: primaryPendingAction.href, ...copy };
   }
 
   if (activeBook) {
     return {
+      type: null as string | null,
       href: activeBook.workspaceUrl,
       title: tDashboard("overview_next_action_continue_title"),
       description: tDashboard("overview_next_action_continue_description"),
@@ -109,6 +116,7 @@ function resolveNextAction(
   }
 
   return {
+    type: null as string | null,
     href: "/pricing",
     title: tDashboard("overview_next_action_idle_title"),
     description: tDashboard("overview_next_action_idle_description"),
@@ -221,16 +229,42 @@ export function DashboardOverviewView() {
                   {nextAction.description}
                 </p>
               </div>
-              <div className="mt-8">
-                <Button asChild className={PRIMARY_BUTTON_CLASS}>
-                  <Link
-                    href={nextAction.href}
-                    aria-label={`${nextAction.cta}: ${nextAction.title}`}
-                  >
-                    {nextAction.cta}
-                    <ArrowRight className="size-4" aria-hidden="true" />
-                  </Link>
-                </Button>
+              <div className="mt-8 flex flex-col gap-3">
+                {nextAction.type === "REPRINT_AVAILABLE" && activeBook ? (
+                  <>
+                    <Button asChild className={PRIMARY_BUTTON_CLASS}>
+                      <Link
+                        href={`/dashboard/books/${encodeURIComponent(activeBook.id)}?reprint=same`}
+                        aria-label={`${tDashboard("reprint_same")}: ${activeBook.title}`}
+                      >
+                        {tDashboard("reprint_same")}
+                        <ArrowRight className="size-4" aria-hidden="true" />
+                      </Link>
+                    </Button>
+                    <Button
+                      asChild
+                      className="font-sans inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#007eff]/35 bg-[#071320] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#3398ff] hover:bg-[#0d1b2d] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                    >
+                      <Link
+                        href={`/pricing?orderType=REPRINT_REVISED&sourceBookId=${encodeURIComponent(activeBook.id)}`}
+                        aria-label={`${tDashboard("revise_reprint")}: ${activeBook.title}`}
+                      >
+                        {tDashboard("revise_reprint")}
+                        <ArrowRight className="size-4" aria-hidden="true" />
+                      </Link>
+                    </Button>
+                  </>
+                ) : (
+                  <Button asChild className={PRIMARY_BUTTON_CLASS}>
+                    <Link
+                      href={nextAction.href}
+                      aria-label={`${nextAction.cta}: ${nextAction.title}`}
+                    >
+                      {nextAction.cta}
+                      <ArrowRight className="size-4" aria-hidden="true" />
+                    </Link>
+                  </Button>
+                )}
               </div>
             </div>
           </article>

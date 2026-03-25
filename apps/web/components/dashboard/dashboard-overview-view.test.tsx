@@ -53,6 +53,20 @@ jest.mock("@/hooks/useBookResources", () => ({
   useBookPreview: (...args: unknown[]) => useBookPreviewMock(...args),
 }));
 
+jest.mock("@/hooks/use-book-reprint-config", () => ({
+  useBookReprintConfig: () => ({
+    data: null,
+    config: null,
+    isInitialLoading: false,
+    isPending: false,
+    isError: false,
+  }),
+}));
+
+jest.mock("./reprint-same-modal", () => ({
+  ReprintSameModal: () => null,
+}));
+
 jest.mock("@/lib/i18n/navigation", () => ({
   Link: ({
     children,
@@ -135,7 +149,7 @@ describe("DashboardOverviewView", () => {
         finalPdfUrlPresent: false,
         createdAt: "2026-03-01T08:00:00.000Z",
         updatedAt: "2026-03-10T08:00:00.000Z",
-        workspaceUrl: "/dashboard/books?bookId=cmbook11111111111111111111111",
+        workspaceUrl: "/dashboard/books/cmbook11111111111111111111111",
         trackingUrl: "/dashboard/orders/cmorder1111111111111111111111",
         rollout: {
           environment: "staging",
@@ -192,7 +206,7 @@ describe("DashboardOverviewView", () => {
           {
             type: "REVIEW_PREVIEW",
             priority: "high",
-            href: "/dashboard/books?bookId=cmbook11111111111111111111111",
+            href: "/dashboard/books/cmbook11111111111111111111111",
             bookId: "cmbook11111111111111111111111",
             orderId: "cmorder1111111111111111111111",
             bookTitle: "The Lagos Chronicle",

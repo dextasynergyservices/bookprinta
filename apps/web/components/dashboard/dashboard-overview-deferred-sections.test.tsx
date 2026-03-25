@@ -44,6 +44,20 @@ jest.mock("@/hooks/useBookResources", () => ({
   useBookPreview: (...args: unknown[]) => useBookPreviewMock(...args),
 }));
 
+jest.mock("@/hooks/use-book-reprint-config", () => ({
+  useBookReprintConfig: () => ({
+    data: null,
+    config: null,
+    isInitialLoading: false,
+    isPending: false,
+    isError: false,
+  }),
+}));
+
+jest.mock("./reprint-same-modal", () => ({
+  ReprintSameModal: () => null,
+}));
+
 function createActiveBook(
   overrides: Partial<{
     title: UserBookListItem["title"];
@@ -93,7 +107,7 @@ function createActiveBook(
     finalPdfUrlPresent: false,
     createdAt: "2026-03-01T08:00:00.000Z",
     updatedAt: "2026-03-10T08:00:00.000Z",
-    workspaceUrl: "/dashboard/books?bookId=cmbook11111111111111111111111",
+    workspaceUrl: "/dashboard/books/cmbook11111111111111111111111",
     trackingUrl: "/dashboard/orders/cmorder1111111111111111111111",
     rollout: {
       environment: "staging",
@@ -331,7 +345,7 @@ describe("DashboardOverviewDeferredSections", () => {
       screen.getByRole("link", {
         name: "book_progress_cta_open_workspace: The Lagos Chronicle",
       })
-    ).toHaveAttribute("href", "/dashboard/books?bookId=cmbook11111111111111111111111");
+    ).toHaveAttribute("href", "/dashboard/books/cmbook11111111111111111111111");
   });
 
   it("renders delivered reprint and review-ready dashboard signals", () => {
@@ -375,10 +389,7 @@ describe("DashboardOverviewDeferredSections", () => {
 
     expect(screen.getByText("orders_reprint_badge")).toBeInTheDocument();
     expect(screen.getByText("overview_reprint_ready_title")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "reprint_same" })).toHaveAttribute(
-      "href",
-      "/dashboard/books?bookId=cmbook11111111111111111111111&reprint=same"
-    );
+    expect(screen.getByRole("button", { name: "reprint_same" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "revise_reprint" })).toHaveAttribute(
       "href",
       "/pricing?orderType=REPRINT_REVISED&sourceBookId=cmbook11111111111111111111111"

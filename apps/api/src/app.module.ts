@@ -3,6 +3,7 @@ import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AddonsModule } from "./addons/addons.module.js";
 import { AddressesModule } from "./addresses/addresses.module.js";
+import { AnalyticsModule } from "./analytics/analytics.module.js";
 import { AppController } from "./app.controller.js";
 import { AppService } from "./app.service.js";
 import { AuthModule } from "./auth/auth.module.js";
@@ -139,6 +140,9 @@ import { UsersModule } from "./users/users.module.js";
 
     // Authenticated user profile/settings endpoints
     UsersModule,
+
+    // Admin web analytics proxy (PostHog HogQL → admin-only endpoints)
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [

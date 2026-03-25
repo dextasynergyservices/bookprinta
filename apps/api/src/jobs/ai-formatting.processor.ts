@@ -108,6 +108,16 @@ export class AiFormattingProcessor extends WorkerHost {
         : 1;
 
     await this.markAttemptProcessing(payload, attempt);
+
+    // Bail out immediately if the job was cancelled (admin cancel / superseded by re-upload)
+    // between being queued and starting to process.
+    if (await this.isJobCancelled(payload.jobRecordId)) {
+      this.logger.warn(
+        `AI formatting job ${payload.jobRecordId} was cancelled before processing — aborting.`
+      );
+      return this.buildCancelledResult(payload);
+    }
+
     await this.markBookFormatting(payload);
 
     // Emit SSE progress: AI formatting started (include estimated pages for instant UI feedback)
@@ -190,6 +200,21 @@ export class AiFormattingProcessor extends WorkerHost {
 
       // Cache cleaned HTML in Redis for fast access by page-count processor
       await this.cacheCleanedHtml(cleanedHtmlFile.url, formatted.html);
+
+      // Check again: job may have been cancelled during AI processing (race with admin cancel)
+      if (await this.isJobCancelled(payload.jobRecordId)) {
+        this.logger.warn(
+          `AI formatting job ${payload.jobRecordId} was cancelled during processing — skipping status write and page-count enqueue.`
+        );
+        return this.buildCancelledResult(payload, {
+          cleanedHtmlFileId: cleanedHtmlFile.id,
+          cleanedHtmlUrl: cleanedHtmlFile.url,
+          outputWordCount: validated.outputWordCount,
+          inputWordCount: formatted.inputWordCount,
+          chunkCount: formatted.chunkCount,
+          model: formatted.model,
+        });
+      }
 
       // Pre-warm Gotenberg so it's ready when page-count job starts
       this.gotenbergPageCount.warmUp().catch(() => {});
@@ -414,6 +439,9 @@ export class AiFormattingProcessor extends WorkerHost {
   }
 
   private async markBookFormatting(payload: FormatManuscriptPayload): Promise<void> {
+    // Guard: skip status write if the job was cancelled (admin cancel / superseded by upload)
+    if (await this.isJobCancelled(payload.jobRecordId)) return;
+
     const book = await this.prisma.book.findUnique({
       where: { id: payload.bookId },
       select: { status: true },
@@ -443,6 +471,19 @@ export class AiFormattingProcessor extends WorkerHost {
     result: FormatManuscriptResult
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // Guard: if the job was marked FAILED by admin cancel or superseded-by-upload,
+      // do NOT overwrite the book/order status that the cancel flow already reset.
+      const jobRecord = await tx.job.findUnique({
+        where: { id: payload.jobRecordId },
+        select: { status: true },
+      });
+      if (jobRecord?.status === "FAILED") {
+        this.logger.warn(
+          `Skipping AI formatting status write for cancelled job ${payload.jobRecordId} (book ${payload.bookId}).`
+        );
+        return;
+      }
+
       await tx.book.update({
         where: { id: payload.bookId },
         data: {
@@ -485,6 +526,10 @@ export class AiFormattingProcessor extends WorkerHost {
     isFinalAttempt: boolean;
   }): Promise<void> {
     const { payload, attempt, error, isFinalAttempt } = params;
+
+    // Guard: if the job was already marked FAILED by admin cancel, don't overwrite
+    if (await this.isJobCancelled(payload.jobRecordId)) return;
+
     await this.prisma.job.updateMany({
       where: {
         id: payload.jobRecordId,
@@ -556,6 +601,42 @@ export class AiFormattingProcessor extends WorkerHost {
       book?.fontSize === payload.fontSize &&
       latestRaw?.id === payload.rawManuscriptFileId
     );
+  }
+
+  /**
+   * Returns true if the DB job record was marked FAILED by admin cancel
+   * or superseded-by-upload. Processors check this before writing status.
+   */
+  private async isJobCancelled(jobRecordId: string): Promise<boolean> {
+    const record = await this.prisma.job.findUnique({
+      where: { id: jobRecordId },
+      select: { status: true },
+    });
+    return record?.status === "FAILED";
+  }
+
+  private buildCancelledResult(
+    _payload: FormatManuscriptPayload,
+    partial?: {
+      cleanedHtmlFileId: string;
+      cleanedHtmlUrl: string;
+      outputWordCount: number;
+      inputWordCount: number;
+      chunkCount: number;
+      model: string;
+    }
+  ): FormatManuscriptResult {
+    return {
+      cleanedHtmlFileId: partial?.cleanedHtmlFileId ?? null,
+      cleanedHtmlUrl: partial?.cleanedHtmlUrl ?? null,
+      outputWordCount: partial?.outputWordCount ?? 0,
+      inputWordCount: partial?.inputWordCount ?? 0,
+      chunkCount: partial?.chunkCount ?? 0,
+      model: partial?.model ?? "cancelled",
+      pageCountJobId: null,
+      progressStep: "AI_FORMATTING",
+      ignoredAsSuperseded: true,
+    };
   }
 
   private async cacheCleanedHtml(url: string, html: string): Promise<void> {

@@ -58,6 +58,19 @@ export class PdfGenerationProcessor extends WorkerHost {
 
     await this.markAttemptProcessing(payload, attempt);
 
+    // Bail out immediately if the job was cancelled (admin cancel / superseded by re-upload)
+    if (await this.isJobCancelled(payload.jobRecordId)) {
+      this.logger.warn(
+        `PDF generation job ${payload.jobRecordId} was cancelled before processing — aborting.`
+      );
+      return {
+        finalPdfFileId: "",
+        finalPdfUrl: "",
+        renderedPdfSha256: "",
+        progressStep: "GENERATING_FINAL_PDF",
+      };
+    }
+
     // Emit SSE progress: PDF generation starting
     await this.processingEvents?.emit(payload.bookId, {
       type: "progress",
@@ -257,6 +270,19 @@ export class PdfGenerationProcessor extends WorkerHost {
     result: GeneratePdfResult
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // Guard: if the job was marked FAILED by admin cancel or superseded-by-upload,
+      // do NOT overwrite the book/order status that the cancel flow already reset.
+      const jobRecord = await tx.job.findUnique({
+        where: { id: payload.jobRecordId },
+        select: { status: true },
+      });
+      if (jobRecord?.status === "FAILED") {
+        this.logger.warn(
+          `Skipping PDF generation status write for cancelled job ${payload.jobRecordId} (book ${payload.bookId}).`
+        );
+        return;
+      }
+
       await tx.book.update({
         where: { id: payload.bookId },
         data: {
@@ -291,6 +317,10 @@ export class PdfGenerationProcessor extends WorkerHost {
     isFinalAttempt: boolean;
   }): Promise<void> {
     const { payload, attempt, error, isFinalAttempt } = params;
+
+    // Guard: if the job was already marked FAILED by admin cancel, don't overwrite
+    if (await this.isJobCancelled(payload.jobRecordId)) return;
+
     await this.prisma.job.updateMany({
       where: { id: payload.jobRecordId },
       data: {
@@ -317,5 +347,17 @@ export class PdfGenerationProcessor extends WorkerHost {
       return error.message;
     }
     return String(error);
+  }
+
+  /**
+   * Returns true if the DB job record was marked FAILED by admin cancel
+   * or superseded-by-upload. Processors check this before writing status.
+   */
+  private async isJobCancelled(jobRecordId: string): Promise<boolean> {
+    const record = await this.prisma.job.findUnique({
+      where: { id: jobRecordId },
+      select: { status: true },
+    });
+    return record?.status === "FAILED";
   }
 }

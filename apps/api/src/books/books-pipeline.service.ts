@@ -645,10 +645,14 @@ export class BooksPipelineService {
 
   /**
    * Cancel all active BullMQ jobs and DB job records for a book.
-   * Used by admin "Cancel Processing" to stop AI formatting / page counting mid-flight.
+   * Used by admin "Cancel Processing" and automatically on new manuscript upload
+   * to prevent stale pipeline jobs from racing against the new upload.
    * Returns the number of queue jobs that were successfully removed.
    */
-  async cancelActiveJobsForBook(bookId: string): Promise<number> {
+  async cancelActiveJobsForBook(
+    bookId: string,
+    reason: "cancelledByAdmin" | "supersededByUpload" = "cancelledByAdmin"
+  ): Promise<number> {
     let cancelledCount = 0;
 
     const activeDbJobs = await this.prisma.job.findMany({
@@ -678,13 +682,13 @@ export class BooksPipelineService {
         },
         data: {
           status: "FAILED",
-          result: { cancelledByAdmin: true },
+          result: { [reason]: true },
           finishedAt: new Date(),
         },
       });
 
       this.logger.warn(
-        `Marked ${activeDbJobs.length} active DB job(s) for book ${bookId} as FAILED (admin cancel).`
+        `Marked ${activeDbJobs.length} active DB job(s) for book ${bookId} as FAILED (${reason}).`
       );
     }
 
@@ -738,6 +742,8 @@ export class BooksPipelineService {
             status: "AI_PROCESSING",
             pageCount: null,
             currentHtmlUrl: null,
+            previewPdfUrl: null,
+            finalPdfUrl: null,
           },
         });
       }

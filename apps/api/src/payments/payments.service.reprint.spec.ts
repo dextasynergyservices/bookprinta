@@ -89,7 +89,7 @@ describe("PaymentsService reprint initialization", () => {
       lamination: "gloss",
       provider: "PAYSTACK",
       userId: "user_1",
-      callbackUrl: "https://app.bookprinta.com/en/dashboard/books?bookId=cmbook1&reprint=same",
+      callbackUrl: "https://app.bookprinta.com/en/dashboard/books/cmbook1?reprint=same",
     });
 
     expect(prisma.payment.create).toHaveBeenCalledWith(
@@ -118,7 +118,7 @@ describe("PaymentsService reprint initialization", () => {
       expect.objectContaining({
         email: "author@example.com",
         amount: 76800,
-        callbackUrl: "https://app.bookprinta.com/en/dashboard/books?bookId=cmbook1&reprint=same",
+        callbackUrl: "https://app.bookprinta.com/en/dashboard/books/cmbook1?reprint=same",
         metadata: expect.objectContaining({
           paymentId: "cmpay_reprint_1",
         }),

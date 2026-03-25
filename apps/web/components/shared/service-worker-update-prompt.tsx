@@ -62,7 +62,8 @@ export function ServiceWorkerUpdatePrompt() {
     const serwist = getSerwistWindowController();
     serwistRef.current = serwist;
 
-    if (!serwist || typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
+    // Bail only in SSR or if browser doesn't support service workers at all.
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) {
       return;
     }
 
@@ -87,11 +88,22 @@ export function ServiceWorkerUpdatePrompt() {
       }
     };
 
-    const requestUpdateCheck = () => {
-      void serwist.update?.();
+    const requestUpdateCheck = async () => {
+      // Try Serwist's update() first, fall back to native registration.update()
+      if (serwist?.update) {
+        void serwist.update();
+      } else {
+        try {
+          const registration = await navigator.serviceWorker.getRegistration();
+          await registration?.update();
+        } catch {
+          // Ignore update check failures
+        }
+      }
       void checkWaitingRegistration();
     };
 
+    // --- Serwist event listeners (only when window.serwist is available) ---
     const handleWaiting = (_event: SerwistWindowEvent) => {
       markWaitingUpdate();
     };
@@ -104,41 +116,98 @@ export function ServiceWorkerUpdatePrompt() {
       reloadForServiceWorkerUpdate();
     };
 
+    if (serwist) {
+      serwist.addEventListener("waiting", handleWaiting);
+      serwist.addEventListener("controlling", handleControlling);
+    }
+
+    // --- Native SW listeners (always active as fallback) ---
+
+    // Detect when a new SW takes over (works even without window.serwist)
+    const handleControllerChange = () => {
+      if (!isMounted || !isReloadingRef.current) {
+        return;
+      }
+      reloadForServiceWorkerUpdate();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
+
+    // Watch for newly installing workers that enter the "waiting" state
+    const setupUpdateFoundListener = async () => {
+      try {
+        const registration = await navigator.serviceWorker.getRegistration();
+        if (!registration) return;
+
+        registration.addEventListener("updatefound", () => {
+          const newWorker = registration.installing;
+          if (!newWorker) return;
+
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+              markWaitingUpdate();
+            }
+          });
+        });
+      } catch {
+        // Ignore
+      }
+    };
+
+    // --- Focus / visibility triggers update checks ---
     const handleWindowFocus = () => {
-      requestUpdateCheck();
+      void requestUpdateCheck();
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        requestUpdateCheck();
+        void requestUpdateCheck();
       }
     };
 
-    serwist.addEventListener("waiting", handleWaiting);
-    serwist.addEventListener("controlling", handleControlling);
     window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Initial checks
     void checkWaitingRegistration();
+    void setupUpdateFoundListener();
 
     return () => {
       isMounted = false;
-      serwist.removeEventListener("waiting", handleWaiting);
-      serwist.removeEventListener("controlling", handleControlling);
+      if (serwist) {
+        serwist.removeEventListener("waiting", handleWaiting);
+        serwist.removeEventListener("controlling", handleControlling);
+      }
+      navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
   const handleReload = () => {
+    isReloadingRef.current = true;
+    setIsReloading(true);
+
     const serwist = serwistRef.current;
 
-    if (!serwist) {
+    if (serwist) {
+      serwist.messageSkipWaiting();
       return;
     }
 
-    isReloadingRef.current = true;
-    setIsReloading(true);
-    serwist.messageSkipWaiting();
+    // Native fallback: send SKIP_WAITING directly to the waiting service worker
+    navigator.serviceWorker
+      .getRegistration()
+      .then((registration) => {
+        if (registration?.waiting) {
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        } else {
+          // No waiting worker found — force reload as last resort
+          reloadForServiceWorkerUpdate();
+        }
+      })
+      .catch(() => {
+        reloadForServiceWorkerUpdate();
+      });
   };
 
   const handleDismiss = () => {
