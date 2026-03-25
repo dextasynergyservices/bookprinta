@@ -86,6 +86,14 @@ export class PageCountProcessor extends WorkerHost {
 
     await this.markAttemptProcessing(payload, attempt);
 
+    // Bail out immediately if the job was cancelled (admin cancel / superseded by re-upload)
+    if (await this.isJobCancelled(payload.jobRecordId)) {
+      this.logger.warn(
+        `Page-count job ${payload.jobRecordId} was cancelled before processing — aborting.`
+      );
+      return this.buildCancelledResult(payload);
+    }
+
     // Wait for Gotenberg to be healthy before rendering (handles Render cold starts)
     await this.gotenbergPageCount.waitForReady();
 
@@ -345,6 +353,19 @@ export class PageCountProcessor extends WorkerHost {
     result: CompletedCountPagesResult
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // Guard: if the job was marked FAILED by admin cancel or superseded-by-upload,
+      // do NOT overwrite the book/order status that the cancel flow already reset.
+      const jobRecord = await tx.job.findUnique({
+        where: { id: payload.jobRecordId },
+        select: { status: true },
+      });
+      if (jobRecord?.status === "FAILED") {
+        this.logger.warn(
+          `Skipping page-count status write for cancelled job ${payload.jobRecordId} (book ${payload.bookId}).`
+        );
+        return;
+      }
+
       await tx.book.update({
         where: { id: payload.bookId },
         data: {
@@ -396,6 +417,10 @@ export class PageCountProcessor extends WorkerHost {
     isFinalAttempt: boolean;
   }): Promise<void> {
     const { payload, attempt, error, isFinalAttempt } = params;
+
+    // Guard: if the job was already marked FAILED by admin cancel, don't overwrite
+    if (await this.isJobCancelled(payload.jobRecordId)) return;
+
     await this.prisma.job.updateMany({
       where: { id: payload.jobRecordId },
       data: {
@@ -461,5 +486,34 @@ export class PageCountProcessor extends WorkerHost {
       book?.fontSize === payload.fontSize &&
       (htmlMatchesCurrentBook || htmlMatchesLatestFile)
     );
+  }
+
+  /**
+   * Returns true if the DB job record was marked FAILED by admin cancel
+   * or superseded-by-upload. Processors check this before writing status.
+   */
+  private async isJobCancelled(jobRecordId: string): Promise<boolean> {
+    const record = await this.prisma.job.findUnique({
+      where: { id: jobRecordId },
+      select: { status: true },
+    });
+    return record?.status === "FAILED";
+  }
+
+  private buildCancelledResult(payload: CountPagesPayload): CountPagesResult {
+    return {
+      pageCount: null,
+      overagePages: null,
+      extraAmount: null,
+      gateStatus: null,
+      renderedPdfSha256: null,
+      previewPdfFileId: null,
+      previewPdfUrl: null,
+      pageLimit: payload.bundlePageLimit,
+      sourceAiJobRecordId: payload.sourceAiJobRecordId ?? null,
+      trigger: payload.trigger,
+      progressStep: "COUNTING_PAGES",
+      ignoredAsSuperseded: true,
+    };
   }
 }

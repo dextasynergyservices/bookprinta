@@ -348,7 +348,7 @@ describe("OrderTrackingView route integration", () => {
     );
   });
 
-  it("disables same-file reprint and shows support guidance when the final PDF is missing", () => {
+  it("keeps same-file reprint button enabled and shows support guidance when the final PDF is missing", () => {
     useBookReprintConfigMock.mockReturnValue({
       config: {
         canReprintSame: false,
@@ -392,7 +392,7 @@ describe("OrderTrackingView route integration", () => {
 
     render(<OrderTrackingView orderId="ord_1" />);
 
-    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
     expect(
       screen.getByText("Final PDF is not available for same-file reprint yet.")
     ).toBeInTheDocument();

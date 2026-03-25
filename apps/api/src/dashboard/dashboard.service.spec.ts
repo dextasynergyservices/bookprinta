@@ -70,7 +70,7 @@ describe("DashboardService", () => {
           finalPdfUrlPresent: false,
           createdAt: "2026-03-01T08:00:00.000Z",
           updatedAt: "2026-03-10T08:00:00.000Z",
-          workspaceUrl: "/dashboard/books?bookId=cmbook11111111111111111111111",
+          workspaceUrl: "/dashboard/books/cmbook11111111111111111111111",
           trackingUrl: "/dashboard/orders/cmorder1111111111111111111111",
           rollout: {
             environment: "staging",
@@ -244,7 +244,7 @@ describe("DashboardService", () => {
           finalPdfUrlPresent: true,
           createdAt: "2026-03-01T08:00:00.000Z",
           updatedAt: "2026-03-12T08:00:00.000Z",
-          workspaceUrl: "/dashboard/books?bookId=cmbook22222222222222222222222",
+          workspaceUrl: "/dashboard/books/cmbook22222222222222222222222",
           trackingUrl: "/dashboard/orders/cmorder2222222222222222222222",
           rollout: {
             environment: "staging",
@@ -329,6 +329,11 @@ describe("DashboardService", () => {
       expect.objectContaining({
         type: "PAY_EXTRA_PAGES",
         priority: "high",
+        bookId: "cmbook22222222222222222222222",
+      }),
+      expect.objectContaining({
+        type: "REPRINT_AVAILABLE",
+        priority: "low",
         bookId: "cmbook22222222222222222222222",
       }),
     ]);

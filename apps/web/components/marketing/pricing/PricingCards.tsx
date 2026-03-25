@@ -4,7 +4,7 @@ import { useGSAP } from "@gsap/react";
 import { AnimatePresence, motion } from "framer-motion";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { BookOpen, Check, Shield, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, Check, MessageSquareText, Shield, Sparkles } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useCallback, useRef, useState } from "react";
@@ -13,7 +13,8 @@ import { ConfigurationModal } from "@/components/marketing/ConfigurationModal";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import type { PackageBase, PackageCategory } from "@/hooks/usePackages";
 import { usePackageCategories } from "@/hooks/usePackages";
-import { useRouter } from "@/lib/i18n/navigation";
+import { trackConfigurationCompleted, trackPackageSelected } from "@/lib/analytics/posthog-events";
+import { Link, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 if (typeof window !== "undefined") {
@@ -355,16 +356,75 @@ function PackageCard({
   );
 }
 
+// ─── Custom Quote Card ───
+
+function CustomQuoteCard({ index }: { index: number }) {
+  const t = useTranslations("pricing");
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: index * 0.1, ease: [0.22, 1, 0.36, 1] }}
+      className="relative w-full pt-3"
+    >
+      <div className="group relative flex h-full w-full flex-col items-center rounded-2xl border border-dashed border-white/[0.12] bg-white/[0.02] p-6 text-center transition-all duration-300 hover:border-accent/30 hover:bg-accent/[0.03] lg:p-8">
+        {/* Subtle radial glow on hover */}
+        <div
+          className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+          style={{
+            background:
+              "radial-gradient(ellipse at 50% 50%, rgba(0,126,255,0.06) 0%, transparent 70%)",
+          }}
+          aria-hidden="true"
+        />
+
+        {/* Icon */}
+        <div className="relative mb-5 flex size-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.04] transition-colors duration-300 group-hover:border-accent/20 group-hover:bg-accent/[0.08]">
+          <MessageSquareText
+            className="size-6 text-primary-foreground/50 transition-colors duration-300 group-hover:text-accent"
+            aria-hidden="true"
+          />
+        </div>
+
+        {/* Title */}
+        <h3 className="relative font-display text-xl font-bold text-primary-foreground lg:text-2xl">
+          {t("quote_card_title")}
+        </h3>
+
+        {/* Description */}
+        <p className="relative mt-3 max-w-[18rem] font-serif text-sm leading-relaxed text-primary-foreground/45">
+          {t("quote_card_description")}
+        </p>
+
+        {/* CTA */}
+        <Link
+          href="/quote"
+          className="relative mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-full border border-accent/30 bg-transparent px-6 text-center font-display text-sm font-semibold tracking-wide text-accent transition-all duration-300 hover:border-accent/50 hover:bg-accent/[0.08] focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary"
+        >
+          {t("quote_card_cta")}
+          <ArrowRight
+            className="size-4 transition-transform duration-200 group-hover:translate-x-0.5"
+            aria-hidden="true"
+          />
+        </Link>
+      </div>
+    </motion.div>
+  );
+}
+
 // ─── Category Panel ───
 
 function CategoryPanel({
   category,
   isActive,
   onSelectPackage,
+  showQuoteCard,
 }: {
   category: PackageCategory;
   isActive: boolean;
   onSelectPackage: (selection: SelectedPackage) => void;
+  showQuoteCard: boolean;
 }) {
   const midIndex = Math.floor(category.packages.length / 2);
 
@@ -384,10 +444,18 @@ function CategoryPanel({
           {/* Package cards grid */}
           <div
             className={cn(
-              "mx-auto grid w-full max-w-7xl grid-cols-1 gap-5 px-5 md:gap-6 lg:gap-8 lg:px-8",
-              category.packages.length === 1 && "max-w-md md:grid-cols-1",
-              category.packages.length === 2 && "max-w-3xl md:grid-cols-2",
-              category.packages.length >= 3 && "md:grid-cols-2 lg:grid-cols-3"
+              "mx-auto grid w-full max-w-7xl grid-cols-1 gap-5 px-5 md:gap-0 lg:gap-0 lg:px-8",
+              showQuoteCard
+                ? cn(
+                    category.packages.length === 1 && "max-w-3xl md:grid-cols-2",
+                    category.packages.length === 2 && "md:grid-cols-2 lg:grid-cols-3",
+                    category.packages.length >= 3 && "md:grid-cols-2 lg:grid-cols-4"
+                  )
+                : cn(
+                    category.packages.length === 1 && "max-w-md md:grid-cols-1",
+                    category.packages.length === 2 && "max-w-3xl md:grid-cols-2",
+                    category.packages.length >= 3 && "md:grid-cols-2 lg:grid-cols-3"
+                  )
             )}
           >
             {category.packages.map((pkg, idx) => (
@@ -400,6 +468,9 @@ function CategoryPanel({
                 onSelectPackage={onSelectPackage}
               />
             ))}
+
+            {/* Custom Quote card — conditionally rendered */}
+            {showQuoteCard && <CustomQuoteCard index={category.packages.length} />}
           </div>
         </motion.div>
       )}
@@ -431,7 +502,7 @@ function PricingCardsSkeleton() {
       </div>
 
       {/* Cards skeleton */}
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6 lg:grid-cols-3 lg:gap-8">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6 lg:grid-cols-4 lg:gap-8">
         {[1, 2, 3].map((i) => (
           <div
             key={i}
@@ -454,6 +525,14 @@ function PricingCardsSkeleton() {
             <div className="mt-auto h-12 animate-pulse rounded-full bg-white/[0.06]" />
           </div>
         ))}
+
+        {/* Quote card skeleton */}
+        <div className="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-white/[0.08] bg-white/[0.02] p-6 lg:p-8">
+          <div className="h-14 w-14 animate-pulse rounded-2xl bg-white/[0.06]" />
+          <div className="h-6 w-36 animate-pulse rounded bg-white/[0.06]" />
+          <div className="h-4 w-48 animate-pulse rounded bg-white/[0.04]" />
+          <div className="mt-auto h-12 w-full animate-pulse rounded-full bg-white/[0.06]" />
+        </div>
       </div>
     </div>
   );
@@ -461,7 +540,7 @@ function PricingCardsSkeleton() {
 
 // ─── Main Component ───
 
-export function PricingCards() {
+export function PricingCards({ showQuoteCard = false }: { showQuoteCard?: boolean }) {
   const t = useTranslations("pricing");
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -485,12 +564,14 @@ export function PricingCards() {
   }, []);
 
   const handlePackageSelect = useCallback((selection: SelectedPackage) => {
+    trackPackageSelected(selection.slug, selection.categorySlug);
     setSelectedPackage(selection);
     setIsConfigurationOpen(true);
   }, []);
 
   const handleConfigurationContinue = useCallback(() => {
     if (!selectedPackage) return;
+    trackConfigurationCompleted(selectedPackage.slug, false, false);
     setIsConfigurationOpen(false);
     const params = new URLSearchParams({
       package: selectedPackage.slug,
@@ -571,6 +652,7 @@ export function PricingCards() {
           category={category}
           isActive={category.slug === activeSlug}
           onSelectPackage={handlePackageSelect}
+          showQuoteCard={showQuoteCard}
         />
       ))}
 

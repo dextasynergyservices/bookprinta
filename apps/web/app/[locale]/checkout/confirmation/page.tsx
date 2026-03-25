@@ -1,6 +1,7 @@
 import { CheckCircle2, Mail, MessageCircle, ShieldCheck } from "lucide-react";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { Link } from "@/lib/i18n/navigation";
+import { PaymentCompletedTracker } from "./PaymentCompletedTracker";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -22,6 +23,7 @@ export default async function CheckoutConfirmationPage({
 
   return (
     <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6 md:py-14 lg:px-8">
+      <PaymentCompletedTracker />
       <section className="mx-auto w-full max-w-2xl rounded-3xl border border-[#2A2A2A] bg-[#090909] p-6 md:p-8">
         <div className="flex size-14 items-center justify-center rounded-full border border-[#007eff]/40 bg-[#007eff]/12 text-[#9fd0ff]">
           <CheckCircle2 className="size-7" aria-hidden="true" />

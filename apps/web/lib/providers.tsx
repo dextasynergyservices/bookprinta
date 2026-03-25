@@ -2,6 +2,7 @@
 
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { PostHogProvider } from "@/components/providers/posthog-provider";
 import { captureReactMutationError, captureReactQueryError } from "@/lib/sentry-react-query";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -28,5 +29,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <PostHogProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </PostHogProvider>
+  );
 }

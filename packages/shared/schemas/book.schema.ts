@@ -576,6 +576,29 @@ export const AdminCancelProcessingResponseSchema = z.object({
 });
 export type AdminCancelProcessingResponse = z.infer<typeof AdminCancelProcessingResponseSchema>;
 
+/**
+ * POST /api/v1/admin/books/:id/decommission
+ * Permanently retire a book — cancels all pipeline jobs, sets status to CANCELLED,
+ * and sets order status to CANCELLED. Used when a book is stuck, created by mistake,
+ * or needs to be completely removed from the active pipeline.
+ */
+export const AdminDecommissionBookSchema = z.object({
+  expectedVersion: z.number().int().min(1),
+  reason: z.string().trim().min(1).max(5000),
+});
+export type AdminDecommissionBookInput = z.infer<typeof AdminDecommissionBookSchema>;
+
+export const AdminDecommissionBookResponseSchema = z.object({
+  bookId: z.string().cuid(),
+  previousStatus: BookStatusSchema,
+  bookStatus: z.literal("CANCELLED"),
+  orderStatus: z.literal("CANCELLED"),
+  bookVersion: z.number().int().min(1),
+  cancelledJobs: z.number().int().min(0),
+  audit: AdminAuditEntrySchema,
+});
+export type AdminDecommissionBookResponse = z.infer<typeof AdminDecommissionBookResponseSchema>;
+
 export const ADMIN_BOOK_HTML_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 
 export const AdminBookHtmlUploadMimeTypeSchema = z.literal("text/html");

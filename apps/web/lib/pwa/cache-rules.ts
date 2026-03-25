@@ -85,6 +85,11 @@ function createCacheableResponsePlugin() {
 }
 
 export const pwaRuntimeCaching: RuntimeCaching[] = [
+  // PostHog analytics — never cache or intercept
+  {
+    matcher: ({ url }) => url.hostname.includes("posthog.com"),
+    handler: new NetworkOnly(),
+  },
   {
     matcher: ({ sameOrigin, request, url }) =>
       sameOrigin && request.destination === "document" && isPaymentDocumentPath(url.pathname),

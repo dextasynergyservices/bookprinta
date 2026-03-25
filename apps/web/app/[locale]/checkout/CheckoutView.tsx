@@ -13,6 +13,7 @@ import { useOnlineStatus } from "@/hooks/use-online-status";
 import { type Addon, useAddons } from "@/hooks/useAddons";
 import { usePackages } from "@/hooks/usePackages";
 import { CouponValidationError, validateCouponCode } from "@/hooks/usePayments";
+import { trackCheckoutStarted } from "@/lib/analytics/posthog-events";
 import { RateLimitError, toRetryAfterMinutes } from "@/lib/api-error";
 import { useRouter } from "@/lib/i18n/navigation";
 import {
@@ -108,6 +109,7 @@ export function CheckoutView() {
   const t = useTranslations("checkout");
   const router = useRouter();
   const isOnline = useOnlineStatus();
+  const checkoutTrackedRef = useRef(false);
   const searchParams = useSearchParams();
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [couponMessage, setCouponMessage] = useState<{
@@ -151,6 +153,15 @@ export function CheckoutView() {
   const addonTotal = usePricingStore(selectAddonTotal);
   const orderTotal = usePricingStore(selectTotalPrice);
   const couponSubtotal = packageBasePrice + addonTotal;
+
+  // Track checkout_started once on mount
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional fire-once on mount
+  useEffect(() => {
+    if (!checkoutTrackedRef.current) {
+      checkoutTrackedRef.current = true;
+      trackCheckoutStarted(packageSlug, orderTotal);
+    }
+  }, []);
 
   const getCouponErrorMessage = (errorCode: CouponValidationError["code"]) => {
     const key =

@@ -122,6 +122,18 @@ export function canCancelProcessing(book: AdminBookStatusInput): boolean {
   return CANCEL_PROCESSING_ALLOWED_STATUSES.has(book.status) && book.status !== "REJECTED";
 }
 
+/**
+ * Statuses where an admin can permanently decommission (cancel) a book.
+ * Allowed for any non-terminal status. Once DELIVERED, COMPLETED, or already
+ * CANCELLED, the book cannot be decommissioned.
+ */
+const DECOMMISSION_BLOCKED_STATUSES = new Set<BookStatus>(["DELIVERED", "COMPLETED", "CANCELLED"]);
+
+export function canDecommissionBook(book: AdminBookStatusInput): boolean {
+  const effectiveStatus = book.productionStatus ?? book.status;
+  return !DECOMMISSION_BLOCKED_STATUSES.has(effectiveStatus);
+}
+
 export function humanizeAdminBookStatus(status: string): string {
   return status
     .toLowerCase()

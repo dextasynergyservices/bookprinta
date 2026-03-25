@@ -2,6 +2,8 @@
 
 import type { AuthSessionResponse, AuthSessionUser } from "@bookprinta/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import posthog from "posthog-js";
+import { useEffect, useRef } from "react";
 
 export const AUTH_SESSION_QUERY_KEY = ["auth", "session"] as const;
 const SESSION_HEALTHCHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -100,11 +102,36 @@ export function useAuthSession() {
     mutationFn: logoutSession,
     onSuccess: () => {
       queryClient.setQueryData(AUTH_SESSION_QUERY_KEY, null);
+      if (typeof window !== "undefined" && posthog.__loaded) {
+        posthog.reset();
+      }
     },
   });
 
+  // Identify / reset PostHog user when session changes
+  const prevUserIdRef = useRef<string | null>(null);
+  const user = sessionQuery.data ?? null;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !posthog.__loaded) return;
+
+    const currentId = user?.id ?? null;
+    if (currentId === prevUserIdRef.current) return;
+    prevUserIdRef.current = currentId;
+
+    if (user) {
+      posthog.identify(user.id, {
+        email: user.email,
+        name: user.displayName,
+        role: user.role,
+      });
+    } else {
+      posthog.reset();
+    }
+  }, [user]);
+
   return {
-    user: sessionQuery.data ?? null,
+    user,
     isAuthenticated: Boolean(sessionQuery.data),
     isLoading: sessionQuery.isLoading,
     isFetching: sessionQuery.isFetching,

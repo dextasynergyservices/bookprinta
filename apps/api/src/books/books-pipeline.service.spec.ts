@@ -132,6 +132,8 @@ describe("BooksPipelineService", () => {
         status: "AI_PROCESSING",
         pageCount: null,
         currentHtmlUrl: null,
+        previewPdfUrl: null,
+        finalPdfUrl: null,
       },
     });
     expect(txOrderUpdate).toHaveBeenCalledWith({

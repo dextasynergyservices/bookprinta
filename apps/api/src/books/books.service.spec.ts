@@ -271,13 +271,17 @@ describe("BooksService", () => {
       );
       expect(mockPrismaService.book.update).toHaveBeenCalledWith({
         where: { id: "cm1111111111111111111111111" },
-        data: {
+        data: expect.objectContaining({
           status: "UPLOADED",
+          title: "novel",
           wordCount: 42_000,
           estimatedPages: 164,
           pageSize: "A5",
           fontSize: 11,
-        },
+          currentHtmlUrl: null,
+          previewPdfUrl: null,
+          finalPdfUrl: null,
+        }),
       });
       expect(mockBooksPipelineService.enqueueFormatManuscript).toHaveBeenCalledWith({
         bookId: "cm1111111111111111111111111",
@@ -416,7 +420,7 @@ describe("BooksService", () => {
             pageSize: "A5",
             previewPdfUrlPresent: true,
             finalPdfUrlPresent: false,
-            workspaceUrl: "/dashboard/books?bookId=cm1111111111111111111111111",
+            workspaceUrl: "/dashboard/books/cm1111111111111111111111111",
             trackingUrl: "/dashboard/orders/cm2222222222222222222222222",
           }),
         ],

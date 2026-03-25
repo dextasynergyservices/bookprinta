@@ -17,6 +17,7 @@ import {
   uploadManuscriptWithProgress,
   validateManuscriptFile,
 } from "@/hooks/useManuscriptUpload";
+import { trackManuscriptUploaded } from "@/lib/analytics/posthog-events";
 import { cn } from "@/lib/utils";
 
 type ManuscriptUploadStep = "settings" | "upload" | "result";
@@ -285,6 +286,7 @@ export function ManuscriptUploadFlow({
       setUploadedMimeType(response.mimeType ?? null);
       setShowSuccessIcon(true);
       setStep("result");
+      trackManuscriptUploaded(response.mimeType ?? null, response.wordCount);
       toast.success(tDashboard("manuscript_upload_success_toast"));
       onUploadSuccess?.();
     } catch (error) {

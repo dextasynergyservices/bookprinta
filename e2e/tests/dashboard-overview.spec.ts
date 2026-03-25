@@ -55,7 +55,7 @@ function createActiveBook(overrides: Record<string, unknown> = {}) {
     finalPdfUrlPresent: false,
     createdAt: "2026-03-01T08:00:00.000Z",
     updatedAt: "2026-03-10T08:00:00.000Z",
-    workspaceUrl: `/dashboard/books?bookId=${ACTIVE_BOOK_ID}`,
+    workspaceUrl: `/dashboard/books/${ACTIVE_BOOK_ID}`,
     trackingUrl: `/dashboard/orders/${ACTIVE_ORDER_ID}`,
     rollout: {
       environment: "staging",
@@ -268,7 +268,7 @@ test.describe("Dashboard overview action paths", () => {
             {
               type: "REVIEW_PREVIEW",
               priority: "high",
-              href: `/dashboard/books?bookId=${ACTIVE_BOOK_ID}`,
+              href: `/dashboard/books/${ACTIVE_BOOK_ID}`,
               bookId: ACTIVE_BOOK_ID,
               orderId: ACTIVE_ORDER_ID,
               bookTitle: "The Lagos Chronicle",

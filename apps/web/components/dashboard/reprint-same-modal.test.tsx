@@ -224,7 +224,7 @@ describe("ReprintSameModal", () => {
     window.history.replaceState(
       {},
       "",
-      "/en/dashboard/books?bookId=cm1111111111111111111111111&reprint=same"
+      "/en/dashboard/books/cm1111111111111111111111111?reprint=same"
     );
     usePaymentGatewaysMock.mockReturnValue({
       data: [
