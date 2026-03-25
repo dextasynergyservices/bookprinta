@@ -32,6 +32,7 @@ import {
   DashboardSkeletonBlock,
   NotificationItemSkeleton,
 } from "@/components/dashboard/dashboard-async-primitives";
+import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
 import { useNotificationsList } from "@/hooks/use-dashboard-shell-data";
 import { useBookFiles, useBookPreview } from "@/hooks/useBookResources";
 import {
@@ -64,6 +65,7 @@ import {
 } from "./dashboard-overview-shared";
 import { DashboardRefundPolicyDialog } from "./dashboard-refund-policy-dialog";
 import { OrderMetaText, OrderStatusBadge } from "./orders";
+import { ReprintSameModal } from "./reprint-same-modal";
 
 const SUPPORT_WHATSAPP_URL = "https://wa.me/2348103208297";
 const DELIVERED_BOOK_STATUSES = new Set(["DELIVERED", "COMPLETED"]);
@@ -165,13 +167,8 @@ function findLatestDocumentFile(
   );
 }
 
-function buildReprintSameHref(bookId: string): string {
-  const params = new URLSearchParams({
-    bookId,
-    reprint: "same",
-  });
-
-  return `/dashboard/books?${params.toString()}`;
+function _buildReprintSameHref(bookId: string): string {
+  return `/dashboard/books/${bookId}?reprint=same`;
 }
 
 function buildReviseReprintHref(bookId: string): string {
@@ -270,6 +267,8 @@ export function DashboardOverviewDeferredSections({
   const quickLinksDescriptionId = useId();
   const [isDownloadingInvoice, setIsDownloadingInvoice] = useState(false);
   const [isRefundPolicyOpen, setIsRefundPolicyOpen] = useState(false);
+  const [reprintModalBookId, setReprintModalBookId] = useState<string | null>(null);
+  const isReprintModalOpen = reprintModalBookId !== null;
   const notificationsFeed = useNotificationsList({
     page: 1,
     pageSize: ACTIVITY_FEED_PAGE_SIZE,
@@ -287,10 +286,17 @@ export function DashboardOverviewDeferredSections({
   const stageLabel = activeBook
     ? tDashboard(BOOK_PROGRESS_STAGE_LABEL_KEYS[activeBook.currentStage])
     : null;
+  // For books in terminal production states (DELIVERED, COMPLETED), the
+  // productionStatus is the meaningful user-facing value. The manuscript
+  // `status` may still be an earlier lifecycle value (e.g. APPROVED).
+  const effectiveBookStatus =
+    activeBook && DELIVERED_BOOK_STATUSES.has(activeBook.productionStatus)
+      ? activeBook.productionStatus
+      : (activeBook?.status ?? null);
   const workspaceSummary = activeBook
     ? resolveWorkspaceSummary({
         orderStatus: activeBook.orderStatus,
-        bookStatus: activeBook.status,
+        bookStatus: effectiveBookStatus,
         pageCount: activeBook.pageCount,
         isOrderLoading: false,
         latestExtraPaymentStatus: null,
@@ -362,6 +368,17 @@ export function DashboardOverviewDeferredSections({
         DELIVERED_BOOK_STATUSES.has(order.book.status)
     )
     .slice(0, 2);
+  const isDeliveredActiveBook =
+    activeBook !== null && DELIVERED_BOOK_STATUSES.has(activeBook.productionStatus);
+  const reprintConfig = useBookReprintConfig({
+    bookId: reprintModalBookId,
+    enabled: isReprintModalOpen,
+  });
+  const reprintModalBookTitle = reprintModalBookId
+    ? reprintModalBookId === activeBook?.id
+      ? activeBookTitle
+      : (reprintReadyOrders.find((o) => o.book?.id === reprintModalBookId)?.package.name ?? null)
+    : null;
 
   const handleDownloadInvoice = useCallback(async () => {
     if (!activeBook?.orderId) {
@@ -474,14 +491,16 @@ export function DashboardOverviewDeferredSections({
 
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <OrderStatusBadge
-                        orderStatus={activeBook.orderStatus}
-                        bookStatus={activeBook.status}
-                        label={
-                          toDashboardStatusLabel(activeBook.status ?? activeBook.orderStatus) ??
-                          tDashboard("orders_unknown_status")
-                        }
-                      />
+                      {workspaceSummary?.state !== "delivered" ? (
+                        <OrderStatusBadge
+                          orderStatus={activeBook.orderStatus}
+                          bookStatus={effectiveBookStatus}
+                          label={
+                            toDashboardStatusLabel(effectiveBookStatus ?? activeBook.orderStatus) ??
+                            tDashboard("orders_unknown_status")
+                          }
+                        />
+                      ) : null}
                       {workspaceSummary ? (
                         <span
                           className={cn(
@@ -610,14 +629,37 @@ export function DashboardOverviewDeferredSections({
                 </div>
 
                 <div className="mt-6 flex flex-col gap-3">
-                  <Button asChild className={PRIMARY_BUTTON_CLASS}>
-                    <Link
-                      href={activeBook.workspaceUrl}
-                      aria-label={`${tDashboard("book_progress_cta_open_workspace")}: ${activeBookTitle}`}
-                    >
-                      {tDashboard("book_progress_cta_open_workspace")}
-                    </Link>
-                  </Button>
+                  {isDeliveredActiveBook ? (
+                    <>
+                      <Button
+                        className={PRIMARY_BUTTON_CLASS}
+                        aria-label={`${tDashboard("reprint_same")}: ${activeBookTitle}`}
+                        onClick={() => setReprintModalBookId(activeBook.id)}
+                      >
+                        {tDashboard("reprint_same")}
+                      </Button>
+                      <Button
+                        asChild
+                        className="font-sans inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#007eff]/35 bg-[#071320] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#3398ff] hover:bg-[#0d1b2d] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                      >
+                        <Link
+                          href={buildReviseReprintHref(activeBook.id)}
+                          aria-label={`${tDashboard("revise_reprint")}: ${activeBookTitle}`}
+                        >
+                          {tDashboard("revise_reprint")}
+                        </Link>
+                      </Button>
+                    </>
+                  ) : (
+                    <Button asChild className={PRIMARY_BUTTON_CLASS}>
+                      <Link
+                        href={activeBook.workspaceUrl}
+                        aria-label={`${tDashboard("book_progress_cta_open_workspace")}: ${activeBookTitle}`}
+                      >
+                        {tDashboard("book_progress_cta_open_workspace")}
+                      </Link>
+                    </Button>
+                  )}
                   <Button asChild className={SECONDARY_BUTTON_CLASS}>
                     <Link
                       href={activeBook.trackingUrl}
@@ -994,7 +1036,9 @@ export function DashboardOverviewDeferredSections({
                               ? tDashboard("overview_action_review_book_title")
                               : action.type === "RESOLVE_MANUSCRIPT_ISSUE"
                                 ? tDashboard("overview_action_resolve_issue_title")
-                                : tDashboard("overview_next_action_idle_title");
+                                : action.type === "REPRINT_AVAILABLE"
+                                  ? tDashboard("overview_action_reprint_title")
+                                  : tDashboard("overview_next_action_idle_title");
                   const actionDescription =
                     action.type === "UPLOAD_MANUSCRIPT"
                       ? tDashboard("overview_action_upload_description")
@@ -1008,7 +1052,9 @@ export function DashboardOverviewDeferredSections({
                               ? tDashboard("overview_action_review_book_description")
                               : action.type === "RESOLVE_MANUSCRIPT_ISSUE"
                                 ? tDashboard("overview_action_resolve_issue_description")
-                                : tDashboard("overview_next_action_idle_description");
+                                : action.type === "REPRINT_AVAILABLE"
+                                  ? tDashboard("overview_action_reprint_description")
+                                  : tDashboard("overview_next_action_idle_description");
 
                   return (
                     <Link
@@ -1175,10 +1221,13 @@ export function DashboardOverviewDeferredSections({
                         tDashboard("orders_unknown_date")}
                     </p>
                     <div className="mt-5 flex flex-col gap-3">
-                      <Button asChild className={PRIMARY_BUTTON_CLASS}>
-                        <Link href={buildReprintSameHref(order.book.id)}>
-                          {tDashboard("reprint_same")}
-                        </Link>
+                      <Button
+                        className={PRIMARY_BUTTON_CLASS}
+                        onClick={() => {
+                          if (order.book?.id) setReprintModalBookId(order.book.id);
+                        }}
+                      >
+                        {tDashboard("reprint_same")}
                       </Button>
                       <Button asChild className={SECONDARY_BUTTON_CLASS}>
                         <Link href={buildReviseReprintHref(order.book.id)}>
@@ -1322,6 +1371,20 @@ export function DashboardOverviewDeferredSections({
         <DashboardRefundPolicyDialog
           open={isRefundPolicyOpen}
           onOpenChange={setIsRefundPolicyOpen}
+        />
+        <ReprintSameModal
+          open={isReprintModalOpen}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setReprintModalBookId(null);
+          }}
+          config={reprintConfig.config}
+          isLoading={reprintConfig.isInitialLoading}
+          isError={reprintConfig.isError}
+          errorMessage={reprintConfig.error?.message}
+          onRetry={() => {
+            void reprintConfig.refetch();
+          }}
+          bookTitle={reprintModalBookTitle}
         />
       </section>
     </div>

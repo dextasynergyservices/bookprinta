@@ -16,3 +16,4 @@ export * from "./resource.schema.ts";
 export * from "./review.schema.ts";
 export * from "./showcase.schema.ts";
 export * from "./user.schema.ts";
+export * from "./web-analytics.schema.ts";

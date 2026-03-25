@@ -1618,11 +1618,11 @@ describe("BooksView route integration", () => {
     await user.click(screen.getByRole("button", { name: "Reprint Same" }));
 
     expect(routerReplaceMock).toHaveBeenCalledWith(
-      `/dashboard/books?bookId=${currentBookId}&reprint=same`
+      `/dashboard/books/${currentBookId}?reprint=same`
     );
   });
 
-  it("disables same-file reprint and shows the support message when the final PDF is missing", () => {
+  it("keeps same-file reprint button enabled and shows the support message when the final PDF is missing", () => {
     currentBookId = "cm1111111111111111111111111";
     useBookReprintConfigMock.mockReturnValue({
       config: {
@@ -1690,7 +1690,7 @@ describe("BooksView route integration", () => {
 
     render(<BooksView />);
 
-    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
     expect(
       screen.getByText("Same-file reprint is disabled because the final PDF is not available yet.")
     ).toBeInTheDocument();

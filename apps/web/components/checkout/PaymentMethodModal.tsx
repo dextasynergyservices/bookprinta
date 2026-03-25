@@ -576,111 +576,159 @@ export function PaymentMethodModal({
                     ) : null}
 
                     {paymentChoice === "online" ? (
-                      <div className="space-y-4">
+                      <div className="space-y-5">
                         <div>
-                          <p className="font-sans text-base font-semibold text-white">
+                          <p className="font-display text-lg font-semibold tracking-tight text-white">
                             {t("payment_modal_online_title")}
                           </p>
-                          <p className="mt-1 font-sans text-sm text-white/60">
+                          <p className="mt-1 font-sans text-sm leading-relaxed text-white/60">
                             {t("payment_modal_online_subtitle")}
                           </p>
                         </div>
 
-                        {isLoading ? (
-                          <div className="flex items-center gap-2 rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] px-4 py-3">
-                            <Loader2
-                              className="size-4 animate-spin text-[#007eff]"
-                              aria-hidden="true"
-                            />
-                            <span className="font-sans text-sm text-white/65">
-                              {t("payment_modal_loading")}
+                        <div>
+                          <p className="mb-2 flex items-center gap-2 font-sans text-xs font-semibold tracking-[0.08em] text-white/45 uppercase">
+                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#007eff]/20 font-sans text-[10px] font-bold text-[#007eff]">
+                              1
                             </span>
-                          </div>
-                        ) : isError ? (
-                          <div className="rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] p-4">
-                            <p className="font-sans text-sm text-white/65">
-                              {t("payment_modal_online_error")}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => refetch()}
-                              className="mt-3 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-                            >
-                              {t("payment_modal_retry")}
-                            </button>
-                          </div>
-                        ) : onlineGateways.length === 0 ? (
-                          <p className="rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] px-4 py-3 font-sans text-sm text-white/65">
-                            {t("payment_modal_online_no_methods")}
+                            {t("payment_modal_online_step_provider")}
                           </p>
-                        ) : (
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            {onlineGateways.map((gateway) => {
-                              const supportedProvider = isSupportedOnlineProvider(gateway.provider)
-                                ? gateway.provider
-                                : null;
-                              const isSupported = supportedProvider !== null;
-                              const isSelected =
-                                supportedProvider !== null && onlineProvider === supportedProvider;
-                              return (
-                                <button
-                                  key={gateway.id}
-                                  type="button"
-                                  aria-pressed={isSelected}
-                                  onClick={() => {
-                                    if (!supportedProvider) return;
-                                    setOnlineProvider(supportedProvider);
-                                  }}
-                                  disabled={!isSupported || isOffline}
-                                  className={cn(
-                                    "flex min-h-11 min-w-11 flex-col items-start rounded-2xl border p-4 text-left transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
-                                    isSupported && !isOffline
-                                      ? "border-[#2A2A2A] bg-[#0d0d0d] hover:border-[#007eff]"
-                                      : "cursor-not-allowed border-[#2A2A2A] bg-[#0b0b0b] opacity-60",
-                                    isSelected && "border-[#007eff] bg-[#06101a]"
-                                  )}
-                                >
-                                  <p className="font-sans text-sm font-semibold text-white">
-                                    {gateway.name}
-                                  </p>
-                                  {!isSupported ? (
-                                    <p className="mt-1 font-sans text-xs text-white/55">
-                                      {t("payment_modal_online_provider_unsupported")}
-                                    </p>
-                                  ) : null}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
 
-                        <div className="grid grid-cols-1 gap-3">
-                          <input
-                            type="text"
-                            value={onlineFullName}
-                            onChange={(event) => setOnlineFullName(event.target.value)}
-                            placeholder={t("payment_modal_form_full_name")}
-                            aria-label={t("payment_modal_form_full_name")}
-                            className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
-                          />
-                          <input
-                            type="email"
-                            value={onlineEmail}
-                            onChange={(event) => setOnlineEmail(event.target.value)}
-                            placeholder={t("payment_modal_form_email")}
-                            aria-label={t("payment_modal_form_email")}
-                            readOnly={Boolean(lockedReprintEmail)}
-                            aria-readonly={Boolean(lockedReprintEmail)}
-                            className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
-                          />
-                          <input
-                            type="tel"
-                            value={onlinePhone}
-                            onChange={(event) => setOnlinePhone(event.target.value)}
-                            placeholder={t("payment_modal_form_phone")}
-                            aria-label={t("payment_modal_form_phone")}
-                            className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
-                          />
+                          {isLoading ? (
+                            <div className="flex items-center gap-2 rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] px-4 py-3">
+                              <Loader2
+                                className="size-4 animate-spin text-[#007eff]"
+                                aria-hidden="true"
+                              />
+                              <span className="font-sans text-sm text-white/65">
+                                {t("payment_modal_loading")}
+                              </span>
+                            </div>
+                          ) : isError ? (
+                            <div className="rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] p-4">
+                              <p className="font-sans text-sm text-white/65">
+                                {t("payment_modal_online_error")}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => refetch()}
+                                className="mt-3 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                              >
+                                {t("payment_modal_retry")}
+                              </button>
+                            </div>
+                          ) : onlineGateways.length === 0 ? (
+                            <p className="rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] px-4 py-3 font-sans text-sm text-white/65">
+                              {t("payment_modal_online_no_methods")}
+                            </p>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                              {onlineGateways.map((gateway) => {
+                                const supportedProvider = isSupportedOnlineProvider(
+                                  gateway.provider
+                                )
+                                  ? gateway.provider
+                                  : null;
+                                const isSupported = supportedProvider !== null;
+                                const isSelected =
+                                  supportedProvider !== null &&
+                                  onlineProvider === supportedProvider;
+                                return (
+                                  <button
+                                    key={gateway.id}
+                                    type="button"
+                                    aria-pressed={isSelected}
+                                    onClick={() => {
+                                      if (!supportedProvider) return;
+                                      setOnlineProvider(supportedProvider);
+                                    }}
+                                    disabled={!isSupported || isOffline}
+                                    className={cn(
+                                      "flex min-h-11 min-w-11 items-start gap-3 rounded-2xl border p-4 text-left transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                                      isSupported && !isOffline
+                                        ? "border-[#2A2A2A] bg-[#0d0d0d] hover:border-[#007eff]/70"
+                                        : "cursor-not-allowed border-[#2A2A2A] bg-[#0b0b0b] opacity-60",
+                                      isSelected &&
+                                        "border-[#007eff] bg-[#06101a] shadow-[0_0_0_1px_rgba(0,126,255,0.3)]"
+                                    )}
+                                  >
+                                    <span
+                                      className={cn(
+                                        "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-150",
+                                        isSelected
+                                          ? "border-[#007eff] bg-[#007eff]"
+                                          : "border-white/25 bg-transparent"
+                                      )}
+                                    >
+                                      {isSelected ? (
+                                        <Check className="size-3 text-white" aria-hidden="true" />
+                                      ) : null}
+                                    </span>
+
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-sans text-sm font-semibold text-white">
+                                        {gateway.name}
+                                      </p>
+                                      {isSupported ? (
+                                        <p className="mt-0.5 flex items-center gap-1 font-sans text-xs text-white/50">
+                                          <ShieldCheck
+                                            className="size-3 shrink-0"
+                                            aria-hidden="true"
+                                          />
+                                          {isSelected
+                                            ? t("payment_modal_online_provider_secure", {
+                                                provider: gateway.name,
+                                              })
+                                            : t("payment_modal_online_provider_hint")}
+                                        </p>
+                                      ) : (
+                                        <p className="mt-0.5 font-sans text-xs text-white/50">
+                                          {t("payment_modal_online_provider_unsupported")}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <p className="mb-2 flex items-center gap-2 font-sans text-xs font-semibold tracking-[0.08em] text-white/45 uppercase">
+                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#007eff]/20 font-sans text-[10px] font-bold text-[#007eff]">
+                              2
+                            </span>
+                            {t("payment_modal_online_step_details")}
+                          </p>
+                          <div className="grid grid-cols-1 gap-3">
+                            <input
+                              type="text"
+                              value={onlineFullName}
+                              onChange={(event) => setOnlineFullName(event.target.value)}
+                              placeholder={t("payment_modal_form_full_name")}
+                              aria-label={t("payment_modal_form_full_name")}
+                              className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                            />
+                            <input
+                              type="email"
+                              value={onlineEmail}
+                              onChange={(event) => setOnlineEmail(event.target.value)}
+                              placeholder={t("payment_modal_form_email")}
+                              aria-label={t("payment_modal_form_email")}
+                              readOnly={Boolean(lockedReprintEmail)}
+                              aria-readonly={Boolean(lockedReprintEmail)}
+                              className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                            />
+                            <input
+                              type="tel"
+                              value={onlinePhone}
+                              onChange={(event) => setOnlinePhone(event.target.value)}
+                              placeholder={t("payment_modal_form_phone")}
+                              aria-label={t("payment_modal_form_phone")}
+                              className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                            />
+                          </div>
                         </div>
 
                         <button

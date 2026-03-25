@@ -18,6 +18,7 @@ import { ScrollProgress } from "@/components/marketing/showcase/ScrollProgress";
 import { RecaptchaProvider } from "@/components/shared/RecaptchaProvider";
 import { useLenis } from "@/hooks/use-lenis";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { trackQuoteSubmitted } from "@/lib/analytics/posthog-events";
 import { RateLimitError, throwApiError, toRetryAfterMinutes } from "@/lib/api-error";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -717,6 +718,7 @@ function QuoteViewInner() {
       await response.json().catch(() => null);
       const firstName = form.fullName.trim().split(/\s+/)[0] || form.fullName.trim();
 
+      trackQuoteSubmitted(form.bookSize, hasSpecialReqs);
       setSubmittedQuote({
         firstName,
         workingTitle: form.workingTitle.trim(),

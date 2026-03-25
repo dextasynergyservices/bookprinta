@@ -14,14 +14,13 @@ export const BOOK_PROGRESS_STAGE_LABEL_KEYS: Record<BookProgressStage, string> =
   DELIVERED: "book_progress_stage_delivered",
 };
 
+const WORKSPACE_DELIVERED_BOOK_STATUSES = new Set(["DELIVERED", "COMPLETED"]);
 const WORKSPACE_APPROVED_BOOK_STATUSES = new Set([
   "APPROVED",
   "IN_PRODUCTION",
   "PRINTING",
   "PRINTED",
   "SHIPPING",
-  "DELIVERED",
-  "COMPLETED",
 ]);
 const WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES = new Set(["FORMATTING_REVIEW", "REJECTED"]);
 
@@ -34,6 +33,7 @@ export type WorkspaceState =
   | "payment_pending"
   | "unlocked"
   | "approved"
+  | "delivered"
   | "action_required";
 
 export function normalizeWorkspaceStatusToken(value: string | null | undefined): string | null {
@@ -63,6 +63,9 @@ export function resolveWorkspaceState(params: {
   const normalizedExtraPaymentStatus = normalizeWorkspaceStatusToken(latestExtraPaymentStatus);
 
   if (forceProcessing) return "processing";
+  if (normalizedBookStatus && WORKSPACE_DELIVERED_BOOK_STATUSES.has(normalizedBookStatus)) {
+    return "delivered";
+  }
   if (normalizedBookStatus && WORKSPACE_APPROVED_BOOK_STATUSES.has(normalizedBookStatus)) {
     return "approved";
   }
@@ -97,7 +100,7 @@ export function resolveBillingGateState(params: {
 }): "processing" | "payment_required" | "ready" | "approved" | "action_required" {
   const workspaceState = resolveWorkspaceState(params);
 
-  if (workspaceState === "approved") return "approved";
+  if (workspaceState === "approved" || workspaceState === "delivered") return "approved";
   if (workspaceState === "unlocked") return "ready";
   if (workspaceState === "action_required") return "action_required";
   if (workspaceState === "blocked" || workspaceState === "payment_pending") {
@@ -114,6 +117,10 @@ export function resolveFormattingSnapshotLabel(params: {
   forceProcessing?: boolean;
 }): string {
   const normalizedBookStatus = normalizeWorkspaceStatusToken(params.bookStatus);
+
+  if (normalizedBookStatus && WORKSPACE_DELIVERED_BOOK_STATUSES.has(normalizedBookStatus)) {
+    return params.tDashboard("book_progress_meta_state_complete");
+  }
 
   if (params.forceProcessing || params.processingActive) {
     return params.tDashboard("book_progress_meta_state_processing");
@@ -137,6 +144,10 @@ export function resolveReviewSnapshotLabel(params: {
   forceProcessing?: boolean;
 }): string {
   const normalizedBookStatus = normalizeWorkspaceStatusToken(params.bookStatus);
+
+  if (normalizedBookStatus && WORKSPACE_DELIVERED_BOOK_STATUSES.has(normalizedBookStatus)) {
+    return params.tDashboard("book_progress_meta_state_complete");
+  }
 
   if (params.forceProcessing) {
     return params.tDashboard("book_progress_meta_state_processing");
@@ -178,9 +189,11 @@ export function resolveWorkspaceSummary(params: {
             ? "border-[#f59e0b]/45 bg-[#2b1b08] text-[#f8d7a0]"
             : workspaceState === "unlocked"
               ? "border-[#007eff]/40 bg-[#0d1f34] text-[#d7e8ff]"
-              : workspaceState === "approved"
-                ? "border-[#16a34a]/35 bg-[#0d2015] text-[#c8f1d6]"
-                : "border-[#2A2A2A] bg-[#0A0A0A] text-[#d0d0d0]",
+              : workspaceState === "delivered"
+                ? "border-[#16a34a]/40 bg-[#0d2015] text-[#c8f1d6]"
+                : workspaceState === "approved"
+                  ? "border-[#16a34a]/35 bg-[#0d2015] text-[#c8f1d6]"
+                  : "border-[#2A2A2A] bg-[#0A0A0A] text-[#d0d0d0]",
     panelClassName:
       workspaceState === "blocked"
         ? "border-[#ef4444]/45 bg-[#160d0d]"
@@ -190,9 +203,11 @@ export function resolveWorkspaceSummary(params: {
             ? "border-[#f59e0b]/40 bg-[#171106]"
             : workspaceState === "unlocked"
               ? "border-[#007eff]/30 bg-[#0b1320]"
-              : workspaceState === "approved"
+              : workspaceState === "delivered"
                 ? "border-[#16a34a]/30 bg-[#0d1610]"
-                : "border-[#2A2A2A] bg-[#111111]",
+                : workspaceState === "approved"
+                  ? "border-[#16a34a]/30 bg-[#0d1610]"
+                  : "border-[#2A2A2A] bg-[#111111]",
     badgeKey:
       workspaceState === "blocked"
         ? "book_progress_workspace_badge_blocked"
@@ -202,9 +217,11 @@ export function resolveWorkspaceSummary(params: {
             ? "book_progress_workspace_badge_payment_pending"
             : workspaceState === "unlocked"
               ? "book_progress_workspace_badge_unlocked"
-              : workspaceState === "approved"
-                ? "book_progress_workspace_badge_approved"
-                : "book_progress_workspace_badge_processing",
+              : workspaceState === "delivered"
+                ? "book_progress_workspace_badge_delivered"
+                : workspaceState === "approved"
+                  ? "book_progress_workspace_badge_approved"
+                  : "book_progress_workspace_badge_processing",
     headingKey:
       workspaceState === "blocked"
         ? "book_progress_workspace_heading_blocked"
@@ -214,9 +231,11 @@ export function resolveWorkspaceSummary(params: {
             ? "book_progress_workspace_heading_payment_pending"
             : workspaceState === "unlocked"
               ? "book_progress_workspace_heading_unlocked"
-              : workspaceState === "approved"
-                ? "book_progress_workspace_heading_approved"
-                : "book_progress_workspace_heading_processing",
+              : workspaceState === "delivered"
+                ? "book_progress_workspace_heading_delivered"
+                : workspaceState === "approved"
+                  ? "book_progress_workspace_heading_approved"
+                  : "book_progress_workspace_heading_processing",
     descriptionKey:
       workspaceState === "blocked"
         ? "book_progress_workspace_desc_blocked"
@@ -226,8 +245,10 @@ export function resolveWorkspaceSummary(params: {
             ? "book_progress_workspace_desc_payment_pending"
             : workspaceState === "unlocked"
               ? "book_progress_workspace_desc_unlocked"
-              : workspaceState === "approved"
-                ? "book_progress_workspace_desc_approved"
-                : "book_progress_workspace_desc_processing",
+              : workspaceState === "delivered"
+                ? "book_progress_workspace_desc_delivered"
+                : workspaceState === "approved"
+                  ? "book_progress_workspace_desc_approved"
+                  : "book_progress_workspace_desc_processing",
   };
 }

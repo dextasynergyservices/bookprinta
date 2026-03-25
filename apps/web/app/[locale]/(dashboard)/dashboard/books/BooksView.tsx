@@ -28,6 +28,7 @@ import {
   usePaymentGateways,
   verifyPayment,
 } from "@/hooks/usePayments";
+import { trackBookApproved } from "@/lib/analytics/posthog-events";
 import {
   BOOK_PROGRESS_STAGE_LABEL_KEYS,
   normalizeWorkspaceStatusToken,
@@ -35,6 +36,7 @@ import {
   resolveFormattingSnapshotLabel,
   resolveReviewSnapshotLabel,
   resolveWorkspaceState,
+  resolveWorkspaceSummary,
 } from "@/lib/dashboard/book-workspace-summary";
 import {
   formatDashboardCurrency,
@@ -421,14 +423,6 @@ function BookWorkspacePanel({
   latestExtraPaymentStatus,
   forceProcessing,
 }: BookWorkspacePanelProps) {
-  const workspaceState = resolveWorkspaceState({
-    orderStatus,
-    bookStatus,
-    pageCount,
-    isOrderLoading,
-    latestExtraPaymentStatus,
-    forceProcessing,
-  });
   const extraPages =
     typeof extraAmount === "number" && extraAmount > 0
       ? Math.ceil(extraAmount / EXTRA_PAGE_RATE_NAIRA)
@@ -439,66 +433,19 @@ function BookWorkspacePanel({
     typeof estimatedPages === "number" && typeof pageCount === "number"
       ? pageCount - estimatedPages
       : null;
-  const stateBadgeClassName =
-    workspaceState === "blocked"
-      ? "border-[#ef4444]/50 bg-[#2a1111] text-[#f3b2b2]"
-      : workspaceState === "action_required"
-        ? "border-[#f97316]/45 bg-[#2a1609] text-[#f8caa6]"
-        : workspaceState === "payment_pending"
-          ? "border-[#f59e0b]/45 bg-[#2b1b08] text-[#f8d7a0]"
-          : workspaceState === "unlocked"
-            ? "border-[#007eff]/40 bg-[#0d1f34] text-[#d7e8ff]"
-            : workspaceState === "approved"
-              ? "border-[#16a34a]/35 bg-[#0d2015] text-[#c8f1d6]"
-              : "border-[#2A2A2A] bg-[#0A0A0A] text-[#d0d0d0]";
-  const panelClassName =
-    workspaceState === "blocked"
-      ? "border-[#ef4444]/45 bg-[#160d0d]"
-      : workspaceState === "action_required"
-        ? "border-[#f97316]/35 bg-[#181007]"
-        : workspaceState === "payment_pending"
-          ? "border-[#f59e0b]/40 bg-[#171106]"
-          : workspaceState === "unlocked"
-            ? "border-[#007eff]/30 bg-[#0b1320]"
-            : workspaceState === "approved"
-              ? "border-[#16a34a]/30 bg-[#0d1610]"
-              : "border-[#2A2A2A] bg-[#111111]";
-  const badgeKey =
-    workspaceState === "blocked"
-      ? "book_progress_workspace_badge_blocked"
-      : workspaceState === "action_required"
-        ? "book_progress_workspace_badge_action_required"
-        : workspaceState === "payment_pending"
-          ? "book_progress_workspace_badge_payment_pending"
-          : workspaceState === "unlocked"
-            ? "book_progress_workspace_badge_unlocked"
-            : workspaceState === "approved"
-              ? "book_progress_workspace_badge_approved"
-              : "book_progress_workspace_badge_processing";
-  const headingKey =
-    workspaceState === "blocked"
-      ? "book_progress_workspace_heading_blocked"
-      : workspaceState === "action_required"
-        ? "book_progress_workspace_heading_action_required"
-        : workspaceState === "payment_pending"
-          ? "book_progress_workspace_heading_payment_pending"
-          : workspaceState === "unlocked"
-            ? "book_progress_workspace_heading_unlocked"
-            : workspaceState === "approved"
-              ? "book_progress_workspace_heading_approved"
-              : "book_progress_workspace_heading_processing";
-  const descriptionKey =
-    workspaceState === "blocked"
-      ? "book_progress_workspace_desc_blocked"
-      : workspaceState === "action_required"
-        ? "book_progress_workspace_desc_action_required"
-        : workspaceState === "payment_pending"
-          ? "book_progress_workspace_desc_payment_pending"
-          : workspaceState === "unlocked"
-            ? "book_progress_workspace_desc_unlocked"
-            : workspaceState === "approved"
-              ? "book_progress_workspace_desc_approved"
-              : "book_progress_workspace_desc_processing";
+  const summary = resolveWorkspaceSummary({
+    orderStatus,
+    bookStatus,
+    pageCount,
+    isOrderLoading,
+    latestExtraPaymentStatus,
+    forceProcessing,
+  });
+  const stateBadgeClassName = summary.stateBadgeClassName;
+  const panelClassName = summary.panelClassName;
+  const badgeKey = summary.badgeKey;
+  const headingKey = summary.headingKey;
+  const descriptionKey = summary.descriptionKey;
   const authoritativeValue =
     typeof pageCount === "number"
       ? formatInteger(pageCount, locale)
@@ -912,6 +859,7 @@ export function BooksView() {
     enabled: false,
   });
   const normalizedCurrentBookStatus = normalizeStatusToken(data.currentStatus);
+  const normalizedProductionStatus = normalizeStatusToken(data.productionStatus);
   const billingStatus = orderStatus ?? data.currentStatus;
   const extraPagesProvider = resolveExtraPagesProvider(paymentGateways);
   const pendingExtraPaymentReference =
@@ -921,8 +869,10 @@ export function BooksView() {
       : null);
   const canShowReprintActions =
     activeBookId !== null &&
-    normalizedCurrentBookStatus !== null &&
-    WORKSPACE_REPRINT_BOOK_STATUSES.has(normalizedCurrentBookStatus);
+    ((normalizedProductionStatus !== null &&
+      WORKSPACE_REPRINT_BOOK_STATUSES.has(normalizedProductionStatus)) ||
+      (normalizedCurrentBookStatus !== null &&
+        WORKSPACE_REPRINT_BOOK_STATUSES.has(normalizedCurrentBookStatus)));
   const {
     config: reprintConfig,
     isError: isReprintConfigError,
@@ -963,6 +913,9 @@ export function BooksView() {
   const hasManuscriptPreviewWorkspace =
     Boolean(data.pageSize && data.fontSize) &&
     (typeof data.wordCount === "number" || Boolean(data.currentHtmlUrl));
+  const isBookPostApproval =
+    normalizedCurrentBookStatus !== null &&
+    WORKSPACE_APPROVED_BOOK_STATUSES.has(normalizedCurrentBookStatus);
   const isWorkspaceRolloutBlocked =
     data.rollout.workspace.access === "disabled" ||
     data.rollout.manuscriptPipeline.access === "disabled";
@@ -1085,7 +1038,7 @@ export function BooksView() {
   };
 
   const handleOpenReprintSameModal = () => {
-    if (!activeBookId || isReprintSameDisabled) {
+    if (!activeBookId) {
       return;
     }
 
@@ -1184,6 +1137,7 @@ export function BooksView() {
 
     try {
       await approveBookForProduction({ bookId: activeBookId });
+      trackBookApproved(activeBookId);
       await Promise.allSettled([refetch(), refetchOrderDetail()]);
       setActionSuccess(tDashboard("book_progress_billing_gate_success"));
     } catch (actionErrorValue) {
@@ -1337,7 +1291,7 @@ export function BooksView() {
                 />
               )}
 
-              {hasManuscriptPreviewWorkspace ? (
+              {hasManuscriptPreviewWorkspace && !isBookPostApproval ? (
                 <ManuscriptPreviewPanel
                   bookId={data.bookId ?? resolvedBookId}
                   pageSize={data.pageSize}
@@ -1513,7 +1467,7 @@ export function BooksView() {
               environment={data.rollout.environment}
               blockedFeature={blockedBillingFeature}
             />
-          ) : (
+          ) : isBookPostApproval ? null : (
             <BillingGatePanel
               tDashboard={tDashboard}
               locale={locale}
@@ -1542,7 +1496,10 @@ export function BooksView() {
           )}
 
           <div className="flex flex-wrap gap-2">
-            {data.previewPdfUrl && data.currentHtmlUrl && !isLayoutReprocessing ? (
+            {data.previewPdfUrl &&
+            data.currentHtmlUrl &&
+            !isLayoutReprocessing &&
+            !isBookPostApproval ? (
               <Button
                 type="button"
                 onClick={() => {
@@ -1563,7 +1520,6 @@ export function BooksView() {
                 type="button"
                 variant="outline"
                 onClick={handleOpenReprintSameModal}
-                disabled={isReprintSameDisabled}
                 className="font-sans min-h-11 rounded-full border-[#007eff] bg-transparent px-5 text-sm font-semibold text-[#007eff] shadow-none hover:border-[#3398ff] hover:bg-[#071320] hover:text-[#3398ff]"
               >
                 {tDashboard("reprint_same")}

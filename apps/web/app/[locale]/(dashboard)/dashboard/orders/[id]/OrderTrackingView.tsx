@@ -616,7 +616,6 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
             type="button"
             variant="outline"
             onClick={() => setIsReprintSameModalOpen(true)}
-            disabled={isReprintSameDisabled}
             className="font-sans min-h-11 rounded-full border-[#007eff] bg-transparent px-5 text-sm font-semibold text-[#007eff] shadow-none hover:border-[#3398ff] hover:bg-[#071320] hover:text-[#3398ff]"
           >
             {tDashboard("reprint_same")}

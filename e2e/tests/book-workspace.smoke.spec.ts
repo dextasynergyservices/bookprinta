@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 const BOOK_ID = "cmbook_smoke_1";
 const ORDER_ID = "cmorder_smoke_1";
-const BOOKS_PATH = `/dashboard/books?bookId=${BOOK_ID}`;
+const BOOKS_PATH = `/dashboard/books/${BOOK_ID}`;
 const CURRENT_HTML_URL = "https://storage.test/books/current.html";
 const PREVIEW_DESTINATION_URL = "https://storage.test/books/preview-open";
 const PAYMENT_DESTINATION_URL = "https://pay.example/checkout/extra-pages";

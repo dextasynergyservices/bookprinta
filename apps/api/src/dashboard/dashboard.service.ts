@@ -74,14 +74,32 @@ export class DashboardService {
   }
 
   private resolveActiveBook(books: UserBookListItem[]): UserBookListItem | null {
-    const activeBook =
-      books.find(
-        (book) =>
-          !DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.has(book.productionStatus) &&
-          !DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.has(book.status)
-      ) ?? books[0];
+    // 1. Prefer the most recently CREATED delivered/completed book.
+    //    The books list is sorted by updatedAt desc (from the query), but when
+    //    a user has multiple delivered books we want to surface the newest
+    //    project — the one created last, not the one updated last.
+    const deliveredBooks = books.filter(
+      (book) =>
+        book.productionStatus === "DELIVERED" ||
+        book.productionStatus === "COMPLETED" ||
+        book.status === "DELIVERED" ||
+        book.status === "COMPLETED"
+    );
 
-    return activeBook ?? null;
+    if (deliveredBooks.length > 0) {
+      return deliveredBooks.reduce((newest, book) =>
+        new Date(book.createdAt).getTime() > new Date(newest.createdAt).getTime() ? book : newest
+      );
+    }
+
+    // 2. Next, prefer the first in-progress (non-terminal) book
+    const inProgressBook = books.find(
+      (book) =>
+        !DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.has(book.productionStatus) &&
+        !DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.has(book.status)
+    );
+
+    return inProgressBook ?? books[0] ?? null;
   }
 
   private hasProductionDelayBanner(items: NotificationItem[]): boolean {
@@ -124,6 +142,24 @@ export class DashboardService {
     const activeBookAction = this.resolveActiveBookPendingAction(params.activeBook);
     if (activeBookAction) {
       actions.push(activeBookAction);
+    }
+
+    // Add reprint action for delivered/completed active book
+    if (
+      params.activeBook &&
+      DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.has(params.activeBook.productionStatus) &&
+      params.activeBook.productionStatus !== "CANCELLED"
+    ) {
+      actions.push({
+        type: "REPRINT_AVAILABLE",
+        priority: "low",
+        href: `/dashboard/books/${params.activeBook.id}?reprint=same`,
+        bookId: params.activeBook.id,
+        orderId: params.activeBook.orderId,
+        bookTitle: params.activeBook.title,
+        bookStatus: params.activeBook.productionStatus,
+        orderStatus: params.activeBook.orderStatus,
+      });
     }
 
     return actions.sort((left, right) => {

@@ -16,6 +16,7 @@ export const DashboardPendingActionTypeSchema = z.enum([
   "COMPLETE_PROFILE",
   "REVIEW_BOOK",
   "RESOLVE_MANUSCRIPT_ISSUE",
+  "REPRINT_AVAILABLE",
 ]);
 export type DashboardPendingActionType = z.infer<typeof DashboardPendingActionTypeSchema>;
 

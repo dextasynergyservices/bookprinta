@@ -11,6 +11,8 @@ import type {
   AdminBooksListResponse,
   AdminCancelProcessingInput,
   AdminCancelProcessingResponse,
+  AdminDecommissionBookInput,
+  AdminDecommissionBookResponse,
   AdminRejectBookInput,
   AdminRejectBookResponse,
   AdminResetProcessingInput,
@@ -64,6 +66,7 @@ import {
 import { RolloutService } from "../rollout/rollout.service.js";
 import {
   canCancelProcessing,
+  canDecommissionBook,
   canRejectAdminBook,
   canResetProcessingPipeline,
   canUploadAdminHtmlFallback,
@@ -74,7 +77,7 @@ import {
 import { BooksPipelineService } from "./books-pipeline.service.js";
 import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
 
-const BOOK_DETAIL_JOB_STATUSES: JobStatus[] = ["QUEUED", "PROCESSING", "FAILED"];
+const BOOK_DETAIL_JOB_STATUSES: JobStatus[] = ["QUEUED", "PROCESSING", "FAILED", "COMPLETED"];
 const ADMIN_BOOK_SORTABLE_FIELDS: AdminBooksListResponse["sortableFields"] = [
   "title",
   "authorName",
@@ -138,7 +141,7 @@ const BOOK_DETAIL_SELECT = {
       },
     },
     orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }],
-    take: 3,
+    take: 6,
     select: {
       type: true,
       status: true,
@@ -186,7 +189,7 @@ const USER_BOOK_LIST_SELECT = {
       },
     },
     orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }],
-    take: 3,
+    take: 6,
     select: {
       type: true,
       status: true,
@@ -553,6 +556,7 @@ export class BooksService {
     })();
 
     const shouldMarkUploaded = book.status === "AWAITING_UPLOAD" || book.status === "REJECTED";
+    const newTitle = this.deriveTitleFromFileName(uploadedFile.fileName ?? file.originalname);
     await this.prisma.book.update({
       where: { id: book.id },
       data: {
@@ -562,6 +566,13 @@ export class BooksService {
         documentPageCount,
         pageSize,
         fontSize,
+        // Update the title to match the latest uploaded manuscript file name.
+        ...(newTitle ? { title: newTitle } : {}),
+        // Clear stale pipeline URLs so the previous manuscript's outputs
+        // are never shown while the new pipeline processes.
+        currentHtmlUrl: null,
+        previewPdfUrl: null,
+        finalPdfUrl: null,
         ...(book.status === "REJECTED"
           ? {
               rejectionReason: null,
@@ -574,6 +585,10 @@ export class BooksService {
       },
     });
 
+    // Cancel any running pipeline jobs from a previous upload so they don't
+    // race against the new manuscript and cause confusing state.
+    await this.booksPipeline.cancelActiveJobsForBook(book.id, "supersededByUpload");
+
     await this.booksPipeline.enqueueFormatManuscript({
       bookId: book.id,
       trigger: "upload",
@@ -581,7 +596,10 @@ export class BooksService {
 
     return {
       bookId: book.id,
-      title: book.title ?? this.deriveTitleFromFileName(uploadedFile.fileName ?? file.originalname),
+      title:
+        newTitle ??
+        book.title ??
+        this.deriveTitleFromFileName(uploadedFile.fileName ?? file.originalname),
       fileId: uploadedFile.id,
       fileUrl: uploadedFile.url,
       fileName: uploadedFile.fileName ?? file.originalname,
@@ -785,6 +803,12 @@ export class BooksService {
     const timelineUpdatedAt =
       row.productionStatusUpdatedAt ?? row.rejectedAt ?? row.updatedAt ?? row.createdAt;
 
+    // Derive the display title from the latest RAW_MANUSCRIPT file name so the
+    // admin header always reflects the most-recently-uploaded manuscript, even
+    // for books where the stored book.title still holds the first upload's name.
+    const latestManuscript = row.files.find((f) => f.fileType === "RAW_MANUSCRIPT");
+    const latestFileTitle = this.deriveTitleFromFileName(latestManuscript?.fileName ?? null);
+
     return {
       id: row.id,
       orderId: row.orderId,
@@ -792,7 +816,7 @@ export class BooksService {
       productionStatus: row.productionStatus,
       displayStatus: projection.displayStatus,
       statusSource: projection.statusSource,
-      title: row.title ?? null,
+      title: latestFileTitle ?? row.title ?? null,
       coverImageUrl: row.coverImageUrl ?? null,
       latestProcessingError: this.resolveLatestProcessingError(row.jobs),
       rejectionReason: row.rejectionReason ?? null,
@@ -1367,8 +1391,10 @@ export class BooksService {
           version: input.expectedVersion,
         },
         data: {
-          status: "UPLOADED",
+          status: "PAYMENT_RECEIVED",
           pageCount: null,
+          currentHtmlUrl: null,
+          previewPdfUrl: null,
           version: { increment: 1 },
         },
       });
@@ -1390,7 +1416,7 @@ export class BooksService {
           entityId: current.id,
           details: {
             previousStatus,
-            nextStatus: "UPLOADED",
+            nextStatus: "PAYMENT_RECEIVED",
             reason: input.reason?.trim() || null,
             expectedVersion: input.expectedVersion,
             cancelledJobs,
@@ -1409,8 +1435,109 @@ export class BooksService {
     return {
       bookId: current.id,
       previousStatus,
-      bookStatus: "UPLOADED",
+      bookStatus: "PAYMENT_RECEIVED",
       orderStatus: "AWAITING_UPLOAD",
+      bookVersion: updatedBook?.version ?? input.expectedVersion + 1,
+      cancelledJobs,
+      audit: this.serializeAdminAuditEntry(audit, adminId),
+    };
+  }
+
+  async decommissionAdminBook(
+    bookId: string,
+    input: AdminDecommissionBookInput,
+    adminId: string
+  ): Promise<AdminDecommissionBookResponse> {
+    const current = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        productionStatus: true,
+        version: true,
+      },
+    });
+
+    if (!current) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    if (
+      !canDecommissionBook({
+        status: current.status,
+        productionStatus: current.productionStatus,
+      })
+    ) {
+      throw new BadRequestException(
+        "This book cannot be decommissioned because it has already been delivered, completed, or cancelled."
+      );
+    }
+
+    const previousStatus = current.status;
+
+    // Cancel all active pipeline jobs (BullMQ + DB)
+    const cancelledJobs = await this.booksPipeline.cancelActiveJobsForBook(
+      current.id,
+      "cancelledByAdmin"
+    );
+
+    const { audit } = await this.prisma.$transaction(async (tx) => {
+      const updatedCount = await tx.book.updateMany({
+        where: {
+          id: current.id,
+          version: input.expectedVersion,
+        },
+        data: {
+          status: "CANCELLED",
+          productionStatus: "CANCELLED",
+          productionStatusUpdatedAt: new Date(),
+          currentHtmlUrl: null,
+          previewPdfUrl: null,
+          finalPdfUrl: null,
+          pageCount: null,
+          version: { increment: 1 },
+        },
+      });
+
+      if (updatedCount.count === 0) {
+        throw new ConflictException("Book was updated by another admin. Refresh and try again.");
+      }
+
+      await tx.order.updateMany({
+        where: { id: current.orderId },
+        data: { status: "CANCELLED" },
+      });
+
+      const auditLog = await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_BOOK_DECOMMISSION",
+          entityType: "BOOK",
+          entityId: current.id,
+          details: {
+            previousStatus,
+            nextStatus: "CANCELLED",
+            reason: input.reason.trim(),
+            expectedVersion: input.expectedVersion,
+            cancelledJobs,
+          },
+        },
+      });
+
+      return { audit: auditLog };
+    });
+
+    const updatedBook = await this.prisma.book.findUnique({
+      where: { id: current.id },
+      select: { version: true },
+    });
+
+    return {
+      bookId: current.id,
+      previousStatus,
+      bookStatus: "CANCELLED",
+      orderStatus: "CANCELLED",
       bookVersion: updatedBook?.version ?? input.expectedVersion + 1,
       cancelledJobs,
       audit: this.serializeAdminAuditEntry(audit, adminId),
@@ -1965,7 +2092,7 @@ export class BooksService {
       finalPdfUrlPresent: typeof row.finalPdfUrl === "string" && row.finalPdfUrl.length > 0,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
-      workspaceUrl: `/dashboard/books?bookId=${row.id}`,
+      workspaceUrl: `/dashboard/books/${row.id}`,
       trackingUrl: `/dashboard/orders/${row.orderId}`,
       rollout: this.rollout.resolveBookRolloutState(row),
       processing: this.resolveProcessingState({
@@ -2765,6 +2892,7 @@ export class BooksService {
       type: string;
       status: string;
       error: string | null;
+      createdAt: Date;
     }>
   ): string | null {
     const latestFailure = jobs.find((job) => {
@@ -2777,6 +2905,18 @@ export class BooksService {
       }
 
       if (!job.error) {
+        return false;
+      }
+
+      // Skip stale errors: if a COMPLETED job of the same type exists
+      // that was created after this failure, the error is outdated.
+      const hasNewerSuccess = jobs.some(
+        (j) =>
+          j.status === "COMPLETED" &&
+          j.type === job.type &&
+          j.createdAt.getTime() > job.createdAt.getTime()
+      );
+      if (hasNewerSuccess) {
         return false;
       }
 
