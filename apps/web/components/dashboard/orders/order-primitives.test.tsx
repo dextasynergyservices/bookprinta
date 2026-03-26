@@ -45,10 +45,10 @@ describe("OrderStatusBadge", () => {
 
 describe("ReprintBadge", () => {
   it("renders for reprint order types", () => {
-    const { rerender } = render(<ReprintBadge orderType="REPRINT_SAME" label="REPRINT" />);
+    const { rerender } = render(<ReprintBadge orderType="REPRINT" label="REPRINT" />);
     expect(screen.getByText("REPRINT")).toBeInTheDocument();
 
-    rerender(<ReprintBadge orderType="REPRINT_REVISED" label="REPRINT" />);
+    rerender(<ReprintBadge orderType="REPRINT" label="REPRINT" />);
     expect(screen.getByText("REPRINT")).toBeInTheDocument();
   });
 

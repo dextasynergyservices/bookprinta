@@ -53,7 +53,7 @@ export const BookStatusSchema = z.enum([
 ]);
 export type BookStatus = z.infer<typeof BookStatusSchema>;
 
-export const OrderTypeSchema = z.enum(["STANDARD", "REPRINT_SAME", "REPRINT_REVISED"]);
+export const OrderTypeSchema = z.enum(["STANDARD", "REPRINT"]);
 export type OrderType = z.infer<typeof OrderTypeSchema>;
 
 /**

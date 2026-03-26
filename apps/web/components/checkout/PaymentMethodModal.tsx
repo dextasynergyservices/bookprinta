@@ -130,7 +130,7 @@ export function PaymentMethodModal({
   const [isRedirectingToProvider, setIsRedirectingToProvider] = useState(false);
   const lastPaymentClickAtRef = useRef<number>(0);
   const isAuthenticatedReprintCheckout =
-    paymentMetadata.orderType === "REPRINT_REVISED" &&
+    paymentMetadata.orderType === "REPRINT" &&
     typeof paymentMetadata.sourceBookId === "string" &&
     paymentMetadata.sourceBookId.trim().length > 0 &&
     isAuthenticated &&

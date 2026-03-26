@@ -246,7 +246,7 @@ export function DashboardOverviewView() {
                       className="font-sans inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#007eff]/35 bg-[#071320] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#3398ff] hover:bg-[#0d1b2d] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
                     >
                       <Link
-                        href={`/pricing?orderType=REPRINT_REVISED&sourceBookId=${encodeURIComponent(activeBook.id)}`}
+                        href={`/pricing?orderType=REPRINT&sourceBookId=${encodeURIComponent(activeBook.id)}`}
                         aria-label={`${tDashboard("revise_reprint")}: ${activeBook.title}`}
                       >
                         {tDashboard("revise_reprint")}

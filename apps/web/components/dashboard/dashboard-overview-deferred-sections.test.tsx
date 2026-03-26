@@ -354,7 +354,7 @@ describe("DashboardOverviewDeferredSections", () => {
         activeBook={null}
         recentOrders={[
           createRecentOrder({
-            orderType: "REPRINT_SAME",
+            orderType: "REPRINT",
             status: "COMPLETED",
             bookStatus: "DELIVERED",
             orderNumber: "BP-2026-0099",
@@ -392,7 +392,7 @@ describe("DashboardOverviewDeferredSections", () => {
     expect(screen.getByRole("button", { name: "reprint_same" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "revise_reprint" })).toHaveAttribute(
       "href",
-      "/pricing?orderType=REPRINT_REVISED&sourceBookId=cmbook11111111111111111111111"
+      "/pricing?orderType=REPRINT&sourceBookId=cmbook11111111111111111111111"
     );
     expect(screen.getByRole("link", { name: /overview_action_review_book_title/ })).toHaveAttribute(
       "href",

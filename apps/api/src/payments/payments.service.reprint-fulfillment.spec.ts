@@ -73,7 +73,7 @@ describe("PaymentsService reprint fulfillment", () => {
     jest.clearAllMocks();
   });
 
-  it("creates a REPRINT_SAME order and in-production book when a reprint payment succeeds", async () => {
+  it("creates a REPRINT order and in-production book when a reprint payment succeeds", async () => {
     const { service, prisma, tx, notificationsService, resendMock } = createService();
     const sourceOrderCreatedAt = new Date("2026-03-13T12:00:00.000Z");
     const sourceBookCreatedAt = new Date("2026-03-13T12:00:01.000Z");
@@ -88,7 +88,7 @@ describe("PaymentsService reprint fulfillment", () => {
       metadata: {
         sourceBookId: "book_source_1",
         sourceOrderId: "order_source_1",
-        orderType: "REPRINT_SAME",
+        orderType: "REPRINT",
         copies: 30,
         bookSize: "A4",
         paperColor: "white",
@@ -164,7 +164,7 @@ describe("PaymentsService reprint fulfillment", () => {
         data: expect.objectContaining({
           userId: "user_1",
           packageId: "package_1",
-          orderType: "REPRINT_SAME",
+          orderType: "REPRINT",
           originalBookId: "book_source_1",
           skipFormatting: true,
           copies: 30,

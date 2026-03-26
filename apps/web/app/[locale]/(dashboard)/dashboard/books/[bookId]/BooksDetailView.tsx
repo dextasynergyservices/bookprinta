@@ -830,7 +830,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
     if (!activeBookId) return null;
 
     const params = new URLSearchParams({
-      orderType: "REPRINT_REVISED",
+      orderType: "REPRINT",
       sourceBookId: activeBookId,
     });
 

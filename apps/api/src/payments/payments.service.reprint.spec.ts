@@ -103,7 +103,7 @@ describe("PaymentsService reprint initialization", () => {
           metadata: expect.objectContaining({
             sourceBookId: "cmbook1",
             sourceOrderId: "cmorder1",
-            orderType: "REPRINT_SAME",
+            orderType: "REPRINT",
             copies: 30,
             bookSize: "A4",
             paperColor: "white",

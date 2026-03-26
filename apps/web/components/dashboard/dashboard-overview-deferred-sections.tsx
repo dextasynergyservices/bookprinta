@@ -74,6 +74,8 @@ const PREVIEW_FILE_TYPES = new Set(["PREVIEW_PDF"]);
 const FINAL_FILE_TYPES = new Set(["FINAL_PDF"]);
 
 function getApiV1BaseUrl() {
+  if (typeof window !== "undefined") return "/api/v1";
+
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
 
   if (base.endsWith("/api/v1")) return base;
@@ -173,7 +175,7 @@ function _buildReprintSameHref(bookId: string): string {
 
 function buildReviseReprintHref(bookId: string): string {
   const params = new URLSearchParams({
-    orderType: "REPRINT_REVISED",
+    orderType: "REPRINT",
     sourceBookId: bookId,
   });
 

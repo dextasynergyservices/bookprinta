@@ -1,4 +1,4 @@
-export type OrderType = "STANDARD" | "REPRINT_SAME" | "REPRINT_REVISED" | (string & {});
+export type OrderType = "STANDARD" | "REPRINT" | (string & {});
 
 export type OrderStatus =
   | "PENDING_PAYMENT"

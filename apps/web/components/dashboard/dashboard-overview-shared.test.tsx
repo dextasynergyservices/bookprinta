@@ -46,7 +46,7 @@ describe("dashboard overview shared cards", () => {
         order={{
           id: "cmorder1111111111111111111111",
           orderNumber: "BP-2026-0042",
-          orderType: "REPRINT_SAME",
+          orderType: "REPRINT",
           status: "COMPLETED",
           createdAt: "2026-03-01T08:00:00.000Z",
           totalAmount: 125000,
@@ -73,7 +73,7 @@ describe("dashboard overview shared cards", () => {
         name: "orders_action_track: BP-2026-0042",
       })
     ).toHaveAttribute("href", "/dashboard/orders/cmorder1111111111111111111111");
-    expect(container.querySelector('[data-order-type="REPRINT_SAME"]')).not.toBeNull();
+    expect(container.querySelector('[data-order-type="REPRINT"]')).not.toBeNull();
     expect(container.querySelector('[data-tone="delivered"]')).not.toBeNull();
   });
 });

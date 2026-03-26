@@ -1710,7 +1710,7 @@ export class PaymentsService {
         metadata: {
           sourceBookId: sourceBook.id,
           sourceOrderId: sourceBook.orderId,
-          orderType: "REPRINT_SAME",
+          orderType: "REPRINT",
           copies: params.copies,
           bookSize: params.bookSize,
           paperColor: params.paperColor,
@@ -2798,7 +2798,7 @@ export class PaymentsService {
           orderNumber,
           userId: sourceBook.userId,
           packageId: sourceBook.order.packageId,
-          orderType: OrderType.REPRINT_SAME,
+          orderType: OrderType.REPRINT,
           originalBookId: sourceBook.id,
           skipFormatting: true,
           copies: reprint.copies,

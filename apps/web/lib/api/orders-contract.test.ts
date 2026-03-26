@@ -66,7 +66,7 @@ describe("normalizeOrdersListPayload", () => {
           orderId: "ord_2",
           reference: "BP-2026-0002",
           tier: "First Draft",
-          orderType: "REPRINT_SAME",
+          orderType: "REPRINT",
           orderStatus: "PROCESSING",
           bookStatus: "SHIPPING",
           orderDate: "2026-03-02T10:00:00.000Z",
@@ -85,7 +85,7 @@ describe("normalizeOrdersListPayload", () => {
       id: "ord_2",
       orderNumber: "BP-2026-0002",
       packageName: "First Draft",
-      orderType: "REPRINT_SAME",
+      orderType: "REPRINT",
       orderStatus: "PROCESSING",
       bookId: null,
       bookStatus: "SHIPPING",
@@ -142,8 +142,7 @@ describe("resolveOrderLifecycle", () => {
 
 describe("isReprintOrderType", () => {
   it("detects both reprint order variants", () => {
-    expect(isReprintOrderType("REPRINT_SAME")).toBe(true);
-    expect(isReprintOrderType("REPRINT_REVISED")).toBe(true);
+    expect(isReprintOrderType("REPRINT")).toBe(true);
     expect(isReprintOrderType("standard")).toBe(false);
   });
 });
