@@ -81,13 +81,12 @@ enum PaymentType {
   MANUAL_ADJUSTMENT
   CUSTOM_QUOTE
   REFUND                // Added: For refund tracking
-  REPRINT               // Added: For reprint orders
+  REPRINT              // For reprint payment tracking
 }
 
 enum OrderType {
-  STANDARD              // Normal first-time order
-  REPRINT_SAME          // Reprint same formatted PDF (no new formatting)
-  REPRINT_REVISED       // Revise manuscript and reprint (full flow again)
+  STANDARD              // Normal first-time order (includes "Print a New Book" from dashboard)
+  REPRINT               // Reprint same document with same settings (no new upload/formatting)
 }
 
 enum PaymentProvider {
@@ -310,11 +309,11 @@ model Order {
   // Skip AI formatting + page count for custom quote orders (price already agreed offline)
   skipFormatting    Boolean     @default(false)
 
-  // Reprint: links back to the original book's finalPdfUrl
-  // Only set when orderType = REPRINT_SAME
+  // Reprint: links back to the original book
+  // Only set when orderType = REPRINT
   originalBookId    String?
 
-  // Copies: minimum 25 for REPRINT_SAME, default 1 for standard orders
+  // Copies for reprint orders (no minimum enforced in schema — validated in service)
   copies            Int         @default(1)
 
   // Price snapshot at time of purchase (prevents corruption if prices change)

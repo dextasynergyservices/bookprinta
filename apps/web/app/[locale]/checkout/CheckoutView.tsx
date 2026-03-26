@@ -125,7 +125,7 @@ export function CheckoutView() {
   const checkoutOrderType = searchParams.get("orderType");
   const checkoutSourceBookId = searchParams.get("sourceBookId")?.trim() ?? "";
   const isReviseReprintCheckout =
-    checkoutOrderType === "REPRINT_REVISED" && checkoutSourceBookId.length > 0;
+    checkoutOrderType === "REPRINT" && checkoutSourceBookId.length > 0;
 
   const { data: packages, isLoading: isLoadingPackages } = usePackages();
   const { data: addons, isLoading: isLoadingAddons, isError: isAddonsError, refetch } = useAddons();
@@ -222,7 +222,7 @@ export function CheckoutView() {
     }
 
     const params = new URLSearchParams({
-      orderType: "REPRINT_REVISED",
+      orderType: "REPRINT",
       sourceBookId: checkoutSourceBookId,
     });
     return `/pricing?${params.toString()}`;
@@ -233,7 +233,7 @@ export function CheckoutView() {
     isReviseReprintCheckout && checkoutSourceBookId
       ? {
           ...basePaymentMetadata,
-          orderType: "REPRINT_REVISED" as const,
+          orderType: "REPRINT" as const,
           sourceBookId: checkoutSourceBookId,
         }
       : basePaymentMetadata;

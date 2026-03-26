@@ -232,7 +232,7 @@ describe("Dashboard orders route integration", () => {
             {
               id: "ord_1",
               orderNumber: "BP-2026-0001",
-              orderType: "REPRINT_SAME",
+              orderType: "REPRINT",
               orderStatus: "PAID",
               bookStatus: "DELIVERED",
               packageName: "Legacy",

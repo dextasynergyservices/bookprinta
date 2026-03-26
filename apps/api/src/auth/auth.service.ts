@@ -82,6 +82,10 @@ export class AuthService {
     this.fromEmail = this.resolveFromEmail();
     this.cookieSameSite = this.resolveCookieSameSite();
     this.cookieDomain = this.resolveCookieDomain();
+
+    this.logger.log(
+      `Cookie config — sameSite: ${String(this.cookieSameSite)}, domain: ${this.cookieDomain ?? "(auto)"}, secure: ${process.env.NODE_ENV === "production"}, partitioned: ${this.cookieSameSite === "none" && process.env.NODE_ENV === "production"}`
+    );
   }
 
   // ==========================================
@@ -913,6 +917,7 @@ export class AuthService {
    */
   getAccessTokenCookieOptions(): CookieOptions {
     const secure = process.env.NODE_ENV === "production";
+    const usePartitioned = this.cookieSameSite === "none" && secure;
     return {
       httpOnly: true,
       secure,
@@ -920,6 +925,7 @@ export class AuthService {
       domain: this.cookieDomain,
       path: "/",
       maxAge: 15 * 60 * 1000, // 15 minutes in ms
+      ...(usePartitioned ? { partitioned: true } : {}),
     };
   }
 
@@ -933,6 +939,7 @@ export class AuthService {
       : 7 * 24 * 60 * 60 * 1000; // 7 days for users
 
     const secure = process.env.NODE_ENV === "production";
+    const usePartitioned = this.cookieSameSite === "none" && secure;
     return {
       httpOnly: true,
       secure,
@@ -940,6 +947,7 @@ export class AuthService {
       domain: this.cookieDomain,
       path: "/api/v1/auth", // Only sent to auth endpoints (e.g. /refresh)
       maxAge,
+      ...(usePartitioned ? { partitioned: true } : {}),
     };
   }
 
@@ -948,6 +956,7 @@ export class AuthService {
    */
   getClearedCookieOptions(): CookieOptions {
     const secure = process.env.NODE_ENV === "production";
+    const usePartitioned = this.cookieSameSite === "none" && secure;
     return {
       httpOnly: true,
       secure,
@@ -955,6 +964,7 @@ export class AuthService {
       domain: this.cookieDomain,
       path: "/",
       maxAge: 0,
+      ...(usePartitioned ? { partitioned: true } : {}),
     };
   }
 
@@ -1350,10 +1360,21 @@ export class AuthService {
         signal: AbortSignal.timeout(5000),
       });
 
-      const data = (await response.json()) as { success?: boolean; score?: number };
+      const data = (await response.json()) as {
+        success?: boolean;
+        score?: number;
+        "error-codes"?: string[];
+      };
+
+      if (!data.success) {
+        this.logger.warn(
+          `reCAPTCHA rejected — success: ${data.success}, score: ${data.score}, errors: ${JSON.stringify(data["error-codes"])}`
+        );
+      }
+
       return data.success === true && (data.score === undefined || data.score >= 0.5);
     } catch (error) {
-      this.logger.error("reCAPTCHA verification failed", error);
+      this.logger.error("reCAPTCHA verification network error", error);
       return false;
     }
   }
@@ -1458,4 +1479,5 @@ interface CookieOptions {
   domain?: string;
   path: string;
   maxAge: number;
+  partitioned?: boolean;
 }

@@ -344,7 +344,7 @@ describe("OrderTrackingView route integration", () => {
     expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
     expect(screen.getByRole("link", { name: "Revise & Reprint" })).toHaveAttribute(
       "href",
-      "/pricing?orderType=REPRINT_REVISED&sourceBookId=book_1"
+      "/pricing?orderType=REPRINT&sourceBookId=book_1"
     );
   });
 
@@ -402,7 +402,7 @@ describe("OrderTrackingView route integration", () => {
     );
     expect(screen.getByRole("link", { name: "Revise & Reprint" })).toHaveAttribute(
       "href",
-      "/pricing?orderType=REPRINT_REVISED&sourceBookId=book_1"
+      "/pricing?orderType=REPRINT&sourceBookId=book_1"
     );
   });
 

@@ -300,7 +300,7 @@ test.describe("Dashboard overview action paths", () => {
       overview: createOverviewResponse({
         recentOrders: [
           createRecentOrder({
-            orderType: "REPRINT_SAME",
+            orderType: "REPRINT",
             status: "COMPLETED",
             book: {
               id: ACTIVE_BOOK_ID,
@@ -315,7 +315,7 @@ test.describe("Dashboard overview action paths", () => {
     await gotoDashboard(page);
     await waitForOverviewReady(page);
 
-    await expect(page.locator('[data-order-type="REPRINT_SAME"]')).toContainText("REPRINT");
+    await expect(page.locator('[data-order-type="REPRINT"]')).toContainText("REPRINT");
     await page
       .getByRole("link", {
         name: "Reviews. Check review-ready books and submit feedback on delivered projects.",

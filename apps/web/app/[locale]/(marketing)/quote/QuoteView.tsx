@@ -228,6 +228,8 @@ function setFieldErrorValue(errors: FieldErrors, field: StepField, value?: strin
 }
 
 function getApiV1BaseUrl(): string {
+  if (typeof window !== "undefined") return "/api/v1";
+
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
   if (base.endsWith("/api/v1")) return base;
   return `${base}/api/v1`;

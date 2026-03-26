@@ -552,8 +552,7 @@ export function PricingCards({ showQuoteCard = false }: { showQuoteCard?: boolea
   const containerRef = useRef<HTMLDivElement>(null);
   const reviseOrderType = searchParams.get("orderType");
   const reviseSourceBookId = searchParams.get("sourceBookId")?.trim() ?? "";
-  const isReviseReprintFlow =
-    reviseOrderType === "REPRINT_REVISED" && reviseSourceBookId.length > 0;
+  const isReviseReprintFlow = reviseOrderType === "REPRINT" && reviseSourceBookId.length > 0;
 
   // Set default active category once data loads
   const activeSlug =
@@ -579,7 +578,7 @@ export function PricingCards({ showQuoteCard = false }: { showQuoteCard?: boolea
     });
 
     if (isReviseReprintFlow && reviseSourceBookId) {
-      params.set("orderType", "REPRINT_REVISED");
+      params.set("orderType", "REPRINT");
       params.set("sourceBookId", reviseSourceBookId);
     }
 

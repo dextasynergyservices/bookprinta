@@ -126,7 +126,7 @@ function renderWithProviders() {
           totalPrice: 125_000,
           addons: [],
           addonBreakdown: [],
-          orderType: "REPRINT_REVISED",
+          orderType: "REPRINT",
           sourceBookId: "cmbook1",
         }}
       />
@@ -198,7 +198,7 @@ describe("PaymentMethodModal", () => {
           email: "author@example.com",
           amount: 125_000,
           metadata: expect.objectContaining({
-            orderType: "REPRINT_REVISED",
+            orderType: "REPRINT",
             sourceBookId: "cmbook1",
             email: "author@example.com",
             payerEmail: "author@example.com",
