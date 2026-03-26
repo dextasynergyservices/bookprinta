@@ -19,6 +19,19 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async rewrites() {
+    // Proxy all /api/* requests through Vercel to the NestJS backend.
+    // This makes auth cookies first-party (same domain) so they survive
+    // Chrome third-party cookie deprecation and SameSite restrictions.
+    const raw = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const apiOrigin = raw.replace(/\/api(\/v\d+)?\/?$/, "").replace(/\/+$/, "");
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiOrigin}/api/:path*`,
+      },
+    ];
+  },
 };
 
 const withPWA = withSerwist(pwaPluginConfig);

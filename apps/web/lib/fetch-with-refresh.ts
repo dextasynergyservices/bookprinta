@@ -1,4 +1,8 @@
 export function getApiV1BaseUrl(): string {
+  // Client-side: use same-origin path (proxied by Vercel rewrites to Render).
+  // This makes auth cookies first-party, avoiding cross-origin cookie issues.
+  if (typeof window !== "undefined") return "/api/v1";
+
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
 
   if (base.endsWith("/api/v1")) return base;

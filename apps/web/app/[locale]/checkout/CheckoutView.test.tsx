@@ -182,7 +182,7 @@ describe("CheckoutView coupon display", () => {
   it("preserves revise-and-reprint context in checkout links and payment metadata", async () => {
     currentSearchParams = new URLSearchParams([
       ["package", "first-draft"],
-      ["orderType", "REPRINT_REVISED"],
+      ["orderType", "REPRINT"],
       ["sourceBookId", "cmbook1"],
     ]);
 
@@ -195,7 +195,7 @@ describe("CheckoutView coupon display", () => {
     expect(paymentMethodModalMock.mock.lastCall?.[0]).toEqual(
       expect.objectContaining({
         paymentMetadata: expect.objectContaining({
-          orderType: "REPRINT_REVISED",
+          orderType: "REPRINT",
           sourceBookId: "cmbook1",
         }),
       })
@@ -203,9 +203,7 @@ describe("CheckoutView coupon display", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "addons_back_to_pricing_aria" }));
 
-    expect(pushMock).toHaveBeenCalledWith(
-      "/pricing?orderType=REPRINT_REVISED&sourceBookId=cmbook1"
-    );
+    expect(pushMock).toHaveBeenCalledWith("/pricing?orderType=REPRINT&sourceBookId=cmbook1");
   });
 
   it("recomputes payment metadata after syncing the URL-selected package into the pricing store", async () => {

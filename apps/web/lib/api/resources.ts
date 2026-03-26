@@ -7,6 +7,8 @@ import type {
 } from "@/types/resources";
 
 function getApiV1BaseUrl() {
+  if (typeof window !== "undefined") return "/api/v1";
+
   const base = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/+$/, "");
 
   if (base.endsWith("/api/v1")) return base;

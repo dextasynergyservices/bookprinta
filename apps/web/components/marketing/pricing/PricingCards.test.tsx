@@ -128,7 +128,7 @@ describe("PricingCards", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     currentSearchParams = new URLSearchParams([
-      ["orderType", "REPRINT_REVISED"],
+      ["orderType", "REPRINT"],
       ["sourceBookId", "cmbook1"],
     ]);
     mockUsePackageCategories.mockReturnValue({
@@ -146,7 +146,7 @@ describe("PricingCards", () => {
     fireEvent.click(screen.getByRole("button", { name: "configuration_continue" }));
 
     expect(pushMock).toHaveBeenCalledWith(
-      "/checkout?package=first-draft&category=author&orderType=REPRINT_REVISED&sourceBookId=cmbook1"
+      "/checkout?package=first-draft&category=author&orderType=REPRINT&sourceBookId=cmbook1"
     );
   });
 });

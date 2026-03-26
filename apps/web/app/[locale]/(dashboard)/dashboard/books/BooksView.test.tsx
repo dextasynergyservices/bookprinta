@@ -1526,7 +1526,7 @@ describe("BooksView route integration", () => {
     expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
     expect(screen.getByRole("link", { name: "Revise & Reprint" })).toHaveAttribute(
       "href",
-      `/pricing?orderType=REPRINT_REVISED&sourceBookId=${currentBookId}`
+      `/pricing?orderType=REPRINT&sourceBookId=${currentBookId}`
     );
   });
 

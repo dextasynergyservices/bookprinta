@@ -327,5 +327,5 @@ export function resolveOrderLifecycle(item: {
 
 export function isReprintOrderType(orderType: unknown): boolean {
   const normalized = normalizeOrderType(orderType);
-  return normalized === "REPRINT_SAME" || normalized === "REPRINT_REVISED";
+  return normalized === "REPRINT";
 }
