@@ -1,0 +1,5 @@
+$ turbo run typecheck
+ΓÇó turbo 2.8.12
+ΓÇó Packages in scope: @bookprinta/emails, @bookprinta/shared, api, web
+ΓÇó Running typecheck in 4 packages
+ΓÇó Remote caching disabled

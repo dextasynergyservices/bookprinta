@@ -19,6 +19,7 @@ export { QuotePaymentRevokedEmail } from "./emails/QuotePaymentRevokedEmail.tsx"
 export { QuoteProposalEmail } from "./emails/QuoteProposalEmail.tsx";
 export { QuoteReceivedEmail } from "./emails/QuoteReceivedEmail.tsx";
 export { RefundConfirmEmail } from "./emails/RefundConfirmEmail.tsx";
+export { ReprintAdminConfirmEmail } from "./emails/ReprintAdminConfirmEmail.tsx";
 export { ReprintConfirmEmail } from "./emails/ReprintConfirmEmail.tsx";
 export { ReviewRequestEmail } from "./emails/ReviewRequestEmail.tsx";
 export { SignupLinkEmail } from "./emails/SignupLinkEmail.tsx";

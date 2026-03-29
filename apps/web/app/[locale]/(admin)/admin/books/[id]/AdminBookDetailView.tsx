@@ -728,7 +728,7 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
               <p className="font-sans mt-4 text-xs font-medium uppercase tracking-[0.32em] text-[#7D7D7D]">
                 {tAdmin("panel_label")}
               </p>
-              <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-white md:text-5xl">
+              <h1 className="font-display mt-3 text-3xl font-semibold tracking-tight text-white [overflow-wrap:anywhere] md:text-5xl">
                 {book.title || tAdmin("books_title_untitled")}
               </h1>
               <p className="font-sans mt-3 max-w-2xl text-sm leading-6 text-[#B4B4B4] md:text-base">

@@ -83,6 +83,7 @@ export type OrderPackageSummary = z.infer<typeof OrderPackageSummarySchema>;
 export const OrderBookSummarySchema = z.object({
   id: z.string().cuid(),
   status: BookStatusSchema,
+  productionStatus: BookStatusSchema.nullable().optional(),
 });
 export type OrderBookSummary = z.infer<typeof OrderBookSummarySchema>;
 
@@ -349,6 +350,7 @@ export const AdminOrdersListItemSchema = z.object({
   customer: AdminOrderCustomerSummarySchema,
   package: OrderPackageSummarySchema,
   orderStatus: OrderStatusSchema,
+  orderType: OrderTypeSchema.nullable(),
   bookStatus: BookStatusSchema.nullable(),
   displayStatus: AdminOrderDisplayStatusSchema,
   statusSource: AdminOrderStatusSourceSchema,

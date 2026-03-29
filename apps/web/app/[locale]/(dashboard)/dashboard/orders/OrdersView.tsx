@@ -156,16 +156,19 @@ function OrdersDesktopTable({
       createColumnHelper<OrdersListItem>().display({
         id: "status",
         header: () => tDashboard("orders_table_status"),
-        cell: ({ row }) => (
-          <OrderStatusBadge
-            orderStatus={row.original.orderStatus}
-            bookStatus={row.original.bookStatus}
-            label={
-              toDashboardStatusLabel(row.original.bookStatus ?? row.original.orderStatus) ??
-              tDashboard("orders_unknown_status")
-            }
-          />
-        ),
+        cell: ({ row }) => {
+          const effectiveBookStatus = row.original.bookProductionStatus ?? row.original.bookStatus;
+          return (
+            <OrderStatusBadge
+              orderStatus={row.original.orderStatus}
+              bookStatus={effectiveBookStatus}
+              label={
+                toDashboardStatusLabel(effectiveBookStatus ?? row.original.orderStatus) ??
+                tDashboard("orders_unknown_status")
+              }
+            />
+          );
+        },
       }),
       createColumnHelper<OrdersListItem>().display({
         id: "date",
@@ -302,21 +305,22 @@ function OrdersMobileCards({
             prefersReducedMotion ? undefined : { scale: 1.01, backgroundColor: "#151515" }
           }
           transition={{ duration: 0.16, ease: "easeOut" }}
-          className="rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4"
+          className="overflow-hidden rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4"
         >
           <div className="flex items-start justify-between gap-3">
             <OrderReferenceText>{order.orderNumber}</OrderReferenceText>
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex shrink-0 flex-wrap justify-end gap-2">
               <ReprintBadge
                 orderType={order.orderType}
                 label={tDashboard("orders_reprint_badge")}
               />
               <OrderStatusBadge
                 orderStatus={order.orderStatus}
-                bookStatus={order.bookStatus}
+                bookStatus={order.bookProductionStatus ?? order.bookStatus}
                 label={
-                  toDashboardStatusLabel(order.bookStatus ?? order.orderStatus) ??
-                  tDashboard("orders_unknown_status")
+                  toDashboardStatusLabel(
+                    order.bookProductionStatus ?? order.bookStatus ?? order.orderStatus
+                  ) ?? tDashboard("orders_unknown_status")
                 }
               />
             </div>

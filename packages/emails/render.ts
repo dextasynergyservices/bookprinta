@@ -18,6 +18,8 @@ import { QuotePaymentRevokedEmail } from "./emails/QuotePaymentRevokedEmail.tsx"
 import { QuoteProposalEmail } from "./emails/QuoteProposalEmail.tsx";
 import { QuoteReceivedEmail } from "./emails/QuoteReceivedEmail.tsx";
 import { RefundConfirmEmail } from "./emails/RefundConfirmEmail.tsx";
+import { ReprintAdminConfirmEmail } from "./emails/ReprintAdminConfirmEmail.tsx";
+import { ReprintConfirmEmail } from "./emails/ReprintConfirmEmail.tsx";
 import { SignupLinkEmail } from "./emails/SignupLinkEmail.tsx";
 import { SignupVerificationEmail } from "./emails/SignupVerificationEmail.tsx";
 import { WelcomeEmail } from "./emails/WelcomeEmail.tsx";
@@ -194,6 +196,35 @@ export interface RenderQuotePaymentRevokedProps {
   userName: string;
   reason: string;
   customerMessage?: string;
+}
+
+export interface RenderReprintConfirmProps {
+  locale?: Locale;
+  userName: string;
+  orderNumber: string;
+  bookTitle: string;
+  copies: number;
+  costPerCopy: string;
+  pageSize: string;
+  paperColor: string;
+  lamination: string;
+  totalPrice: string;
+  dashboardUrl: string;
+}
+
+export interface RenderReprintAdminConfirmProps {
+  locale?: Locale;
+  userName: string;
+  userEmail: string;
+  orderNumber: string;
+  bookTitle: string;
+  copies: number;
+  costPerCopy: string;
+  pageSize: string;
+  paperColor: string;
+  lamination: string;
+  totalPrice: string;
+  adminPanelUrl: string;
 }
 
 // ── Render helpers ───────────────────────────────────────────────────────────
@@ -382,6 +413,32 @@ export async function renderQuotePaymentLinkRevokedEmail(
   return {
     html,
     subject: getEmailSubject("quote_payment_revoked", locale),
+  };
+}
+
+export async function renderReprintConfirmEmail(
+  props: RenderReprintConfirmProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(ReprintConfirmEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("reprint_confirm", locale, {
+      orderNumber: props.orderNumber,
+    }),
+  };
+}
+
+export async function renderReprintAdminConfirmEmail(
+  props: RenderReprintAdminConfirmProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(ReprintAdminConfirmEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("reprint_admin", locale, {
+      orderNumber: props.orderNumber,
+    }),
   };
 }
 

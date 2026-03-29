@@ -6,19 +6,11 @@ const reprintConfig = {
   disableReason: null,
   finalPdfUrlPresent: true,
   pageCount: 128,
-  minCopies: 25,
-  defaultBookSize: "A5",
-  defaultPaperColor: "white",
-  defaultLamination: "gloss",
-  allowedBookSizes: ["A4", "A5", "A6"],
-  allowedPaperColors: ["white", "cream"],
-  allowedLaminations: ["matt", "gloss"],
-  costPerPageBySize: {
-    A4: 20,
-    A5: 10,
-    A6: 5,
-  },
-  enabledPaymentProviders: ["PAYSTACK", "STRIPE"],
+  costPerCopy: 128 * 15 + 300,
+  bookTitle: "My Novel",
+  bookSize: "A5",
+  paperColor: "white",
+  lamination: "gloss",
 } as const;
 
 describe("book reprint contract normalization", () => {

@@ -5,12 +5,6 @@ import {
   AdminSortDirectionSchema,
   IsoDateOnlySchema,
 } from "./admin.schema.ts";
-import {
-  LaminationSchema,
-  PaperColorSchema,
-  ReprintBookSizeSchema,
-  ReprintPaymentProviderSchema,
-} from "./book.schema.ts";
 import { BookStatusSchema, OrderStatusSchema, RefundPolicySnapshotSchema } from "./order.schema.ts";
 
 // ==========================================
@@ -112,14 +106,15 @@ export type ExtraPagesPaymentInput = z.infer<typeof ExtraPagesPaymentSchema>;
 /**
  * POST /api/v1/payments/reprint
  * Initialize payment for a same-PDF reprint.
+ *
+ * The backend pulls bookSize, paperColor, and lamination from the
+ * original order — the user cannot change these for a reprint.
+ * Cost is calculated as: ((pageCount × CPP) + COC) × copies.
  */
 export const ReprintPaymentSchema = z.object({
   sourceBookId: z.string().cuid(),
-  copies: z.number().int().min(25, "Minimum 25 copies required for reprints"),
-  bookSize: ReprintBookSizeSchema,
-  paperColor: PaperColorSchema,
-  lamination: LaminationSchema,
-  provider: ReprintPaymentProviderSchema,
+  copies: z.number().int().min(25, "Minimum 25 copies required"),
+  provider: z.enum(["PAYSTACK", "STRIPE", "BANK_TRANSFER"]),
   callbackUrl: z.string().url().optional(),
 });
 export type ReprintPaymentInput = z.infer<typeof ReprintPaymentSchema>;

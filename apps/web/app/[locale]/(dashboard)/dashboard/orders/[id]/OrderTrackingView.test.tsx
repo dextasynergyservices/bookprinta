@@ -86,12 +86,11 @@ const TRANSLATIONS: Record<string, string> = {
     "Need help with a refund request? Contact support with your order reference.",
   order_tracking_refund_policy_modal_contact: "Contact Support",
   order_tracking_refund_policy_modal_close: "Close",
-  reprint_same: "Reprint Same",
-  revise_reprint: "Revise & Reprint",
+  reprint_same: "Reprint",
   reprint_same_contact_support: "Contact support",
   reprint_same_unavailable_inline_final_pdf:
-    "Final PDF is not available for same-file reprint yet.",
-  reprint_same_unavailable_inline_generic: "Same-file reprint is unavailable right now.",
+    "Reprint is disabled because the final PDF is not available yet.",
+  reprint_same_unavailable_inline_generic: "Reprint is unavailable right now.",
   reprint_same_load_error_description: "Unable to load reprint options right now.",
   updated: "Last updated: March 5, 2026",
   orders_unknown_status: "Unknown status",
@@ -289,8 +288,7 @@ describe("OrderTrackingView route integration", () => {
     expect(screen.getByRole("button", { name: "Download PDF Invoice" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Share Journey" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy Order Ref" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Reprint Same" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Revise & Reprint" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reprint" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Contact Support" })).toHaveAttribute(
       "href",
       "https://wa.me/2348103208297"
@@ -341,11 +339,7 @@ describe("OrderTrackingView route integration", () => {
 
     render(<OrderTrackingView orderId="ord_1" />);
 
-    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
-    expect(screen.getByRole("link", { name: "Revise & Reprint" })).toHaveAttribute(
-      "href",
-      "/pricing?orderType=REPRINT&sourceBookId=book_1"
-    );
+    expect(screen.getByRole("button", { name: "Reprint" })).toBeEnabled();
   });
 
   it("keeps same-file reprint button enabled and shows support guidance when the final PDF is missing", () => {
@@ -392,17 +386,13 @@ describe("OrderTrackingView route integration", () => {
 
     render(<OrderTrackingView orderId="ord_1" />);
 
-    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Reprint" })).toBeEnabled();
     expect(
-      screen.getByText("Final PDF is not available for same-file reprint yet.")
+      screen.getByText("Reprint is disabled because the final PDF is not available yet.")
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Contact support" })).toHaveAttribute(
       "href",
       "/contact"
-    );
-    expect(screen.getByRole("link", { name: "Revise & Reprint" })).toHaveAttribute(
-      "href",
-      "/pricing?orderType=REPRINT&sourceBookId=book_1"
     );
   });
 

@@ -120,6 +120,7 @@ describe("DashboardService", () => {
           book: {
             id: "cmbook11111111111111111111111",
             status: "PREVIEW_READY",
+            productionStatus: null,
           },
           trackingUrl: "/dashboard/orders/cmorder1111111111111111111111",
         },

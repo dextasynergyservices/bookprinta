@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, X } from "lucide-react";
+import { Check, Minus, X } from "lucide-react";
 import { useMemo } from "react";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,18 @@ const CONNECTOR_ANIMATION = {
   ease: [0.22, 1, 0.36, 1] as const,
 };
 
+/**
+ * Stages that are skipped for REPRINT orders.
+ * Reprints jump directly to REVIEW (same document, no design/formatting).
+ */
+const REPRINT_SKIPPED_STAGES: ReadonlySet<BookProgressStage> = new Set([
+  "PAYMENT_RECEIVED",
+  "DESIGNING",
+  "DESIGNED",
+  "FORMATTING",
+  "FORMATTED",
+]);
+
 type BookProgressTrackerProps = {
   timeline: BookProgressTimelineStep[];
   currentStage?: BookProgressStage | null;
@@ -30,6 +42,8 @@ type BookProgressTrackerProps = {
   locale?: string;
   className?: string;
   ariaLabel?: string;
+  isReprint?: boolean;
+  reprintLabel?: string;
   stageLabels?: Partial<Record<BookProgressStage, string>>;
   stateLabels?: Partial<Record<BookProgressTimelineStep["state"], string>>;
 };
@@ -73,7 +87,8 @@ function createFallbackTimeline(currentStage: BookProgressStage): BookProgressTi
 
 function normalizeTimeline(
   timeline: BookProgressTimelineStep[],
-  currentStage: BookProgressStage
+  currentStage: BookProgressStage,
+  isReprint: boolean
 ): BookProgressTimelineStep[] {
   if (timeline.length === 0) {
     return createFallbackTimeline(currentStage);
@@ -85,6 +100,15 @@ function normalizeTimeline(
   }
 
   return BOOK_PROGRESS_STAGES.map((stage) => {
+    if (isReprint && REPRINT_SKIPPED_STAGES.has(stage)) {
+      return {
+        stage,
+        state: "skipped" as const,
+        reachedAt: null,
+        sourceStatus: null,
+      };
+    }
+
     const existing = stageMap.get(stage);
     if (existing) return existing;
 
@@ -100,12 +124,14 @@ function normalizeTimeline(
 function getConnectorProgress(nextStep: BookProgressTimelineStep | undefined): number {
   if (!nextStep) return 0;
   if (nextStep.state === "upcoming") return 0;
+  if (nextStep.state === "skipped") return 1;
   return 1;
 }
 
 function getConnectorColor(nextStep: BookProgressTimelineStep | undefined): string {
   if (!nextStep) return "#2A2A2A";
   if (nextStep.state === "rejected") return "#EF4444";
+  if (nextStep.state === "skipped") return "#2A2A2A";
   if (nextStep.state === "completed" || nextStep.state === "current") return "#007eff";
   return "#2A2A2A";
 }
@@ -120,12 +146,15 @@ function StepNode({
   const isCurrent = state === "current";
   const isCompleted = state === "completed";
   const isRejected = state === "rejected";
+  const isSkipped = state === "skipped";
 
   const nodeClassName = isRejected
     ? "border-[#EF4444] bg-[#EF4444] text-white"
-    : isCompleted || isCurrent
-      ? "border-[#007eff] bg-[#007eff] text-white"
-      : "border-[#2A2A2A] bg-[#2A2A2A] text-[#8f8f8f]";
+    : isSkipped
+      ? "border-[#1a1a1a] bg-[#1a1a1a] text-[#555555]"
+      : isCompleted || isCurrent
+        ? "border-[#007eff] bg-[#007eff] text-white"
+        : "border-[#2A2A2A] bg-[#2A2A2A] text-[#8f8f8f]";
 
   return (
     <div className="relative flex size-8 items-center justify-center">
@@ -158,6 +187,8 @@ function StepNode({
           <Check className="size-4" aria-hidden="true" />
         ) : isRejected ? (
           <X className="size-4" aria-hidden="true" />
+        ) : isSkipped ? (
+          <Minus className="size-3.5" aria-hidden="true" />
         ) : (
           <span
             className={cn("size-1.5 rounded-full", isCurrent ? "bg-white" : "bg-[#8f8f8f]")}
@@ -250,6 +281,7 @@ function StepText({
   const isCurrent = step.state === "current";
   const isRejected = step.state === "rejected";
   const isCompleted = step.state === "completed";
+  const isSkipped = step.state === "skipped";
 
   return (
     <div className="min-w-0">
@@ -258,11 +290,13 @@ function StepText({
           "font-display text-[13px] leading-snug tracking-tight",
           isRejected
             ? "font-semibold text-[#EF4444]"
-            : isCurrent
-              ? "font-semibold text-white"
-              : step.state === "upcoming"
-                ? "font-medium text-[#8f8f8f]"
-                : "font-medium text-[#d9d9d9]"
+            : isSkipped
+              ? "font-medium text-[#555555] line-through decoration-[#555555]/40"
+              : isCurrent
+                ? "font-semibold text-white"
+                : step.state === "upcoming"
+                  ? "font-medium text-[#8f8f8f]"
+                  : "font-medium text-[#d9d9d9]"
         )}
       >
         {label}
@@ -289,6 +323,8 @@ export function BookProgressTracker({
   locale = "en",
   className,
   ariaLabel = "Book production progress",
+  isReprint = false,
+  reprintLabel,
   stageLabels,
   stateLabels,
 }: BookProgressTrackerProps) {
@@ -296,8 +332,8 @@ export function BookProgressTracker({
   const resolvedCurrentStage = currentStage ?? "PAYMENT_RECEIVED";
 
   const normalizedTimeline = useMemo(
-    () => normalizeTimeline(timeline, resolvedCurrentStage),
-    [timeline, resolvedCurrentStage]
+    () => normalizeTimeline(timeline, resolvedCurrentStage, isReprint),
+    [timeline, resolvedCurrentStage, isReprint]
   );
 
   return (
@@ -305,6 +341,11 @@ export function BookProgressTracker({
       aria-label={ariaLabel}
       className={cn("rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4 md:p-6", className)}
     >
+      {isReprint && reprintLabel ? (
+        <p className="mb-4 font-sans text-[11px] font-semibold tracking-[0.08em] text-[#007eff] uppercase">
+          {reprintLabel}
+        </p>
+      ) : null}
       <ol className="space-y-1 md:hidden">
         {normalizedTimeline.map((step, index) => {
           const nextStep = normalizedTimeline[index + 1];

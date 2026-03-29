@@ -28,6 +28,7 @@ import {
   DashboardTableViewport,
 } from "@/components/dashboard/dashboard-content-frame";
 import { OrderMetaText, OrderReferenceText, OrderStatusBadge } from "@/components/dashboard/orders";
+import { ReprintBadge } from "@/components/dashboard/orders/reprint-badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -618,7 +619,12 @@ function AdminOrdersDesktopTable({
             onSort={onSort}
           />
         ),
-        cell: ({ row }) => <OrderReferenceText>{row.original.orderNumber}</OrderReferenceText>,
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            <OrderReferenceText>{row.original.orderNumber}</OrderReferenceText>
+            <ReprintBadge orderType={row.original.orderType} />
+          </div>
+        ),
       }),
       createColumnHelper<AdminOrderRow>().display({
         id: "customerName",
@@ -839,16 +845,19 @@ function AdminOrdersMobileCards({ items, locale, transitioning, onArchive }: Mob
       {items.map((order) => (
         <article
           key={order.id}
-          className="rounded-[1.35rem] border border-[#2A2A2A] bg-[#111111] p-4 transition-colors duration-150 hover:bg-[#1A1A1A]"
+          className="overflow-hidden rounded-[1.35rem] border border-[#2A2A2A] bg-[#111111] p-4 transition-colors duration-150 hover:bg-[#1A1A1A]"
         >
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <OrderReferenceText>{order.orderNumber}</OrderReferenceText>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <OrderReferenceText>{order.orderNumber}</OrderReferenceText>
+                <ReprintBadge orderType={order.orderType} />
+              </div>
               <p className="mt-1 truncate font-sans text-sm font-medium text-white">
                 {order.customer.fullName}
               </p>
             </div>
-            <div className="flex items-start gap-2">
+            <div className="flex shrink-0 items-start gap-2">
               <OrderStatusBadge
                 orderStatus={order.orderStatus}
                 bookStatus={order.bookStatus}
@@ -863,7 +872,9 @@ function AdminOrdersMobileCards({ items, locale, transitioning, onArchive }: Mob
               <dt className="font-sans text-[11px] font-medium tracking-[0.08em] text-[#8f8f8f] uppercase">
                 {tAdmin("orders_table_email")}
               </dt>
-              <dd className="mt-1 font-sans text-sm text-[#d0d0d0]">{order.customer.email}</dd>
+              <dd className="mt-1 truncate font-sans text-sm text-[#d0d0d0]">
+                {order.customer.email}
+              </dd>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

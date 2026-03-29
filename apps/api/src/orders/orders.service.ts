@@ -125,6 +125,7 @@ export class OrdersService {
       select: {
         id: true,
         status: true,
+        productionStatus: true,
       },
     },
   } as const;
@@ -159,6 +160,7 @@ export class OrdersService {
       select: {
         id: true,
         status: true,
+        productionStatus: true,
       },
     },
     payments: {
@@ -241,6 +243,7 @@ export class OrdersService {
   private static readonly ORDER_ADMIN_LIST_SELECT = {
     id: true,
     orderNumber: true,
+    orderType: true,
     status: true,
     createdAt: true,
     totalAmount: true,
@@ -2042,6 +2045,7 @@ export class OrdersService {
         slug: row.package.slug,
       },
       orderStatus: row.status,
+      orderType: row.orderType ?? null,
       bookStatus: statusProjection.bookStatus,
       displayStatus: statusProjection.displayStatus,
       statusSource: statusProjection.statusSource,
@@ -2192,6 +2196,7 @@ export class OrdersService {
         ? {
             id: row.book.id,
             status: row.book.status,
+            productionStatus: row.book.productionStatus ?? null,
           }
         : null,
       trackingUrl: `/dashboard/orders/${row.id}`,

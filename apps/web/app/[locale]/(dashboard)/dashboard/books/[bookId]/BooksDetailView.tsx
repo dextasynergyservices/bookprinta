@@ -32,6 +32,7 @@ import {
   BOOK_PROGRESS_STAGE_LABEL_KEYS,
   normalizeWorkspaceStatusToken,
   resolveBillingGateState,
+  resolveEffectiveBookStatus,
   resolveFormattingSnapshotLabel,
   resolveReviewSnapshotLabel,
   resolveWorkspaceState,
@@ -56,6 +57,7 @@ const STATE_LABEL_KEYS: Record<BookProgressTimelineStep["state"], string> = {
   current: "book_progress_state_current",
   upcoming: "book_progress_state_upcoming",
   rejected: "book_progress_state_rejected",
+  skipped: "book_progress_state_skipped",
 };
 const MOBILE_SKELETON_STAGES = BOOK_PROGRESS_STAGES.slice(0, 6);
 const DESKTOP_SKELETON_STAGES = BOOK_PROGRESS_STAGES;
@@ -104,6 +106,8 @@ function resolveReprintInlineMessageKey(disableReason: string | null | undefined
   switch (disableReason) {
     case "FINAL_PDF_MISSING":
       return "reprint_same_unavailable_inline_final_pdf";
+    case "REPRINT_IN_PROGRESS":
+      return "reprint_same_unavailable_inline_in_progress";
     default:
       return "reprint_same_unavailable_inline_generic";
   }
@@ -728,6 +732,104 @@ function BillingGatePanel({
   );
 }
 
+type ReprintApprovePanelProps = {
+  tDashboard: DashboardTranslator;
+  bookStatus: string | null;
+  isApprovingBook: boolean;
+  isOpeningPreview: boolean;
+  hasPreview: boolean;
+  actionError: string | null;
+  actionSuccess: string | null;
+  onApproveBook: () => void;
+  onOpenPreview: () => void;
+};
+
+function ReprintApprovePanel({
+  tDashboard,
+  bookStatus,
+  isApprovingBook,
+  isOpeningPreview,
+  hasPreview,
+  actionError,
+  actionSuccess,
+  onApproveBook,
+  onOpenPreview,
+}: ReprintApprovePanelProps) {
+  const normalized = bookStatus?.toUpperCase().replace(/[\s-]+/g, "_") ?? null;
+  const isReview = normalized === "REVIEW";
+  const isApproved =
+    normalized === "APPROVED" ||
+    normalized === "IN_PRODUCTION" ||
+    normalized === "PRINTED" ||
+    normalized === "SHIPPING" ||
+    normalized === "DELIVERED";
+
+  if (isApproved) return null;
+  if (!isReview) return null;
+
+  return (
+    <section className="rounded-2xl border border-[#007eff]/35 bg-[#0b1320] p-4 md:p-5">
+      <div className="flex flex-col gap-4">
+        <div className="space-y-1.5">
+          <p className="font-sans text-[11px] font-semibold tracking-[0.08em] text-[#8f8f8f] uppercase">
+            {tDashboard("book_progress_billing_gate_title")}
+          </p>
+          <h2 className="font-display text-xl font-semibold tracking-tight text-white md:text-2xl">
+            {tDashboard("book_progress_workspace_badge_unlocked")}
+          </h2>
+          <p className="font-sans text-sm text-[#d0d0d0]">
+            {tDashboard("reprint_approve_review_description")}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          {hasPreview ? (
+            <Button
+              type="button"
+              onClick={onOpenPreview}
+              disabled={isOpeningPreview}
+              variant="outline"
+              className="font-sans min-h-11 rounded-full border-[#007eff] bg-transparent px-5 text-sm font-semibold text-[#007eff] shadow-none hover:border-[#3398ff] hover:bg-[#071320] hover:text-[#3398ff] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isOpeningPreview
+                ? tDashboard("book_progress_cta_review_preview_loading")
+                : tDashboard("reprint_preview_document")}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            onClick={onApproveBook}
+            disabled={isApprovingBook}
+            className="font-sans min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0066d1] disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
+          >
+            {isApprovingBook
+              ? tDashboard("reprint_approve_loading")
+              : tDashboard("reprint_approve_for_print")}
+          </Button>
+        </div>
+
+        {actionError ? (
+          <p
+            role="alert"
+            className="font-sans rounded-xl border border-[#ef4444]/45 bg-[#111111] px-3 py-2 text-sm text-[#f3b2b2]"
+          >
+            {actionError}
+          </p>
+        ) : null}
+
+        {actionSuccess ? (
+          <p
+            aria-live="polite"
+            className="font-sans rounded-xl border border-[#007eff]/35 bg-[#0A0A0A] px-3 py-2 text-sm text-[#d7e8ff]"
+          >
+            {actionSuccess}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 export function BooksDetailView({ bookId }: { bookId: string }) {
   const tDashboard = useTranslations("dashboard");
   const tCommon = useTranslations("common");
@@ -752,10 +854,12 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
   const requestedReprintMode = searchParams.get("reprint");
   const resolvedBookId = bookId;
 
-  const { data, isInitialLoading, isError, isFetching, refetch, error } = useBookProgress({
-    bookId: resolvedBookId,
-    enabled: Boolean(resolvedBookId),
-  });
+  const { data, isInitialLoading, isError, isFetching, refetch, error, orderType } =
+    useBookProgress({
+      bookId: resolvedBookId,
+      enabled: Boolean(resolvedBookId),
+    });
+  const isReprintOrder = orderType === "REPRINT";
   const {
     status: orderStatus,
     extraAmount,
@@ -803,6 +907,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
   });
   const normalizedCurrentBookStatus = normalizeStatusToken(data.currentStatus);
   const normalizedProductionStatus = normalizeStatusToken(data.productionStatus);
+  const effectiveBookStatus = resolveEffectiveBookStatus(data.currentStatus, data.productionStatus);
   const billingStatus = orderStatus ?? data.currentStatus;
   const extraPagesProvider = resolveExtraPagesProvider(paymentGateways);
   const pendingExtraPaymentReference =
@@ -812,6 +917,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
       : null);
   const canShowReprintActions =
     activeBookId !== null &&
+    !isReprintOrder &&
     ((normalizedProductionStatus !== null &&
       WORKSPACE_REPRINT_BOOK_STATUSES.has(normalizedProductionStatus)) ||
       (normalizedCurrentBookStatus !== null &&
@@ -826,17 +932,12 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
     bookId: activeBookId,
     enabled: canShowReprintActions,
   });
-  const reviseReprintHref = useMemo(() => {
-    if (!activeBookId) return null;
-
-    const params = new URLSearchParams({
-      orderType: "REPRINT",
-      sourceBookId: activeBookId,
-    });
-
-    return `/pricing?${params.toString()}`;
-  }, [activeBookId]);
-  const isReprintSameModalOpen = canShowReprintActions && requestedReprintMode === "same";
+  const isReprintSameModalOpen =
+    (canShowReprintActions && requestedReprintMode === "same") ||
+    // Also open the modal when returning from a reprint payment callback
+    (requestedReprintMode === "same" && Boolean(callbackPaymentReference));
+  const reprintCallbackReference =
+    requestedReprintMode === "same" && callbackPaymentReference ? callbackPaymentReference : null;
   const isReprintSameDisabled =
     canShowReprintActions &&
     !isReprintConfigInitialLoading &&
@@ -998,6 +1099,9 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
 
     updateBooksWorkspaceSearchParams((params) => {
       params.delete("reprint");
+      params.delete("reference");
+      params.delete("trxref");
+      params.delete("status");
     });
   };
 
@@ -1193,7 +1297,8 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
             <>
               {normalizedCurrentBookStatus !== null &&
               (WORKSPACE_APPROVED_BOOK_STATUSES.has(normalizedCurrentBookStatus) ||
-                normalizedCurrentBookStatus === "CANCELLED") ? null : (
+                normalizedCurrentBookStatus === "CANCELLED" ||
+                isReprintOrder) ? null : (
                 <ManuscriptUploadFlow
                   bookId={data.bookId ?? resolvedBookId}
                   initialTitle={data.title}
@@ -1213,7 +1318,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
                 />
               )}
 
-              {hasManuscriptPreviewWorkspace && !isBookPostApproval ? (
+              {hasManuscriptPreviewWorkspace && !isBookPostApproval && !isReprintOrder ? (
                 <ManuscriptPreviewPanel
                   bookId={data.bookId ?? resolvedBookId}
                   pageSize={data.pageSize}
@@ -1283,6 +1388,8 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
                 rejectionReasonLabel={tDashboard("book_progress_rejection_reason_label")}
                 locale={locale}
                 ariaLabel={tDashboard("book_progress_aria")}
+                isReprint={isReprintOrder}
+                reprintLabel={tDashboard("book_progress_reprint_label")}
                 stageLabels={stageLabels}
                 stateLabels={stateLabels}
                 className={cn(
@@ -1294,7 +1401,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
             </CollapsibleContent>
           </Collapsible>
 
-          {!isWorkspaceRolloutBlocked ? (
+          {!isWorkspaceRolloutBlocked && !isReprintOrder ? (
             <Collapsible className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="font-sans text-[11px] font-semibold tracking-[0.08em] text-[#8f8f8f] uppercase">
@@ -1313,7 +1420,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
                   tDashboard={tDashboard}
                   locale={locale}
                   orderStatus={orderStatus}
-                  bookStatus={data.currentStatus}
+                  bookStatus={effectiveBookStatus}
                   estimatedPages={data.estimatedPages}
                   pageCount={data.pageCount}
                   extraAmount={extraAmount}
@@ -1352,14 +1459,14 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
                 }
                 formattingState={resolveFormattingSnapshotLabel({
                   tDashboard,
-                  bookStatus: data.currentStatus,
+                  bookStatus: effectiveBookStatus,
                   currentHtmlUrl: data.currentHtmlUrl,
                   processingActive: data.processing.isActive,
                   forceProcessing: isLayoutReprocessing,
                 })}
                 reviewState={resolveReviewSnapshotLabel({
                   tDashboard,
-                  bookStatus: data.currentStatus,
+                  bookStatus: effectiveBookStatus,
                   pageCount: data.pageCount,
                   forceProcessing: isLayoutReprocessing,
                 })}
@@ -1389,12 +1496,28 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
               environment={data.rollout.environment}
               blockedFeature={blockedBillingFeature}
             />
-          ) : isBookPostApproval ? null : (
+          ) : isBookPostApproval ? null : isReprintOrder ? (
+            <ReprintApprovePanel
+              tDashboard={tDashboard}
+              bookStatus={effectiveBookStatus}
+              isApprovingBook={isApprovingBook}
+              isOpeningPreview={isOpeningPreview}
+              hasPreview={Boolean(data.previewPdfUrl)}
+              actionError={actionError}
+              actionSuccess={actionSuccess}
+              onApproveBook={() => {
+                void handleApproveBook();
+              }}
+              onOpenPreview={() => {
+                void handleOpenPreview();
+              }}
+            />
+          ) : (
             <BillingGatePanel
               tDashboard={tDashboard}
               locale={locale}
               orderStatus={orderStatus}
-              bookStatus={data.currentStatus}
+              bookStatus={effectiveBookStatus}
               pageCount={data.pageCount}
               extraAmount={extraAmount}
               isOrderLoading={isOrderDetailInitialLoading}
@@ -1448,21 +1571,11 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
               </Button>
             ) : null}
 
-            {canShowReprintActions && reviseReprintHref !== null ? (
-              <Button
-                asChild
-                variant="secondary"
-                className="font-sans min-h-11 rounded-full border border-[#2A2A2A] bg-[#111111] px-5 text-sm font-semibold text-white hover:border-[#007eff] hover:bg-[#151515]"
-              >
-                <Link href={reviseReprintHref}>{tDashboard("revise_reprint")}</Link>
-              </Button>
-            ) : null}
-
             <Link
               href={data.orderId ? `/dashboard/orders/${data.orderId}` : "/dashboard/orders"}
               className="font-sans inline-flex min-h-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
             >
-              {tDashboard("book_progress_cta_open_workspace")}
+              {tDashboard("book_progress_cta_view_order")}
             </Link>
           </div>
 
@@ -1497,6 +1610,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
         isLoading={isReprintConfigInitialLoading}
         isError={isReprintConfigError}
         errorMessage={reprintSameErrorMessage}
+        paymentCallbackReference={reprintCallbackReference}
         onRetry={() => {
           void refetchReprintConfig();
         }}

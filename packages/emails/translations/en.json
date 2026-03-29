@@ -213,17 +213,34 @@
     "sla_reminder": "Please review within 30 minutes to maintain our SLA."
   },
   "reprint_confirm": {
-    "subject": "Reprint Order Confirmed - #{orderNumber}",
-    "heading": "Reprint Order Confirmed",
-    "body": "Your reprint order has been confirmed and is being prepared for production.",
+    "subject": "Reprint Order Placed - #{orderNumber}",
+    "heading": "Reprint Order Placed",
+    "body": "Your reprint order has been placed and your document is ready for your approval. Please review and approve it from your dashboard to send it to production.",
     "book_title": "Book",
     "copies": "Number of Copies",
+    "cost_per_copy": "Cost per Copy",
     "page_size": "Page Size",
     "paper_color": "Paper Color",
     "lamination": "Lamination",
-    "total_price": "Total Price",
+    "total_price": "Total Paid",
     "order_number": "Order Number",
-    "cta": "Track Your Order"
+    "cta": "Approve Your Document"
+  },
+  "reprint_admin": {
+    "subject": "New Reprint Order - #{orderNumber}",
+    "heading": "New Reprint Order Received",
+    "body": "A customer has placed a new reprint order. The document is awaiting their approval before it enters production.",
+    "order_number": "Order Number",
+    "customer_name": "Customer",
+    "customer_email": "Email",
+    "book_title": "Book",
+    "copies": "Number of Copies",
+    "cost_per_copy": "Cost per Copy",
+    "page_size": "Page Size",
+    "paper_color": "Paper Color",
+    "lamination": "Lamination",
+    "total_price": "Total Paid",
+    "cta": "View in Admin Panel"
   },
   "production_delay": {
     "subject": "Production Update - Longer Wait Times Expected",
