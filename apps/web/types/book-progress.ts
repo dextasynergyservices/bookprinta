@@ -16,7 +16,7 @@ export const BOOK_PROGRESS_STAGES = [
 
 export type BookProgressStage = (typeof BOOK_PROGRESS_STAGES)[number];
 
-export type BookProgressStepState = "completed" | "current" | "upcoming" | "rejected";
+export type BookProgressStepState = "completed" | "current" | "upcoming" | "rejected" | "skipped";
 
 export type BookProgressSource = "orders_tracking" | "books_detail";
 
@@ -77,6 +77,7 @@ export interface BookProgressNormalizedResponse {
   sourceEndpoint: BookProgressSource;
   bookId: string | null;
   orderId: string | null;
+  orderType: string | null;
   currentStatus: BookStatus | (string & {}) | null;
   productionStatus: BookStatus | (string & {}) | null;
   latestProcessingError: string | null;

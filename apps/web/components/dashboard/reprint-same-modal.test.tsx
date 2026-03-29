@@ -30,10 +30,9 @@ function installMatchMediaMock() {
 }
 
 const DASHBOARD_TRANSLATIONS: Record<string, string> = {
-  reprint_same: "Reprint Same",
-  reprint_same_modal_title: "Reprint with the same final PDF",
-  reprint_same_modal_description:
-    "Reuse your delivered final PDF, adjust the print settings, and review the live reprint price before payment.",
+  reprint_same: "Reprint",
+  reprint_same_modal_title: "Reprint Your Book",
+  reprint_same_modal_description: "Review the print details and live reprint price before payment.",
   reprint_same_close_aria: "Close reprint modal",
   reprint_same_loading_title: "Loading your reprint settings",
   reprint_same_loading_description:
@@ -44,16 +43,15 @@ const DASHBOARD_TRANSLATIONS: Record<string, string> = {
   reprint_same_retry: "Try Again",
   retry: "Try Again",
   loading: "Loading...",
-  reprint_same_unavailable_title: "Reprint Same is unavailable",
+  reprint_same_unavailable_title: "Reprint is unavailable",
   reprint_same_unavailable_final_pdf:
-    "This book does not have a final print-ready PDF available yet, so the same-file reprint flow cannot start.",
+    "This book does not have a final print-ready PDF available yet, so the reprint flow cannot start.",
   reprint_same_unavailable_page_count:
     "The final page count for this book is not available yet, so we cannot calculate a reliable reprint price.",
-  reprint_same_unavailable_book_size:
-    "The original book size is not supported for same-file reprint yet.",
+  reprint_same_unavailable_book_size: "The original book size is not supported for reprint yet.",
   reprint_same_unavailable_payment_provider:
-    "Inline reprint payment is temporarily unavailable because no supported payment provider is active right now.",
-  reprint_same_unavailable_generic: "This book cannot use the same-file reprint flow right now.",
+    "Reprint payment is temporarily unavailable because no supported payment provider is active right now.",
+  reprint_same_unavailable_generic: "This book cannot be reprinted right now.",
   reprint_same_contact_support_prefix: "Need help with this reprint?",
   reprint_same_contact_support: "Contact support",
   reprint_same_source_book_label: "Source Book",
@@ -132,6 +130,20 @@ jest.mock("@/hooks/use-online-status", () => ({
   useOnlineStatus: () => useOnlineStatusMock(),
 }));
 
+jest.mock("@/hooks/use-auth-session", () => ({
+  useAuthSession: () => ({
+    user: {
+      id: "test-user-id",
+      email: "author@example.com",
+      firstName: "Alice",
+      lastName: "Smith",
+      role: "USER",
+      displayName: "Alice Smith",
+      initials: "AS",
+    },
+  }),
+}));
+
 jest.mock("@/hooks/usePayments", () => ({
   usePaymentGateways: (...args: unknown[]) => usePaymentGatewaysMock(...args),
   payReprint: (...args: unknown[]) => payReprintMock(...args),
@@ -199,21 +211,14 @@ const reprintConfig: NonNullable<ComponentProps<typeof ReprintSameModal>["config
   bookId: "cm1111111111111111111111111",
   canReprintSame: true,
   disableReason: null,
+  hasActiveReprint: false,
   finalPdfUrlPresent: true,
   pageCount: 128,
-  minCopies: 25,
-  defaultBookSize: "A5",
-  defaultPaperColor: "white",
-  defaultLamination: "gloss",
-  allowedBookSizes: ["A4", "A5", "A6"],
-  allowedPaperColors: ["white", "cream"],
-  allowedLaminations: ["matt", "gloss"],
-  costPerPageBySize: {
-    A4: 20,
-    A5: 10,
-    A6: 5,
-  },
-  enabledPaymentProviders: ["PAYSTACK", "STRIPE"],
+  costPerCopy: 2220,
+  bookTitle: "My Book",
+  bookSize: "A5",
+  paperColor: "white",
+  lamination: "gloss",
 };
 
 describe("ReprintSameModal", () => {
@@ -353,10 +358,10 @@ describe("ReprintSameModal", () => {
       />
     );
 
-    expect(screen.getByText("Reprint Same is unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Reprint is unavailable")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This book does not have a final print-ready PDF available yet, so the same-file reprint flow cannot start."
+        "This book does not have a final print-ready PDF available yet, so the reprint flow cannot start."
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Contact support" })).toHaveAttribute(

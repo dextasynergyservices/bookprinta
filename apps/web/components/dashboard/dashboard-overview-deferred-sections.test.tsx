@@ -109,6 +109,7 @@ function createActiveBook(
     updatedAt: "2026-03-10T08:00:00.000Z",
     workspaceUrl: "/dashboard/books/cmbook11111111111111111111111",
     trackingUrl: "/dashboard/orders/cmorder1111111111111111111111",
+    orderType: null,
     rollout: {
       environment: "staging",
       allowInFlightAccess: true,
@@ -198,6 +199,7 @@ describe("DashboardOverviewDeferredSections", () => {
           isProfileComplete: false,
           preferredLanguage: "en",
         }}
+        onReprintBookIdChange={jest.fn()}
         pendingActions={{
           total: 1,
           items: [
@@ -285,6 +287,7 @@ describe("DashboardOverviewDeferredSections", () => {
 
     render(
       <DashboardOverviewDeferredSections
+        onReprintBookIdChange={jest.fn()}
         activeBook={createActiveBook({
           status: "FORMATTING",
           productionStatus: "FORMATTING",
@@ -351,6 +354,7 @@ describe("DashboardOverviewDeferredSections", () => {
   it("renders delivered reprint and review-ready dashboard signals", () => {
     render(
       <DashboardOverviewDeferredSections
+        onReprintBookIdChange={jest.fn()}
         activeBook={null}
         recentOrders={[
           createRecentOrder({
@@ -390,10 +394,6 @@ describe("DashboardOverviewDeferredSections", () => {
     expect(screen.getByText("orders_reprint_badge")).toBeInTheDocument();
     expect(screen.getByText("overview_reprint_ready_title")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "reprint_same" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "revise_reprint" })).toHaveAttribute(
-      "href",
-      "/pricing?orderType=REPRINT&sourceBookId=cmbook11111111111111111111111"
-    );
     expect(screen.getByRole("link", { name: /overview_action_review_book_title/ })).toHaveAttribute(
       "href",
       "/dashboard/reviews"
@@ -420,6 +420,7 @@ describe("DashboardOverviewDeferredSections", () => {
           isProfileComplete: true,
           preferredLanguage: "en",
         }}
+        onReprintBookIdChange={jest.fn()}
         pendingActions={{
           total: 0,
           items: [],
@@ -462,6 +463,7 @@ describe("DashboardOverviewDeferredSections", () => {
 
     const { container } = render(
       <DashboardOverviewDeferredSections
+        onReprintBookIdChange={jest.fn()}
         activeBook={createActiveBook()}
         recentOrders={[]}
         notifications={{

@@ -31,6 +31,7 @@ type LoginErrorResponse = {
   errorCode?: string;
   retryAfterSeconds?: number;
   resendEmail?: string;
+  errors?: Array<{ message?: string; path?: string[] }>;
 };
 
 type FormErrors = {
@@ -429,6 +430,34 @@ function LoginPageInner() {
           serverCorrelationId,
         });
         return;
+      }
+
+      // Extract server-side Zod validation errors (nestjs-zod format)
+      if (response.status === 400 && Array.isArray(payload?.errors) && payload.errors.length > 0) {
+        const zodMessages = payload.errors
+          .map((e) => e.message)
+          .filter((m): m is string => typeof m === "string" && m.trim().length > 0);
+        if (zodMessages.length > 0) {
+          setFormError(zodMessages.join(". "));
+          markTiming(totalEndMark);
+          totalDurationMs = measureTiming(
+            `auth-login:${correlationId}:total`,
+            totalStartMark,
+            totalEndMark
+          );
+          logLoginTiming({
+            event: "auth.login.timing.client",
+            correlationId,
+            recaptchaDurationMs,
+            requestDurationMs,
+            totalDurationMs,
+            outcome: "failure",
+            httpStatus: response.status,
+            errorCode: "VALIDATION_ERROR",
+            serverCorrelationId,
+          });
+          return;
+        }
       }
 
       setFormError(t("login_error_invalid_credentials"));

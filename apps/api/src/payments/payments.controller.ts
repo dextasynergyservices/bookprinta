@@ -348,11 +348,13 @@ export class PaymentsController {
     summary: "Pay for reprint order",
     description:
       "Initiates payment for a same-PDF reprint from the authenticated user's source book. " +
-      "The final server-side amount and order creation are resolved by the reprint flow.",
+      "Book size, paper color, and lamination are pulled from the original order. " +
+      "Supports Paystack, Stripe, and Bank Transfer providers.",
   })
   @ApiResponse({
     status: 200,
-    description: "Reprint payment initialized — redirect to authorizationUrl",
+    description:
+      "Reprint payment initialized — redirect to authorizationUrl (or bank transfer info)",
     type: InitializePaymentResponseDto,
   })
   @ApiResponse({ status: 401, description: "Unauthorized — JWT required" })
@@ -361,12 +363,56 @@ export class PaymentsController {
     return this.paymentsService.payReprint({
       sourceBookId: dto.sourceBookId,
       copies: dto.copies,
-      bookSize: dto.bookSize,
-      paperColor: dto.paperColor,
-      lamination: dto.lamination,
       provider: dto.provider,
       callbackUrl: dto.callbackUrl ?? undefined,
       userId,
+    });
+  }
+
+  /**
+   * POST /api/v1/payments/reprint/:paymentId/receipt
+   * Upload bank transfer receipt for an existing reprint payment.
+   */
+  @Post("reprint/:paymentId/receipt")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth("access-token")
+  @UseInterceptors(FileInterceptor("receiptFile", { limits: { fileSize: MAX_FILE_SIZE_BYTES } }))
+  @ApiConsumes("multipart/form-data")
+  @ApiOperation({
+    summary: "Upload reprint bank transfer receipt",
+    description:
+      "Uploads a bank transfer receipt for an existing reprint payment. " +
+      "Payment must be of type REPRINT with BANK_TRANSFER provider and AWAITING_APPROVAL status.",
+  })
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        receiptFile: { type: "string", format: "binary" },
+        payerName: { type: "string", example: "Adaeze Okafor" },
+        payerEmail: { type: "string", example: "adaeze@example.com" },
+        payerPhone: { type: "string", example: "+2348012345678" },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: "Receipt uploaded, admin will verify" })
+  @ApiResponse({ status: 401, description: "Unauthorized — JWT required" })
+  @ApiResponse({ status: 404, description: "Payment not found" })
+  async uploadReprintReceipt(
+    @Param("paymentId") paymentId: string,
+    @CurrentUser("sub") userId: string,
+    @Body() body: Record<string, unknown>,
+    @UploadedFile() receiptFile?: Express.Multer.File
+  ) {
+    return this.paymentsService.uploadReprintBankTransferReceipt({
+      paymentId,
+      userId,
+      receiptFile,
+      payerName: typeof body.payerName === "string" ? body.payerName.trim() : undefined,
+      payerEmail:
+        typeof body.payerEmail === "string" ? body.payerEmail.trim().toLowerCase() : undefined,
+      payerPhone: typeof body.payerPhone === "string" ? body.payerPhone.trim() : undefined,
     });
   }
 

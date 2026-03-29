@@ -6,6 +6,8 @@ import {
   renderBankTransferRejectedEmail,
   renderBankTransferUserEmail,
   renderRefundConfirmEmail,
+  renderReprintAdminConfirmEmail,
+  renderReprintConfirmEmail,
 } from "@bookprinta/emails/render";
 import type {
   AdminPaymentRefundability,
@@ -67,18 +69,17 @@ const DEFAULT_DASHBOARD_PATH = "/dashboard";
 const BANK_TRANSFER_REJECTED_TITLE_KEY = "notifications.bank_transfer_rejected.title";
 const BANK_TRANSFER_REJECTED_MESSAGE_KEY = "notifications.bank_transfer_rejected.message";
 const BANK_TRANSFER_REJECTED_FALLBACK_TITLE = "Bank transfer not approved";
-const REPRINT_MIN_COPIES = 25;
-const DEFAULT_REPRINT_COST_PER_PAGE_A5 = 10;
-const REPRINT_COST_PER_PAGE_SETTING_KEY = "quote_cost_per_page";
+const REPRINT_MIN_COPIES = 1;
+const DEFAULT_REPRINT_COST_PER_PAGE = 15;
+const DEFAULT_REPRINT_COVER_COST = 300;
+const REPRINT_COST_PER_PAGE_SETTING_KEY = "reprint_cost_per_page";
+const REPRINT_COVER_COST_SETTING_KEY = "reprint_cover_cost";
 const PHONE_ALREADY_IN_USE_MESSAGE =
   "This phone number is already linked to another account. Use another phone number or sign in to your existing account.";
 const EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE =
   "This email and phone number belong to different accounts. Sign in to the correct account or use a different phone number.";
 const DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE =
   "This account has been deactivated. Reactivate your account first using the recovery flow, or contact support or an administrator before continuing with payment or account setup.";
-const REPRINT_ALLOWED_BOOK_SIZES = new Set(["A4", "A5", "A6"]);
-const REPRINT_ALLOWED_PAPER_COLORS = new Set(["white", "cream"]);
-const REPRINT_ALLOWED_LAMINATIONS = new Set(["matt", "gloss"]);
 const REPRINT_ELIGIBLE_BOOK_STATUSES = new Set<BookStatus>([
   BookStatus.DELIVERED,
   BookStatus.COMPLETED,
@@ -136,9 +137,9 @@ type ReprintMetadata = {
   sourceBookId: string;
   sourceOrderId: string | null;
   copies: number;
-  bookSize: string;
-  paperColor: string;
-  lamination: string;
+  bookSize: string | null;
+  paperColor: string | null;
+  lamination: string | null;
   pageCount: number | null;
   finalPdfUrl: string | null;
 };
@@ -474,6 +475,33 @@ export class PaymentsService {
     });
 
     if (existing?.processedAt) {
+      // Detect stuck reprint: payment SUCCESS but Order/Book never created
+      const isStuckReprint =
+        existing.status === PaymentStatus.SUCCESS &&
+        existing.type === PaymentType.REPRINT &&
+        !existing.orderId;
+
+      if (isStuckReprint) {
+        this.logger.warn(
+          `Payment ${reference} is a stuck reprint (SUCCESS but no orderId) — retrying entity creation`
+        );
+        try {
+          await this.createReprintEntitiesFromMetadata({
+            paymentId: existing.id,
+            userId: existing.userId,
+            payerEmail: existing.payerEmail,
+            metadata: this.asRecord(existing.metadata),
+            amount: Number(existing.amount),
+            currency: existing.currency,
+          });
+        } catch (error) {
+          this.logger.error(
+            `Reprint entity retry failed for payment ${existing.id}: ${error instanceof Error ? error.message : error}`,
+            error instanceof Error ? error.stack : undefined
+          );
+        }
+      }
+
       this.logger.log(`Payment ${reference} already processed — returning cached status`);
       const signupFollowUp = await this.resolveSignupFollowUpForReference(reference, {
         retryFailedDelivery: true,
@@ -762,6 +790,101 @@ export class PaymentsService {
     };
   }
 
+  /**
+   * Upload a bank transfer receipt for an existing reprint payment.
+   * Called from dashboard after payReprint() created the BANK_TRANSFER payment.
+   */
+  async uploadReprintBankTransferReceipt(params: {
+    paymentId: string;
+    userId: string;
+    receiptFile?: Express.Multer.File;
+    receiptUrl?: string;
+    payerName?: string;
+    payerEmail?: string;
+    payerPhone?: string;
+  }) {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: params.paymentId },
+      select: {
+        id: true,
+        userId: true,
+        type: true,
+        provider: true,
+        status: true,
+        providerRef: true,
+        amount: true,
+        payerEmail: true,
+        payerName: true,
+        metadata: true,
+      },
+    });
+
+    if (!payment) {
+      throw new NotFoundException("Payment not found");
+    }
+
+    if (payment.userId !== params.userId) {
+      throw new ForbiddenException("You do not have access to this payment.");
+    }
+
+    if (
+      payment.type !== PaymentType.REPRINT ||
+      payment.provider !== PaymentProvider.BANK_TRANSFER
+    ) {
+      throw new BadRequestException("This payment does not accept bank transfer receipts.");
+    }
+
+    if (payment.status !== PaymentStatus.AWAITING_APPROVAL) {
+      throw new BadRequestException("This payment is no longer awaiting a receipt.");
+    }
+
+    const resolvedReceiptUrl = await this.resolveBankTransferReceiptUrl({
+      receiptFile: params.receiptFile,
+      receiptUrl: params.receiptUrl,
+      payerName: payment.payerName ?? "Author",
+      reference: payment.providerRef ?? payment.id,
+    });
+
+    const updatedPayerName = params.payerName || payment.payerName;
+    const updatedPayerEmail = params.payerEmail || payment.payerEmail;
+    const updatedPayerPhone = params.payerPhone || "";
+
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        receiptUrl: resolvedReceiptUrl,
+        ...(params.payerName ? { payerName: params.payerName } : {}),
+        ...(params.payerEmail ? { payerEmail: params.payerEmail } : {}),
+        ...(params.payerPhone ? { payerPhone: params.payerPhone } : {}),
+      },
+    });
+
+    const reference = payment.providerRef ?? payment.id;
+
+    await this.triggerBankTransferNotifications({
+      paymentId: payment.id,
+      reference,
+      orderNumber: reference,
+      packageName: "Reprint Order",
+      addons: [],
+      payerName: updatedPayerName ?? "Author",
+      payerEmail: updatedPayerEmail ?? "",
+      payerPhone: updatedPayerPhone,
+      amount: Number(payment.amount),
+      receiptUrl: resolvedReceiptUrl,
+      locale: "en",
+    });
+
+    return {
+      id: payment.id,
+      status: payment.status,
+      receiptUrl: resolvedReceiptUrl,
+      message:
+        "Receipt uploaded. Your reprint payment is being verified. " +
+        "This typically takes less than 30 minutes.",
+    };
+  }
+
   private async resolveBankTransferOrderSummary(params: {
     reference: string;
     metadata: Record<string, unknown>;
@@ -888,6 +1011,7 @@ export class PaymentsService {
       where: { id: params.paymentId },
       select: {
         id: true,
+        type: true,
         provider: true,
         status: true,
         payerEmail: true,
@@ -907,6 +1031,11 @@ export class PaymentsService {
 
     if (payment.status !== PaymentStatus.AWAITING_APPROVAL) {
       throw new BadRequestException("This payment is no longer awaiting approval");
+    }
+
+    // ── Reprint bank transfer approval ──
+    if (payment.type === PaymentType.REPRINT) {
+      return this.approveReprintBankTransfer(payment, params.adminId, params.adminNote);
     }
 
     const normalizedAdminNote = params.adminNote?.trim() || null;
@@ -996,6 +1125,130 @@ export class PaymentsService {
       id: payment.id,
       status: PaymentStatus.SUCCESS,
       message: "Bank transfer approved successfully.",
+    };
+  }
+
+  /**
+   * Approve a bank transfer for a reprint payment.
+   * Creates reprint Order + Book (status: REVIEW), sends confirmation.
+   * Does NOT issue a signup link — user already has an account.
+   */
+  private async approveReprintBankTransfer(
+    payment: {
+      id: string;
+      payerEmail: string | null;
+      payerName: string | null;
+      amount: unknown;
+      currency: string;
+      providerRef: string | null;
+      metadata: unknown;
+      userId: string | null;
+      orderId: string | null;
+    },
+    adminId: string,
+    adminNote?: string
+  ) {
+    const normalizedAdminNote = adminNote?.trim() || null;
+    const metadata = this.asRecord(payment.metadata);
+    const now = new Date();
+
+    // Mark payment as SUCCESS
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: PaymentStatus.SUCCESS,
+          processedAt: now,
+          approvedAt: now,
+          approvedBy: adminId,
+          adminNote: normalizedAdminNote,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: adminId,
+          action: "ADMIN_BANK_TRANSFER_APPROVED",
+          entityType: "PAYMENT",
+          entityId: payment.id,
+          details: {
+            provider: PaymentProvider.BANK_TRANSFER,
+            providerRef: payment.providerRef,
+            previousStatus: PaymentStatus.AWAITING_APPROVAL,
+            nextStatus: PaymentStatus.SUCCESS,
+            paymentType: PaymentType.REPRINT,
+            linkedUserId: payment.userId,
+            adminNote: normalizedAdminNote,
+          },
+        },
+      });
+    });
+
+    // Create reprint Order + Book
+    let reprintResult: Awaited<ReturnType<typeof this.createReprintEntitiesFromMetadata>>;
+    try {
+      reprintResult = await this.createReprintEntitiesFromMetadata({
+        paymentId: payment.id,
+        userId: payment.userId,
+        payerEmail: payment.payerEmail,
+        metadata,
+        amount: Number(payment.amount),
+        currency: payment.currency,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Reprint entity creation failed for bank-transfer payment ${payment.id} — reverting payment status: ${error instanceof Error ? error.message : error}`,
+        error instanceof Error ? error.stack : undefined
+      );
+      await this.prisma.$transaction(async (tx) => {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            status: PaymentStatus.AWAITING_APPROVAL,
+            processedAt: null,
+            approvedAt: null,
+            approvedBy: null,
+          },
+        });
+      });
+      throw new ConflictException(
+        `Bank transfer approved but reprint order creation failed: ${error instanceof Error ? error.message : "unknown error"}. Payment has been reverted to AWAITING_APPROVAL.`
+      );
+    }
+
+    if (reprintResult) {
+      await this.sendPaymentConfirmationWhatsApp({
+        userName: reprintResult.name,
+        phoneNumber: reprintResult.phone,
+        preferredLanguage: reprintResult.locale,
+        whatsAppNotificationsEnabled: reprintResult.whatsAppNotificationsEnabled,
+        orderNumber: reprintResult.orderNumber,
+        packageName: reprintResult.packageName,
+        amountPaid: reprintResult.amountPaid,
+        addons: reprintResult.addons,
+        variant: "reprint",
+        dashboardUrl: this.buildLocalizedDashboardUrl(reprintResult.locale),
+      });
+
+      await this.sendReprintConfirmationEmails({
+        locale: reprintResult.locale,
+        userName: reprintResult.name,
+        userEmail: reprintResult.email,
+        orderNumber: reprintResult.orderNumber,
+        bookTitle: reprintResult.bookTitle,
+        copies: reprintResult.copies,
+        costPerCopy: reprintResult.costPerCopy,
+        bookSize: reprintResult.bookSize,
+        paperColor: reprintResult.paperColor,
+        lamination: reprintResult.lamination,
+        totalPrice: reprintResult.amountPaid,
+      });
+    }
+
+    return {
+      id: payment.id,
+      status: PaymentStatus.SUCCESS,
+      message: "Reprint bank transfer approved. Order created for user review.",
     };
   }
 
@@ -1617,25 +1870,33 @@ export class PaymentsService {
   /**
    * Pay for a reprint order.
    * Authenticated endpoint — requires userId.
+   * Cost formula: ((pageCount × costPerPage) + coverCost) × copies
    */
   async payReprint(params: {
     sourceBookId: string;
     copies: number;
-    bookSize: string;
-    paperColor: string;
-    lamination: string;
     provider: string;
     callbackUrl?: string;
     userId: string;
   }) {
     const provider = params.provider.toUpperCase() as PaymentProvider;
 
-    if (provider !== PaymentProvider.PAYSTACK && provider !== PaymentProvider.STRIPE) {
-      throw new BadRequestException("Reprint payments currently support Paystack and Stripe only.");
+    if (
+      provider !== PaymentProvider.PAYSTACK &&
+      provider !== PaymentProvider.STRIPE &&
+      provider !== PaymentProvider.BANK_TRANSFER
+    ) {
+      throw new BadRequestException(
+        "Reprint payments support Paystack, Stripe, and Bank Transfer."
+      );
     }
 
-    await this.ensureGatewayEnabled(provider);
-    this.ensureProviderAvailable(provider);
+    if (provider !== PaymentProvider.BANK_TRANSFER) {
+      await this.ensureGatewayEnabled(provider);
+      this.ensureProviderAvailable(provider);
+    } else {
+      await this.ensureGatewayEnabled(PaymentProvider.BANK_TRANSFER);
+    }
 
     const sourceBook = await this.prisma.book.findFirst({
       where: {
@@ -1646,11 +1907,23 @@ export class PaymentsService {
         id: true,
         orderId: true,
         status: true,
+        productionStatus: true,
         pageCount: true,
         finalPdfUrl: true,
+        title: true,
         user: {
           select: {
             email: true,
+            firstName: true,
+            phoneNumber: true,
+          },
+        },
+        order: {
+          select: {
+            id: true,
+            bookSize: true,
+            paperColor: true,
+            lamination: true,
           },
         },
       },
@@ -1660,10 +1933,13 @@ export class PaymentsService {
       throw new NotFoundException(`Book "${params.sourceBookId}" not found`);
     }
 
-    if (!REPRINT_ELIGIBLE_BOOK_STATUSES.has(sourceBook.status)) {
-      throw new BadRequestException(
-        "Only delivered books can start a same-file reprint from the dashboard."
-      );
+    const isEligibleByStatus = REPRINT_ELIGIBLE_BOOK_STATUSES.has(sourceBook.status);
+    const isEligibleByProductionStatus =
+      sourceBook.productionStatus !== null &&
+      REPRINT_ELIGIBLE_BOOK_STATUSES.has(sourceBook.productionStatus);
+
+    if (!isEligibleByStatus && !isEligibleByProductionStatus) {
+      throw new BadRequestException("Only delivered books can start a reprint from the dashboard.");
     }
 
     if (!sourceBook.finalPdfUrl) {
@@ -1677,25 +1953,17 @@ export class PaymentsService {
     }
 
     if (params.copies < REPRINT_MIN_COPIES) {
-      throw new BadRequestException("Minimum 25 copies required for reprints.");
+      throw new BadRequestException("At least 1 copy is required.");
     }
 
-    if (!REPRINT_ALLOWED_BOOK_SIZES.has(params.bookSize)) {
-      throw new BadRequestException("Unsupported book size for same-file reprint.");
-    }
-
-    if (!REPRINT_ALLOWED_PAPER_COLORS.has(params.paperColor)) {
-      throw new BadRequestException("Unsupported paper color for same-file reprint.");
-    }
-
-    if (!REPRINT_ALLOWED_LAMINATIONS.has(params.lamination)) {
-      throw new BadRequestException("Unsupported lamination for same-file reprint.");
-    }
-
-    const configuredA5Cost = await this.resolveConfiguredReprintCostPerPage();
-    const unitCostPerPage = this.resolveReprintCostPerPage(params.bookSize, configuredA5Cost);
-    const amount = this.toCurrency(params.copies * sourceBook.pageCount * unitCostPerPage);
+    const [costPerPage, coverCost] = await this.resolveReprintCostSettings();
+    const costPerCopy = sourceBook.pageCount * costPerPage + coverCost;
+    const amount = this.toCurrency(costPerCopy * params.copies);
     const reference = this.generateReference("rp");
+
+    const bookSize = sourceBook.order.bookSize ?? "A5";
+    const paperColor = sourceBook.order.paperColor ?? "white";
+    const lamination = sourceBook.order.lamination ?? "gloss";
 
     const payment = await this.prisma.payment.create({
       data: {
@@ -1703,7 +1971,10 @@ export class PaymentsService {
         type: PaymentType.REPRINT,
         amount,
         currency: DEFAULT_CURRENCY,
-        status: PaymentStatus.PENDING,
+        status:
+          provider === PaymentProvider.BANK_TRANSFER
+            ? PaymentStatus.AWAITING_APPROVAL
+            : PaymentStatus.PENDING,
         providerRef: reference,
         userId: params.userId,
         payerEmail: sourceBook.user.email,
@@ -1712,15 +1983,32 @@ export class PaymentsService {
           sourceOrderId: sourceBook.orderId,
           orderType: "REPRINT",
           copies: params.copies,
-          bookSize: params.bookSize,
-          paperColor: params.paperColor,
-          lamination: params.lamination,
+          bookSize,
+          paperColor,
+          lamination,
           pageCount: sourceBook.pageCount,
-          unitCostPerPage,
+          costPerPage,
+          coverCost,
+          costPerCopy,
           finalPdfUrl: sourceBook.finalPdfUrl,
         },
       } as Prisma.PaymentUncheckedCreateInput,
     });
+
+    // Bank Transfer: return order info for the dashboard bank transfer UI
+    if (provider === PaymentProvider.BANK_TRANSFER) {
+      return {
+        provider,
+        paymentId: payment.id,
+        reference,
+        amount,
+        status: PaymentStatus.AWAITING_APPROVAL,
+        bankTransfer: true,
+        message:
+          "Upload your payment receipt to complete the bank transfer. " +
+          "An admin will verify and approve your payment.",
+      };
+    }
 
     return this.delegateInitialize(provider, {
       email: sourceBook.user.email,
@@ -1920,38 +2208,64 @@ export class PaymentsService {
         existingPayment.type === PaymentType.REPRINT && !existingPayment.orderId;
 
       if (shouldCreateReprintEntities) {
-        const reprintResult = await this.createReprintEntitiesFromMetadata({
-          paymentId: existingPayment.id,
-          userId: existingPayment.userId,
-          payerEmail: data.payerEmail ?? existingPayment.payerEmail,
-          metadata: mergedMetadata,
-          amount: data.amount,
-          currency: data.currency,
-        });
-
-        if (reprintResult) {
-          await this.sendOnlinePaymentAdminEmail({
-            orderNumber: reprintResult.orderNumber,
-            packageName: reprintResult.packageName,
-            amountPaid: reprintResult.amountPaid,
-            addons: reprintResult.addons,
-            payerEmail: reprintResult.email,
-            provider: data.provider,
-            reference: data.providerRef,
+        try {
+          const reprintResult = await this.createReprintEntitiesFromMetadata({
+            paymentId: existingPayment.id,
+            userId: existingPayment.userId,
+            payerEmail: data.payerEmail ?? existingPayment.payerEmail,
+            metadata: mergedMetadata,
+            amount: data.amount,
+            currency: data.currency,
           });
 
-          await this.sendPaymentConfirmationWhatsApp({
-            userName: reprintResult.name,
-            phoneNumber: reprintResult.phone,
-            preferredLanguage: reprintResult.locale,
-            whatsAppNotificationsEnabled: reprintResult.whatsAppNotificationsEnabled,
-            orderNumber: reprintResult.orderNumber,
-            packageName: reprintResult.packageName,
-            amountPaid: reprintResult.amountPaid,
-            addons: reprintResult.addons,
-            variant: "reprint",
-            dashboardUrl: this.buildLocalizedDashboardUrl(reprintResult.locale),
+          if (reprintResult) {
+            await this.sendOnlinePaymentAdminEmail({
+              orderNumber: reprintResult.orderNumber,
+              packageName: reprintResult.packageName,
+              amountPaid: reprintResult.amountPaid,
+              addons: reprintResult.addons,
+              payerEmail: reprintResult.email,
+              provider: data.provider,
+              reference: data.providerRef,
+            });
+
+            await this.sendReprintConfirmationEmails({
+              locale: reprintResult.locale,
+              userName: reprintResult.name,
+              userEmail: reprintResult.email,
+              orderNumber: reprintResult.orderNumber,
+              bookTitle: reprintResult.bookTitle,
+              copies: reprintResult.copies,
+              costPerCopy: reprintResult.costPerCopy,
+              bookSize: reprintResult.bookSize,
+              paperColor: reprintResult.paperColor,
+              lamination: reprintResult.lamination,
+              totalPrice: reprintResult.amountPaid,
+            });
+
+            await this.sendPaymentConfirmationWhatsApp({
+              userName: reprintResult.name,
+              phoneNumber: reprintResult.phone,
+              preferredLanguage: reprintResult.locale,
+              whatsAppNotificationsEnabled: reprintResult.whatsAppNotificationsEnabled,
+              orderNumber: reprintResult.orderNumber,
+              packageName: reprintResult.packageName,
+              amountPaid: reprintResult.amountPaid,
+              addons: reprintResult.addons,
+              variant: "reprint",
+              dashboardUrl: this.buildLocalizedDashboardUrl(reprintResult.locale),
+            });
+          }
+        } catch (error) {
+          this.logger.error(
+            `Failed to create reprint entities for payment ${existingPayment.id} — reverting processedAt so retry is possible: ${error instanceof Error ? error.message : error}`,
+            error instanceof Error ? error.stack : undefined
+          );
+          await this.prisma.payment.update({
+            where: { id: existingPayment.id },
+            data: { processedAt: null, status: PaymentStatus.PENDING },
           });
+          throw error;
         }
         return;
       }
@@ -2717,6 +3031,12 @@ export class PaymentsService {
     packageName: string;
     amountPaid: string;
     addons: string[];
+    bookTitle: string;
+    copies: number;
+    costPerCopy: string;
+    bookSize: string;
+    paperColor: string;
+    lamination: string;
   } | null> {
     if (!params.userId) {
       throw new ConflictException("Authenticated reprint payments require a linked user.");
@@ -2745,6 +3065,17 @@ export class PaymentsService {
           fontFamily: true,
           fontSize: true,
           finalPdfUrl: true,
+          files: {
+            where: { fileType: "RAW_MANUSCRIPT" },
+            orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+            take: 1,
+            select: {
+              url: true,
+              fileName: true,
+              fileSize: true,
+              mimeType: true,
+            },
+          },
           user: {
             select: {
               email: true,
@@ -2759,6 +3090,9 @@ export class PaymentsService {
               id: true,
               packageId: true,
               packagePriceSnap: true,
+              bookSize: true,
+              paperColor: true,
+              lamination: true,
               package: {
                 select: {
                   name: true,
@@ -2789,6 +3123,11 @@ export class PaymentsService {
         );
       }
 
+      // Pull bookSize/paperColor/lamination from source order (authoritative)
+      const bookSize = sourceBook.order.bookSize ?? reprint.bookSize ?? "A5";
+      const paperColor = sourceBook.order.paperColor ?? reprint.paperColor ?? "white";
+      const lamination = sourceBook.order.lamination ?? reprint.lamination ?? "gloss";
+
       const orderNumber = await this.generateOrderNumber(tx);
       const amount = this.toCurrency(params.amount);
       const now = new Date();
@@ -2805,10 +3144,10 @@ export class PaymentsService {
           packagePriceSnap: Number(sourceBook.order.packagePriceSnap),
           hasCoverDesign: false,
           hasFormatting: false,
-          bookSize: reprint.bookSize,
-          paperColor: reprint.paperColor,
-          lamination: reprint.lamination,
-          status: OrderStatus.IN_PRODUCTION,
+          bookSize,
+          paperColor,
+          lamination,
+          status: OrderStatus.PAID,
           initialAmount: amount,
           extraAmount: 0,
           discountAmount: 0,
@@ -2817,12 +3156,14 @@ export class PaymentsService {
         } as Prisma.OrderUncheckedCreateInput,
       });
 
+      const sourceManuscript = sourceBook.files[0] ?? null;
+
       const book = await tx.book.create({
         data: {
           orderId: order.id,
           userId: sourceBook.userId,
-          status: BookStatus.IN_PRODUCTION,
-          productionStatus: BookStatus.IN_PRODUCTION,
+          status: BookStatus.REVIEW,
+          productionStatus: BookStatus.REVIEW,
           productionStatusUpdatedAt: now,
           title: sourceBook.title,
           coverImageUrl: sourceBook.coverImageUrl,
@@ -2831,10 +3172,28 @@ export class PaymentsService {
           estimatedPages: sourceBook.estimatedPages,
           fontFamily: sourceBook.fontFamily,
           fontSize: sourceBook.fontSize,
-          pageSize: reprint.bookSize,
+          pageSize: bookSize,
           finalPdfUrl,
+          previewPdfUrl: finalPdfUrl,
         },
       });
+
+      // Copy the source book's latest RAW_MANUSCRIPT file so the title
+      // derivation in list serializers works identically to normal books.
+      if (sourceManuscript?.url) {
+        await tx.file.create({
+          data: {
+            bookId: book.id,
+            fileType: "RAW_MANUSCRIPT",
+            url: sourceManuscript.url,
+            fileName: sourceManuscript.fileName,
+            fileSize: sourceManuscript.fileSize,
+            mimeType: sourceManuscript.mimeType,
+            version: 1,
+            createdBy: "SYSTEM",
+          },
+        });
+      }
 
       await tx.auditLog.createMany({
         data: [
@@ -2845,9 +3204,9 @@ export class PaymentsService {
             entityId: order.id,
             details: {
               source: "order",
-              status: OrderStatus.IN_PRODUCTION,
+              status: OrderStatus.PAID,
               reachedAt: order.createdAt.toISOString(),
-              label: "In Production",
+              label: "Paid",
             },
           },
           {
@@ -2857,9 +3216,9 @@ export class PaymentsService {
             entityId: order.id,
             details: {
               source: "book",
-              status: BookStatus.IN_PRODUCTION,
+              status: BookStatus.REVIEW,
               reachedAt: book.createdAt.toISOString(),
-              label: "In Production",
+              label: "Review",
             },
           },
         ],
@@ -2878,7 +3237,7 @@ export class PaymentsService {
           userId: sourceBook.userId,
           orderId: order.id,
           orderNumber,
-          status: OrderStatus.IN_PRODUCTION,
+          status: OrderStatus.PAID,
           source: "order",
           bookId: book.id,
         },
@@ -2895,6 +3254,15 @@ export class PaymentsService {
         packageName: sourceBook.order.package.name,
         amountPaid: this.formatNaira(params.amount),
         addons: [],
+        bookTitle:
+          this.deriveTitleFromFileName(sourceManuscript?.fileName) ??
+          sourceBook.title ??
+          "Untitled",
+        copies: reprint.copies,
+        costPerCopy: this.formatNaira(pageCount > 0 ? params.amount / reprint.copies : 0),
+        bookSize,
+        paperColor,
+        lamination,
       };
     });
   }
@@ -3106,26 +3474,26 @@ export class PaymentsService {
     };
   }
 
+  private deriveTitleFromFileName(fileName: string | null | undefined): string | null {
+    if (typeof fileName !== "string") return null;
+    const trimmed = fileName.trim();
+    if (!trimmed) return null;
+
+    const normalized = trimmed
+      .replace(/\.[^.]+$/, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
   private extractReprintMetadata(metadata: Record<string, unknown> | null): ReprintMetadata | null {
     if (!metadata || typeof metadata !== "object") return null;
 
     const sourceBookId = this.asString(metadata.sourceBookId);
     const copies = this.asInteger(metadata.copies);
-    const bookSize = this.asString(metadata.bookSize);
-    const paperColor = this.asString(metadata.paperColor);
-    const lamination = this.asString(metadata.lamination);
 
-    if (
-      !sourceBookId ||
-      typeof copies !== "number" ||
-      copies < REPRINT_MIN_COPIES ||
-      !bookSize ||
-      !REPRINT_ALLOWED_BOOK_SIZES.has(bookSize) ||
-      !paperColor ||
-      !REPRINT_ALLOWED_PAPER_COLORS.has(paperColor) ||
-      !lamination ||
-      !REPRINT_ALLOWED_LAMINATIONS.has(lamination)
-    ) {
+    if (!sourceBookId || typeof copies !== "number" || copies < REPRINT_MIN_COPIES) {
       return null;
     }
 
@@ -3133,9 +3501,9 @@ export class PaymentsService {
       sourceBookId,
       sourceOrderId: this.asString(metadata.sourceOrderId) ?? null,
       copies,
-      bookSize,
-      paperColor,
-      lamination,
+      bookSize: this.asString(metadata.bookSize) ?? null,
+      paperColor: this.asString(metadata.paperColor) ?? null,
+      lamination: this.asString(metadata.lamination) ?? null,
       pageCount: this.asInteger(metadata.pageCount) ?? null,
       finalPdfUrl: this.asString(metadata.finalPdfUrl) ?? null,
     };
@@ -4454,6 +4822,104 @@ export class PaymentsService {
     return new Date(start.getTime() + 24 * 60 * 60 * 1000);
   }
 
+  private async sendReprintConfirmationEmails(params: {
+    locale: Locale;
+    userName: string;
+    userEmail: string;
+    orderNumber: string;
+    bookTitle: string;
+    copies: number;
+    costPerCopy: string;
+    bookSize: string;
+    paperColor: string;
+    lamination: string;
+    totalPrice: string;
+  }): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn("RESEND_API_KEY not set — reprint confirmation emails skipped");
+      return;
+    }
+
+    const dashboardUrl = this.buildLocalizedDashboardUrl(params.locale);
+    const adminPanelUrl = `${this.frontendBaseUrl}/admin/orders`;
+
+    // Send user confirmation email
+    try {
+      const userEmail = await renderReprintConfirmEmail({
+        locale: params.locale,
+        userName: params.userName,
+        orderNumber: params.orderNumber,
+        bookTitle: params.bookTitle,
+        copies: params.copies,
+        costPerCopy: params.costPerCopy,
+        pageSize: params.bookSize,
+        paperColor: params.paperColor,
+        lamination: params.lamination,
+        totalPrice: params.totalPrice,
+        dashboardUrl,
+      });
+
+      const sendResult = await this.resend.emails.send({
+        from: this.customerPaymentsFromEmail,
+        to: params.userEmail,
+        subject: userEmail.subject,
+        html: userEmail.html,
+      });
+
+      if (sendResult.error) {
+        this.logger.error(
+          `Failed to send reprint confirmation email: ${sendResult.error.name} — ${sendResult.error.message}`
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send reprint confirmation email to ${params.userEmail}: ${error instanceof Error ? error.message : error}`,
+        error instanceof Error ? error.stack : undefined
+      );
+    }
+
+    // Send admin notification email
+    try {
+      const adminEmail = await renderReprintAdminConfirmEmail({
+        locale: "en",
+        userName: params.userName,
+        userEmail: params.userEmail,
+        orderNumber: params.orderNumber,
+        bookTitle: params.bookTitle,
+        copies: params.copies,
+        costPerCopy: params.costPerCopy,
+        pageSize: params.bookSize,
+        paperColor: params.paperColor,
+        lamination: params.lamination,
+        totalPrice: params.totalPrice,
+        adminPanelUrl,
+      });
+
+      const adminRecipients =
+        this.adminEmailRecipients.length > 0
+          ? this.adminEmailRecipients
+          : [this.adminNotificationsFromEmail];
+
+      const sendResult = await this.resend.emails.send({
+        from: this.adminNotificationsFromEmail,
+        to: adminRecipients,
+        subject: adminEmail.subject,
+        html: adminEmail.html,
+      });
+
+      if (sendResult.error) {
+        this.logger.error(
+          `Failed to send reprint admin notification: ${sendResult.error.name} — ${sendResult.error.message}`
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send reprint admin notification for ${params.orderNumber}: ${error instanceof Error ? error.message : error}`,
+        error instanceof Error ? error.stack : undefined
+      );
+    }
+  }
+
   private async sendOnlinePaymentAdminEmail(params: {
     orderNumber: string;
     packageName: string;
@@ -5336,33 +5802,29 @@ export class PaymentsService {
   }
 
   /**
-   * Delegate payment initialization to the correct provider.
-   * Used internally by payExtraPages and payReprint.
+   * Fetch reprint cost-per-page and cover-cost from SystemSetting.
+   * Returns [costPerPage, coverCost] with sensible defaults.
    */
-  private async resolveConfiguredReprintCostPerPage(): Promise<number> {
-    const setting = await this.prisma.systemSetting.findUnique({
+  private async resolveReprintCostSettings(): Promise<[number, number]> {
+    const settings = await this.prisma.systemSetting.findMany({
       where: {
-        key: REPRINT_COST_PER_PAGE_SETTING_KEY,
+        key: {
+          in: [REPRINT_COST_PER_PAGE_SETTING_KEY, REPRINT_COVER_COST_SETTING_KEY],
+        },
       },
-      select: {
-        value: true,
-      },
+      select: { key: true, value: true },
     });
 
-    const parsed = this.toCurrency(setting?.value);
-    return parsed > 0 ? parsed : DEFAULT_REPRINT_COST_PER_PAGE_A5;
-  }
+    const costPerPageRaw = settings.find((s) => s.key === REPRINT_COST_PER_PAGE_SETTING_KEY)?.value;
+    const coverCostRaw = settings.find((s) => s.key === REPRINT_COVER_COST_SETTING_KEY)?.value;
 
-  private resolveReprintCostPerPage(bookSize: string, configuredA5Cost: number): number {
-    if (bookSize === "A4") {
-      return this.toCurrency(configuredA5Cost * 2);
-    }
+    const costPerPage = this.toCurrency(costPerPageRaw);
+    const coverCost = this.toCurrency(coverCostRaw);
 
-    if (bookSize === "A6") {
-      return this.toCurrency(configuredA5Cost / 2);
-    }
-
-    return this.toCurrency(configuredA5Cost);
+    return [
+      costPerPage > 0 ? costPerPage : DEFAULT_REPRINT_COST_PER_PAGE,
+      coverCost > 0 ? coverCost : DEFAULT_REPRINT_COVER_COST,
+    ];
   }
 
   private async delegateInitialize(

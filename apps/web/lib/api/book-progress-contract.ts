@@ -386,6 +386,22 @@ function resolveOrderId(payload: unknown): string | null {
   );
 }
 
+function resolveOrderType(payload: unknown): string | null {
+  const root = toRecord(payload);
+  const data = toRecord(root?.data);
+  const book = toRecord(root?.book);
+
+  const raw =
+    toStringValue(root?.orderType) ??
+    toStringValue(data?.orderType) ??
+    toStringValue(book?.orderType) ??
+    null;
+
+  if (!raw) return null;
+  const normalized = raw.toUpperCase().trim();
+  return normalized === "STANDARD" || normalized === "REPRINT" ? normalized : null;
+}
+
 function resolveRejectionReason(payload: unknown): string | null {
   const root = toRecord(payload);
   const data = toRecord(root?.data);
@@ -555,6 +571,7 @@ export function normalizeBookProgressPayload(payload: unknown): BookProgressNorm
     sourceEndpoint,
     bookId: resolveBookId(payload),
     orderId: resolveOrderId(payload),
+    orderType: resolveOrderType(payload),
     currentStatus,
     productionStatus,
     latestProcessingError: resolveLatestProcessingError(payload),

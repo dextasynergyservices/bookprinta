@@ -21,6 +21,7 @@ import {
   DashboardResponsiveDataRegion,
   DashboardTableViewport,
 } from "@/components/dashboard/dashboard-content-frame";
+import { ReprintBadge } from "@/components/dashboard/orders/reprint-badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/components/ui/table";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -110,9 +111,15 @@ function BooksDesktopTable({
         id: "title",
         header: () => tDashboard("books_table_title"),
         cell: ({ row }) => (
-          <span className="font-sans text-sm font-medium text-white">
-            {row.original.title ?? tDashboard("books_untitled")}
-          </span>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="font-sans text-sm font-medium text-white truncate">
+              {row.original.title ?? tDashboard("books_untitled")}
+            </span>
+            <ReprintBadge
+              orderType={row.original.orderType}
+              label={tDashboard("orders_reprint_badge")}
+            />
+          </div>
         ),
       }),
       createColumnHelper<UserBookListItem>().display({
@@ -261,12 +268,15 @@ function BooksMobileCards({
             prefersReducedMotion ? undefined : { scale: 1.01, backgroundColor: "#151515" }
           }
           transition={{ duration: 0.16, ease: "easeOut" }}
-          className="rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4"
+          className="overflow-hidden rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4"
         >
           <div className="flex items-start justify-between gap-3">
-            <span className="font-sans min-w-0 text-sm font-medium text-white truncate">
-              {book.title ?? tDashboard("books_untitled")}
-            </span>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 truncate font-sans text-sm font-medium text-white">
+                {book.title ?? tDashboard("books_untitled")}
+              </span>
+              <ReprintBadge orderType={book.orderType} label={tDashboard("orders_reprint_badge")} />
+            </div>
             <BookStatusBadge
               status={book.status}
               productionStatus={book.productionStatus}
@@ -274,6 +284,7 @@ function BooksMobileCards({
                 toDashboardStatusLabel(book.productionStatus ?? book.status) ??
                 tDashboard("books_unknown_status")
               }
+              className="shrink-0"
             />
           </div>
 

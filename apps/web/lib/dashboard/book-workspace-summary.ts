@@ -24,6 +24,40 @@ const WORKSPACE_APPROVED_BOOK_STATUSES = new Set([
 ]);
 const WORKSPACE_ACTION_REQUIRED_BOOK_STATUSES = new Set(["FORMATTING_REVIEW", "REJECTED"]);
 
+/**
+ * Resolve the single status value that most accurately represents the book's
+ * current user-facing state.
+ *
+ * A book has two status fields:
+ *   - `status` (manuscriptStatus): the manuscript-lifecycle value
+ *     (AWAITING_UPLOAD → UPLOADED → … → APPROVED → IN_PRODUCTION).
+ *   - `productionStatus`: the production-phase value
+ *     (PRINTING → PRINTED → SHIPPING → DELIVERED → COMPLETED), nullable /
+ *     defaulting to "PAYMENT_RECEIVED" in the frontend.
+ *
+ * When `productionStatus` carries a meaningful production-phase value it takes
+ * precedence for any delivery / approval check.  Otherwise we fall back to the
+ * manuscript status.
+ */
+const PRODUCTION_PHASE_STATUSES = new Set([
+  "PRINTING",
+  "PRINTED",
+  "SHIPPING",
+  "DELIVERED",
+  "COMPLETED",
+]);
+
+export function resolveEffectiveBookStatus(
+  manuscriptStatus: string | null,
+  productionStatus: string | null | undefined
+): string | null {
+  const normalized = productionStatus?.trim().toUpperCase() ?? null;
+  if (normalized && PRODUCTION_PHASE_STATUSES.has(normalized)) {
+    return productionStatus as string;
+  }
+  return manuscriptStatus;
+}
+
 export type DashboardTranslationValues = Record<string, string | number | Date>;
 export type DashboardTranslator = (key: string, values?: DashboardTranslationValues) => string;
 

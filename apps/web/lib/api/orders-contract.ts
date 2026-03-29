@@ -159,6 +159,7 @@ function normalizeOrderItem(value: unknown): OrdersListItem | null {
     orderStatus: normalizeStatus(row.orderStatus ?? row.status ?? orderRecord?.status),
     bookId: toStringValue(row.bookId) ?? toStringValue(bookRecord?.id) ?? null,
     bookStatus: normalizeStatus(row.bookStatus ?? bookRecord?.status),
+    bookProductionStatus: normalizeStatus(row.bookProductionStatus ?? bookRecord?.productionStatus),
     createdAt:
       toStringValue(row.createdAt) ??
       toStringValue(row.orderDate) ??

@@ -60,11 +60,26 @@ export interface ExtraPagesPaymentInput {
 export interface ReprintPaymentInput {
   sourceBookId: string;
   copies: number;
-  bookSize: "A4" | "A5" | "A6";
-  paperColor: "white" | "cream";
-  lamination: "matt" | "gloss";
-  provider: Extract<OnlinePaymentProvider, "PAYSTACK" | "STRIPE">;
+  provider: "PAYSTACK" | "STRIPE" | "BANK_TRANSFER";
   callbackUrl?: string;
+}
+
+export interface ReprintBankTransferResponse {
+  provider: "BANK_TRANSFER";
+  paymentId: string;
+  reference: string;
+  amount: number;
+  status: string;
+  bankTransfer: true;
+  message: string;
+}
+
+export type ReprintPaymentResponse = InitializePaymentResponse | ReprintBankTransferResponse;
+
+export function isReprintBankTransferResponse(
+  response: ReprintPaymentResponse
+): response is ReprintBankTransferResponse {
+  return "bankTransfer" in response && response.bankTransfer === true;
 }
 
 export interface BankTransferInput {
@@ -172,7 +187,7 @@ export async function payExtraPages(payload: ExtraPagesPaymentInput) {
   return (await response.json()) as InitializePaymentResponse;
 }
 
-export async function payReprint(payload: ReprintPaymentInput) {
+export async function payReprint(payload: ReprintPaymentInput): Promise<ReprintPaymentResponse> {
   const response = await fetchApiV1WithRefresh("/payments/reprint", {
     method: "POST",
     credentials: "include",
@@ -184,7 +199,36 @@ export async function payReprint(payload: ReprintPaymentInput) {
     await parseError(response);
   }
 
-  return (await response.json()) as InitializePaymentResponse;
+  return (await response.json()) as ReprintPaymentResponse;
+}
+
+export async function uploadReprintBankTransferReceipt(params: {
+  paymentId: string;
+  payerName: string;
+  payerEmail: string;
+  payerPhone: string;
+  receiptFile: File;
+}): Promise<BankTransferResponse> {
+  const formData = new FormData();
+  formData.append("payerName", params.payerName);
+  formData.append("payerEmail", params.payerEmail);
+  formData.append("payerPhone", params.payerPhone);
+  formData.append("receiptFile", params.receiptFile);
+
+  const response = await fetchApiV1WithRefresh(
+    `/payments/reprint/${encodeURIComponent(params.paymentId)}/receipt`,
+    {
+      method: "POST",
+      credentials: "include",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    await parseError(response);
+  }
+
+  return (await response.json()) as BankTransferResponse;
 }
 
 export async function verifyPayment(reference: string, provider?: string | null) {

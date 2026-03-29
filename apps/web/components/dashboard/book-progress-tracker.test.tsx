@@ -193,4 +193,44 @@ describe("BookProgressTracker", () => {
 
     expect(screen.getAllByLabelText("Payment Received - Current")).toHaveLength(2);
   });
+
+  it("marks pre-REVIEW stages as skipped for reprint orders", () => {
+    render(
+      <BookProgressTracker
+        timeline={[
+          {
+            stage: "REVIEW",
+            state: "current",
+            reachedAt: "2026-03-05T08:00:00.000Z",
+            sourceStatus: "REVIEW",
+          },
+        ]}
+        currentStage="REVIEW"
+        isReprint
+        reprintLabel="Reprint — same document"
+        stateLabels={{
+          completed: "Completed",
+          current: "Current",
+          upcoming: "Upcoming",
+          rejected: "Rejected",
+          skipped: "Skipped",
+        }}
+      />
+    );
+
+    // Reprint label is displayed
+    expect(screen.getAllByText("Reprint — same document").length).toBeGreaterThan(0);
+
+    // Pre-REVIEW stages are skipped (PAYMENT_RECEIVED through FORMATTED = 5 stages × 2 layouts)
+    const skippedNodes = document.querySelectorAll('[data-step-state="skipped"]');
+    expect(skippedNodes.length).toBe(10);
+
+    // REVIEW stage is current
+    const currentNodes = document.querySelectorAll('[data-step-state="current"]');
+    expect(currentNodes.length).toBeGreaterThan(0);
+
+    // Post-REVIEW stages are upcoming
+    const upcomingNodes = document.querySelectorAll('[data-step-state="upcoming"]');
+    expect(upcomingNodes.length).toBeGreaterThan(0);
+  });
 });

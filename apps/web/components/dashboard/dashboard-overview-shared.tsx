@@ -239,10 +239,11 @@ export function RecentOrderCard({
             <ReprintBadge orderType={order.orderType} label={tDashboard("orders_reprint_badge")} />
             <OrderStatusBadge
               orderStatus={order.status}
-              bookStatus={order.book?.status ?? null}
+              bookStatus={order.book?.productionStatus ?? order.book?.status ?? null}
               label={
-                toDashboardStatusLabel(order.book?.status ?? order.status) ??
-                tDashboard("orders_unknown_status")
+                toDashboardStatusLabel(
+                  order.book?.productionStatus ?? order.book?.status ?? order.status
+                ) ?? tDashboard("orders_unknown_status")
               }
             />
           </div>

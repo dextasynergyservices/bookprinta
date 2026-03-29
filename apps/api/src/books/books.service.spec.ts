@@ -69,6 +69,7 @@ const mockBooksPipelineService = {
     jobRecordId: "job_pdf_1",
     queueJobId: "generate-pdf:book:abc",
   }),
+  cancelActiveJobsForBook: jest.fn().mockResolvedValue(undefined),
 };
 
 const mockNotificationsService = {
@@ -384,6 +385,7 @@ describe("BooksService", () => {
           order: {
             status: "PREVIEW_READY",
           },
+          files: [],
           jobs: [],
           createdAt: new Date("2026-03-01T08:00:00.000Z"),
           updatedAt: new Date("2026-03-10T08:00:00.000Z"),
@@ -458,6 +460,7 @@ describe("BooksService", () => {
         order: {
           status: "IN_PRODUCTION",
         },
+        files: [],
         jobs: [],
         createdAt: new Date("2026-03-01T08:00:00.000Z"),
         updatedAt: new Date("2026-03-03T10:00:00.000Z"),
@@ -516,6 +519,7 @@ describe("BooksService", () => {
         order: {
           status: "FORMATTING",
         },
+        files: [],
         jobs: [
           {
             type: "AI_CLEANING",
@@ -571,6 +575,7 @@ describe("BooksService", () => {
         order: {
           status: "FORMATTING",
         },
+        files: [],
         jobs: [],
         createdAt: new Date("2026-03-07T08:00:00.000Z"),
         updatedAt: new Date("2026-03-07T08:35:00.000Z"),
@@ -612,6 +617,7 @@ describe("BooksService", () => {
         order: {
           status: "ACTION_REQUIRED",
         },
+        files: [],
         jobs: [],
         createdAt: new Date("2026-03-01T08:00:00.000Z"),
         updatedAt: new Date("2026-03-04T09:00:00.000Z"),
@@ -648,6 +654,7 @@ describe("BooksService", () => {
         order: {
           status: "FORMATTING",
         },
+        files: [],
         jobs: [],
         createdAt: new Date("2026-03-09T09:00:00.000Z"),
         updatedAt: new Date("2026-03-09T09:04:36.820Z"),
@@ -687,6 +694,7 @@ describe("BooksService", () => {
         order: {
           status: "APPROVED",
         },
+        files: [],
         jobs: [],
         createdAt: new Date("2026-03-01T08:00:00.000Z"),
         updatedAt: new Date("2026-03-03T10:00:00.000Z"),
@@ -718,6 +726,7 @@ describe("BooksService", () => {
         order: {
           status: "ACTION_REQUIRED",
         },
+        files: [],
         jobs: [
           {
             type: "AI_CLEANING",
@@ -871,6 +880,71 @@ describe("BooksService", () => {
       await expect(
         service.approveUserBook("user_1", "cm1111111111111111111111111", {})
       ).rejects.toThrow("Automated final PDF generation is not enabled in this environment yet.");
+
+      expect(txBookUpdate).not.toHaveBeenCalled();
+      expect(mockBooksPipelineService.enqueueGeneratePdf).not.toHaveBeenCalled();
+    });
+
+    it("transitions a REPRINT book from REVIEW to IN_PRODUCTION without PDF generation", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "REVIEW",
+        pageCount: 128,
+        currentHtmlUrl: null,
+        finalPdfUrl: "https://cdn.example.com/books/1/final.pdf",
+        order: {
+          status: "PAID",
+          orderType: "REPRINT",
+          skipFormatting: true,
+          package: { pageLimit: 150 },
+        },
+      });
+      txBookUpdate.mockResolvedValue({});
+      txOrderUpdate.mockResolvedValue({});
+
+      const result = await service.approveUserBook("user_1", "cm1111111111111111111111111", {});
+
+      expect(txBookUpdate).toHaveBeenCalledWith({
+        where: { id: "cm1111111111111111111111111" },
+        data: {
+          status: "IN_PRODUCTION",
+          productionStatus: "IN_PRODUCTION",
+          productionStatusUpdatedAt: expect.any(Date),
+        },
+      });
+      expect(txOrderUpdate).toHaveBeenCalledWith({
+        where: { id: "cm2222222222222222222222222" },
+        data: { status: "IN_PRODUCTION" },
+      });
+      expect(mockBooksPipelineService.enqueueGeneratePdf).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        bookId: "cm1111111111111111111111111",
+        bookStatus: "IN_PRODUCTION",
+        orderStatus: "IN_PRODUCTION",
+        queuedJob: null,
+      });
+    });
+
+    it("rejects reprint approval when final PDF is missing", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderId: "cm2222222222222222222222222",
+        status: "REVIEW",
+        pageCount: 128,
+        currentHtmlUrl: null,
+        finalPdfUrl: null,
+        order: {
+          status: "PAID",
+          orderType: "REPRINT",
+          skipFormatting: true,
+          package: { pageLimit: 150 },
+        },
+      });
+
+      await expect(
+        service.approveUserBook("user_1", "cm1111111111111111111111111", {})
+      ).rejects.toThrow("Final PDF is missing for this reprint");
 
       expect(txBookUpdate).not.toHaveBeenCalled();
       expect(mockBooksPipelineService.enqueueGeneratePdf).not.toHaveBeenCalled();
@@ -1097,7 +1171,9 @@ describe("BooksService", () => {
     it("returns the narrow reprint config for a delivered book", async () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cm1111111111111111111111111",
+        title: "My Book",
         status: "DELIVERED",
+        productionStatus: "DELIVERED",
         pageCount: 192,
         finalPdfUrl: "https://cdn.example.com/books/1/final.pdf",
         order: {
@@ -1105,16 +1181,11 @@ describe("BooksService", () => {
           paperColor: "cream",
           lamination: "matt",
         },
+        files: [{ fileName: "My Book.docx" }],
       });
       mockPrismaService.systemSetting.findMany.mockResolvedValue([
-        {
-          key: "quote_cost_per_page",
-          value: "12",
-        },
-      ]);
-      mockPrismaService.paymentGateway.findMany.mockResolvedValue([
-        { provider: "PAYSTACK" },
-        { provider: "STRIPE" },
+        { key: "reprint_cost_per_page", value: "15" },
+        { key: "reprint_cover_cost", value: "300" },
       ]);
 
       const result = await service.getUserBookReprintConfig(
@@ -1129,7 +1200,9 @@ describe("BooksService", () => {
         },
         select: {
           id: true,
+          title: true,
           status: true,
+          productionStatus: true,
           pageCount: true,
           finalPdfUrl: true,
           order: {
@@ -1139,29 +1212,12 @@ describe("BooksService", () => {
               lamination: true,
             },
           },
-        },
-      });
-      expect(mockPrismaService.systemSetting.findMany).toHaveBeenCalledWith({
-        where: {
-          key: {
-            in: ["quote_cost_per_page"],
+          files: {
+            where: { fileType: "RAW_MANUSCRIPT" },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { fileName: true },
           },
-        },
-        select: {
-          key: true,
-          value: true,
-        },
-      });
-      expect(mockPrismaService.paymentGateway.findMany).toHaveBeenCalledWith({
-        where: {
-          isEnabled: true,
-          provider: {
-            in: ["PAYSTACK", "STRIPE"],
-          },
-        },
-        orderBy: [{ priority: "asc" }, { provider: "asc" }],
-        select: {
-          provider: true,
         },
       });
       expect(result).toEqual({
@@ -1170,26 +1226,20 @@ describe("BooksService", () => {
         disableReason: null,
         finalPdfUrlPresent: true,
         pageCount: 192,
-        minCopies: 25,
-        defaultBookSize: "A5",
-        defaultPaperColor: "cream",
-        defaultLamination: "matt",
-        allowedBookSizes: ["A4", "A5", "A6"],
-        allowedPaperColors: ["white", "cream"],
-        allowedLaminations: ["matt", "gloss"],
-        costPerPageBySize: {
-          A4: 24,
-          A5: 12,
-          A6: 6,
-        },
-        enabledPaymentProviders: ["PAYSTACK", "STRIPE"],
+        costPerCopy: 192 * 15 + 300,
+        bookTitle: "My Book",
+        bookSize: "A5",
+        paperColor: "cream",
+        lamination: "matt",
       });
     });
 
     it("flags books that cannot reprint the same PDF yet", async () => {
       mockPrismaService.book.findFirst.mockResolvedValue({
         id: "cm1111111111111111111111111",
+        title: "Draft Book",
         status: "PRINTING",
+        productionStatus: null,
         pageCount: null,
         finalPdfUrl: null,
         order: {
@@ -1197,7 +1247,12 @@ describe("BooksService", () => {
           paperColor: "white",
           lamination: "gloss",
         },
+        files: [{ fileName: "Draft Book.docx" }],
       });
+      mockPrismaService.systemSetting.findMany.mockResolvedValue([
+        { key: "reprint_cost_per_page", value: "15" },
+        { key: "reprint_cover_cost", value: "300" },
+      ]);
 
       const result = await service.getUserBookReprintConfig(
         "user_1",
@@ -1210,19 +1265,50 @@ describe("BooksService", () => {
         disableReason: "BOOK_NOT_ELIGIBLE",
         finalPdfUrlPresent: false,
         pageCount: null,
-        minCopies: 25,
-        defaultBookSize: "A6",
-        defaultPaperColor: "white",
-        defaultLamination: "gloss",
-        allowedBookSizes: ["A4", "A5", "A6"],
-        allowedPaperColors: ["white", "cream"],
-        allowedLaminations: ["matt", "gloss"],
-        costPerPageBySize: {
-          A4: 20,
-          A5: 10,
-          A6: 5,
+        costPerCopy: null,
+        bookTitle: "Draft Book",
+        bookSize: "A6",
+        paperColor: "white",
+        lamination: "gloss",
+      });
+    });
+
+    it("allows reprint when status is not eligible but productionStatus is COMPLETED", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        title: "Delivered via productionStatus",
+        status: "IN_PRODUCTION",
+        productionStatus: "COMPLETED",
+        pageCount: 20,
+        finalPdfUrl: "https://cdn.example.com/books/1/final.pdf",
+        order: {
+          bookSize: "A5",
+          paperColor: "white",
+          lamination: "gloss",
         },
-        enabledPaymentProviders: [],
+        files: [{ fileName: "Delivered via productionStatus.docx" }],
+      });
+      mockPrismaService.systemSetting.findMany.mockResolvedValue([
+        { key: "reprint_cost_per_page", value: "15" },
+        { key: "reprint_cover_cost", value: "300" },
+      ]);
+
+      const result = await service.getUserBookReprintConfig(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
+
+      expect(result).toEqual({
+        bookId: "cm1111111111111111111111111",
+        canReprintSame: true,
+        disableReason: null,
+        finalPdfUrlPresent: true,
+        pageCount: 20,
+        costPerCopy: 20 * 15 + 300,
+        bookTitle: "Delivered via productionStatus",
+        bookSize: "A5",
+        paperColor: "white",
+        lamination: "gloss",
       });
     });
   });

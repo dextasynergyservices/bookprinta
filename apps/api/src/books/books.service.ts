@@ -33,9 +33,6 @@ import type {
   BookReprocessResponse,
   BookSettingsResponse,
   BookStatus,
-  Lamination,
-  PaperColor,
-  ReprintBookSize,
   UpdateAdminBookProductionStatusInput,
   UpdateBookSettingsInput,
   UserBooksListQueryInput,
@@ -54,7 +51,7 @@ import { Resend } from "resend";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { FilesService } from "../files/files.service.js";
 import { Prisma } from "../generated/prisma/client.js";
-import { type FileType, type JobStatus, PaymentProvider } from "../generated/prisma/enums.js";
+import type { FileType, JobStatus } from "../generated/prisma/enums.js";
 import { isUserNotificationChannelEnabled } from "../notifications/notification-preference-policy.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { WhatsappNotificationsService } from "../notifications/whatsapp-notifications.service.js";
@@ -132,6 +129,18 @@ const BOOK_DETAIL_SELECT = {
   order: {
     select: {
       status: true,
+      orderType: true,
+      originalBookId: true,
+    },
+  },
+  files: {
+    where: {
+      fileType: RAW_DOWNLOAD_FILE_TYPE,
+    },
+    orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+    take: 1,
+    select: {
+      fileName: true,
     },
   },
   jobs: {
@@ -180,6 +189,18 @@ const USER_BOOK_LIST_SELECT = {
   order: {
     select: {
       status: true,
+      orderType: true,
+      originalBookId: true,
+    },
+  },
+  files: {
+    where: {
+      fileType: RAW_DOWNLOAD_FILE_TYPE,
+    },
+    orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+    take: 1,
+    select: {
+      fileName: true,
     },
   },
   jobs: {
@@ -228,6 +249,8 @@ const ADMIN_BOOK_LIST_SELECT = {
       id: true,
       orderNumber: true,
       status: true,
+      orderType: true,
+      originalBookId: true,
     },
   },
   files: {
@@ -237,6 +260,7 @@ const ADMIN_BOOK_LIST_SELECT = {
     orderBy: [{ version: "desc" }, { createdAt: "desc" }],
     take: 1,
     select: {
+      fileName: true,
       createdAt: true,
     },
   },
@@ -262,6 +286,8 @@ const ADMIN_BOOK_DETAIL_SELECT = {
       id: true,
       orderNumber: true,
       status: true,
+      orderType: true,
+      originalBookId: true,
     },
   },
   files: {
@@ -290,22 +316,16 @@ type AdminDownloadAsset = {
 export class BooksService {
   private readonly logger = new Logger(BooksService.name);
   private static readonly EXTRA_PAGE_PRICE_NGN = 10;
-  private static readonly DEFAULT_REPRINT_COST_PER_PAGE_A5 = 10;
-  private static readonly REPRINT_COST_PER_PAGE_SETTING_KEY = "quote_cost_per_page";
-  private static readonly REPRINT_MIN_COPIES = 25;
+  private static readonly DEFAULT_REPRINT_COST_PER_PAGE = 15;
+  private static readonly DEFAULT_REPRINT_COVER_COST = 300;
+  private static readonly REPRINT_COST_PER_PAGE_SETTING_KEY = "reprint_cost_per_page";
+  private static readonly REPRINT_COVER_COST_SETTING_KEY = "reprint_cover_cost";
   private static readonly ACTIVE_JOB_STALE_AFTER_MS = 15 * 60 * 1000;
   private static readonly FALLBACK_PROCESSING_STALE_AFTER_MS = 15 * 60 * 1000;
   private static readonly REPRINT_ELIGIBLE_BOOK_STATUSES = new Set<BookStatus>([
     "DELIVERED",
     "COMPLETED",
   ]);
-  private static readonly REPRINT_ALLOWED_BOOK_SIZES: ReprintBookSize[] = ["A4", "A5", "A6"];
-  private static readonly REPRINT_ALLOWED_PAPER_COLORS: PaperColor[] = ["white", "cream"];
-  private static readonly REPRINT_ALLOWED_LAMINATIONS: Lamination[] = ["matt", "gloss"];
-  private static readonly REPRINT_PAYMENT_PROVIDERS = [
-    PaymentProvider.PAYSTACK,
-    PaymentProvider.STRIPE,
-  ] as const;
   private static readonly NON_USER_FACING_PROCESSING_ERRORS = [
     "cleared by local development queue reset.",
     "marked stale and superseded by a fresh reprocess request.",
@@ -322,6 +342,7 @@ export class BooksService {
   ]);
   private static readonly PREVIEW_AVAILABLE_BOOK_STATUSES = new Set([
     "PREVIEW_READY",
+    "REVIEW",
     "APPROVED",
     "IN_PRODUCTION",
     "PRINTING",
@@ -632,9 +653,10 @@ export class BooksService {
       where: { userId },
     });
     const totalPages = totalItems > 0 ? Math.ceil(totalItems / pageSize) : 0;
+    const reprintSourceTitles = await this.resolveReprintSourceTitles(rows);
 
     return {
-      items: rows.map((row) => this.serializeUserBookListItem(row)),
+      items: rows.map((row) => this.serializeUserBookListItem(row, reprintSourceTitles)),
       pagination: {
         page,
         pageSize,
@@ -660,16 +682,25 @@ export class BooksService {
     }
 
     const rollout = this.rollout.resolveBookRolloutState(row);
+    const latestFileTitle = this.deriveTitleFromFileName(row.files[0]?.fileName ?? null);
+
+    // For reprints, resolve the source book's title when this book has no files
+    let resolvedTitle = latestFileTitle ?? row.title ?? null;
+    if (!latestFileTitle && row.order.orderType === "REPRINT" && row.order.originalBookId) {
+      const sourceTitles = await this.resolveReprintSourceTitles([row]);
+      resolvedTitle = sourceTitles.get(row.order.originalBookId) ?? row.title ?? null;
+    }
 
     return {
       id: row.id,
       orderId: row.orderId,
+      orderType: row.order.orderType ?? null,
       status: row.status,
       productionStatus: this.resolveProductionStatus({
         productionStatus: row.productionStatus,
         manuscriptStatus: row.status,
       }),
-      title: row.title ?? null,
+      title: resolvedTitle,
       coverImageUrl: row.coverImageUrl ?? null,
       latestProcessingError: this.resolveLatestProcessingError(row.jobs),
       rejectionReason: row.rejectionReason ?? null,
@@ -752,9 +783,10 @@ export class BooksService {
       where: this.buildAdminBookListWhere(query.status),
       select: ADMIN_BOOK_LIST_SELECT,
     });
+    const reprintSourceTitles = await this.resolveReprintSourceTitles(rows);
 
     const items = rows
-      .map((row) => this.serializeAdminBookListItem(row))
+      .map((row) => this.serializeAdminBookListItem(row, reprintSourceTitles))
       .sort((left, right) =>
         this.compareAdminBookListItems(left, right, {
           sortBy,
@@ -809,6 +841,15 @@ export class BooksService {
     const latestManuscript = row.files.find((f) => f.fileType === "RAW_MANUSCRIPT");
     const latestFileTitle = this.deriveTitleFromFileName(latestManuscript?.fileName ?? null);
 
+    // For reprints, resolve the source book's title when this book has no manuscript files
+    let adminResolvedTitle = latestFileTitle ?? row.title ?? null;
+    if (!latestFileTitle && row.order.orderType === "REPRINT" && row.order.originalBookId) {
+      const sourceTitles = await this.resolveReprintSourceTitles([
+        { id: row.id, order: row.order },
+      ]);
+      adminResolvedTitle = sourceTitles.get(row.order.originalBookId) ?? row.title ?? null;
+    }
+
     return {
       id: row.id,
       orderId: row.orderId,
@@ -816,7 +857,7 @@ export class BooksService {
       productionStatus: row.productionStatus,
       displayStatus: projection.displayStatus,
       statusSource: projection.statusSource,
-      title: latestFileTitle ?? row.title ?? null,
+      title: adminResolvedTitle,
       coverImageUrl: row.coverImageUrl ?? null,
       latestProcessingError: this.resolveLatestProcessingError(row.jobs),
       rejectionReason: row.rejectionReason ?? null,
@@ -855,6 +896,7 @@ export class BooksService {
         id: row.order.id,
         orderNumber: row.order.orderNumber,
         status: row.order.status,
+        orderType: row.order.orderType ?? null,
         detailUrl: `/admin/orders/${row.order.id}`,
       },
       files: row.files.map((file) => this.serializeBookFileVersion(file)),
@@ -1662,6 +1704,22 @@ export class BooksService {
     };
   }
 
+  /**
+   * Returns true when the given book already has a non-terminal reprint order
+   * (i.e. one that is not COMPLETED, CANCELLED, or REFUNDED).
+   */
+  async hasActiveReprint(bookId: string): Promise<boolean> {
+    const activeReprintOrder = await this.prisma.order.findFirst({
+      where: {
+        originalBookId: bookId,
+        orderType: "REPRINT",
+        status: { notIn: ["COMPLETED", "CANCELLED", "REFUNDED"] },
+      },
+      select: { id: true },
+    });
+    return activeReprintOrder !== null;
+  }
+
   async getUserBookReprintConfig(
     userId: string,
     bookId: string
@@ -1673,7 +1731,9 @@ export class BooksService {
       },
       select: {
         id: true,
+        title: true,
         status: true,
+        productionStatus: true,
         pageCount: true,
         finalPdfUrl: true,
         order: {
@@ -1683,6 +1743,12 @@ export class BooksService {
             lamination: true,
           },
         },
+        files: {
+          where: { fileType: "RAW_MANUSCRIPT" },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { fileName: true },
+        },
       },
     });
 
@@ -1690,69 +1756,75 @@ export class BooksService {
       throw new NotFoundException(`Book "${bookId}" not found`);
     }
 
-    const [systemSettings, paymentGateways] = await Promise.all([
-      this.prisma.systemSetting.findMany({
-        where: {
-          key: {
-            in: [BooksService.REPRINT_COST_PER_PAGE_SETTING_KEY],
-          },
+    const systemSettings = await this.prisma.systemSetting.findMany({
+      where: {
+        key: {
+          in: [
+            BooksService.REPRINT_COST_PER_PAGE_SETTING_KEY,
+            BooksService.REPRINT_COVER_COST_SETTING_KEY,
+          ],
         },
-        select: {
-          key: true,
-          value: true,
-        },
-      }),
-      this.prisma.paymentGateway.findMany({
-        where: {
-          isEnabled: true,
-          provider: {
-            in: [...BooksService.REPRINT_PAYMENT_PROVIDERS],
-          },
-        },
-        orderBy: [{ priority: "asc" }, { provider: "asc" }],
-        select: {
-          provider: true,
-        },
-      }),
-    ]);
+      },
+      select: {
+        key: true,
+        value: true,
+      },
+    });
 
-    const configuredA5Cost = this.resolveConfiguredReprintCostPerPage(systemSettings);
-    const defaultBookSize = this.normalizeReprintBookSize(book.order.bookSize);
-    const defaultPaperColor = this.normalizePaperColor(book.order.paperColor);
-    const defaultLamination = this.normalizeLamination(book.order.lamination);
-    const enabledPaymentProviders = paymentGateways
-      .map((gateway) => gateway.provider)
-      .filter(
-        (provider): provider is BookReprintConfigResponse["enabledPaymentProviders"][number] =>
-          provider === PaymentProvider.PAYSTACK || provider === PaymentProvider.STRIPE
-      );
+    const costPerPage = this.resolveReprintSettingValue(
+      systemSettings,
+      BooksService.REPRINT_COST_PER_PAGE_SETTING_KEY,
+      BooksService.DEFAULT_REPRINT_COST_PER_PAGE
+    );
+    const coverCost = this.resolveReprintSettingValue(
+      systemSettings,
+      BooksService.REPRINT_COVER_COST_SETTING_KEY,
+      BooksService.DEFAULT_REPRINT_COVER_COST
+    );
+
+    const pageCount =
+      typeof book.pageCount === "number" && book.pageCount > 0 ? book.pageCount : null;
+    const costPerCopy = pageCount !== null ? pageCount * costPerPage + coverCost : null;
+
+    // Check if there's already an active (non-terminal) reprint order for this book
+    const activeReprintOrder = await this.prisma.order.findFirst({
+      where: {
+        originalBookId: bookId,
+        orderType: "REPRINT",
+        status: {
+          notIn: ["COMPLETED", "CANCELLED", "REFUNDED"],
+        },
+      },
+      select: { id: true },
+    });
+    const hasActiveReprint = activeReprintOrder !== null;
+
     const disableReason = this.resolveReprintDisableReason({
       bookStatus: book.status,
+      productionStatus: book.productionStatus,
       finalPdfUrl: book.finalPdfUrl,
       pageCount: book.pageCount,
-      defaultBookSize,
-      enabledPaymentProvidersCount: enabledPaymentProviders.length,
+      hasActiveReprint,
     });
+
+    // Derive the display title from the latest RAW_MANUSCRIPT file name so it
+    // always reflects the most-recently-uploaded manuscript (same pattern as
+    // admin book detail), falling back to the stored book.title.
+    const latestManuscriptFileName = book.files[0]?.fileName ?? null;
+    const latestFileTitle = this.deriveTitleFromFileName(latestManuscriptFileName);
 
     return {
       bookId: book.id,
       canReprintSame: disableReason === null,
       disableReason,
+      hasActiveReprint,
       finalPdfUrlPresent: Boolean(book.finalPdfUrl),
-      pageCount: typeof book.pageCount === "number" && book.pageCount > 0 ? book.pageCount : null,
-      minCopies: BooksService.REPRINT_MIN_COPIES,
-      defaultBookSize,
-      defaultPaperColor,
-      defaultLamination,
-      allowedBookSizes: [...BooksService.REPRINT_ALLOWED_BOOK_SIZES],
-      allowedPaperColors: [...BooksService.REPRINT_ALLOWED_PAPER_COLORS],
-      allowedLaminations: [...BooksService.REPRINT_ALLOWED_LAMINATIONS],
-      costPerPageBySize: {
-        A4: configuredA5Cost * 2,
-        A5: configuredA5Cost,
-        A6: configuredA5Cost / 2,
-      },
-      enabledPaymentProviders,
+      pageCount,
+      costPerCopy,
+      bookTitle: latestFileTitle ?? book.title ?? null,
+      bookSize: book.order.bookSize ?? null,
+      paperColor: book.order.paperColor ?? null,
+      lamination: book.order.lamination ?? null,
     };
   }
 
@@ -1883,9 +1955,12 @@ export class BooksService {
         status: true,
         pageCount: true,
         currentHtmlUrl: true,
+        finalPdfUrl: true,
         order: {
           select: {
             status: true,
+            orderType: true,
+            skipFormatting: true,
             package: {
               select: {
                 pageLimit: true,
@@ -1900,6 +1975,43 @@ export class BooksService {
       throw new NotFoundException(`Book "${bookId}" not found`);
     }
 
+    // ── Reprint approval path: REVIEW → IN_PRODUCTION ──
+    const isReprintApproval = book.order.orderType === "REPRINT" && book.status === "REVIEW";
+
+    if (isReprintApproval) {
+      if (!book.finalPdfUrl) {
+        throw new BadRequestException(
+          "Final PDF is missing for this reprint. Please contact support."
+        );
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.book.update({
+          where: { id: book.id },
+          data: {
+            status: "IN_PRODUCTION",
+            productionStatus: "IN_PRODUCTION",
+            productionStatusUpdatedAt: new Date(),
+          },
+        });
+
+        await tx.order.update({
+          where: { id: book.orderId },
+          data: {
+            status: "IN_PRODUCTION",
+          },
+        });
+      });
+
+      return {
+        bookId: book.id,
+        bookStatus: "IN_PRODUCTION",
+        orderStatus: "IN_PRODUCTION",
+        queuedJob: null,
+      };
+    }
+
+    // ── Standard approval path: PREVIEW_READY → APPROVED ──
     if (book.status !== "PREVIEW_READY") {
       throw new BadRequestException("Book can only be approved when preview is ready.");
     }
@@ -2037,22 +2149,72 @@ export class BooksService {
     };
   }
 
+  /**
+   * For reprint books, the title should match whatever the source (original)
+   * book displays in the table. Batch-fetch the source book file-derived titles
+   * so each reprint row can resolve identically to the original.
+   */
+  private async resolveReprintSourceTitles(
+    rows: Array<{ id: string; order: { orderType: string | null; originalBookId: string | null } }>
+  ): Promise<Map<string, string>> {
+    const titleMap = new Map<string, string>();
+
+    const sourceBookIds = rows
+      .filter((row) => row.order.orderType === "REPRINT" && row.order.originalBookId)
+      .map((row) => row.order.originalBookId as string);
+
+    if (sourceBookIds.length === 0) return titleMap;
+
+    const uniqueIds = [...new Set(sourceBookIds)];
+    const sourceBooks = await this.prisma.book.findMany({
+      where: { id: { in: uniqueIds } },
+      select: {
+        id: true,
+        title: true,
+        files: {
+          where: { fileType: RAW_DOWNLOAD_FILE_TYPE },
+          orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: { fileName: true },
+        },
+      },
+    });
+
+    for (const source of sourceBooks) {
+      const fileTitle = this.deriveTitleFromFileName(source.files[0]?.fileName ?? null);
+      const resolvedTitle = fileTitle ?? source.title ?? null;
+      if (resolvedTitle) {
+        titleMap.set(source.id, resolvedTitle);
+      }
+    }
+
+    return titleMap;
+  }
+
   private serializeAdminBookListItem(
-    row: AdminBookListRow
+    row: AdminBookListRow,
+    reprintSourceTitles?: Map<string, string>
   ): AdminBooksListResponse["items"][number] {
     const projection = resolveAdminBookStatusProjection({
       status: row.status,
       productionStatus: row.productionStatus,
     });
 
+    const latestFileTitle = this.deriveTitleFromFileName(row.files[0]?.fileName ?? null);
+    const reprintSourceTitle =
+      row.order.orderType === "REPRINT" && row.order.originalBookId
+        ? (reprintSourceTitles?.get(row.order.originalBookId) ?? null)
+        : null;
+
     return {
       id: row.id,
-      title: row.title ?? null,
+      title: latestFileTitle ?? reprintSourceTitle ?? row.title ?? null,
       author: this.serializeAdminBookAuthor(row.user),
       order: {
         id: row.order.id,
         orderNumber: row.order.orderNumber,
         status: row.order.status,
+        orderType: row.order.orderType ?? null,
         detailUrl: `/admin/orders/${row.order.id}`,
       },
       status: row.status,
@@ -2065,18 +2227,28 @@ export class BooksService {
     };
   }
 
-  private serializeUserBookListItem(row: UserBookListRow): UserBooksListResponse["items"][number] {
+  private serializeUserBookListItem(
+    row: UserBookListRow,
+    reprintSourceTitles?: Map<string, string>
+  ): UserBooksListResponse["items"][number] {
     const productionStatus = this.resolveProductionStatus({
       productionStatus: row.productionStatus,
       manuscriptStatus: row.status,
     });
 
+    const latestFileTitle = this.deriveTitleFromFileName(row.files[0]?.fileName ?? null);
+    const reprintSourceTitle =
+      row.order.orderType === "REPRINT" && row.order.originalBookId
+        ? (reprintSourceTitles?.get(row.order.originalBookId) ?? null)
+        : null;
+
     return {
       id: row.id,
       orderId: row.orderId,
-      title: row.title ?? null,
+      title: latestFileTitle ?? reprintSourceTitle ?? row.title ?? null,
       status: row.status,
       productionStatus,
+      orderType: row.order.orderType ?? null,
       orderStatus: row.order.status,
       currentStage: this.resolveStageFromStatus(productionStatus),
       coverImageUrl: row.coverImageUrl ?? null,
@@ -3265,23 +3437,29 @@ export class BooksService {
       : null;
   }
 
-  private resolveConfiguredReprintCostPerPage(rows: Array<{ key: string; value: string }>): number {
-    const configuredValue = rows.find(
-      (row) => row.key === BooksService.REPRINT_COST_PER_PAGE_SETTING_KEY
-    )?.value;
+  private resolveReprintSettingValue(
+    rows: Array<{ key: string; value: string }>,
+    key: string,
+    fallback: number
+  ): number {
+    const configuredValue = rows.find((row) => row.key === key)?.value;
     const parsedValue = this.readMoneyValue(configuredValue);
-
-    return parsedValue > 0 ? parsedValue : BooksService.DEFAULT_REPRINT_COST_PER_PAGE_A5;
+    return parsedValue > 0 ? parsedValue : fallback;
   }
 
   private resolveReprintDisableReason(params: {
     bookStatus: BookStatus;
+    productionStatus: BookStatus | null;
     finalPdfUrl: string | null;
     pageCount: number | null;
-    defaultBookSize: ReprintBookSize | null;
-    enabledPaymentProvidersCount: number;
+    hasActiveReprint: boolean;
   }): BookReprintConfigResponse["disableReason"] {
-    if (!BooksService.REPRINT_ELIGIBLE_BOOK_STATUSES.has(params.bookStatus)) {
+    const isEligibleByStatus = BooksService.REPRINT_ELIGIBLE_BOOK_STATUSES.has(params.bookStatus);
+    const isEligibleByProductionStatus =
+      params.productionStatus !== null &&
+      BooksService.REPRINT_ELIGIBLE_BOOK_STATUSES.has(params.productionStatus);
+
+    if (!isEligibleByStatus && !isEligibleByProductionStatus) {
       return "BOOK_NOT_ELIGIBLE";
     }
 
@@ -3293,27 +3471,11 @@ export class BooksService {
       return "PAGE_COUNT_UNAVAILABLE";
     }
 
-    if (params.defaultBookSize === null) {
-      return "BOOK_SIZE_UNSUPPORTED";
-    }
-
-    if (params.enabledPaymentProvidersCount < 1) {
-      return "PAYMENT_PROVIDER_UNAVAILABLE";
+    if (params.hasActiveReprint) {
+      return "REPRINT_IN_PROGRESS";
     }
 
     return null;
-  }
-
-  private normalizeReprintBookSize(value: string | null | undefined): ReprintBookSize | null {
-    return value === "A4" || value === "A5" || value === "A6" ? value : null;
-  }
-
-  private normalizePaperColor(value: string | null | undefined): PaperColor {
-    return value === "cream" ? "cream" : "white";
-  }
-
-  private normalizeLamination(value: string | null | undefined): Lamination {
-    return value === "matt" ? "matt" : "gloss";
   }
 
   private asRecord(value: unknown): Record<string, unknown> | null {

@@ -213,17 +213,34 @@
     "sla_reminder": "Por favor revisa dentro de 30 minutos para mantener nuestro SLA."
   },
   "reprint_confirm": {
-    "subject": "Pedido de reimpresion confirmado - #{orderNumber}",
-    "heading": "Pedido de reimpresion confirmado",
-    "body": "Tu pedido de reimpresion ha sido confirmado y se esta preparando para produccion.",
+    "subject": "Pedido de reimpresión realizado - #{orderNumber}",
+    "heading": "Pedido de reimpresión realizado",
+    "body": "Tu pedido de reimpresión ha sido realizado y tu documento está listo para tu aprobación. Revísalo y apruébalo desde tu panel para enviarlo a producción.",
     "book_title": "Libro",
-    "copies": "Numero de copias",
-    "page_size": "Tamano de pagina",
+    "copies": "Número de copias",
+    "cost_per_copy": "Costo por copia",
+    "page_size": "Tamaño de página",
     "paper_color": "Color del papel",
     "lamination": "Laminado",
-    "total_price": "Precio total",
-    "order_number": "Numero de pedido",
-    "cta": "Seguir tu pedido"
+    "total_price": "Total pagado",
+    "order_number": "Número de pedido",
+    "cta": "Aprobar tu documento"
+  },
+  "reprint_admin": {
+    "subject": "Nuevo pedido de reimpresión - #{orderNumber}",
+    "heading": "Nuevo pedido de reimpresión recibido",
+    "body": "Un cliente ha realizado un nuevo pedido de reimpresión. El documento está en espera de su aprobación antes de entrar en producción.",
+    "order_number": "Número de pedido",
+    "customer_name": "Cliente",
+    "customer_email": "Correo",
+    "book_title": "Libro",
+    "copies": "Número de copias",
+    "cost_per_copy": "Costo por copia",
+    "page_size": "Tamaño de página",
+    "paper_color": "Color del papel",
+    "lamination": "Laminado",
+    "total_price": "Total pagado",
+    "cta": "Ver en el panel de administración"
   },
   "production_delay": {
     "subject": "Actualizacion de produccion - Tiempos de espera mas largos",

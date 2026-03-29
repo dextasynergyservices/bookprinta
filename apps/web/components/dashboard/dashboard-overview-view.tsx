@@ -1,13 +1,14 @@
 "use client";
 
-import type { DashboardPendingAction, UserBookListItem } from "@bookprinta/shared";
+import type { DashboardPendingAction, OrdersListItem, UserBookListItem } from "@bookprinta/shared";
 import { ArrowRight, Sparkles } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
-import { useId } from "react";
+import { useId, useMemo, useState } from "react";
 import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { Button } from "@/components/ui/button";
 import { useAuthSession } from "@/hooks/use-auth-session";
+import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
 import { useDashboardOverviewPageData } from "@/hooks/useDashboardOverviewPageData";
 import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,23 @@ import {
   SECTION_REVEAL_CLASS,
   SURFACE,
 } from "./dashboard-overview-shared";
+import { ReprintReadyCarousel } from "./reprint-ready-carousel";
+import { ReprintSameModal } from "./reprint-same-modal";
+
+const REPRINT_ELIGIBLE_STATUSES = new Set(["DELIVERED", "COMPLETED"]);
+
+function filterReprintReadyOrders(orders: OrdersListItem[]): OrdersListItem[] {
+  return orders
+    .filter(
+      (order) =>
+        order.book?.id != null &&
+        order.book != null &&
+        (REPRINT_ELIGIBLE_STATUSES.has(order.book.status) ||
+          (order.book.productionStatus != null &&
+            REPRINT_ELIGIBLE_STATUSES.has(order.book.productionStatus)))
+    )
+    .slice(0, 6);
+}
 
 function DashboardOverviewDeferredSectionsLoading() {
   const tCommon = useTranslations("common");
@@ -155,6 +173,18 @@ export function DashboardOverviewView() {
   const heroDescriptionId = useId();
   const nextActionTitleId = useId();
   const nextActionDescriptionId = useId();
+  const [reprintModalBookId, setReprintModalBookId] = useState<string | null>(null);
+  const isReprintModalOpen = reprintModalBookId !== null;
+
+  const reprintReadyOrders = useMemo(
+    () => filterReprintReadyOrders(overviewQuery.recentOrders ?? []),
+    [overviewQuery.recentOrders]
+  );
+
+  const reprintConfig = useBookReprintConfig({
+    bookId: reprintModalBookId,
+    enabled: isReprintModalOpen,
+  });
 
   if (overviewQuery.isInitialLoading) {
     return <DashboardOverviewSkeleton />;
@@ -230,30 +260,11 @@ export function DashboardOverviewView() {
                 </p>
               </div>
               <div className="mt-8 flex flex-col gap-3">
-                {nextAction.type === "REPRINT_AVAILABLE" && activeBook ? (
-                  <>
-                    <Button asChild className={PRIMARY_BUTTON_CLASS}>
-                      <Link
-                        href={`/dashboard/books/${encodeURIComponent(activeBook.id)}?reprint=same`}
-                        aria-label={`${tDashboard("reprint_same")}: ${activeBook.title}`}
-                      >
-                        {tDashboard("reprint_same")}
-                        <ArrowRight className="size-4" aria-hidden="true" />
-                      </Link>
-                    </Button>
-                    <Button
-                      asChild
-                      className="font-sans inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#007eff]/35 bg-[#071320] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#3398ff] hover:bg-[#0d1b2d] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
-                    >
-                      <Link
-                        href={`/pricing?orderType=REPRINT&sourceBookId=${encodeURIComponent(activeBook.id)}`}
-                        aria-label={`${tDashboard("revise_reprint")}: ${activeBook.title}`}
-                      >
-                        {tDashboard("revise_reprint")}
-                        <ArrowRight className="size-4" aria-hidden="true" />
-                      </Link>
-                    </Button>
-                  </>
+                {nextAction.type === "REPRINT_AVAILABLE" && reprintReadyOrders.length > 0 ? (
+                  <ReprintReadyCarousel
+                    orders={reprintReadyOrders}
+                    onReprintClick={(bookId) => setReprintModalBookId(bookId)}
+                  />
                 ) : (
                   <Button asChild className={PRIMARY_BUTTON_CLASS}>
                     <Link
@@ -339,8 +350,24 @@ export function DashboardOverviewView() {
           notifications={notifications}
           profile={profile}
           pendingActions={pendingActions}
+          onReprintBookIdChange={setReprintModalBookId}
         />
       </div>
+
+      <ReprintSameModal
+        open={isReprintModalOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setReprintModalBookId(null);
+        }}
+        config={reprintConfig.config}
+        isLoading={reprintConfig.isInitialLoading}
+        isError={reprintConfig.isError}
+        errorMessage={reprintConfig.error?.message}
+        onRetry={() => {
+          void reprintConfig.refetch();
+        }}
+        bookTitle={reprintConfig.config?.bookTitle ?? null}
+      />
     </section>
   );
 }

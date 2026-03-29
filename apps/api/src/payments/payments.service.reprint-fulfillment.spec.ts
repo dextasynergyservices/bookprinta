@@ -46,6 +46,10 @@ function createService() {
     notifyAdminsBankTransferReceived: jest.fn(),
   };
 
+  const whatsappNotificationsService = {
+    sendPaymentConfirmation: jest.fn().mockResolvedValue(undefined),
+  };
+
   const service = new PaymentsService(
     prisma as never,
     { isAvailable: true, initialize: jest.fn() } as never,
@@ -55,7 +59,9 @@ function createService() {
     {} as never,
     { sendRegistrationLink: jest.fn() } as never,
     notificationsService as never,
-    {} as never
+    {} as never,
+    {} as never,
+    whatsappNotificationsService as never
   );
 
   const resendMock = {
@@ -65,7 +71,7 @@ function createService() {
   };
   (service as unknown as { resend: typeof resendMock | null }).resend = resendMock;
 
-  return { service, prisma, tx, notificationsService, resendMock };
+  return { service, prisma, tx, notificationsService, whatsappNotificationsService, resendMock };
 }
 
 describe("PaymentsService reprint fulfillment", () => {
@@ -73,8 +79,9 @@ describe("PaymentsService reprint fulfillment", () => {
     jest.clearAllMocks();
   });
 
-  it("creates a REPRINT order and in-production book when a reprint payment succeeds", async () => {
-    const { service, prisma, tx, notificationsService, resendMock } = createService();
+  it("creates a REPRINT order and review-ready book when a reprint payment succeeds", async () => {
+    const { service, prisma, tx, notificationsService, whatsappNotificationsService, resendMock } =
+      createService();
     const sourceOrderCreatedAt = new Date("2026-03-13T12:00:00.000Z");
     const sourceBookCreatedAt = new Date("2026-03-13T12:00:01.000Z");
 
@@ -173,7 +180,7 @@ describe("PaymentsService reprint fulfillment", () => {
           bookSize: "A4",
           paperColor: "white",
           lamination: "gloss",
-          status: "IN_PRODUCTION",
+          status: "PAID",
           initialAmount: 76800,
           totalAmount: 76800,
           currency: "NGN",
@@ -185,8 +192,8 @@ describe("PaymentsService reprint fulfillment", () => {
         data: expect.objectContaining({
           orderId: "order_reprint_1",
           userId: "user_1",
-          status: "IN_PRODUCTION",
-          productionStatus: "IN_PRODUCTION",
+          status: "REVIEW",
+          productionStatus: "REVIEW",
           title: "My Book",
           coverImageUrl: "https://example.com/cover.jpg",
           pageCount: 128,
@@ -209,16 +216,16 @@ describe("PaymentsService reprint fulfillment", () => {
             userId: "user_1",
             details: expect.objectContaining({
               source: "order",
-              status: "IN_PRODUCTION",
-              label: "In Production",
+              status: "PAID",
+              label: "Paid",
             }),
           }),
           expect.objectContaining({
             userId: "user_1",
             details: expect.objectContaining({
               source: "book",
-              status: "IN_PRODUCTION",
-              label: "In Production",
+              status: "REVIEW",
+              label: "Review",
             }),
           }),
         ]),
@@ -228,12 +235,13 @@ describe("PaymentsService reprint fulfillment", () => {
       expect.objectContaining({
         userId: "user_1",
         orderId: "order_reprint_1",
-        status: "IN_PRODUCTION",
+        status: "PAID",
         source: "order",
         bookId: "book_reprint_1",
       }),
       tx
     );
+    expect(whatsappNotificationsService.sendPaymentConfirmation).toHaveBeenCalled();
     expect(resendMock.emails.send).toHaveBeenCalledTimes(1);
   });
 

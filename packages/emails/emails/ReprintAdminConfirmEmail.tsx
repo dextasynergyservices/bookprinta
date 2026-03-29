@@ -5,9 +5,10 @@ import { BRAND, EmailLayout } from "../components/EmailLayout.tsx";
 import type { Locale } from "../translations/index.ts";
 import { t } from "../translations/index.ts";
 
-interface ReprintConfirmEmailProps {
+interface ReprintAdminConfirmEmailProps {
   locale?: Locale;
   userName: string;
+  userEmail: string;
   orderNumber: string;
   bookTitle: string;
   copies: number;
@@ -16,12 +17,13 @@ interface ReprintConfirmEmailProps {
   paperColor: string;
   lamination: string;
   totalPrice: string;
-  dashboardUrl: string;
+  adminPanelUrl: string;
 }
 
-export function ReprintConfirmEmail({
+export function ReprintAdminConfirmEmail({
   locale = "en",
   userName,
+  userEmail,
   orderNumber,
   bookTitle,
   copies,
@@ -30,56 +32,62 @@ export function ReprintConfirmEmail({
   paperColor,
   lamination,
   totalPrice,
-  dashboardUrl,
-}: ReprintConfirmEmailProps) {
+  adminPanelUrl,
+}: ReprintAdminConfirmEmailProps) {
   return (
-    <EmailLayout locale={locale} preview={t(locale, "reprint_confirm", "heading")}>
-      <Text style={greeting}>{t(locale, "common", "greeting", { name: userName })}</Text>
-      <EmailHeading>{t(locale, "reprint_confirm", "heading")}</EmailHeading>
-      <Text style={bodyText}>{t(locale, "reprint_confirm", "body")}</Text>
+    <EmailLayout locale={locale} preview={t(locale, "reprint_admin", "heading")}>
+      <Text style={greeting}>{t(locale, "common", "greeting_admin")}</Text>
+      <EmailHeading>{t(locale, "reprint_admin", "heading")}</EmailHeading>
+      <Text style={bodyText}>{t(locale, "reprint_admin", "body")}</Text>
 
       <Section style={detailsBox}>
         <Text style={detailRow}>
-          <span style={detailLabel}>{t(locale, "reprint_confirm", "order_number")}:</span>{" "}
+          <span style={detailLabel}>{t(locale, "reprint_admin", "order_number")}:</span>{" "}
           {orderNumber}
         </Text>
         <Text style={detailRow}>
-          <span style={detailLabel}>{t(locale, "reprint_confirm", "book_title")}:</span> {bookTitle}
+          <span style={detailLabel}>{t(locale, "reprint_admin", "customer_name")}:</span> {userName}
         </Text>
         <Text style={detailRow}>
-          <span style={detailLabel}>{t(locale, "reprint_confirm", "copies")}:</span> {copies}
+          <span style={detailLabel}>{t(locale, "reprint_admin", "customer_email")}:</span>{" "}
+          {userEmail}
         </Text>
         <Text style={detailRow}>
-          <span style={detailLabel}>{t(locale, "reprint_confirm", "cost_per_copy")}:</span>{" "}
+          <span style={detailLabel}>{t(locale, "reprint_admin", "book_title")}:</span> {bookTitle}
+        </Text>
+        <Text style={detailRow}>
+          <span style={detailLabel}>{t(locale, "reprint_admin", "copies")}:</span> {copies}
+        </Text>
+        <Text style={detailRow}>
+          <span style={detailLabel}>{t(locale, "reprint_admin", "cost_per_copy")}:</span>{" "}
           {costPerCopy}
         </Text>
         <Text style={detailRow}>
-          <span style={detailLabel}>{t(locale, "reprint_confirm", "page_size")}:</span> {pageSize}
+          <span style={detailLabel}>{t(locale, "reprint_admin", "page_size")}:</span> {pageSize}
         </Text>
         <Text style={detailRow}>
-          <span style={detailLabel}>{t(locale, "reprint_confirm", "paper_color")}:</span>{" "}
-          {paperColor}
+          <span style={detailLabel}>{t(locale, "reprint_admin", "paper_color")}:</span> {paperColor}
         </Text>
         <Text style={detailRow}>
-          <span style={detailLabel}>{t(locale, "reprint_confirm", "lamination")}:</span>{" "}
-          {lamination}
+          <span style={detailLabel}>{t(locale, "reprint_admin", "lamination")}:</span> {lamination}
         </Text>
         <Text style={totalRow}>
-          <span style={detailLabel}>{t(locale, "reprint_confirm", "total_price")}:</span>{" "}
+          <span style={detailLabel}>{t(locale, "reprint_admin", "total_price")}:</span>{" "}
           <span style={totalValue}>{totalPrice}</span>
         </Text>
       </Section>
 
       <Section style={ctaSection}>
-        <EmailButton href={dashboardUrl}>{t(locale, "reprint_confirm", "cta")}</EmailButton>
+        <EmailButton href={adminPanelUrl}>{t(locale, "reprint_admin", "cta")}</EmailButton>
       </Section>
     </EmailLayout>
   );
 }
 
-ReprintConfirmEmail.PreviewProps = {
+ReprintAdminConfirmEmail.PreviewProps = {
   locale: "en" as Locale,
-  userName: "Adaeze",
+  userName: "Adaeze Okafor",
+  userEmail: "adaeze@example.com",
   orderNumber: "BP-2026-0015",
   bookTitle: "The Art of Lagos Living",
   copies: 50,
@@ -88,10 +96,10 @@ ReprintConfirmEmail.PreviewProps = {
   paperColor: "Cream",
   lamination: "Matt",
   totalPrice: "₦390,000",
-  dashboardUrl: "https://bookprinta.com/dashboard",
+  adminPanelUrl: "https://bookprinta.com/admin/orders",
 };
 
-export default ReprintConfirmEmail;
+export default ReprintAdminConfirmEmail;
 
 const greeting: React.CSSProperties = {
   fontSize: "15px",

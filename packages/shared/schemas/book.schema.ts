@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AdminAuditEntrySchema, AdminSortDirectionSchema } from "./admin.schema.ts";
-import { BookStatusSchema, OrderStatusSchema } from "./order.schema.ts";
+import { BookStatusSchema, OrderStatusSchema, OrderTypeSchema } from "./order.schema.ts";
 
 // ==========================================
 // Book Schemas — Source of Truth
@@ -108,24 +108,16 @@ export type PaperColor = z.infer<typeof PaperColorSchema>;
 export const LaminationSchema = z.enum(["matt", "gloss"]);
 export type Lamination = z.infer<typeof LaminationSchema>;
 
-export const ReprintPaymentProviderSchema = z.enum(["PAYSTACK", "STRIPE"]);
+export const ReprintPaymentProviderSchema = z.enum(["PAYSTACK", "STRIPE", "BANK_TRANSFER"]);
 export type ReprintPaymentProvider = z.infer<typeof ReprintPaymentProviderSchema>;
 
 export const ReprintUnavailableReasonSchema = z.enum([
   "BOOK_NOT_ELIGIBLE",
   "FINAL_PDF_MISSING",
   "PAGE_COUNT_UNAVAILABLE",
-  "BOOK_SIZE_UNSUPPORTED",
-  "PAYMENT_PROVIDER_UNAVAILABLE",
+  "REPRINT_IN_PROGRESS",
 ]);
 export type ReprintUnavailableReason = z.infer<typeof ReprintUnavailableReasonSchema>;
-
-export const ReprintCostPerPageBySizeSchema = z.object({
-  A4: z.number().nonnegative(),
-  A5: z.number().nonnegative(),
-  A6: z.number().nonnegative(),
-});
-export type ReprintCostPerPageBySize = z.infer<typeof ReprintCostPerPageBySizeSchema>;
 
 export const BookFontSizeSchema = z.union([z.literal(11), z.literal(12), z.literal(14)]);
 export type BookFontSize = z.infer<typeof BookFontSizeSchema>;
@@ -217,11 +209,13 @@ export const BookApproveResponseSchema = z.object({
   bookId: z.string().cuid(),
   bookStatus: BookStatusSchema,
   orderStatus: OrderStatusSchema,
-  queuedJob: z.object({
-    queue: z.literal("pdf-generation"),
-    name: z.literal("generate-pdf"),
-    jobId: z.string().nullable(),
-  }),
+  queuedJob: z
+    .object({
+      queue: z.literal("pdf-generation"),
+      name: z.literal("generate-pdf"),
+      jobId: z.string().nullable(),
+    })
+    .nullable(),
 });
 export type BookApproveResponse = z.infer<typeof BookApproveResponseSchema>;
 
@@ -278,21 +272,28 @@ export const BookFilesResponseSchema = z.object({
 });
 export type BookFilesResponse = z.infer<typeof BookFilesResponseSchema>;
 
+/**
+ * GET /api/v1/books/:id/reprint-config
+ *
+ * Returns the reprint configuration for a delivered/completed book.
+ * All fields are read-only — the user cannot change book size, paper
+ * color, or lamination for a reprint (same document, same settings).
+ *
+ * `costPerCopy` is pre-calculated by the backend:
+ *   costPerCopy = (pageCount × reprint_cost_per_page) + reprint_cover_cost
+ */
 export const BookReprintConfigResponseSchema = z.object({
   bookId: z.string().cuid(),
   canReprintSame: z.boolean(),
   disableReason: ReprintUnavailableReasonSchema.nullable(),
+  hasActiveReprint: z.boolean(),
   finalPdfUrlPresent: z.boolean(),
   pageCount: z.number().int().positive().nullable(),
-  minCopies: z.number().int().min(1),
-  defaultBookSize: ReprintBookSizeSchema.nullable(),
-  defaultPaperColor: PaperColorSchema,
-  defaultLamination: LaminationSchema,
-  allowedBookSizes: z.array(ReprintBookSizeSchema).min(1),
-  allowedPaperColors: z.array(PaperColorSchema).min(1),
-  allowedLaminations: z.array(LaminationSchema).min(1),
-  costPerPageBySize: ReprintCostPerPageBySizeSchema,
-  enabledPaymentProviders: z.array(ReprintPaymentProviderSchema),
+  costPerCopy: z.number().nonnegative().nullable(),
+  bookTitle: z.string().nullable(),
+  bookSize: z.string().nullable(),
+  paperColor: z.string().nullable(),
+  lamination: z.string().nullable(),
 });
 export type BookReprintConfigResponse = z.infer<typeof BookReprintConfigResponseSchema>;
 
@@ -331,6 +332,7 @@ export const UserBookListItemSchema = z.object({
   title: BookTitleSchema.nullable(),
   status: BookStatusSchema,
   productionStatus: BookStatusSchema,
+  orderType: z.enum(["STANDARD", "REPRINT"]).nullable(),
   orderStatus: OrderStatusSchema,
   currentStage: BookProgressStageSchema,
   coverImageUrl: z.string().nullable(),
@@ -365,6 +367,7 @@ export type UserBooksListResponse = z.infer<typeof UserBooksListResponseSchema>;
 export const BookDetailResponseSchema = z.object({
   id: z.string().cuid(),
   orderId: z.string().cuid(),
+  orderType: z.enum(["STANDARD", "REPRINT"]).nullable().optional(),
   status: BookStatusSchema,
   productionStatus: BookStatusSchema,
   title: z.string().trim().min(1).max(240).nullable(),
@@ -440,6 +443,7 @@ export const AdminBookOrderSummarySchema = z.object({
   id: z.string().cuid(),
   orderNumber: z.string().trim().min(1).max(120),
   status: OrderStatusSchema,
+  orderType: OrderTypeSchema.nullable(),
   detailUrl: z.string().trim().min(1),
 });
 export type AdminBookOrderSummary = z.infer<typeof AdminBookOrderSummarySchema>;

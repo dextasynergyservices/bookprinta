@@ -233,8 +233,7 @@ const TRANSLATIONS: Record<string, string> = {
   book_progress_rollout_grandfathered:
     "This manuscript started before the current rollout limit changed, so it can continue through the automated path without interruption.",
   book_progress_rollout_environment: "Environment: {environment}",
-  reprint_same: "Reprint Same",
-  revise_reprint: "Revise & Reprint",
+  reprint_same: "Reprint",
   loading: "Loading...",
   reprint_same_modal_title: "Reprint with the same final PDF",
   reprint_same_modal_description:
@@ -243,9 +242,8 @@ const TRANSLATIONS: Record<string, string> = {
   reprint_same_load_error_description:
     "We couldn't load this reprint configuration right now. Try again in a moment.",
   reprint_same_unavailable_inline_final_pdf:
-    "Same-file reprint is disabled because the final PDF is not available yet.",
-  reprint_same_unavailable_inline_generic:
-    "Same-file reprint is currently unavailable for this book.",
+    "Reprint is disabled because the final PDF is not available yet.",
+  reprint_same_unavailable_inline_generic: "Reprint is currently unavailable for this book.",
   reprint_same_contact_support: "Contact support",
 };
 
@@ -1523,11 +1521,7 @@ describe("BooksView route integration", () => {
 
     render(<BooksView />);
 
-    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
-    expect(screen.getByRole("link", { name: "Revise & Reprint" })).toHaveAttribute(
-      "href",
-      `/pricing?orderType=REPRINT&sourceBookId=${currentBookId}`
-    );
+    expect(screen.getByRole("button", { name: "Reprint" })).toBeEnabled();
   });
 
   it("hides reprint actions for books that are not delivered or completed", () => {
@@ -1568,8 +1562,7 @@ describe("BooksView route integration", () => {
 
     render(<BooksView />);
 
-    expect(screen.queryByRole("button", { name: "Reprint Same" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Revise & Reprint" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reprint" })).not.toBeInTheDocument();
   });
 
   it("opens the reprint modal route state from the workspace action row", async () => {
@@ -1615,7 +1608,7 @@ describe("BooksView route integration", () => {
 
     render(<BooksView />);
 
-    await user.click(screen.getByRole("button", { name: "Reprint Same" }));
+    await user.click(screen.getByRole("button", { name: "Reprint" }));
 
     expect(routerReplaceMock).toHaveBeenCalledWith(
       `/dashboard/books/${currentBookId}?reprint=same`
@@ -1690,9 +1683,9 @@ describe("BooksView route integration", () => {
 
     render(<BooksView />);
 
-    expect(screen.getByRole("button", { name: "Reprint Same" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Reprint" })).toBeEnabled();
     expect(
-      screen.getByText("Same-file reprint is disabled because the final PDF is not available yet.")
+      screen.getByText("Reprint is disabled because the final PDF is not available yet.")
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Contact support" })).toHaveAttribute(
       "href",
