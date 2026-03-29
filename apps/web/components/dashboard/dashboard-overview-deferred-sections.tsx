@@ -32,8 +32,8 @@ import {
   DashboardSkeletonBlock,
   NotificationItemSkeleton,
 } from "@/components/dashboard/dashboard-async-primitives";
-import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
 import { useNotificationsList } from "@/hooks/use-dashboard-shell-data";
+import { approveBookForProduction } from "@/hooks/useBookProgress";
 import { useBookFiles, useBookPreview } from "@/hooks/useBookResources";
 import {
   BOOK_PROGRESS_STAGE_LABEL_KEYS,
@@ -65,7 +65,7 @@ import {
 } from "./dashboard-overview-shared";
 import { DashboardRefundPolicyDialog } from "./dashboard-refund-policy-dialog";
 import { OrderMetaText, OrderStatusBadge } from "./orders";
-import { ReprintSameModal } from "./reprint-same-modal";
+import { ReprintReadyCarousel } from "./reprint-ready-carousel";
 
 const SUPPORT_WHATSAPP_URL = "https://wa.me/2348103208297";
 const DELIVERED_BOOK_STATUSES = new Set(["DELIVERED", "COMPLETED"]);
@@ -173,15 +173,6 @@ function _buildReprintSameHref(bookId: string): string {
   return `/dashboard/books/${bookId}?reprint=same`;
 }
 
-function buildReviseReprintHref(bookId: string): string {
-  const params = new URLSearchParams({
-    orderType: "REPRINT",
-    sourceBookId: bookId,
-  });
-
-  return `/pricing?${params.toString()}`;
-}
-
 function resolveNextMilestoneKey(params: {
   activeBook: UserBookListItem;
   workspaceState: ReturnType<typeof resolveWorkspaceSummary>["state"];
@@ -242,6 +233,7 @@ type DashboardOverviewDeferredSectionsProps = {
   notifications: DashboardOverviewNotifications;
   profile: DashboardOverviewProfile;
   pendingActions: DashboardPendingActionsSummary;
+  onReprintBookIdChange: (bookId: string | null) => void;
 };
 
 export function DashboardOverviewDeferredSections({
@@ -250,6 +242,7 @@ export function DashboardOverviewDeferredSections({
   notifications,
   profile,
   pendingActions,
+  onReprintBookIdChange,
 }: DashboardOverviewDeferredSectionsProps) {
   const tDashboard = useTranslations("dashboard");
   const tCommon = useTranslations("common");
@@ -269,8 +262,7 @@ export function DashboardOverviewDeferredSections({
   const quickLinksDescriptionId = useId();
   const [isDownloadingInvoice, setIsDownloadingInvoice] = useState(false);
   const [isRefundPolicyOpen, setIsRefundPolicyOpen] = useState(false);
-  const [reprintModalBookId, setReprintModalBookId] = useState<string | null>(null);
-  const isReprintModalOpen = reprintModalBookId !== null;
+  const [isApprovingReprint, setIsApprovingReprint] = useState(false);
   const notificationsFeed = useNotificationsList({
     page: 1,
     pageSize: ACTIVITY_FEED_PAGE_SIZE,
@@ -367,20 +359,13 @@ export function DashboardOverviewDeferredSections({
       (order) =>
         order.book?.id !== null &&
         order.book !== null &&
-        DELIVERED_BOOK_STATUSES.has(order.book.status)
+        (DELIVERED_BOOK_STATUSES.has(order.book.status) ||
+          (order.book.productionStatus != null &&
+            DELIVERED_BOOK_STATUSES.has(order.book.productionStatus)))
     )
-    .slice(0, 2);
-  const isDeliveredActiveBook =
-    activeBook !== null && DELIVERED_BOOK_STATUSES.has(activeBook.productionStatus);
-  const reprintConfig = useBookReprintConfig({
-    bookId: reprintModalBookId,
-    enabled: isReprintModalOpen,
-  });
-  const reprintModalBookTitle = reprintModalBookId
-    ? reprintModalBookId === activeBook?.id
-      ? activeBookTitle
-      : (reprintReadyOrders.find((o) => o.book?.id === reprintModalBookId)?.package.name ?? null)
-    : null;
+    .slice(0, 6);
+  const isReprintInReview =
+    activeBook !== null && activeBook.status === "REVIEW" && activeOrder?.orderType === "REPRINT";
 
   const handleDownloadInvoice = useCallback(async () => {
     if (!activeBook?.orderId) {
@@ -448,6 +433,19 @@ export function DashboardOverviewDeferredSections({
       setIsDownloadingInvoice(false);
     }
   }, [activeBook, activeOrder?.orderNumber, tDashboard]);
+
+  const handleApproveReprint = useCallback(async () => {
+    if (!activeBook?.id || isApprovingReprint) return;
+    setIsApprovingReprint(true);
+    try {
+      await approveBookForProduction({ bookId: activeBook.id });
+      toast.success(tDashboard("reprint_approve_success"));
+    } catch {
+      toast.error(tDashboard("reprint_approve_error"));
+    } finally {
+      setIsApprovingReprint(false);
+    }
+  }, [activeBook?.id, isApprovingReprint, tDashboard]);
 
   return (
     <div className="space-y-5 md:space-y-7">
@@ -631,27 +629,17 @@ export function DashboardOverviewDeferredSections({
                 </div>
 
                 <div className="mt-6 flex flex-col gap-3">
-                  {isDeliveredActiveBook ? (
-                    <>
-                      <Button
-                        className={PRIMARY_BUTTON_CLASS}
-                        aria-label={`${tDashboard("reprint_same")}: ${activeBookTitle}`}
-                        onClick={() => setReprintModalBookId(activeBook.id)}
-                      >
-                        {tDashboard("reprint_same")}
-                      </Button>
-                      <Button
-                        asChild
-                        className="font-sans inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#007eff]/35 bg-[#071320] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#3398ff] hover:bg-[#0d1b2d] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
-                      >
-                        <Link
-                          href={buildReviseReprintHref(activeBook.id)}
-                          aria-label={`${tDashboard("revise_reprint")}: ${activeBookTitle}`}
-                        >
-                          {tDashboard("revise_reprint")}
-                        </Link>
-                      </Button>
-                    </>
+                  {isReprintInReview ? (
+                    <Button
+                      className={PRIMARY_BUTTON_CLASS}
+                      aria-label={`${tDashboard("reprint_approve_for_print")}: ${activeBookTitle}`}
+                      onClick={() => void handleApproveReprint()}
+                      disabled={isApprovingReprint}
+                    >
+                      {isApprovingReprint
+                        ? tDashboard("reprint_approve_loading")
+                        : tDashboard("reprint_approve_for_print")}
+                    </Button>
                   ) : (
                     <Button asChild className={PRIMARY_BUTTON_CLASS}>
                       <Link
@@ -1185,69 +1173,11 @@ export function DashboardOverviewDeferredSections({
         />
 
         {reprintReadyOrders.length > 0 ? (
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
-            {reprintReadyOrders.map((order) => {
-              if (!order.book?.id) {
-                return null;
-              }
-
-              return (
-                <article
-                  key={order.id}
-                  className="relative overflow-hidden rounded-[26px] border border-white/10 bg-[#0C0C0E] p-4 md:p-5"
-                >
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0"
-                    style={{
-                      background:
-                        "linear-gradient(180deg, rgba(0,126,255,0.08) 0%, rgba(0,0,0,0) 34%), radial-gradient(60% 46% at 100% 0%, rgba(0,126,255,0.10) 0%, rgba(0,0,0,0) 72%)",
-                    }}
-                  />
-                  <div className="relative">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8D8D8D]">
-                          {order.orderNumber}
-                        </p>
-                        <h3 className="font-display mt-3 max-w-[12ch] text-[2rem] leading-[0.98] font-semibold tracking-[-0.04em] text-white">
-                          {order.package.name ?? tDashboard("orders_unknown_package")}
-                        </h3>
-                      </div>
-                      <span className="font-sans inline-flex min-h-8 items-center rounded-full border border-[#007eff]/30 bg-[#0B1A2A] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#CBE4FF]">
-                        {tDashboard("overview_reprint_ready_badge")}
-                      </span>
-                    </div>
-                    <p className="mt-4 font-serif text-base leading-7 text-[#B8B8B8]">
-                      {formatDashboardDate(order.createdAt, locale) ??
-                        tDashboard("orders_unknown_date")}
-                    </p>
-                    <div className="mt-5 flex flex-col gap-3">
-                      <Button
-                        className={PRIMARY_BUTTON_CLASS}
-                        onClick={() => {
-                          if (order.book?.id) setReprintModalBookId(order.book.id);
-                        }}
-                      >
-                        {tDashboard("reprint_same")}
-                      </Button>
-                      <Button asChild className={SECONDARY_BUTTON_CLASS}>
-                        <Link href={buildReviseReprintHref(order.book.id)}>
-                          {tDashboard("revise_reprint")}
-                        </Link>
-                      </Button>
-                      <Link
-                        href={order.trackingUrl}
-                        className="font-sans inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[#9FD0FF] transition-colors duration-150 hover:text-white focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
-                      >
-                        {tDashboard("orders_action_track")}
-                        <ArrowRight className="size-4" aria-hidden="true" />
-                      </Link>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+          <div className="mt-6">
+            <ReprintReadyCarousel
+              orders={reprintReadyOrders}
+              onReprintClick={(bookId) => onReprintBookIdChange(bookId)}
+            />
           </div>
         ) : (
           <div className={cn(SUB_SURFACE, "mt-6 px-4 py-4 md:px-5")}>
@@ -1373,20 +1303,6 @@ export function DashboardOverviewDeferredSections({
         <DashboardRefundPolicyDialog
           open={isRefundPolicyOpen}
           onOpenChange={setIsRefundPolicyOpen}
-        />
-        <ReprintSameModal
-          open={isReprintModalOpen}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) setReprintModalBookId(null);
-          }}
-          config={reprintConfig.config}
-          isLoading={reprintConfig.isInitialLoading}
-          isError={reprintConfig.isError}
-          errorMessage={reprintConfig.error?.message}
-          onRetry={() => {
-            void reprintConfig.refetch();
-          }}
-          bookTitle={reprintModalBookTitle}
         />
       </section>
     </div>

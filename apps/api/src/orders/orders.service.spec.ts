@@ -80,6 +80,7 @@ describe("OrdersService", () => {
           book: {
             id: "cm3333333333333333333333333",
             status: "PRINTING",
+            productionStatus: null,
           },
         },
       ]);
@@ -108,6 +109,7 @@ describe("OrdersService", () => {
             book: {
               id: "cm3333333333333333333333333",
               status: "PRINTING",
+              productionStatus: null,
             },
             trackingUrl: "/dashboard/orders/cm1111111111111111111111111",
           },

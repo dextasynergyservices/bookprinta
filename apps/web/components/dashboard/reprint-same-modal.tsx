@@ -1,49 +1,53 @@
 "use client";
 
 import type { BookReprintConfigResponse } from "@bookprinta/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
-import type { LucideIcon } from "lucide-react";
-import { BookOpen, Check, Layers, LoaderCircle, Minus, Plus, Sparkles, X } from "lucide-react";
+import {
+  ArrowLeft,
+  BookOpen,
+  Check,
+  CheckCircle2,
+  Copy,
+  CreditCard,
+  Landmark,
+  Layers,
+  LoaderCircle,
+  Minus,
+  Palette,
+  Plus,
+  Upload,
+  X,
+} from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { Button } from "@/components/ui/button";
+import { useAuthSession } from "@/hooks/use-auth-session";
+import { bookReprintConfigQueryKeys } from "@/hooks/use-book-reprint-config";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { type PaymentGateway, payReprint, usePaymentGateways } from "@/hooks/usePayments";
+import { ordersQueryKeys } from "@/hooks/useOrders";
+import {
+  isReprintBankTransferResponse,
+  type PaymentGateway,
+  payReprint,
+  uploadReprintBankTransferReceipt,
+  usePaymentGateways,
+  verifyPayment,
+} from "@/hooks/usePayments";
+import { userBooksQueryKeys } from "@/hooks/useUserBooks";
 import { redirectToUrl } from "@/lib/browser-navigation";
-import { Link } from "@/lib/i18n/navigation";
+import { Link, useRouter } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
-type ReprintBookSize = BookReprintConfigResponse["allowedBookSizes"][number];
-type ReprintPaperColor = BookReprintConfigResponse["allowedPaperColors"][number];
-type ReprintLamination = BookReprintConfigResponse["allowedLaminations"][number];
+/* ────────────────────────────────────────────────────── */
+/*  Types                                                 */
+/* ────────────────────────────────────────────────────── */
+
 type ReprintUnavailableReason = NonNullable<BookReprintConfigResponse["disableReason"]>;
-type ReprintPaymentProvider = Extract<
-  BookReprintConfigResponse["enabledPaymentProviders"][number],
-  "PAYSTACK" | "STRIPE"
->;
-type InlineReprintPaymentGateway = PaymentGateway & { provider: ReprintPaymentProvider };
-
-type GroupOption<T extends string> = {
-  value: T;
-  label: string;
-  description?: string;
-  swatchColor?: string;
-  swatchBorder?: string;
-};
-
-type OptionGroupProps<T extends string> = {
-  columns?: 2 | 3;
-  icon: LucideIcon;
-  id: string;
-  label: string;
-  onChange: (value: T) => void;
-  options: GroupOption<T>[];
-  value: T;
-};
 
 type ReprintSameModalProps = {
   bookTitle?: string | null;
@@ -54,11 +58,57 @@ type ReprintSameModalProps = {
   onOpenChange: (open: boolean) => void;
   onRetry?: () => void;
   open: boolean;
+  /** When set, the modal opens directly in payment-success state (Paystack callback). */
+  paymentCallbackReference?: string | null;
   returnFocusElement?: HTMLElement | null;
 };
 
+type ModalStep =
+  | "details"
+  | "payment_method"
+  | "online_processing"
+  | "online_success"
+  | "online_error"
+  | "bank_details"
+  | "bank_receipt"
+  | "bank_confirmation";
+
+type BankAccount = {
+  accountName: string;
+  accountNumber: string;
+  bank: string;
+};
+
+type SelectedProvider = "PAYSTACK" | "STRIPE" | "BANK_TRANSFER";
+
+/* ────────────────────────────────────────────────────── */
+/*  Constants                                             */
+/* ────────────────────────────────────────────────────── */
+
 const MOTION_EASE = [0.22, 1, 0.36, 1] as const;
-const SELECTION_TRANSITION = { type: "spring", stiffness: 430, damping: 34, mass: 0.65 } as const;
+const MIN_COPIES = 25;
+const DEFAULT_COPIES = 25;
+const MAX_RECEIPT_SIZE_BYTES = 10 * 1024 * 1024;
+const RECEIPT_ALLOWED_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+
+const SLIDE_VARIANTS = {
+  enter: (direction: number) => ({
+    x: direction > 0 ? "100%" : "-100%",
+    opacity: 0,
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+  },
+  exit: (direction: number) => ({
+    x: direction > 0 ? "-100%" : "100%",
+    opacity: 0,
+  }),
+};
+
+/* ────────────────────────────────────────────────────── */
+/*  Helpers                                               */
+/* ────────────────────────────────────────────────────── */
 
 function resolveLocaleTag(locale: string): string {
   if (locale === "fr") return "fr-FR";
@@ -78,13 +128,9 @@ function formatInteger(value: number, locale: string): string {
   return new Intl.NumberFormat(resolveLocaleTag(locale)).format(value);
 }
 
-function clampCopies(value: string, minCopies: number): number {
+function clampCopies(value: string): number {
   const parsed = Number.parseInt(value, 10);
-
-  if (!Number.isFinite(parsed) || parsed < minCopies) {
-    return minCopies;
-  }
-
+  if (!Number.isFinite(parsed) || parsed < MIN_COPIES) return MIN_COPIES;
   return parsed;
 }
 
@@ -94,14 +140,39 @@ function resolveUnavailableMessageKey(reason: ReprintUnavailableReason | null | 
       return "reprint_same_unavailable_final_pdf";
     case "PAGE_COUNT_UNAVAILABLE":
       return "reprint_same_unavailable_page_count";
-    case "BOOK_SIZE_UNSUPPORTED":
-      return "reprint_same_unavailable_book_size";
-    case "PAYMENT_PROVIDER_UNAVAILABLE":
-      return "reprint_same_unavailable_payment_provider";
+    case "REPRINT_IN_PROGRESS":
+      return "reprint_same_unavailable_in_progress";
     default:
       return "reprint_same_unavailable_generic";
   }
 }
+
+function parseBankAccounts(bankDetails: Record<string, unknown> | null): BankAccount[] {
+  if (!bankDetails || typeof bankDetails !== "object") return [];
+  const rawAccounts = bankDetails.accounts;
+  if (!Array.isArray(rawAccounts)) return [];
+
+  return rawAccounts
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const rec = entry as Record<string, unknown>;
+      const accountName = typeof rec.accountName === "string" ? rec.accountName : "";
+      const accountNumber = typeof rec.accountNumber === "string" ? rec.accountNumber : "";
+      const bank = typeof rec.bank === "string" ? rec.bank : "";
+      if (!accountName || !accountNumber || !bank) return null;
+      return { accountName, accountNumber, bank };
+    })
+    .filter((entry): entry is BankAccount => entry !== null);
+}
+
+function capitalize(value: string | null | undefined): string {
+  if (!value) return "—";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/* ────────────────────────────────────────────────────── */
+/*  Motion presets (exported for tests)                   */
+/* ────────────────────────────────────────────────────── */
 
 export function getReprintSameModalMotionProps(prefersReducedMotion: boolean, isMobile: boolean) {
   if (prefersReducedMotion) {
@@ -144,125 +215,50 @@ export function getReprintSameModalMotionProps(prefersReducedMotion: boolean, is
   };
 }
 
-function OptionGroup<T extends string>({
-  columns = 2,
-  icon: Icon,
-  id,
-  label,
-  onChange,
-  options,
-  value,
-}: OptionGroupProps<T>) {
-  const selectedIndex = options.findIndex((option) => option.value === value);
+/* ────────────────────────────────────────────────────── */
+/*  Sub-component: CopyField (bank details)               */
+/* ────────────────────────────────────────────────────── */
 
-  const handleArrowNavigation = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const isHorizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
-    const isVertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
 
-    if (!isHorizontal && !isVertical) return;
-
-    event.preventDefault();
-    const delta = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-    const nextIndex = (index + delta + options.length) % options.length;
-    onChange(options[nextIndex].value);
-    const nextOption = event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(
-      `[data-option-index="${nextIndex}"]`
-    );
-    nextOption?.focus();
-  };
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard API not available — no-op */
+    }
+  }, [value]);
 
   return (
-    <fieldset className="space-y-2.5">
-      <legend id={`${id}-legend`} className="font-sans text-sm font-semibold text-white/90">
-        <span className="inline-flex items-center gap-2">
-          <span className="flex size-6 items-center justify-center rounded-full border border-[#2A2A2A] bg-black/70 text-[#007eff]">
-            <Icon className="size-3.5" aria-hidden="true" />
-          </span>
-          <span>{label}</span>
-        </span>
-      </legend>
-
-      <div
-        role="radiogroup"
-        aria-labelledby={`${id}-legend`}
-        className={cn(
-          "grid gap-2 rounded-[1.45rem] border border-[#2A2A2A] bg-[#050505] p-2",
-          columns === 2 ? "grid-cols-2" : "grid-cols-3"
-        )}
-      >
-        {options.map((option, index) => {
-          const isSelected = value === option.value;
-          const tabIndex = isSelected || (selectedIndex === -1 && index === 0) ? 0 : -1;
-
-          return (
-            <motion.button
-              key={option.value}
-              type="button"
-              data-option-index={index}
-              role="radio"
-              aria-checked={isSelected}
-              aria-label={option.label}
-              tabIndex={tabIndex}
-              onClick={() => onChange(option.value)}
-              onKeyDown={(event) => handleArrowNavigation(event, index)}
-              layout
-              transition={SELECTION_TRANSITION}
-              animate={{ scale: isSelected ? 1 : 0.985 }}
-              className={cn(
-                "relative flex min-h-11 min-w-11 items-center justify-center gap-2 overflow-hidden rounded-[1rem] border px-3 py-3 text-center font-sans text-sm font-semibold transition-[color,border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
-                isSelected
-                  ? "border-[#007eff] text-white shadow-[0_10px_28px_rgba(0,126,255,0.35)]"
-                  : "border-[#2A2A2A] bg-[#050505] text-white/85 hover:border-[#007eff] hover:bg-[#0a0a0a]"
-              )}
-            >
-              {isSelected ? (
-                <motion.span
-                  layoutId={`${id}-selection`}
-                  className="absolute inset-0 rounded-2xl bg-[#007eff]"
-                  transition={SELECTION_TRANSITION}
-                  aria-hidden="true"
-                />
-              ) : null}
-
-              {isSelected ? (
-                <span className="absolute right-1.5 top-1.5 z-10 flex size-4.5 items-center justify-center rounded-full bg-white/20">
-                  <Check className="size-3 text-white" aria-hidden="true" />
-                </span>
-              ) : null}
-
-              <span className="relative z-10 flex flex-col items-center">
-                <span className="flex items-center gap-2">
-                  {option.swatchColor ? (
-                    <span
-                      className="size-5 rounded-full border"
-                      style={{
-                        backgroundColor: option.swatchColor,
-                        borderColor: option.swatchBorder ?? "#2A2A2A",
-                      }}
-                      aria-hidden="true"
-                    />
-                  ) : null}
-                  <span>{option.label}</span>
-                </span>
-
-                {option.description ? (
-                  <span
-                    className={cn(
-                      "mt-0.5 block text-[11px] leading-tight",
-                      isSelected ? "text-white/85" : "text-white/55"
-                    )}
-                  >
-                    {option.description}
-                  </span>
-                ) : null}
-              </span>
-            </motion.button>
-          );
-        })}
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#2A2A2A] bg-[#050505] px-4 py-3">
+      <div className="min-w-0">
+        <p className="font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+          {label}
+        </p>
+        <p className="mt-0.5 font-sans text-sm font-semibold text-white break-all">{value}</p>
       </div>
-    </fieldset>
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label={`Copy ${label}`}
+        className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] text-white/70 transition-colors duration-150 hover:border-[#007eff] hover:text-white focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+      >
+        {copied ? (
+          <Check className="size-4 text-emerald-400" aria-hidden="true" />
+        ) : (
+          <Copy className="size-4" aria-hidden="true" />
+        )}
+      </button>
+    </div>
   );
 }
+
+/* ────────────────────────────────────────────────────── */
+/*  Main modal component                                  */
+/* ────────────────────────────────────────────────────── */
 
 export function ReprintSameModal({
   bookTitle,
@@ -273,6 +269,7 @@ export function ReprintSameModal({
   onOpenChange,
   onRetry,
   open,
+  paymentCallbackReference,
   returnFocusElement,
 }: ReprintSameModalProps) {
   const tDashboard = useTranslations("dashboard");
@@ -284,13 +281,27 @@ export function ReprintSameModal({
   const isOffline = !isOnline;
   const prefersReducedMotion = useReducedMotion();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [copiesInput, setCopiesInput] = useState("25");
+  const receiptInputRef = useRef<HTMLInputElement | null>(null);
+  const { user } = useAuthSession();
+  const queryClient = useQueryClient();
+  const router = useRouter();
+
+  /* ── State ── */
+  const [step, setStep] = useState<ModalStep>("details");
+  const [slideDirection, setSlideDirection] = useState(1);
+  const [copiesInput, setCopiesInput] = useState(String(DEFAULT_COPIES));
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [pendingPaymentProvider, setPendingPaymentProvider] =
-    useState<ReprintPaymentProvider | null>(null);
-  const [selectedBookSize, setSelectedBookSize] = useState<ReprintBookSize>("A5");
-  const [selectedPaperColor, setSelectedPaperColor] = useState<ReprintPaperColor>("white");
-  const [selectedLamination, setSelectedLamination] = useState<ReprintLamination>("gloss");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  /* ── Bank transfer state ── */
+  const [bankAmount, setBankAmount] = useState(0);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [bankName, setBankName] = useState("");
+  const [bankEmail, setBankEmail] = useState("");
+  const [bankPhone, setBankPhone] = useState("");
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
+
   const {
     data: paymentGateways,
     isError: isPaymentGatewaysError,
@@ -299,131 +310,168 @@ export function ReprintSameModal({
   } = usePaymentGateways(open && config?.canReprintSame === true);
 
   const motionProps = getReprintSameModalMotionProps(prefersReducedMotion, isMobile);
-  const minCopies = config?.minCopies ?? 25;
 
+  /* ── Reset on open/close ── */
   useEffect(() => {
-    if (!open || !config) {
-      return;
-    }
-
-    setCopiesInput(String(minCopies));
+    if (!open) return;
+    setStep(paymentCallbackReference ? "online_success" : "details");
+    setSlideDirection(1);
+    setCopiesInput(String(DEFAULT_COPIES));
     setPaymentError(null);
-    setPendingPaymentProvider(null);
-    setSelectedBookSize(config.defaultBookSize ?? config.allowedBookSizes[0] ?? "A5");
-    setSelectedPaperColor(config.defaultPaperColor);
-    setSelectedLamination(config.defaultLamination);
-  }, [config, minCopies, open]);
+    setIsProcessing(false);
+    setBankAmount(0);
+    setReceiptFile(null);
+    setReceiptError(null);
+    setBankName(user?.firstName ?? "");
+    setBankEmail(user?.email ?? "");
+    setBankPhone("");
+    setIsUploadingReceipt(false);
+  }, [open, paymentCallbackReference, user?.firstName, user?.email]);
 
-  const bookSizeOptions = useMemo<GroupOption<ReprintBookSize>[]>(
-    () => [
-      { value: "A4", label: tCheckout("configuration_book_size_a4") },
-      { value: "A5", label: tCheckout("configuration_book_size_a5") },
-      { value: "A6", label: tCheckout("configuration_book_size_a6") },
-    ],
-    [tCheckout]
-  );
-
-  const paperColorOptions = useMemo<GroupOption<ReprintPaperColor>[]>(
-    () => [
-      {
-        value: "white",
-        label: tCheckout("configuration_paper_white"),
-        swatchColor: "#ffffff",
-        swatchBorder: "#2A2A2A",
-      },
-      {
-        value: "cream",
-        label: tCheckout("configuration_paper_cream"),
-        swatchColor: "#f2ead7",
-        swatchBorder: "#d9cdb6",
-      },
-    ],
-    [tCheckout]
-  );
-
-  const laminationOptions = useMemo<GroupOption<ReprintLamination>[]>(
-    () => [
-      {
-        value: "matt",
-        label: tCheckout("configuration_lamination_matt"),
-        description: tCheckout("configuration_lamination_matt_desc"),
-      },
-      {
-        value: "gloss",
-        label: tCheckout("configuration_lamination_gloss"),
-        description: tCheckout("configuration_lamination_gloss_desc"),
-      },
-    ],
-    [tCheckout]
-  );
-
-  const effectiveCopies = clampCopies(copiesInput, minCopies);
-  const selectedCostPerPage =
-    config?.costPerPageBySize[selectedBookSize] ?? config?.costPerPageBySize.A5 ?? 0;
-  const totalPrice =
-    typeof config?.pageCount === "number" && config.pageCount > 0
-      ? effectiveCopies * config.pageCount * selectedCostPerPage
-      : 0;
-  const showUnavailableState = !isLoading && !isError && config !== null && !config.canReprintSame;
-  const inlinePaymentGateways = useMemo<InlineReprintPaymentGateway[]>(() => {
-    const enabledProviders = new Set(config?.enabledPaymentProviders ?? []);
-
-    return (paymentGateways ?? []).filter(
-      (gateway): gateway is InlineReprintPaymentGateway =>
-        (gateway.provider === "PAYSTACK" || gateway.provider === "STRIPE") &&
-        enabledProviders.has(gateway.provider)
-    );
-  }, [config?.enabledPaymentProviders, paymentGateways]);
-
-  const handleCopiesChange = (value: string) => {
-    if (!/^\d*$/.test(value)) {
-      return;
+  /* ── Invalidate caches after successful reprint payment ── */
+  useEffect(() => {
+    if (step !== "online_success" && step !== "bank_confirmation") return;
+    const bookId = config?.bookId;
+    if (bookId) {
+      queryClient.invalidateQueries({ queryKey: bookReprintConfigQueryKeys.detail(bookId) });
     }
+    queryClient.invalidateQueries({ queryKey: userBooksQueryKeys.all });
+    queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+  }, [step, config?.bookId, queryClient]);
 
+  /* ── Verify payment after Paystack redirect (ensures entity creation) ── */
+  useEffect(() => {
+    if (!paymentCallbackReference || step !== "online_success") return;
+    let cancelled = false;
+    verifyPayment(paymentCallbackReference)
+      .then(() => {
+        if (cancelled) return;
+        const bookId = config?.bookId;
+        if (bookId) {
+          queryClient.invalidateQueries({ queryKey: bookReprintConfigQueryKeys.detail(bookId) });
+        }
+        queryClient.invalidateQueries({ queryKey: userBooksQueryKeys.all });
+        queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      })
+      .catch(() => {
+        /* Verification is best-effort; webhook may still process it */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentCallbackReference, step, config?.bookId, queryClient]);
+
+  /* ── Computed values ── */
+  const effectiveCopies = clampCopies(copiesInput);
+  const costPerCopy = config?.costPerCopy ?? 0;
+  const totalPrice = costPerCopy * effectiveCopies;
+  const isPaymentCallbackSuccess = step === "online_success" || step === "bank_confirmation";
+  const showUnavailableState =
+    !isLoading &&
+    !isError &&
+    config !== null &&
+    !config.canReprintSame &&
+    !isPaymentCallbackSuccess;
+
+  const bankGateway = useMemo(
+    () => (paymentGateways ?? []).find((g) => g.provider === "BANK_TRANSFER" && g.isEnabled),
+    [paymentGateways]
+  );
+
+  const bankAccounts = useMemo(
+    () => parseBankAccounts(bankGateway?.bankDetails ?? null),
+    [bankGateway?.bankDetails]
+  );
+
+  const availableProviders = useMemo<
+    {
+      provider: SelectedProvider;
+      label: string;
+      icon: typeof CreditCard;
+      gateway: PaymentGateway;
+    }[]
+  >(() => {
+    if (!paymentGateways) return [];
+    const result: {
+      provider: SelectedProvider;
+      label: string;
+      icon: typeof CreditCard;
+      gateway: PaymentGateway;
+    }[] = [];
+
+    for (const gw of paymentGateways) {
+      if (!gw.isEnabled) continue;
+      if (gw.provider === "PAYSTACK") {
+        result.push({
+          provider: "PAYSTACK",
+          label: tDashboard("reprint_pay_with_paystack"),
+          icon: CreditCard,
+          gateway: gw,
+        });
+      } else if (gw.provider === "STRIPE") {
+        result.push({
+          provider: "STRIPE",
+          label: tDashboard("reprint_pay_with_stripe"),
+          icon: CreditCard,
+          gateway: gw,
+        });
+      } else if (gw.provider === "BANK_TRANSFER") {
+        result.push({
+          provider: "BANK_TRANSFER",
+          label: tDashboard("reprint_pay_bank_transfer"),
+          icon: Landmark,
+          gateway: gw,
+        });
+      }
+    }
+    return result;
+  }, [paymentGateways, tDashboard]);
+
+  /* ── Navigation ── */
+  const goTo = useCallback((next: ModalStep, direction: 1 | -1 = 1) => {
+    setSlideDirection(direction);
+    setStep(next);
+  }, []);
+
+  /* ── Copies handlers ── */
+  const handleCopiesChange = (value: string) => {
+    if (!/^\d*$/.test(value)) return;
     setCopiesInput(value);
   };
 
   const handleCopiesBlur = () => {
-    setCopiesInput(String(clampCopies(copiesInput, minCopies)));
+    setCopiesInput(String(clampCopies(copiesInput)));
   };
 
   const handleCopiesStep = (direction: "decrease" | "increase") => {
     const nextValue =
-      direction === "decrease"
-        ? Math.max(minCopies, effectiveCopies - 1)
-        : Math.max(minCopies, effectiveCopies + 1);
-
+      direction === "decrease" ? Math.max(MIN_COPIES, effectiveCopies - 1) : effectiveCopies + 1;
     setCopiesInput(String(nextValue));
   };
 
-  const handleRetry = () => {
-    onRetry?.();
-  };
-
-  const handleStartPayment = async (provider: ReprintPaymentProvider) => {
-    if (!config) {
-      return;
-    }
-
-    if (isOffline) {
-      setPaymentError(tCommon("offline_banner"));
+  /* ── Payment: online (Paystack/Stripe) ── */
+  const handleOnlinePayment = async (provider: "PAYSTACK" | "STRIPE") => {
+    if (!config || isOffline) {
+      setPaymentError(isOffline ? tCommon("offline_banner") : null);
       return;
     }
 
     setPaymentError(null);
-    setPendingPaymentProvider(provider);
+    setIsProcessing(true);
+    goTo("online_processing");
 
     try {
       const callbackUrl = typeof window !== "undefined" ? window.location.href : undefined;
       const response = await payReprint({
         sourceBookId: config.bookId,
         copies: effectiveCopies,
-        bookSize: selectedBookSize,
-        paperColor: selectedPaperColor,
-        lamination: selectedLamination,
         provider,
         ...(callbackUrl ? { callbackUrl } : {}),
       });
+
+      if (isReprintBankTransferResponse(response)) {
+        throw new Error(tDashboard("reprint_same_payment_error"));
+      }
 
       if (!response.authorizationUrl) {
         throw new Error(tDashboard("reprint_same_payment_error"));
@@ -436,9 +484,107 @@ export function ReprintSameModal({
           ? error.message
           : tDashboard("reprint_same_payment_error")
       );
-      setPendingPaymentProvider(null);
+      setIsProcessing(false);
+      goTo("online_error");
     }
   };
+
+  /* ── Payment: bank transfer ── */
+  const handleBankTransfer = () => {
+    if (!config || isOffline) {
+      setPaymentError(isOffline ? tCommon("offline_banner") : null);
+      return;
+    }
+
+    setPaymentError(null);
+    // No API call here — Payment record is created only when receipt is submitted.
+    // Bank account details come from paymentGateways; amount is computed client-side.
+    goTo("bank_details");
+  };
+
+  /* ── Provider selection ── */
+  const handleProviderSelect = (provider: SelectedProvider) => {
+    if (provider === "BANK_TRANSFER") {
+      void handleBankTransfer();
+    } else {
+      void handleOnlinePayment(provider);
+    }
+  };
+
+  /* ── Receipt file handling ── */
+  const handleReceiptChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setReceiptError(null);
+    const file = event.target.files?.[0] ?? null;
+
+    if (!file) {
+      setReceiptFile(null);
+      return;
+    }
+
+    if (file.size > MAX_RECEIPT_SIZE_BYTES) {
+      setReceiptError(tCheckout("payment_modal_bank_receipt_too_large"));
+      setReceiptFile(null);
+      return;
+    }
+
+    if (!RECEIPT_ALLOWED_TYPES.has(file.type)) {
+      setReceiptError(tCheckout("payment_modal_bank_receipt_invalid_type"));
+      setReceiptFile(null);
+      return;
+    }
+
+    setReceiptFile(file);
+  };
+
+  /* ── Receipt submission ── */
+  const handleReceiptSubmit = async () => {
+    if (!config || !receiptFile || isUploadingReceipt) return;
+
+    setIsUploadingReceipt(true);
+    setPaymentError(null);
+
+    try {
+      // Step 1: Create the Payment record now (deferred from provider selection)
+      const response = await payReprint({
+        sourceBookId: config.bookId,
+        copies: effectiveCopies,
+        provider: "BANK_TRANSFER",
+      });
+
+      if (!isReprintBankTransferResponse(response)) {
+        throw new Error(tDashboard("reprint_same_payment_error"));
+      }
+
+      const paymentId = response.paymentId;
+      setBankAmount(response.amount);
+
+      // Step 2: Immediately upload the receipt to the newly created Payment
+      await uploadReprintBankTransferReceipt({
+        paymentId,
+        payerName: bankName.trim() || user?.firstName || "",
+        payerEmail: bankEmail.trim() || user?.email || "",
+        payerPhone: bankPhone.trim(),
+        receiptFile,
+      });
+
+      goTo("bank_confirmation");
+    } catch (error) {
+      setPaymentError(
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : tDashboard("reprint_same_payment_error")
+      );
+    } finally {
+      setIsUploadingReceipt(false);
+    }
+  };
+
+  /* ── Retry helpers ── */
+  const handleRetry = () => onRetry?.();
+
+  /* ────────────────────────────────────────────────── */
+  /*  Render                                            */
+  /* ────────────────────────────────────────────────── */
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -487,9 +633,10 @@ export function ReprintSameModal({
                     "relative flex w-full flex-col overflow-hidden border border-[#2A2A2A] bg-[#000000] text-white shadow-[0_32px_96px_rgba(0,0,0,0.72)]",
                     isMobile
                       ? "h-full"
-                      : "max-h-[min(88dvh,920px)] max-w-[min(880px,calc(100%-2rem))] rounded-[34px]"
+                      : "max-h-[min(88dvh,920px)] max-w-[min(640px,calc(100%-2rem))] rounded-[34px]"
                   )}
                 >
+                  {/* Accent gradient */}
                   <div
                     aria-hidden="true"
                     className="pointer-events-none absolute inset-0"
@@ -499,37 +646,41 @@ export function ReprintSameModal({
                     }}
                   />
 
-                  <div className="relative z-10 flex h-full flex-col px-5 pb-6 pt-5 sm:px-6 sm:pb-6 sm:pt-6">
+                  <div className="relative z-10 flex h-full min-h-0 flex-col px-5 pb-6 pt-5 sm:px-6 sm:pb-6 sm:pt-6">
+                    {/* Close button */}
                     <button
                       ref={closeButtonRef}
                       type="button"
                       onClick={() => onOpenChange(false)}
                       aria-label={tDashboard("reprint_same_close_aria")}
-                      className="absolute right-4 top-4 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#0A0A0A] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#111111] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                      className="absolute right-4 top-4 z-20 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#0A0A0A] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#111111] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
                     >
                       <X className="size-4" aria-hidden="true" />
                     </button>
 
+                    {/* Header */}
                     <header className="pr-14">
                       <p className="font-sans text-[11px] font-semibold uppercase tracking-[0.16em] text-[#007eff]">
                         {tDashboard("reprint_same")}
                       </p>
-                      <DialogPrimitive.Title className="font-display mt-4 text-[2rem] leading-[1.04] font-semibold tracking-tight text-white sm:text-[2.45rem]">
+                      <DialogPrimitive.Title className="font-display mt-4 text-[1.75rem] leading-[1.06] font-semibold tracking-tight text-white sm:text-[2rem]">
                         {tDashboard("reprint_same_modal_title")}
                       </DialogPrimitive.Title>
-                      <DialogPrimitive.Description className="font-sans mt-3 max-w-2xl text-sm leading-6 text-[#BDBDBD] sm:text-[0.95rem]">
+                      <DialogPrimitive.Description className="sr-only">
                         {tDashboard("reprint_same_modal_description")}
                       </DialogPrimitive.Description>
                     </header>
 
-                    <div className="mt-6 flex min-h-0 flex-1 flex-col overflow-y-auto pr-0 md:pr-1">
+                    {/* Content area */}
+                    <div className="mt-5 flex min-h-0 flex-1 flex-col overflow-y-auto pr-0 md:pr-1">
+                      {/* ── Loading ── */}
                       {isLoading ? (
                         <div className="flex flex-1 flex-col items-center justify-center rounded-[30px] border border-[#2A2A2A] bg-[#050505] px-6 py-10 text-center">
                           <LoaderCircle
                             className="size-8 animate-spin text-[#007eff]"
                             aria-hidden="true"
                           />
-                          <p className="font-display mt-5 text-2xl font-semibold text-white">
+                          <p className="font-display mt-5 text-xl font-semibold text-white">
                             {tDashboard("reprint_same_loading_title")}
                           </p>
                           <p className="font-sans mt-3 max-w-md text-sm leading-6 text-[#BDBDBD]">
@@ -537,6 +688,7 @@ export function ReprintSameModal({
                           </p>
                         </div>
                       ) : isError ? (
+                        /* ── Error ── */
                         <DashboardErrorState
                           className="flex-1 rounded-[30px] border-[#2A2A2A] bg-[#050505]"
                           title={tDashboard("reprint_same_load_error_title")}
@@ -548,16 +700,16 @@ export function ReprintSameModal({
                           onRetry={handleRetry}
                         />
                       ) : showUnavailableState ? (
+                        /* ── Unavailable state ── */
                         <div className="flex flex-1 flex-col justify-between gap-6 rounded-[30px] border border-[#2A2A2A] bg-[#050505] p-5 sm:p-6">
                           <div>
-                            <p className="font-display text-2xl font-semibold text-white">
+                            <p className="font-display text-xl font-semibold text-white">
                               {tDashboard("reprint_same_unavailable_title")}
                             </p>
                             <p className="font-sans mt-3 max-w-xl text-sm leading-6 text-[#BDBDBD]">
                               {tDashboard(resolveUnavailableMessageKey(config?.disableReason))}
                             </p>
                           </div>
-
                           <div className="rounded-[28px] border border-[#2A2A2A] bg-[#000000] p-4">
                             <p className="font-sans text-sm text-[#BDBDBD]">
                               {tDashboard("reprint_same_contact_support_prefix")}{" "}
@@ -571,271 +723,701 @@ export function ReprintSameModal({
                           </div>
                         </div>
                       ) : config ? (
-                        <div className="space-y-5 pb-4">
-                          <div className="rounded-[30px] border border-[#2A2A2A] bg-[#050505] p-5">
-                            <p className="font-sans text-[11px] font-semibold uppercase tracking-[0.14em] text-[#007eff]">
-                              {tDashboard("reprint_same_source_book_label")}
-                            </p>
-                            <p className="font-display mt-3 text-2xl font-semibold tracking-tight text-white">
-                              {bookTitle || tDashboard("book_progress_meta_value_unavailable")}
-                            </p>
-                            <p className="font-sans mt-2 text-sm text-[#BDBDBD]">
-                              {config.pageCount !== null
-                                ? tDashboard("reprint_same_page_count", {
-                                    count: formatInteger(config.pageCount, locale),
-                                  })
-                                : tDashboard("reprint_same_page_count_unavailable")}
-                            </p>
-                          </div>
-
-                          <div className="rounded-[30px] border border-[#2A2A2A] bg-[#050505] p-5">
-                            <label
-                              htmlFor="reprint-same-copies"
-                              className="font-sans text-sm font-semibold text-white"
+                        /* ── Step-based flow ── */
+                        <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
+                          {/* ═══════ STEP 1: Reprint Details ═══════ */}
+                          {step === "details" ? (
+                            <motion.div
+                              key="details"
+                              custom={slideDirection}
+                              variants={SLIDE_VARIANTS}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.25,
+                                ease: MOTION_EASE,
+                              }}
+                              className="space-y-4 pb-4"
                             >
-                              {tDashboard("copies")}
-                            </label>
-                            <div className="mt-3 flex items-center gap-3">
+                              {/* Read-only book info */}
+                              <div className="rounded-[24px] border border-[#2A2A2A] bg-[#050505] p-5">
+                                <p className="font-sans text-[11px] font-semibold uppercase tracking-[0.14em] text-[#007eff]">
+                                  {tDashboard("reprint_same_source_book_label")}
+                                </p>
+                                <p className="font-display mt-3 text-xl font-semibold tracking-tight text-white sm:text-2xl">
+                                  {config.bookTitle ||
+                                    bookTitle ||
+                                    tDashboard("book_progress_meta_value_unavailable")}
+                                </p>
+
+                                <dl className="mt-4 grid grid-cols-2 gap-3">
+                                  <div className="rounded-2xl border border-[#2A2A2A] bg-[#000000] px-3.5 py-3">
+                                    <dt className="font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                                      <BookOpen
+                                        className="mr-1.5 inline-block size-3.5 text-[#007eff]"
+                                        aria-hidden="true"
+                                      />
+                                      {tDashboard("reprint_detail_pages")}
+                                    </dt>
+                                    <dd className="mt-1 font-sans text-sm font-semibold text-white">
+                                      {config.pageCount !== null
+                                        ? tDashboard("reprint_same_page_count", {
+                                            count: formatInteger(config.pageCount, locale),
+                                          })
+                                        : "—"}
+                                    </dd>
+                                  </div>
+                                  <div className="rounded-2xl border border-[#2A2A2A] bg-[#000000] px-3.5 py-3">
+                                    <dt className="font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                                      <Layers
+                                        className="mr-1.5 inline-block size-3.5 text-[#007eff]"
+                                        aria-hidden="true"
+                                      />
+                                      {tDashboard("reprint_detail_size")}
+                                    </dt>
+                                    <dd className="mt-1 font-sans text-sm font-semibold text-white">
+                                      {config.bookSize?.toUpperCase() ?? "—"}
+                                    </dd>
+                                  </div>
+                                  <div className="rounded-2xl border border-[#2A2A2A] bg-[#000000] px-3.5 py-3">
+                                    <dt className="font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                                      <Palette
+                                        className="mr-1.5 inline-block size-3.5 text-[#007eff]"
+                                        aria-hidden="true"
+                                      />
+                                      {tDashboard("reprint_detail_paper")}
+                                    </dt>
+                                    <dd className="mt-1 font-sans text-sm font-semibold text-white">
+                                      {capitalize(config.paperColor)}
+                                    </dd>
+                                  </div>
+                                  <div className="rounded-2xl border border-[#2A2A2A] bg-[#000000] px-3.5 py-3">
+                                    <dt className="font-sans text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                                      <Layers
+                                        className="mr-1.5 inline-block size-3.5 text-[#007eff]"
+                                        aria-hidden="true"
+                                      />
+                                      {tDashboard("reprint_detail_lamination")}
+                                    </dt>
+                                    <dd className="mt-1 font-sans text-sm font-semibold text-white">
+                                      {capitalize(config.lamination)}
+                                    </dd>
+                                  </div>
+                                </dl>
+                              </div>
+
+                              {/* Copies input */}
+                              <div className="rounded-[24px] border border-[#2A2A2A] bg-[#050505] p-5">
+                                <label
+                                  htmlFor="reprint-same-copies"
+                                  className="font-sans text-sm font-semibold text-white"
+                                >
+                                  {tDashboard("copies")}
+                                </label>
+                                <div className="mt-3 flex items-center gap-3">
+                                  <button
+                                    type="button"
+                                    aria-controls="reprint-same-copies"
+                                    aria-label={tDashboard("reprint_same_decrease_copies")}
+                                    onClick={() => handleCopiesStep("decrease")}
+                                    disabled={effectiveCopies <= MIN_COPIES}
+                                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#071320] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:text-white/25 disabled:hover:border-[#2A2A2A] disabled:hover:bg-[#000000]"
+                                  >
+                                    <Minus className="size-4" aria-hidden="true" />
+                                  </button>
+
+                                  <input
+                                    id="reprint-same-copies"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    min={MIN_COPIES}
+                                    type="text"
+                                    value={copiesInput}
+                                    onChange={(event) => handleCopiesChange(event.target.value)}
+                                    onBlur={handleCopiesBlur}
+                                    className="font-display min-h-12 w-full rounded-full border border-[#2A2A2A] bg-[#000000] px-5 text-center text-2xl font-semibold text-white outline-none transition-colors duration-150 placeholder:text-[#6F6F6F] focus:border-[#007eff]"
+                                    aria-describedby="reprint-same-copies-helper"
+                                  />
+
+                                  <button
+                                    type="button"
+                                    aria-controls="reprint-same-copies"
+                                    aria-label={tDashboard("reprint_same_increase_copies")}
+                                    onClick={() => handleCopiesStep("increase")}
+                                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#071320] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                                  >
+                                    <Plus className="size-4" aria-hidden="true" />
+                                  </button>
+                                </div>
+                                <p
+                                  id="reprint-same-copies-helper"
+                                  className="font-sans mt-3 text-sm text-[#BDBDBD]"
+                                >
+                                  {tDashboard("reprint_same_min_copies", {
+                                    count: formatInteger(MIN_COPIES, locale),
+                                  })}
+                                </p>
+                              </div>
+
+                              {/* Live total */}
+                              <div className="rounded-[24px] border border-[#2A2A2A] bg-[#050505] p-5">
+                                <p className="font-sans text-[11px] font-semibold uppercase tracking-[0.14em] text-[#007eff]">
+                                  {tDashboard("reprint_same_live_price_label")}
+                                </p>
+                                <p
+                                  className="font-display mt-3 text-[2.4rem] leading-none font-semibold tracking-tight text-[#007eff] sm:text-[3rem]"
+                                  aria-live="polite"
+                                >
+                                  {formatCurrency(totalPrice, locale)}
+                                </p>
+                                <p className="font-sans mt-3 text-sm leading-6 text-[#BDBDBD]">
+                                  {tDashboard("reprint_cost_breakdown", {
+                                    costPerCopy: formatCurrency(costPerCopy, locale),
+                                    copies: formatInteger(effectiveCopies, locale),
+                                  })}
+                                </p>
+                              </div>
+
+                              {/* Offline warning */}
+                              {isOffline ? (
+                                <p
+                                  aria-live="polite"
+                                  className="font-sans rounded-[20px] border border-[#2A2A2A] bg-[#050505] px-4 py-3 text-sm leading-6 text-[#d0d0d0]"
+                                >
+                                  {tCommon("offline_banner")}
+                                </p>
+                              ) : null}
+
+                              {/* Pay CTA */}
+                              <Button
+                                type="button"
+                                onClick={() => goTo("payment_method")}
+                                disabled={
+                                  isOffline || totalPrice <= 0 || effectiveCopies < MIN_COPIES
+                                }
+                                className="font-sans inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#007eff] px-6 text-base font-semibold text-white transition-colors duration-150 hover:bg-[#0a72df] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:bg-[#007eff]/40 disabled:text-white/50"
+                              >
+                                {tDashboard("reprint_pay_cta")}
+                              </Button>
+                            </motion.div>
+                          ) : null}
+
+                          {/* ═══════ STEP 2: Payment Method Selection ═══════ */}
+                          {step === "payment_method" ? (
+                            <motion.div
+                              key="payment_method"
+                              custom={slideDirection}
+                              variants={SLIDE_VARIANTS}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.25,
+                                ease: MOTION_EASE,
+                              }}
+                              className="space-y-4 pb-4"
+                            >
                               <button
                                 type="button"
-                                aria-controls="reprint-same-copies"
-                                aria-label={tDashboard("reprint_same_decrease_copies")}
-                                onClick={() => handleCopiesStep("decrease")}
-                                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#071320] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                                onClick={() => goTo("details", -1)}
+                                className="font-sans inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[#9FD0FF] transition-colors duration-150 hover:text-white focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
                               >
-                                <Minus className="size-4" aria-hidden="true" />
+                                <ArrowLeft className="size-4" aria-hidden="true" />
+                                {tCommon("back")}
                               </button>
 
-                              <input
-                                id="reprint-same-copies"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                min={minCopies}
-                                type="text"
-                                value={copiesInput}
-                                onChange={(event) => handleCopiesChange(event.target.value)}
-                                onBlur={handleCopiesBlur}
-                                className="font-display min-h-12 w-full rounded-full border border-[#2A2A2A] bg-[#000000] px-5 text-center text-2xl font-semibold text-white outline-none transition-colors duration-150 placeholder:text-[#6F6F6F] focus:border-[#007eff]"
-                                aria-describedby="reprint-same-copies-helper"
+                              <div className="rounded-[24px] border border-[#2A2A2A] bg-[#050505] p-5">
+                                <p className="font-display text-xl font-semibold text-white">
+                                  {tDashboard("reprint_choose_payment")}
+                                </p>
+                                <p className="font-sans mt-2 text-sm leading-6 text-[#BDBDBD]">
+                                  {tDashboard("reprint_choose_payment_desc")}
+                                </p>
+
+                                {isPaymentGatewaysLoading ? (
+                                  <div className="mt-5 flex items-center gap-2 rounded-full border border-[#2A2A2A] bg-[#050505] px-4 py-3">
+                                    <LoaderCircle
+                                      className="size-4 animate-spin text-[#007eff]"
+                                      aria-hidden="true"
+                                    />
+                                    <span className="font-sans text-sm text-[#BDBDBD]">
+                                      {tDashboard("reprint_same_payment_gateways_loading")}
+                                    </span>
+                                  </div>
+                                ) : isPaymentGatewaysError ? (
+                                  <div className="mt-5 rounded-[20px] border border-[#2A2A2A] bg-[#050505] p-4">
+                                    <p className="font-sans text-sm leading-6 text-[#BDBDBD]">
+                                      {tDashboard("reprint_same_payment_gateways_error")}
+                                    </p>
+                                    <Button
+                                      type="button"
+                                      onClick={() => void refetchPaymentGateways()}
+                                      className="font-sans mt-3 min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
+                                    >
+                                      {tDashboard("reprint_same_payment_retry")}
+                                    </Button>
+                                  </div>
+                                ) : availableProviders.length > 0 ? (
+                                  <div className="mt-5 grid gap-3">
+                                    {availableProviders.map(({ provider, label, icon: Icon }) => (
+                                      <button
+                                        key={provider}
+                                        type="button"
+                                        onClick={() => handleProviderSelect(provider)}
+                                        disabled={isProcessing}
+                                        className="group inline-flex min-h-[4.25rem] w-full items-center gap-4 rounded-2xl border border-[#2A2A2A] bg-[#000000] px-5 py-4 text-left transition-all duration-150 hover:border-[#007eff] hover:bg-[#071320] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        <span className="flex size-11 shrink-0 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#050505] text-[#007eff] transition-colors duration-150 group-hover:border-[#007eff]/50">
+                                          <Icon className="size-5" aria-hidden="true" />
+                                        </span>
+                                        <span className="font-sans text-sm font-semibold text-white">
+                                          {label}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="font-sans mt-5 text-sm leading-6 text-[#BDBDBD]">
+                                    {tDashboard("reprint_same_unavailable_payment_provider")}
+                                  </p>
+                                )}
+
+                                {paymentError ? (
+                                  <p
+                                    role="alert"
+                                    className="font-sans mt-4 rounded-[18px] border border-[#ef4444]/45 bg-[#111111] px-4 py-3 text-sm leading-6 text-[#f3b2b2]"
+                                  >
+                                    {paymentError}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </motion.div>
+                          ) : null}
+
+                          {/* ═══════ STEP 3a: Online Processing (spinner) ═══════ */}
+                          {step === "online_processing" ? (
+                            <motion.div
+                              key="online_processing"
+                              custom={slideDirection}
+                              variants={SLIDE_VARIANTS}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.25,
+                                ease: MOTION_EASE,
+                              }}
+                              className="flex flex-1 flex-col items-center justify-center rounded-[30px] border border-[#2A2A2A] bg-[#050505] px-6 py-10 text-center"
+                            >
+                              <LoaderCircle
+                                className="size-10 animate-spin text-[#007eff]"
+                                aria-hidden="true"
                               />
+                              <p className="font-display mt-5 text-xl font-semibold text-white">
+                                {tDashboard("reprint_same_payment_processing")}
+                              </p>
+                              <p className="font-sans mt-3 max-w-md text-sm leading-6 text-[#BDBDBD]">
+                                {tDashboard("reprint_redirecting_desc")}
+                              </p>
+                            </motion.div>
+                          ) : null}
 
+                          {/* ═══════ STEP 3a: Online Error ═══════ */}
+                          {step === "online_error" ? (
+                            <motion.div
+                              key="online_error"
+                              custom={slideDirection}
+                              variants={SLIDE_VARIANTS}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.25,
+                                ease: MOTION_EASE,
+                              }}
+                              className="flex flex-1 flex-col items-center justify-center rounded-[30px] border border-[#2A2A2A] bg-[#050505] px-6 py-10 text-center"
+                            >
+                              <div className="flex size-14 items-center justify-center rounded-full border border-[#ef4444]/30 bg-[#1a0505]">
+                                <X className="size-6 text-[#ef4444]" aria-hidden="true" />
+                              </div>
+                              <p className="font-display mt-5 text-xl font-semibold text-white">
+                                {tDashboard("reprint_same_payment_error")}
+                              </p>
+                              {paymentError ? (
+                                <p className="font-sans mt-3 max-w-md text-sm leading-6 text-[#BDBDBD]">
+                                  {paymentError}
+                                </p>
+                              ) : null}
+                              <Button
+                                type="button"
+                                onClick={() => goTo("payment_method", -1)}
+                                className="font-sans mt-6 min-h-11 rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0a72df]"
+                              >
+                                {tCommon("retry")}
+                              </Button>
+                            </motion.div>
+                          ) : null}
+
+                          {/* ═══════ STEP 3b-1: Bank Details ═══════ */}
+                          {step === "bank_details" ? (
+                            <motion.div
+                              key="bank_details"
+                              custom={slideDirection}
+                              variants={SLIDE_VARIANTS}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.25,
+                                ease: MOTION_EASE,
+                              }}
+                              className="space-y-4 pb-4"
+                            >
                               <button
                                 type="button"
-                                aria-controls="reprint-same-copies"
-                                aria-label={tDashboard("reprint_same_increase_copies")}
-                                onClick={() => handleCopiesStep("increase")}
-                                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#071320] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                                onClick={() => goTo("payment_method", -1)}
+                                className="font-sans inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[#9FD0FF] transition-colors duration-150 hover:text-white focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
                               >
-                                <Plus className="size-4" aria-hidden="true" />
+                                <ArrowLeft className="size-4" aria-hidden="true" />
+                                {tCommon("back")}
                               </button>
-                            </div>
-                            <p
-                              id="reprint-same-copies-helper"
-                              className="font-sans mt-3 text-sm text-[#BDBDBD]"
+
+                              <div className="rounded-[24px] border border-[#2A2A2A] bg-[#050505] p-5">
+                                <p className="font-display text-xl font-semibold text-white">
+                                  {tDashboard("reprint_bank_title")}
+                                </p>
+
+                                {/* Amount to transfer */}
+                                <div className="mt-4 rounded-2xl border border-[#007eff]/30 bg-[#071320] p-4 text-center">
+                                  <p className="font-sans text-[11px] font-semibold uppercase tracking-[0.14em] text-[#007eff]">
+                                    {tDashboard("reprint_bank_amount_label")}
+                                  </p>
+                                  <p className="font-display mt-2 text-[2rem] font-semibold tracking-tight text-[#007eff]">
+                                    {formatCurrency(bankAmount || totalPrice, locale)}
+                                  </p>
+                                </div>
+
+                                {/* Bank accounts */}
+                                {bankAccounts.length > 0 ? (
+                                  <div className="mt-4 space-y-3">
+                                    {bankAccounts.map((account, index) => (
+                                      <div
+                                        key={`${account.bank}-${account.accountNumber}`}
+                                        className="space-y-2"
+                                      >
+                                        {index > 0 ? (
+                                          <div className="border-t border-[#2A2A2A]" />
+                                        ) : null}
+                                        <CopyField
+                                          label={tCheckout("payment_modal_bank_name")}
+                                          value={account.bank}
+                                        />
+                                        <CopyField
+                                          label={tCheckout("payment_modal_bank_account_number")}
+                                          value={account.accountNumber}
+                                        />
+                                        <CopyField
+                                          label={tCheckout("payment_modal_bank_account_name")}
+                                          value={account.accountName}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="font-sans mt-4 text-sm text-[#BDBDBD]">
+                                    {tDashboard("reprint_bank_no_accounts")}
+                                  </p>
+                                )}
+                              </div>
+
+                              <Button
+                                type="button"
+                                onClick={() => goTo("bank_receipt")}
+                                className="font-sans inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#007eff] px-6 text-base font-semibold text-white transition-colors duration-150 hover:bg-[#0a72df] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                              >
+                                {tCheckout("transfer_done")}
+                              </Button>
+                            </motion.div>
+                          ) : null}
+
+                          {/* ═══════ STEP 3b-2: Receipt Upload ═══════ */}
+                          {step === "bank_receipt" ? (
+                            <motion.div
+                              key="bank_receipt"
+                              custom={slideDirection}
+                              variants={SLIDE_VARIANTS}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.25,
+                                ease: MOTION_EASE,
+                              }}
+                              className="space-y-4 pb-4"
                             >
-                              {tDashboard("reprint_same_min_copies", {
-                                count: formatInteger(minCopies, locale),
-                              })}
-                            </p>
-                          </div>
-
-                          <motion.div layout transition={SELECTION_TRANSITION}>
-                            <OptionGroup
-                              id="reprint-book-size"
-                              icon={BookOpen}
-                              label={tCheckout("configuration_book_size")}
-                              value={selectedBookSize}
-                              onChange={setSelectedBookSize}
-                              options={bookSizeOptions.filter((option) =>
-                                config.allowedBookSizes.includes(option.value)
-                              )}
-                              columns={3}
-                            />
-                          </motion.div>
-
-                          <motion.div layout transition={SELECTION_TRANSITION}>
-                            <OptionGroup
-                              id="reprint-paper-color"
-                              icon={Sparkles}
-                              label={tCheckout("configuration_paper_color")}
-                              value={selectedPaperColor}
-                              onChange={setSelectedPaperColor}
-                              options={paperColorOptions.filter((option) =>
-                                config.allowedPaperColors.includes(option.value)
-                              )}
-                            />
-                          </motion.div>
-
-                          <motion.div layout transition={SELECTION_TRANSITION}>
-                            <OptionGroup
-                              id="reprint-lamination"
-                              icon={Layers}
-                              label={tCheckout("configuration_lamination")}
-                              value={selectedLamination}
-                              onChange={setSelectedLamination}
-                              options={laminationOptions.filter((option) =>
-                                config.allowedLaminations.includes(option.value)
-                              )}
-                            />
-                          </motion.div>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {!isLoading && !isError && config && config.canReprintSame ? (
-                      <div className="mt-5 border-t border-[#2A2A2A] pt-5">
-                        <div className="rounded-[30px] border border-[#2A2A2A] bg-[#050505] p-5">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                            <div>
-                              <p className="font-sans text-[11px] font-semibold uppercase tracking-[0.14em] text-[#007eff]">
-                                {tDashboard("reprint_same_live_price_label")}
-                              </p>
-                              <p
-                                className="font-display mt-3 text-[2.4rem] leading-none font-semibold tracking-tight text-white sm:text-[3rem]"
-                                aria-live="polite"
+                              <button
+                                type="button"
+                                onClick={() => goTo("bank_details", -1)}
+                                className="font-sans inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[#9FD0FF] transition-colors duration-150 hover:text-white focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
                               >
-                                {formatCurrency(totalPrice, locale)}
-                              </p>
-                            </div>
+                                <ArrowLeft className="size-4" aria-hidden="true" />
+                                {tCommon("back")}
+                              </button>
 
-                            <div className="rounded-full border border-[#2A2A2A] bg-[#000000] px-4 py-2">
-                              <p className="font-sans text-sm text-[#BDBDBD]">
-                                {tDashboard("reprint_same_rate_per_page", {
-                                  amount: formatCurrency(selectedCostPerPage, locale),
-                                })}
-                              </p>
-                            </div>
-                          </div>
+                              <div className="rounded-[24px] border border-[#2A2A2A] bg-[#050505] p-5">
+                                <p className="font-display text-xl font-semibold text-white">
+                                  {tCheckout("payment_modal_bank_form_title")}
+                                </p>
 
-                          <p className="font-sans mt-4 text-sm leading-6 text-[#BDBDBD]">
-                            {config.pageCount !== null
-                              ? tDashboard("reprint_same_live_formula", {
-                                  copies: formatInteger(effectiveCopies, locale),
-                                  pages: formatInteger(config.pageCount, locale),
-                                  rate: formatCurrency(selectedCostPerPage, locale),
-                                })
-                              : tDashboard("reprint_same_page_count_unavailable")}
-                          </p>
+                                {/* Name */}
+                                <div className="mt-5 space-y-1.5">
+                                  <label
+                                    htmlFor="reprint-bank-name"
+                                    className="font-sans text-sm font-semibold text-white"
+                                  >
+                                    {tCheckout("full_name")}
+                                  </label>
+                                  <input
+                                    id="reprint-bank-name"
+                                    type="text"
+                                    value={bankName}
+                                    onChange={(e) => setBankName(e.target.value)}
+                                    className="font-sans min-h-12 w-full rounded-2xl border border-[#2A2A2A] bg-[#000000] px-4 text-sm text-white outline-none transition-colors duration-150 placeholder:text-[#6F6F6F] focus:border-[#007eff]"
+                                  />
+                                </div>
 
-                          <div className="mt-4 flex flex-wrap items-center gap-2">
-                            <span className="font-sans text-xs font-medium uppercase tracking-[0.14em] text-white/55">
-                              {tDashboard("reprint_same_providers_label")}
-                            </span>
-                            {config.enabledPaymentProviders.map((provider) => (
-                              <span
-                                key={provider}
-                                className="rounded-full border border-[#2A2A2A] bg-[#000000] px-3 py-1 font-sans text-xs font-semibold tracking-[0.08em] text-white/80 uppercase"
+                                {/* Email */}
+                                <div className="mt-4 space-y-1.5">
+                                  <label
+                                    htmlFor="reprint-bank-email"
+                                    className="font-sans text-sm font-semibold text-white"
+                                  >
+                                    {tCheckout("email")}
+                                  </label>
+                                  <input
+                                    id="reprint-bank-email"
+                                    type="email"
+                                    value={bankEmail}
+                                    onChange={(e) => setBankEmail(e.target.value)}
+                                    className="font-sans min-h-12 w-full rounded-2xl border border-[#2A2A2A] bg-[#000000] px-4 text-sm text-white outline-none transition-colors duration-150 placeholder:text-[#6F6F6F] focus:border-[#007eff]"
+                                  />
+                                </div>
+
+                                {/* Phone */}
+                                <div className="mt-4 space-y-1.5">
+                                  <label
+                                    htmlFor="reprint-bank-phone"
+                                    className="font-sans text-sm font-semibold text-white"
+                                  >
+                                    {tCheckout("phone")}
+                                  </label>
+                                  <input
+                                    id="reprint-bank-phone"
+                                    type="tel"
+                                    value={bankPhone}
+                                    onChange={(e) => setBankPhone(e.target.value)}
+                                    className="font-sans min-h-12 w-full rounded-2xl border border-[#2A2A2A] bg-[#000000] px-4 text-sm text-white outline-none transition-colors duration-150 placeholder:text-[#6F6F6F] focus:border-[#007eff]"
+                                  />
+                                </div>
+
+                                {/* Receipt upload */}
+                                <div className="mt-5 space-y-1.5">
+                                  <label
+                                    htmlFor="reprint-bank-receipt"
+                                    className="font-sans text-sm font-semibold text-white"
+                                  >
+                                    {tCheckout("payment_modal_bank_receipt_label")}
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => receiptInputRef.current?.click()}
+                                    className={cn(
+                                      "flex min-h-[5rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-4 text-center transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2",
+                                      receiptFile
+                                        ? "border-[#007eff]/50 bg-[#071320]"
+                                        : "border-[#2A2A2A] bg-[#000000] hover:border-[#007eff]/40 hover:bg-[#050505]"
+                                    )}
+                                  >
+                                    <Upload className="size-5 text-[#007eff]" aria-hidden="true" />
+                                    <span className="font-sans text-sm text-[#BDBDBD]">
+                                      {receiptFile
+                                        ? tCheckout("payment_modal_bank_receipt_selected", {
+                                            fileName: receiptFile.name,
+                                          })
+                                        : tCheckout("upload_receipt")}
+                                    </span>
+                                  </button>
+                                  <input
+                                    ref={receiptInputRef}
+                                    id="reprint-bank-receipt"
+                                    type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png"
+                                    onChange={handleReceiptChange}
+                                    className="sr-only"
+                                    aria-describedby="reprint-receipt-help"
+                                  />
+                                  <p
+                                    id="reprint-receipt-help"
+                                    className="font-sans text-xs text-[#8D8D8D]"
+                                  >
+                                    {tCheckout("payment_modal_bank_receipt_help")}
+                                  </p>
+                                  {receiptError ? (
+                                    <p role="alert" className="font-sans text-xs text-[#ef4444]">
+                                      {receiptError}
+                                    </p>
+                                  ) : null}
+                                </div>
+
+                                {/* Upload progress bar */}
+                                {isUploadingReceipt ? (
+                                  <div className="mt-4">
+                                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#2A2A2A]">
+                                      <motion.div
+                                        className="h-full rounded-full bg-[#007eff]"
+                                        initial={{ width: "0%" }}
+                                        animate={{ width: "85%" }}
+                                        transition={{ duration: 2, ease: "easeOut" }}
+                                      />
+                                    </div>
+                                    <p className="font-sans mt-2 text-xs text-[#BDBDBD]">
+                                      {tDashboard("reprint_uploading_receipt")}
+                                    </p>
+                                  </div>
+                                ) : null}
+
+                                {paymentError ? (
+                                  <p
+                                    role="alert"
+                                    className="font-sans mt-4 rounded-[18px] border border-[#ef4444]/45 bg-[#111111] px-4 py-3 text-sm leading-6 text-[#f3b2b2]"
+                                  >
+                                    {paymentError}
+                                  </p>
+                                ) : null}
+                              </div>
+
+                              <Button
+                                type="button"
+                                onClick={() => void handleReceiptSubmit()}
+                                disabled={!receiptFile || isUploadingReceipt}
+                                className="font-sans inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#007eff] px-6 text-base font-semibold text-white transition-colors duration-150 hover:bg-[#0a72df] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:bg-[#007eff]/40 disabled:text-white/50"
                               >
-                                {provider}
-                              </span>
-                            ))}
-                          </div>
+                                {isUploadingReceipt ? (
+                                  <>
+                                    <LoaderCircle
+                                      className="mr-2 size-4 animate-spin"
+                                      aria-hidden="true"
+                                    />
+                                    {tCommon("loading")}
+                                  </>
+                                ) : (
+                                  tCheckout("payment_modal_bank_send_receipt")
+                                )}
+                              </Button>
+                            </motion.div>
+                          ) : null}
 
-                          <p className="font-sans mt-4 text-sm leading-6 text-[#BDBDBD]">
-                            {tDashboard("reprint_same_price_preview_note")}
-                          </p>
-
-                          <div className="mt-5 rounded-[24px] border border-[#2A2A2A] bg-[#000000] p-4">
-                            <p className="font-sans text-sm font-semibold text-white">
-                              {tDashboard("reprint_same_payment_title")}
-                            </p>
-                            <p className="font-sans mt-2 text-sm leading-6 text-[#BDBDBD]">
-                              {tDashboard("reprint_same_payment_description")}
-                            </p>
-                            <p className="font-sans mt-2 text-sm leading-6 text-[#9fd0ff]">
-                              {tDashboard("reprint_same_payment_authenticated_note")}
-                            </p>
-
-                            {isOffline ? (
-                              <p
-                                aria-live="polite"
-                                aria-atomic="true"
-                                className="font-sans mt-4 rounded-[20px] border border-[#2A2A2A] bg-[#050505] px-4 py-3 text-sm leading-6 text-[#d0d0d0]"
+                          {/* ═══════ STEP 3b-3: Bank Confirmation ═══════ */}
+                          {step === "bank_confirmation" ? (
+                            <motion.div
+                              key="bank_confirmation"
+                              custom={slideDirection}
+                              variants={SLIDE_VARIANTS}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.25,
+                                ease: MOTION_EASE,
+                              }}
+                              className="flex flex-1 flex-col items-center justify-center rounded-[30px] border border-[#2A2A2A] bg-[#050505] px-6 py-10 text-center"
+                            >
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{
+                                  type: "spring",
+                                  stiffness: 300,
+                                  damping: 20,
+                                  delay: 0.1,
+                                }}
                               >
-                                {tCommon("offline_banner")}
-                              </p>
-                            ) : null}
-
-                            {isPaymentGatewaysLoading ? (
-                              <div className="mt-4 flex items-center gap-2 rounded-full border border-[#2A2A2A] bg-[#050505] px-4 py-3">
-                                <LoaderCircle
-                                  className="size-4 animate-spin text-[#007eff]"
+                                <CheckCircle2
+                                  className="size-14 text-emerald-400"
                                   aria-hidden="true"
                                 />
-                                <span className="font-sans text-sm text-[#BDBDBD]">
-                                  {tDashboard("reprint_same_payment_gateways_loading")}
-                                </span>
-                              </div>
-                            ) : isPaymentGatewaysError ? (
-                              <div className="mt-4 rounded-[20px] border border-[#2A2A2A] bg-[#050505] p-4">
-                                <p className="font-sans text-sm leading-6 text-[#BDBDBD]">
-                                  {tDashboard("reprint_same_payment_gateways_error")}
-                                </p>
-                                <Button
-                                  type="button"
-                                  onClick={() => {
-                                    void refetchPaymentGateways();
-                                  }}
-                                  className="font-sans mt-3 min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
-                                >
-                                  {tDashboard("reprint_same_payment_retry")}
-                                </Button>
-                              </div>
-                            ) : inlinePaymentGateways.length > 0 ? (
-                              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                                {inlinePaymentGateways.map((gateway) => {
-                                  const isPending = pendingPaymentProvider === gateway.provider;
-
-                                  return (
-                                    <button
-                                      key={gateway.id}
-                                      type="button"
-                                      onClick={() => {
-                                        void handleStartPayment(gateway.provider);
-                                      }}
-                                      disabled={pendingPaymentProvider !== null || isOffline}
-                                      className={cn(
-                                        "inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border px-5 py-3 font-sans text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
-                                        pendingPaymentProvider !== null || isOffline
-                                          ? "cursor-not-allowed border-[#2A2A2A] bg-[#121212] text-white/45"
-                                          : "border-[#007eff] bg-transparent text-[#007eff] hover:border-[#3398ff] hover:bg-[#071320] hover:text-[#3398ff]"
-                                      )}
-                                    >
-                                      {isPending ? (
-                                        <>
-                                          <LoaderCircle
-                                            className="mr-2 size-4 animate-spin"
-                                            aria-hidden="true"
-                                          />
-                                          {tDashboard("reprint_same_payment_processing")}
-                                        </>
-                                      ) : (
-                                        tDashboard("reprint_same_payment_button", {
-                                          provider: gateway.name,
-                                        })
-                                      )}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <p className="font-sans mt-4 text-sm leading-6 text-[#BDBDBD]">
-                                {tDashboard("reprint_same_unavailable_payment_provider")}
+                              </motion.div>
+                              <p className="font-display mt-5 text-xl font-semibold text-white">
+                                {tDashboard("reprint_bank_confirmation_title")}
                               </p>
-                            )}
-
-                            {paymentError ? (
-                              <p
-                                role="alert"
-                                className="font-sans mt-4 rounded-[18px] border border-[#ef4444]/45 bg-[#111111] px-4 py-3 text-sm leading-6 text-[#f3b2b2]"
+                              <p className="font-sans mt-3 max-w-md text-sm leading-6 text-[#BDBDBD]">
+                                {tCheckout("payment_verified")}
+                              </p>
+                              <Button
+                                type="button"
+                                onClick={() => {
+                                  onOpenChange(false);
+                                  router.push("/dashboard/books");
+                                }}
+                                className="font-sans mt-6 min-h-11 rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0066d1]"
                               >
-                                {paymentError}
+                                {tDashboard("reprint_success_go_to_books")}
+                              </Button>
+                            </motion.div>
+                          ) : null}
+
+                          {/* ═══════ STEP 3a: Online Success ═══════ */}
+                          {step === "online_success" ? (
+                            <motion.div
+                              key="online_success"
+                              custom={slideDirection}
+                              variants={SLIDE_VARIANTS}
+                              initial="enter"
+                              animate="center"
+                              exit="exit"
+                              transition={{
+                                duration: prefersReducedMotion ? 0 : 0.25,
+                                ease: MOTION_EASE,
+                              }}
+                              className="flex flex-1 flex-col items-center justify-center rounded-[30px] border border-[#2A2A2A] bg-[#050505] px-6 py-10 text-center"
+                            >
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{
+                                  type: "spring",
+                                  stiffness: 300,
+                                  damping: 20,
+                                  delay: 0.1,
+                                }}
+                              >
+                                <CheckCircle2
+                                  className="size-14 text-emerald-400"
+                                  aria-hidden="true"
+                                />
+                              </motion.div>
+                              <p className="font-display mt-5 text-xl font-semibold text-white">
+                                {tDashboard("reprint_success_title")}
                               </p>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
+                              <p className="font-sans mt-3 max-w-md text-sm leading-6 text-[#BDBDBD]">
+                                {tDashboard("reprint_success_desc")}
+                              </p>
+                              <Button
+                                type="button"
+                                onClick={() => {
+                                  onOpenChange(false);
+                                  router.push("/dashboard/books");
+                                }}
+                                className="font-sans mt-6 min-h-11 rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0066d1]"
+                              >
+                                {tDashboard("reprint_success_go_to_books")}
+                              </Button>
+                            </motion.div>
+                          ) : null}
+                        </AnimatePresence>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </motion.section>

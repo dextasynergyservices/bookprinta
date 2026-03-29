@@ -49,8 +49,19 @@ export class DashboardService {
       ]);
 
     const activeBook = this.resolveActiveBook(books.items);
+
+    // Check if the active book already has an in-progress reprint so we
+    // don't surface a misleading "Reprint Available" action.
+    const activeBookHasReprint =
+      activeBook !== null &&
+      DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.has(activeBook.productionStatus) &&
+      activeBook.productionStatus !== "CANCELLED"
+        ? await this.booksService.hasActiveReprint(activeBook.id)
+        : false;
+
     const pendingActionItems = this.buildPendingActions({
       activeBook,
+      activeBookHasReprint,
       isProfileComplete: profile.isProfileComplete,
       pendingReviewBook: reviewState.books.find((book) => book.reviewStatus === "PENDING") ?? null,
     });
@@ -108,6 +119,7 @@ export class DashboardService {
 
   private buildPendingActions(params: {
     activeBook: UserBookListItem | null;
+    activeBookHasReprint: boolean;
     isProfileComplete: boolean;
     pendingReviewBook: ReviewBook | null;
   }): DashboardPendingAction[] {
@@ -144,9 +156,11 @@ export class DashboardService {
       actions.push(activeBookAction);
     }
 
-    // Add reprint action for delivered/completed active book
+    // Add reprint action for delivered/completed active book only when
+    // there is no reprint already in progress for that book.
     if (
       params.activeBook &&
+      !params.activeBookHasReprint &&
       DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.has(params.activeBook.productionStatus) &&
       params.activeBook.productionStatus !== "CANCELLED"
     ) {

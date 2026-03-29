@@ -44,6 +44,7 @@ describe("normalizeOrdersListPayload", () => {
       orderStatus: "PAID",
       bookId: "book_1",
       bookStatus: "PRINTING",
+      bookProductionStatus: null,
       createdAt: "2026-03-01T08:30:00.000Z",
       totalAmount: 125000,
       currency: "NGN",
@@ -89,6 +90,7 @@ describe("normalizeOrdersListPayload", () => {
       orderStatus: "PROCESSING",
       bookId: null,
       bookStatus: "SHIPPING",
+      bookProductionStatus: null,
       totalAmount: 98000.5,
       currency: "NGN",
     });

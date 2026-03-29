@@ -51,8 +51,25 @@ function getApiV1BaseUrl() {
 
 async function extractError(response: Response, fallback: string) {
   const payload = await response.json().catch(() => null);
+
+  // nestjs-zod returns { message: "Validation failed", errors: [...] }
+  // Extract meaningful messages from the errors array first
+  if (
+    Array.isArray(payload?.errors) &&
+    payload.errors.length > 0 &&
+    typeof payload.errors[0]?.message === "string"
+  ) {
+    const messages = payload.errors
+      .map((e: { message?: string }) => e.message)
+      .filter((m: unknown): m is string => typeof m === "string" && m.trim().length > 0);
+    if (messages.length > 0) return messages.join(". ");
+  }
+
   if (typeof payload?.message === "string" && payload.message.trim().length > 0) {
-    return payload.message;
+    // Skip the generic "Validation failed" from nestjs-zod
+    if (payload.message !== "Validation failed") {
+      return payload.message;
+    }
   }
   if (Array.isArray(payload?.message) && payload.message.length > 0) {
     return payload.message.join(", ");
@@ -97,6 +114,9 @@ function SignupFinishPageContent() {
   const [isLoadingContext, setIsLoadingContext] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ password?: string; confirmPassword?: string }>(
+    {}
+  );
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -235,12 +255,37 @@ function SignupFinishPageContent() {
     void verifyFromToken();
   }, [context?.email, isSubmittingCode, router, step, stepParam, t, token]);
 
+  const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/;
+
+  const validatePasswordForm = (): boolean => {
+    const nextFieldErrors: { password?: string; confirmPassword?: string } = {};
+    const trimmed = password.trim();
+
+    if (trimmed.length < 8) {
+      nextFieldErrors.password = t("signup_finish_validation_password_min");
+    } else if (trimmed.length > 128) {
+      nextFieldErrors.password = t("signup_finish_validation_password_max");
+    } else if (!PASSWORD_REGEX.test(trimmed)) {
+      nextFieldErrors.password = t("signup_finish_validation_password_requirements");
+    }
+
+    if (password !== confirmPassword) {
+      nextFieldErrors.confirmPassword = t("signup_finish_validation_passwords_mismatch");
+    }
+
+    setFieldErrors(nextFieldErrors);
+    return Object.keys(nextFieldErrors).length === 0;
+  };
+
   const submitPassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmitPassword || !token) return;
 
+    if (!validatePasswordForm()) return;
+
     setErrorMessage("");
     setStatusMessage("");
+    setFieldErrors({});
     setIsSubmittingPassword(true);
     try {
       const response = await fetch(`${getApiV1BaseUrl()}/auth/signup/finish`, {
@@ -528,10 +573,24 @@ function SignupFinishPageContent() {
                       id="signup-finish-password"
                       type={isPasswordVisible ? "text" : "password"}
                       value={password}
-                      onChange={(event) => setPassword(event.target.value)}
+                      onChange={(event) => {
+                        setPassword(event.target.value);
+                        if (fieldErrors.password) {
+                          setFieldErrors((current) => ({ ...current, password: undefined }));
+                        }
+                      }}
                       autoComplete="new-password"
                       required
-                      className="min-h-11 w-full rounded-xl border border-white/10 bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                      aria-invalid={Boolean(fieldErrors.password)}
+                      aria-describedby={
+                        fieldErrors.password ? "signup-finish-password-error" : undefined
+                      }
+                      className={cn(
+                        "min-h-11 w-full rounded-xl border bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]",
+                        fieldErrors.password
+                          ? "border-[#EF4444] focus-visible:border-[#EF4444]"
+                          : "border-white/10"
+                      )}
                     />
                     <button
                       type="button"
@@ -547,6 +606,15 @@ function SignupFinishPageContent() {
                       )}
                     </button>
                   </div>
+                  {fieldErrors.password ? (
+                    <p
+                      id="signup-finish-password-error"
+                      role="alert"
+                      className="font-sans text-xs text-[#EF4444]"
+                    >
+                      {fieldErrors.password}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
@@ -602,10 +670,29 @@ function SignupFinishPageContent() {
                       id="signup-finish-confirm-password"
                       type={isConfirmPasswordVisible ? "text" : "password"}
                       value={confirmPassword}
-                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      onChange={(event) => {
+                        setConfirmPassword(event.target.value);
+                        if (fieldErrors.confirmPassword) {
+                          setFieldErrors((current) => ({
+                            ...current,
+                            confirmPassword: undefined,
+                          }));
+                        }
+                      }}
                       autoComplete="new-password"
                       required
-                      className="min-h-11 w-full rounded-xl border border-white/10 bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+                      aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                      aria-describedby={
+                        fieldErrors.confirmPassword
+                          ? "signup-finish-confirm-password-error"
+                          : undefined
+                      }
+                      className={cn(
+                        "min-h-11 w-full rounded-xl border bg-black px-4 pr-12 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]",
+                        fieldErrors.confirmPassword
+                          ? "border-[#EF4444] focus-visible:border-[#EF4444]"
+                          : "border-white/10"
+                      )}
                     />
                     <button
                       type="button"
@@ -623,6 +710,15 @@ function SignupFinishPageContent() {
                       )}
                     </button>
                   </div>
+                  {fieldErrors.confirmPassword ? (
+                    <p
+                      id="signup-finish-confirm-password-error"
+                      role="alert"
+                      className="font-sans text-xs text-[#EF4444]"
+                    >
+                      {fieldErrors.confirmPassword}
+                    </p>
+                  ) : null}
                 </div>
 
                 <p className="font-sans text-xs text-white/55">

@@ -52,6 +52,7 @@ export interface OrdersListItem {
   orderStatus: OrderStatus | null;
   bookId: string | null;
   bookStatus: BookStatus | null;
+  bookProductionStatus: BookStatus | null;
   createdAt: string | null;
   totalAmount: number | null;
   currency: string;

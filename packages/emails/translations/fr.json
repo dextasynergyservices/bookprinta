@@ -213,17 +213,34 @@
     "sla_reminder": "Veuillez verifier dans les 30 minutes pour respecter notre SLA."
   },
   "reprint_confirm": {
-    "subject": "Commande de reimpression confirmee - #{orderNumber}",
-    "heading": "Commande de reimpression confirmee",
-    "body": "Votre commande de reimpression a ete confirmee et est en cours de preparation.",
+    "subject": "Commande de réimpression passée - #{orderNumber}",
+    "heading": "Commande de réimpression passée",
+    "body": "Votre commande de réimpression a été passée et votre document est prêt pour votre approbation. Veuillez le vérifier et l'approuver depuis votre tableau de bord pour l'envoyer en production.",
     "book_title": "Livre",
     "copies": "Nombre d'exemplaires",
+    "cost_per_copy": "Coût par exemplaire",
     "page_size": "Format de page",
     "paper_color": "Couleur du papier",
-    "lamination": "Plastification",
-    "total_price": "Prix total",
-    "order_number": "Numero de commande",
-    "cta": "Suivre votre commande"
+    "lamination": "Pelliculage",
+    "total_price": "Total payé",
+    "order_number": "Numéro de commande",
+    "cta": "Approuver votre document"
+  },
+  "reprint_admin": {
+    "subject": "Nouvelle commande de réimpression - #{orderNumber}",
+    "heading": "Nouvelle commande de réimpression reçue",
+    "body": "Un client a passé une nouvelle commande de réimpression. Le document est en attente de son approbation avant d'entrer en production.",
+    "order_number": "Numéro de commande",
+    "customer_name": "Client",
+    "customer_email": "E-mail",
+    "book_title": "Livre",
+    "copies": "Nombre d'exemplaires",
+    "cost_per_copy": "Coût par exemplaire",
+    "page_size": "Format de page",
+    "paper_color": "Couleur du papier",
+    "lamination": "Pelliculage",
+    "total_price": "Total payé",
+    "cta": "Voir dans le panneau admin"
   },
   "production_delay": {
     "subject": "Mise a jour de production - Delais supplementaires prevus",

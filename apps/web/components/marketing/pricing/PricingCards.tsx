@@ -346,7 +346,7 @@ function PackageCard({
             "relative mt-auto flex h-12 w-full items-center justify-center rounded-full px-6 text-center font-display text-sm font-semibold tracking-wide transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-primary",
             isPopular
               ? "bg-accent text-accent-foreground shadow-[0_4px_16px_rgba(0,126,255,0.2)] hover:shadow-[0_8px_24px_rgba(0,126,255,0.3)] hover:brightness-110 focus:ring-accent"
-              : "border border-white/15 bg-transparent text-primary-foreground hover:border-white/30 hover:bg-white/[0.06] focus:ring-white/40"
+              : "border border-accent/40 bg-transparent text-accent hover:border-accent/60 hover:bg-accent/[0.06] focus:ring-accent/50"
           )}
         >
           {t("select_package")}

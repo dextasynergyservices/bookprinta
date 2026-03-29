@@ -29,6 +29,7 @@
     "db:seed:gateways": "bun run prisma/seed-payment-gateways.ts",
     "db:seed:production-delay": "bun run prisma/seed-production-delay-settings.ts",
     "db:seed:quote-settings": "bun run prisma/seed-quote-settings.ts",
+    "db:seed:reprint-settings": "bun run prisma/seed-reprint-settings.ts",
     "db:seed:resources": "bun run prisma/seed-resources.ts",
     "db:seed:showcase": "bun run prisma/seed-showcase.ts",
     "db:backfill:phone-normalized": "bun run prisma/backfill-phone-number-normalized.ts",

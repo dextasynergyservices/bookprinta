@@ -31,21 +31,14 @@ function createFallbackBookReprintConfig(bookId: string): BookReprintConfigRespo
     bookId,
     canReprintSame: false,
     disableReason: null,
+    hasActiveReprint: false,
     finalPdfUrlPresent: false,
     pageCount: null,
-    minCopies: 25,
-    defaultBookSize: "A5",
-    defaultPaperColor: "white",
-    defaultLamination: "gloss",
-    allowedBookSizes: ["A4", "A5", "A6"],
-    allowedPaperColors: ["white", "cream"],
-    allowedLaminations: ["matt", "gloss"],
-    costPerPageBySize: {
-      A4: 0,
-      A5: 0,
-      A6: 0,
-    },
-    enabledPaymentProviders: [],
+    costPerCopy: null,
+    bookTitle: null,
+    bookSize: null,
+    paperColor: null,
+    lamination: null,
   };
 }
 

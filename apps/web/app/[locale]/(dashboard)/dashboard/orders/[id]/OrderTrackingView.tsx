@@ -380,16 +380,6 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
     tDashboard("order_tracking_last_updated_unavailable"),
     { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }
   );
-  const reviseReprintHref = useMemo(() => {
-    if (!tracking.bookId) return null;
-
-    const params = new URLSearchParams({
-      orderType: "REPRINT",
-      sourceBookId: tracking.bookId,
-    });
-
-    return `/pricing?${params.toString()}`;
-  }, [tracking.bookId]);
   const isReprintSameDisabled =
     canShowReprintActions &&
     !isReprintConfigInitialLoading &&
@@ -621,15 +611,6 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
             className="font-sans min-h-11 rounded-full border-[#007eff] bg-transparent px-5 text-sm font-semibold text-[#007eff] shadow-none hover:border-[#3398ff] hover:bg-[#071320] hover:text-[#3398ff]"
           >
             {tDashboard("reprint_same")}
-          </Button>
-        ) : null}
-        {canShowReprintActions && reviseReprintHref !== null ? (
-          <Button
-            asChild
-            variant="secondary"
-            className="font-sans min-h-11 rounded-full border border-[#2A2A2A] bg-[#111111] px-5 text-sm font-semibold text-white hover:border-[#007eff] hover:bg-[#151515]"
-          >
-            <Link href={reviseReprintHref}>{tDashboard("revise_reprint")}</Link>
           </Button>
         ) : null}
         <button

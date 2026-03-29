@@ -24,6 +24,7 @@ import {
   DashboardTableViewport,
 } from "@/components/dashboard/dashboard-content-frame";
 import { OrderMetaText, OrderReferenceText } from "@/components/dashboard/orders";
+import { ReprintBadge } from "@/components/dashboard/orders/reprint-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader } from "@/components/ui/table";
@@ -349,9 +350,12 @@ function AdminBooksDesktopTable({
           />
         ),
         cell: ({ row }) => (
-          <p className="truncate font-display text-sm font-semibold tracking-tight text-white md:text-base">
-            {row.original.title ?? tAdmin("books_title_untitled")}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="truncate font-display text-sm font-semibold tracking-tight text-white md:text-base">
+              {row.original.title ?? tAdmin("books_title_untitled")}
+            </p>
+            <ReprintBadge orderType={row.original.order.orderType} />
+          </div>
         ),
       }),
       createColumnHelper<AdminBookRow>().display({
@@ -527,13 +531,16 @@ function AdminBooksMobileCards({
       {items.map((book) => (
         <article
           key={book.id}
-          className="rounded-[1.35rem] border border-[#2A2A2A] bg-[#111111] p-4 transition-colors duration-150 hover:bg-[#1A1A1A]"
+          className="overflow-hidden rounded-[1.35rem] border border-[#2A2A2A] bg-[#111111] p-4 transition-colors duration-150 hover:bg-[#1A1A1A]"
         >
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate font-display text-lg font-semibold tracking-tight text-white">
-                {book.title ?? tAdmin("books_title_untitled")}
-              </p>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="min-w-0 truncate font-display text-lg font-semibold tracking-tight text-white">
+                  {book.title ?? tAdmin("books_title_untitled")}
+                </p>
+                <ReprintBadge orderType={book.order.orderType} />
+              </div>
               <p className="mt-1 truncate font-sans text-sm text-[#d0d0d0]">
                 {book.author.fullName || tAdmin("books_author_unknown")}
               </p>

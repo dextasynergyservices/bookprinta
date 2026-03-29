@@ -79,6 +79,7 @@ function createFallbackOrderTracking(orderId: string | null): OrderTrackingNorma
     currentStatus: null,
     productionStatus: "PAYMENT_RECEIVED",
     latestProcessingError: null,
+    orderType: null,
     rejectionReason: null,
     currentStage: "PAYMENT_RECEIVED",
     isRejected: false,
