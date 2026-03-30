@@ -242,6 +242,31 @@
     "total_price": "Total pagado",
     "cta": "Ver en el panel de administración"
   },
+  "new_book_order_confirm": {
+    "subject": "Nuevo pedido de libro - #{orderNumber}",
+    "heading": "¡Tu nuevo pedido de libro esta confirmado!",
+    "body": "Tu nuevo pedido de libro se ha realizado con exito. Ahora puedes subir tu manuscrito y comenzar el proceso de publicacion desde tu panel de control.",
+    "order_number": "Numero de pedido",
+    "package": "Paquete",
+    "addons": "Servicios adicionales",
+    "total_price": "Total pagado",
+    "next_steps": "Ve a tu panel de control para subir tu manuscrito y configurar los ajustes de tu libro.",
+    "cta": "Ir al panel de control"
+  },
+  "new_book_order_admin": {
+    "subject": "Nuevo pedido de un usuario existente - #{orderNumber}",
+    "heading": "Nuevo pedido de un usuario existente",
+    "body": "Un usuario existente ha realizado un nuevo pedido de libro desde su panel de control.",
+    "order_number": "Numero de pedido",
+    "customer_name": "Cliente",
+    "customer_email": "Email",
+    "package": "Paquete",
+    "addons": "Servicios adicionales",
+    "provider": "Proveedor de pago",
+    "reference": "Referencia de pago",
+    "total_price": "Total pagado",
+    "cta": "Ver en el panel de administración"
+  },
   "production_delay": {
     "subject": "Actualizacion de produccion - Tiempos de espera mas largos",
     "heading": "Actualizacion de produccion",

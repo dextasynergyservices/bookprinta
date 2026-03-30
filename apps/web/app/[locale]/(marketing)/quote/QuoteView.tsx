@@ -309,7 +309,18 @@ export function QuoteView() {
   );
 }
 
-function QuoteViewInner() {
+// ── Public props for dashboard variant (no RecaptchaProvider wrapper) ────────
+
+export interface QuoteWizardProps {
+  /** "public" = marketing page with reCAPTCHA; "dashboard" = authenticated, no reCAPTCHA */
+  variant?: "public" | "dashboard";
+  /** Pre-fill Step 4 contact fields (dashboard only) */
+  initialContact?: { fullName: string; email: string };
+}
+
+export { QuoteViewInner as QuoteWizardInner };
+
+function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps) {
   const t = useTranslations("quote");
   const { executeRecaptcha } = useGoogleReCaptcha();
   const { lenis } = useLenis();
@@ -318,10 +329,19 @@ function QuoteViewInner() {
   const bookSizeRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const estimatorAbortControllerRef = useRef<AbortController | null>(null);
 
+  const isDashboard = variant === "dashboard";
   const [currentStep, setCurrentStep] = useState(0);
   const [direction, setDirection] = useState<1 | -1>(1);
-  const [form, setForm] = useState<QuoteShellState>(INITIAL_FORM_STATE);
-  const [touched, setTouched] = useState<FieldTouched>(INITIAL_TOUCHED_STATE);
+  const [form, setForm] = useState<QuoteShellState>(() => ({
+    ...INITIAL_FORM_STATE,
+    ...(initialContact?.fullName ? { fullName: initialContact.fullName } : {}),
+    ...(initialContact?.email ? { email: initialContact.email } : {}),
+  }));
+  const [touched, setTouched] = useState<FieldTouched>(() => ({
+    ...INITIAL_TOUCHED_STATE,
+    ...(initialContact?.fullName ? { fullName: true } : {}),
+    ...(initialContact?.email ? { email: true } : {}),
+  }));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [estimator, setEstimator] = useState<QuoteEstimatorState>(INITIAL_ESTIMATOR_STATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -686,13 +706,19 @@ function QuoteViewInner() {
         estimateHigh = estimateResponse.estimatedPriceHigh;
       }
 
-      const recaptchaToken = executeRecaptcha
-        ? await executeRecaptcha("quote_submission_form")
-        : undefined;
+      const recaptchaToken =
+        !isDashboard && executeRecaptcha
+          ? await executeRecaptcha("quote_submission_form")
+          : undefined;
 
-      const response = await fetch(`${getApiV1BaseUrl()}/quotes`, {
+      const endpoint = isDashboard
+        ? `${getApiV1BaseUrl()}/dashboard/new-book/quote`
+        : `${getApiV1BaseUrl()}/quotes`;
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        ...(isDashboard ? { credentials: "include" as RequestCredentials } : {}),
         body: JSON.stringify({
           workingTitle: form.workingTitle.trim(),
           estimatedWordCount: parseIntegerValue(form.estimatedWordCount),
@@ -709,7 +735,7 @@ function QuoteViewInner() {
           phone: form.phone.trim(),
           estimatedPriceLow: hasSpecialReqs ? null : estimateLow,
           estimatedPriceHigh: hasSpecialReqs ? null : estimateHigh,
-          recaptchaToken,
+          ...(isDashboard ? {} : { recaptchaToken }),
         }),
       });
 
@@ -1119,10 +1145,15 @@ function QuoteViewInner() {
                 aria-invalid={Boolean(fullNameError)}
                 aria-describedby={fullNameError ? "quote-full-name-error" : undefined}
                 required
+                readOnly={isDashboard && Boolean(initialContact?.fullName)}
                 value={form.fullName}
                 onChange={(event) => updateField("fullName", event.target.value)}
                 onBlur={() => validateFieldOnBlur("fullName")}
-                className={cn(inputClassName, fullNameError ? inputErrorClassName : "")}
+                className={cn(
+                  inputClassName,
+                  fullNameError ? inputErrorClassName : "",
+                  isDashboard && initialContact?.fullName ? "opacity-60" : ""
+                )}
                 placeholder={t("full_name_placeholder")}
               />
               {fullNameError ? (
@@ -1140,6 +1171,7 @@ function QuoteViewInner() {
                 id="quote-email"
                 name="quote-email"
                 type="email"
+                readOnly={isDashboard && Boolean(initialContact?.email)}
                 aria-label={t("email_label")}
                 aria-required
                 aria-invalid={Boolean(emailError)}
@@ -1148,7 +1180,11 @@ function QuoteViewInner() {
                 value={form.email}
                 onChange={(event) => updateField("email", event.target.value)}
                 onBlur={() => validateFieldOnBlur("email")}
-                className={cn(inputClassName, emailError ? inputErrorClassName : "")}
+                className={cn(
+                  inputClassName,
+                  emailError ? inputErrorClassName : "",
+                  isDashboard && initialContact?.email ? "opacity-60" : ""
+                )}
                 placeholder={t("email_placeholder")}
               />
               {emailError ? (
@@ -1271,8 +1307,14 @@ function QuoteViewInner() {
   }
 
   return (
-    <section className="min-h-screen bg-[#000000] pt-24 pb-14 sm:pt-28 md:pb-20">
-      <ScrollProgress />
+    <section
+      className={
+        isDashboard
+          ? "px-4 py-6 md:px-8 md:py-10"
+          : "min-h-screen bg-[#000000] pt-24 pb-14 sm:pt-28 md:pb-20"
+      }
+    >
+      {isDashboard ? null : <ScrollProgress />}
       <div ref={topRef} className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8">
         <header>
           {!submittedQuote ? (
@@ -1417,10 +1459,10 @@ function QuoteViewInner() {
                   className="flex justify-center"
                 >
                   <Link
-                    href="/"
+                    href={isDashboard ? "/dashboard" : "/"}
                     className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#007eff] px-6 py-3 font-sans text-sm font-semibold text-white transition-colors hover:bg-[#006fe0]"
                   >
-                    {t("confirmation_back_home")}
+                    {isDashboard ? t("confirmation_back_dashboard") : t("confirmation_back_home")}
                   </Link>
                 </motion.div>
               </motion.div>

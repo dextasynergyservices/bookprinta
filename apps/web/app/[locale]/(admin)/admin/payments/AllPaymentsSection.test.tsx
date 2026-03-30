@@ -64,6 +64,7 @@ const translations: Record<string, string> = {
   payments_total_unavailable: "Amount unavailable",
   payments_date_unavailable: "Date unavailable",
   payments_pending_provider_ref_missing: "Pending reference",
+  payments_pending_checkout_stale: "Stale pending checkout ({age})",
   common_loading: "Loading...",
   common_retry: "Retry",
 };
@@ -251,6 +252,7 @@ function createPaymentsState() {
       processedAt: "2026-03-10T10:02:00.000Z",
       createdAt: "2026-03-10T10:00:00.000Z",
       updatedAt: "2026-03-10T10:02:00.000Z",
+      pendingCheckout: null,
       refundability: {
         isRefundable: true,
         processingMode: "gateway",
@@ -442,6 +444,53 @@ describe("AllPaymentsSection", () => {
         orderReference: "BP-REF-001",
       })
     );
+  });
+
+  it("shows a stale pending checkout badge when admin reporting marks a payment as stale", () => {
+    useAdminPaymentsMock.mockReturnValue({
+      ...createPaymentsState(),
+      items: [
+        {
+          ...createPaymentsState().items[0],
+          id: "pay_stale_1",
+          orderReference: "BP-REF-STALE",
+          orderNumber: null,
+          orderId: null,
+          status: "PENDING",
+          processedAt: null,
+          createdAt: "2026-03-10T10:00:00.000Z",
+          pendingCheckout: {
+            ageMinutes: 185,
+            staleAfterMinutes: 120,
+            isStale: true,
+          },
+        },
+      ],
+      data: {
+        ...createPaymentsState().data,
+        items: [
+          {
+            ...createPaymentsState().items[0],
+            id: "pay_stale_1",
+            orderReference: "BP-REF-STALE",
+            orderNumber: null,
+            orderId: null,
+            status: "PENDING",
+            processedAt: null,
+            createdAt: "2026-03-10T10:00:00.000Z",
+            pendingCheckout: {
+              ageMinutes: 185,
+              staleAfterMinutes: 120,
+              isStale: true,
+            },
+          },
+        ],
+      },
+    });
+
+    render(<AllPaymentsSection onViewReceipt={jest.fn()} />);
+
+    expect(screen.getByText("Stale pending checkout (3h 05m)")).toBeInTheDocument();
   });
 
   it("reuses the admin order refund modal and submits refunds with the linked order id", async () => {

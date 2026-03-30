@@ -146,6 +146,16 @@ function formatAdminCurrency(
   }
 }
 
+function formatAgeMinutesLabel(ageMinutes: number): string {
+  if (ageMinutes < 60) {
+    return `${ageMinutes}m`;
+  }
+
+  const hours = Math.floor(ageMinutes / 60);
+  const minutes = ageMinutes % 60;
+  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+}
+
 function getFilterControlClass(isActive: boolean): string {
   return cn(
     "min-h-11 rounded-full border bg-[#080808] px-4 font-sans text-sm text-white transition-colors duration-150 outline-none",
@@ -222,6 +232,23 @@ function getProviderBadgeClass(provider: PaymentProvider): string {
   if (provider === "PAYSTACK") return "border-[#174235] bg-[#0B1915] text-[#86EFAC]";
   if (provider === "STRIPE") return "border-[#3E286B] bg-[#120C20] text-[#C4B5FD]";
   return "border-[#5A2E16] bg-[#1B0F09] text-[#FDBA74]";
+}
+
+function getPendingCheckoutBadgeClass(): string {
+  return "border-[#5A2E16] bg-[#1B0F09] text-[#FDBA74]";
+}
+
+function resolvePendingCheckoutStaleLabel(
+  row: AdminPaymentRow,
+  tAdmin: ReturnType<typeof useTranslations>
+): string | null {
+  if (!row.pendingCheckout?.isStale) {
+    return null;
+  }
+
+  return tAdmin("payments_pending_checkout_stale", {
+    age: formatAgeMinutesLabel(row.pendingCheckout.ageMinutes),
+  });
 }
 
 function resolveRefundActionLabel(
@@ -803,6 +830,7 @@ function AllPaymentsMobileCards({
       {items.map((row) => {
         const userName = resolvePaymentUserName(row, tAdmin("payments_pending_payer_unknown"));
         const userEmail = resolvePaymentUserEmail(row, tAdmin("payments_user_email_missing"));
+        const stalePendingLabel = resolvePendingCheckoutStaleLabel(row, tAdmin);
         const amount = formatAdminCurrency(
           row.amount,
           row.currency,
@@ -859,6 +887,16 @@ function AllPaymentsMobileCards({
                 >
                   {humanizeAdminPaymentValue(row.provider)}
                 </span>
+                {stalePendingLabel ? (
+                  <span
+                    className={cn(
+                      "rounded-full border px-3 py-1 font-sans text-xs",
+                      getPendingCheckoutBadgeClass()
+                    )}
+                  >
+                    {stalePendingLabel}
+                  </span>
+                ) : null}
                 <span className="rounded-full border border-[#2A2A2A] bg-[#101010] px-3 py-1 font-sans text-xs text-[#D0D0D0]">
                   {createdAt}
                 </span>
@@ -1010,14 +1048,26 @@ function AllPaymentsDesktopTable({
           />
         ),
         cell: ({ row }) => (
-          <span
-            className={cn(
-              "inline-flex rounded-full border px-3 py-1 font-sans text-xs font-medium",
-              getStatusBadgeClass(row.original.status)
-            )}
-          >
-            {humanizeAdminPaymentValue(row.original.status)}
-          </span>
+          <div className="flex flex-col items-start gap-2">
+            <span
+              className={cn(
+                "inline-flex rounded-full border px-3 py-1 font-sans text-xs font-medium",
+                getStatusBadgeClass(row.original.status)
+              )}
+            >
+              {humanizeAdminPaymentValue(row.original.status)}
+            </span>
+            {resolvePendingCheckoutStaleLabel(row.original, tAdmin) ? (
+              <span
+                className={cn(
+                  "inline-flex rounded-full border px-3 py-1 font-sans text-xs",
+                  getPendingCheckoutBadgeClass()
+                )}
+              >
+                {resolvePendingCheckoutStaleLabel(row.original, tAdmin)}
+              </span>
+            ) : null}
+          </div>
         ),
       }),
       createColumnHelper<AdminPaymentRow>().display({

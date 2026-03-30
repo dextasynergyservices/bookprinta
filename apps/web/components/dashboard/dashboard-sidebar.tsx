@@ -9,6 +9,7 @@ import {
   Lock,
   MessageSquareText,
   Package,
+  PlusCircle,
   UserRound,
 } from "lucide-react";
 import Image from "next/image";
@@ -20,9 +21,11 @@ import { cn } from "@/lib/utils";
 
 type SidebarItem = {
   href: string;
-  labelKey: "title" | "my_books" | "orders" | "profile" | "settings" | "reviews";
+  labelKey: "title" | "my_books" | "orders" | "profile" | "settings" | "print_new_book" | "reviews";
   icon: React.ComponentType<{ className?: string }>;
   matchMode: "exact" | "prefix";
+  variant?: "accent";
+  separator?: "before";
 };
 
 type DashboardSidebarProps = {
@@ -39,6 +42,14 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { href: "/dashboard/orders", labelKey: "orders", icon: Package, matchMode: "prefix" },
   { href: "/dashboard/profile", labelKey: "profile", icon: UserRound, matchMode: "prefix" },
   { href: "/dashboard/settings", labelKey: "settings", icon: Cog, matchMode: "prefix" },
+  {
+    href: "/dashboard/new-book",
+    labelKey: "print_new_book",
+    icon: PlusCircle,
+    matchMode: "prefix",
+    variant: "accent",
+    separator: "before",
+  },
   {
     href: "/dashboard/reviews",
     labelKey: "reviews",
@@ -142,6 +153,7 @@ export function DashboardSidebar({
           <ul className="space-y-1">
             {SIDEBAR_ITEMS.map((item) => {
               const isActive = isItemActive(pathname, item);
+              const isAccent = item.variant === "accent";
               const isReviewsItem = item.labelKey === "reviews";
               const isReviewsLocked =
                 isReviewsItem &&
@@ -179,9 +191,13 @@ export function DashboardSidebar({
                     isCollapsed ? "justify-center px-2" : "px-3",
                     isReviewsLocked
                       ? "cursor-not-allowed border-l-transparent bg-[#2A2A2A] text-[#919191] hover:bg-[#2A2A2A] hover:text-[#919191]"
-                      : isActive
-                        ? "border-l-[#007eff] bg-[#1a1a1a] text-white"
-                        : "border-l-transparent text-white hover:bg-[#141414] hover:text-white"
+                      : isAccent
+                        ? isActive
+                          ? "border-l-[#007eff] bg-[#007eff]/10 text-[#007eff]"
+                          : "border-l-transparent text-[#007eff] hover:bg-[#007eff]/5 hover:text-[#007eff]"
+                        : isActive
+                          ? "border-l-[#007eff] bg-[#1a1a1a] text-white"
+                          : "border-l-transparent text-white hover:bg-[#141414] hover:text-white"
                   )}
                 >
                   <Icon className="size-4 shrink-0" aria-hidden="true" />
@@ -194,6 +210,7 @@ export function DashboardSidebar({
 
               return (
                 <li key={item.href}>
+                  {item.separator === "before" && <hr className="my-2 border-t border-[#2A2A2A]" />}
                   {tooltipLabel ? (
                     <Tooltip>
                       <TooltipTrigger asChild>{link}</TooltipTrigger>

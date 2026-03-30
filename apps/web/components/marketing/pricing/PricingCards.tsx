@@ -31,7 +31,7 @@ function formatPrice(price: number) {
   }).format(price);
 }
 
-type SelectedPackage = {
+export type SelectedPackage = {
   slug: string;
   name: string;
   categorySlug: string;
@@ -358,7 +358,7 @@ function PackageCard({
 
 // ─── Custom Quote Card ───
 
-function CustomQuoteCard({ index }: { index: number }) {
+function CustomQuoteCard({ index, quoteHref = "/quote" }: { index: number; quoteHref?: string }) {
   const t = useTranslations("pricing");
 
   return (
@@ -399,7 +399,7 @@ function CustomQuoteCard({ index }: { index: number }) {
 
         {/* CTA */}
         <Link
-          href="/quote"
+          href={quoteHref}
           className="relative mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-full border border-accent/30 bg-transparent px-6 text-center font-display text-sm font-semibold tracking-wide text-accent transition-all duration-300 hover:border-accent/50 hover:bg-accent/[0.08] focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary"
         >
           {t("quote_card_cta")}
@@ -420,11 +420,13 @@ function CategoryPanel({
   isActive,
   onSelectPackage,
   showQuoteCard,
+  quoteHref,
 }: {
   category: PackageCategory;
   isActive: boolean;
   onSelectPackage: (selection: SelectedPackage) => void;
   showQuoteCard: boolean;
+  quoteHref?: string;
 }) {
   const midIndex = Math.floor(category.packages.length / 2);
 
@@ -470,7 +472,9 @@ function CategoryPanel({
             ))}
 
             {/* Custom Quote card — conditionally rendered */}
-            {showQuoteCard && <CustomQuoteCard index={category.packages.length} />}
+            {showQuoteCard && (
+              <CustomQuoteCard index={category.packages.length} quoteHref={quoteHref} />
+            )}
           </div>
         </motion.div>
       )}
@@ -540,7 +544,15 @@ function PricingCardsSkeleton() {
 
 // ─── Main Component ───
 
-export function PricingCards({ showQuoteCard = false }: { showQuoteCard?: boolean }) {
+export function PricingCards({
+  showQuoteCard = false,
+  checkoutBasePath = "/checkout",
+  quoteHref,
+}: {
+  showQuoteCard?: boolean;
+  checkoutBasePath?: string;
+  quoteHref?: string;
+}) {
   const t = useTranslations("pricing");
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -582,8 +594,8 @@ export function PricingCards({ showQuoteCard = false }: { showQuoteCard?: boolea
       params.set("sourceBookId", reviseSourceBookId);
     }
 
-    router.push(`/checkout?${params.toString()}`);
-  }, [isReviseReprintFlow, reviseSourceBookId, router, selectedPackage]);
+    router.push(`${checkoutBasePath}?${params.toString()}`);
+  }, [checkoutBasePath, isReviseReprintFlow, reviseSourceBookId, router, selectedPackage]);
 
   useGSAP(
     () => {
@@ -652,6 +664,7 @@ export function PricingCards({ showQuoteCard = false }: { showQuoteCard?: boolea
           isActive={category.slug === activeSlug}
           onSelectPackage={handlePackageSelect}
           showQuoteCard={showQuoteCard}
+          quoteHref={quoteHref}
         />
       ))}
 

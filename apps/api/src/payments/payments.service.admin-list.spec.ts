@@ -76,6 +76,7 @@ function makePaymentRow(params: {
   userLastName?: string | null;
   userEmail?: string;
   userPreferredLanguage?: string | null;
+  metadata?: Record<string, unknown>;
 }) {
   const orderId = params.orderNumber ? `order_${params.id}` : null;
   const userId = `user_${params.id}`;
@@ -108,7 +109,7 @@ function makePaymentRow(params: {
     adminNote: params.adminNote ?? null,
     approvedAt: null,
     approvedBy: null,
-    metadata: {
+    metadata: params.metadata ?? {
       locale: "en",
       fullName: params.payerName ?? `${user.firstName} ${user.lastName ?? ""}`.trim(),
       phone: params.payerPhone ?? "+2348012345678",
@@ -294,5 +295,74 @@ describe("PaymentsService admin payment listings", () => {
     expect(result.items.map((item) => item.slaSnapshot.state)).toEqual(["red", "yellow", "green"]);
     expect(result.totalItems).toBe(3);
     expect(result.refreshedAt).toEqual(expect.any(String));
+  });
+
+  it("classifies pending checkout payments as active or stale for admin reporting", async () => {
+    const { service, prisma } = createService();
+    jest.spyOn(Date, "now").mockReturnValue(new Date("2026-03-13T15:00:00.000Z").getTime());
+
+    prisma.payment.findMany.mockResolvedValue([
+      makePaymentRow({
+        id: "payment_pending_active",
+        createdAt: "2026-03-13T14:20:00.000Z",
+        amount: 50000,
+        status: PaymentStatus.PENDING,
+        orderNumber: null,
+        metadata: {
+          locale: "en",
+          fullName: "Ada Author",
+          phone: "+2348012345678",
+          paymentFlow: "CHECKOUT",
+          source: "dashboard",
+          dashboardUserId: "user_pending_active",
+        },
+      }),
+      makePaymentRow({
+        id: "payment_pending_stale",
+        createdAt: "2026-03-13T12:00:00.000Z",
+        amount: 50000,
+        status: PaymentStatus.PENDING,
+        orderNumber: null,
+        metadata: {
+          locale: "en",
+          fullName: "Ada Author",
+          phone: "+2348012345678",
+          paymentFlow: "CHECKOUT",
+          source: "dashboard",
+          dashboardUserId: "user_pending_stale",
+        },
+      }),
+      makePaymentRow({
+        id: "payment_successful",
+        createdAt: "2026-03-13T11:00:00.000Z",
+        amount: 50000,
+        status: PaymentStatus.SUCCESS,
+        orderNumber: "BP-2026-0099",
+      }),
+    ]);
+
+    const result = await service.listAdminPayments({
+      limit: 10,
+      sortBy: "createdAt",
+      sortDirection: "desc",
+    });
+
+    expect(
+      result.items.find((item) => item.id === "payment_pending_active")?.pendingCheckout
+    ).toEqual({
+      ageMinutes: 40,
+      staleAfterMinutes: 120,
+      isStale: false,
+    });
+    expect(
+      result.items.find((item) => item.id === "payment_pending_stale")?.pendingCheckout
+    ).toEqual({
+      ageMinutes: 180,
+      staleAfterMinutes: 120,
+      isStale: true,
+    });
+    expect(
+      result.items.find((item) => item.id === "payment_successful")?.pendingCheckout
+    ).toBeNull();
   });
 });

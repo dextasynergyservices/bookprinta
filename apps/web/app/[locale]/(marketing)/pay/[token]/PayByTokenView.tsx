@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useAuthSession } from "@/hooks/use-auth-session";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { submitBankTransfer, usePaymentGateways } from "@/hooks/usePayments";
 import {
@@ -70,6 +71,8 @@ function normalizeProvider(provider: string | null | undefined): OnlineProvider 
 }
 
 export function PayByTokenView({ token }: { token: string }) {
+  // Auth session: used to detect if user is already authenticated (dashboard user)
+  const { isAuthenticated } = useAuthSession();
   const t = useTranslations("quote_pay");
   const tCommon = useTranslations("common");
   const locale = useLocale();
@@ -177,8 +180,13 @@ export function PayByTokenView({ token }: { token: string }) {
         try {
           const result = await verifyQuotePaymentReference(reference, provider);
 
+          // If payment is successful and user is authenticated, redirect to dashboard
           if (result.signupUrl) {
-            window.location.assign(result.signupUrl);
+            if (isAuthenticated) {
+              window.location.assign("/dashboard");
+            } else {
+              window.location.assign(result.signupUrl);
+            }
             return;
           }
 
@@ -209,7 +217,7 @@ export function PayByTokenView({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, t]);
+  }, [searchParams, t, isAuthenticated]);
 
   useEffect(() => {
     if (!resolved?.quote) return;
