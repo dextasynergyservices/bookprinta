@@ -204,6 +204,12 @@ type PublicSignupLinkDeliveryStatus = {
   retryEligible: boolean;
 };
 
+type DashboardOrderEmailDeliverySnapshot = {
+  userSentAt?: string | null;
+  adminSentAt?: string | null;
+  lastAttemptAt?: string | null;
+};
+
 const ADMIN_PAYMENT_SORTABLE_FIELDS: AdminPaymentSortField[] = [
   "orderReference",
   "customerName",
@@ -563,6 +569,33 @@ export class PaymentsService {
       } catch (err) {
         this.logger.warn(`Failed to resolve order details for payment ${existing.id}: ${err}`);
       }
+
+      const existingMetadata = this.asRecord(existing.metadata);
+      const isDashboardOrder = this.asString(existingMetadata?.source) === "dashboard";
+      if (
+        isDashboardOrder &&
+        existing.status === PaymentStatus.SUCCESS &&
+        existing.payerEmail &&
+        orderDetails
+      ) {
+        await this.sendNewBookOrderEmails({
+          paymentId: existing.id,
+          baseMetadata: existingMetadata,
+          locale: this.resolveLocale(this.asString(existingMetadata?.locale)),
+          userName: this.pickDisplayName(
+            this.asString(existingMetadata?.fullName) || undefined,
+            existing.payerEmail
+          ),
+          userEmail: existing.payerEmail,
+          orderNumber: orderDetails.orderNumber,
+          packageName: orderDetails.packageName,
+          amountPaid: orderDetails.amountPaid,
+          addons: orderDetails.addons,
+          provider: existing.provider,
+          reference,
+        });
+      }
+
       return {
         status: existing.status === PaymentStatus.SUCCESS ? "success" : "failed",
         reference,
@@ -1219,6 +1252,8 @@ export class PaymentsService {
     if (isDashboardOrder) {
       // Dashboard order: user already has an account — send new-book confirmation emails
       await this.sendNewBookOrderEmails({
+        paymentId: payment.id,
+        baseMetadata: paymentMetadata,
         locale: signupInfo.locale,
         userName: signupInfo.name,
         userEmail: signupInfo.email,
@@ -2502,6 +2537,8 @@ export class PaymentsService {
       if (checkoutResult && isDashboardOrder) {
         // Dashboard order: user already has an account — send new-book confirmation emails
         await this.sendNewBookOrderEmails({
+          paymentId: existingPayment.id,
+          baseMetadata: mergedMetadata,
           locale: checkoutResult.locale,
           userName: checkoutResult.name,
           userEmail: checkoutResult.email,
@@ -2604,6 +2641,8 @@ export class PaymentsService {
 
     if (checkoutResult && isDashboardNewPayment) {
       await this.sendNewBookOrderEmails({
+        paymentId: payment.id,
+        baseMetadata: metadata,
         locale: checkoutResult.locale,
         userName: checkoutResult.name,
         userEmail: checkoutResult.email,
@@ -5131,6 +5170,8 @@ export class PaymentsService {
    * - Admin: new order alert (English only)
    */
   private async sendNewBookOrderEmails(params: {
+    paymentId: string;
+    baseMetadata?: Record<string, unknown> | null;
     locale: Locale;
     userName: string;
     userEmail: string;
@@ -5146,78 +5187,141 @@ export class PaymentsService {
       return;
     }
 
+    const metadata = this.asRecord(params.baseMetadata);
+    const delivery = this.extractDashboardOrderEmailDelivery(metadata);
+    if (delivery.userSentAt && delivery.adminSentAt) {
+      return;
+    }
+
     const dashboardUrl = this.buildLocalizedDashboardUrl(params.locale);
     const adminPanelUrl = `${this.frontendBaseUrl}/admin/orders`;
+    const attemptedAt = new Date().toISOString();
+    let userSentAt = delivery.userSentAt ?? null;
+    let adminSentAt = delivery.adminSentAt ?? null;
 
     // Send user confirmation email
-    try {
-      const userEmail = await renderNewBookOrderUserEmail({
-        locale: params.locale,
-        userName: params.userName,
-        orderNumber: params.orderNumber,
-        packageName: params.packageName,
-        totalPrice: params.amountPaid,
-        addons: params.addons,
-        dashboardUrl,
-      });
+    if (!userSentAt) {
+      try {
+        const userEmail = await renderNewBookOrderUserEmail({
+          locale: params.locale,
+          userName: params.userName,
+          orderNumber: params.orderNumber,
+          packageName: params.packageName,
+          totalPrice: params.amountPaid,
+          addons: params.addons,
+          dashboardUrl,
+        });
 
-      const sendResult = await this.resend.emails.send({
-        from: this.customerPaymentsFromEmail,
-        to: params.userEmail,
-        subject: userEmail.subject,
-        html: userEmail.html,
-      });
+        const sendResult = await this.resend.emails.send({
+          from: this.customerPaymentsFromEmail,
+          to: params.userEmail,
+          subject: userEmail.subject,
+          html: userEmail.html,
+        });
 
-      if (sendResult.error) {
+        if (sendResult.error) {
+          this.logger.error(
+            `Failed to send new book order user email: ${sendResult.error.name} — ${sendResult.error.message}`
+          );
+        } else {
+          userSentAt = attemptedAt;
+        }
+      } catch (error) {
         this.logger.error(
-          `Failed to send new book order user email: ${sendResult.error.name} — ${sendResult.error.message}`
+          `Failed to send new book order email to ${params.userEmail}: ${error instanceof Error ? error.message : error}`,
+          error instanceof Error ? error.stack : undefined
         );
       }
-    } catch (error) {
-      this.logger.error(
-        `Failed to send new book order email to ${params.userEmail}: ${error instanceof Error ? error.message : error}`,
-        error instanceof Error ? error.stack : undefined
-      );
     }
 
     // Send admin notification email
-    try {
-      const adminEmail = await renderNewBookOrderAdminEmail({
-        locale: "en",
-        userName: params.userName,
-        userEmail: params.userEmail,
-        orderNumber: params.orderNumber,
-        packageName: params.packageName,
-        totalPrice: params.amountPaid,
-        addons: params.addons,
-        provider: params.provider,
-        reference: params.reference,
-        adminPanelUrl,
-      });
+    if (!adminSentAt) {
+      try {
+        const adminEmail = await renderNewBookOrderAdminEmail({
+          locale: "en",
+          userName: params.userName,
+          userEmail: params.userEmail,
+          orderNumber: params.orderNumber,
+          packageName: params.packageName,
+          totalPrice: params.amountPaid,
+          addons: params.addons,
+          provider: params.provider,
+          reference: params.reference,
+          adminPanelUrl,
+        });
 
-      const adminRecipients =
-        this.adminEmailRecipients.length > 0
-          ? this.adminEmailRecipients
-          : [this.adminNotificationsFromEmail];
+        const adminRecipients =
+          this.adminEmailRecipients.length > 0
+            ? this.adminEmailRecipients
+            : [this.adminNotificationsFromEmail];
 
-      const sendResult = await this.resend.emails.send({
-        from: this.adminNotificationsFromEmail,
-        to: adminRecipients,
-        subject: adminEmail.subject,
-        html: adminEmail.html,
-      });
+        const sendResult = await this.resend.emails.send({
+          from: this.adminNotificationsFromEmail,
+          to: adminRecipients,
+          subject: adminEmail.subject,
+          html: adminEmail.html,
+        });
 
-      if (sendResult.error) {
+        if (sendResult.error) {
+          this.logger.error(
+            `Failed to send new book order admin notification: ${sendResult.error.name} — ${sendResult.error.message}`
+          );
+        } else {
+          adminSentAt = attemptedAt;
+        }
+      } catch (error) {
         this.logger.error(
-          `Failed to send new book order admin notification: ${sendResult.error.name} — ${sendResult.error.message}`
+          `Failed to send new book order admin notification for ${params.orderNumber}: ${error instanceof Error ? error.message : error}`,
+          error instanceof Error ? error.stack : undefined
         );
       }
+    }
+
+    if (!metadata) {
+      return;
+    }
+
+    try {
+      await this.prisma.payment.update({
+        where: { id: params.paymentId },
+        data: {
+          metadata: this.withDashboardOrderEmailDelivery(metadata, {
+            userSentAt,
+            adminSentAt,
+            lastAttemptAt: attemptedAt,
+          }) as Prisma.InputJsonValue,
+        },
+      });
     } catch (error) {
       this.logger.error(
-        `Failed to send new book order admin notification for ${params.orderNumber}: ${error instanceof Error ? error.message : error}`,
+        `Failed to persist new book order email delivery state for payment ${params.paymentId}: ${error instanceof Error ? error.message : error}`,
         error instanceof Error ? error.stack : undefined
       );
     }
+  }
+
+  private extractDashboardOrderEmailDelivery(
+    metadata: Record<string, unknown> | null
+  ): DashboardOrderEmailDeliverySnapshot {
+    const snapshot = this.asRecord(metadata?.dashboardOrderEmailDelivery);
+    return {
+      userSentAt: this.asString(snapshot?.userSentAt),
+      adminSentAt: this.asString(snapshot?.adminSentAt),
+      lastAttemptAt: this.asString(snapshot?.lastAttemptAt),
+    };
+  }
+
+  private withDashboardOrderEmailDelivery(
+    metadata: Record<string, unknown>,
+    delivery: DashboardOrderEmailDeliverySnapshot
+  ): Record<string, unknown> {
+    return {
+      ...metadata,
+      dashboardOrderEmailDelivery: {
+        ...this.asRecord(metadata.dashboardOrderEmailDelivery),
+        ...delivery,
+      },
+    };
   }
 
   private async sendOnlinePaymentAdminEmail(params: {
