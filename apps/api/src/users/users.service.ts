@@ -199,6 +199,32 @@ export class UsersService {
     private readonly cloudinary: CloudinaryService
   ) {}
 
+  /**
+   * Lightweight lookup returning core user fields needed by internal services
+   * (e.g. DashboardService building payment metadata).
+   * Returns `null` when no user with the given ID exists.
+   */
+  async findById(userId: string): Promise<{
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    phoneNumber: string | null;
+    preferredLanguage: string | null;
+  } | null> {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phoneNumber: true,
+        preferredLanguage: true,
+      },
+    });
+  }
+
   async getMyProfile(userId: string): Promise<MyProfileResponse> {
     const user = await this.getUserProfileOrThrow(userId);
     return this.serializeUserProfile(user);

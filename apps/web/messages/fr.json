@@ -455,6 +455,8 @@
     "pay_now": "Payer maintenant",
     "bank_transfer": "Virement bancaire",
     "upload_receipt": "Télécharger le reçu",
+    "trust_secure_payments": "Paiements sécurisés par",
+    "trust_quality_prints": "Impressions de qualité par",
     "payment_verified": "Votre paiement est en cours de vérification. Vous recevrez un e-mail une fois approuvé.",
     "transfer_done": "J'ai effectué le virement",
     "configuration_title": "Configurez votre livre",
@@ -593,6 +595,7 @@
     "payment_confirmed_direct_signup_note": "Vous pouvez continuer tout de suite avec le bouton d'inscription sécurisé ci-dessous.",
     "payment_return_title": "Finalisation de votre paiement",
     "payment_return_verifying": "Veuillez patienter pendant que nous vérifions votre paiement et préparons votre lien d'inscription.",
+    "payment_verify_loading": "Vérification de votre paiement…",
     "payment_return_waiting_webhook": "Paiement confirmé. Finalisation de la création de votre compte...",
     "payment_return_waiting_pending": "Votre paiement est en cours de confirmation. Cela prend généralement quelques secondes.",
     "payment_return_waiting_email": "Paiement réussi. Nous finalisons encore votre redirection d'inscription. Veuillez vérifier votre e-mail pour le lien.",
@@ -605,6 +608,7 @@
     "payment_return_contact": "Contacter le support"
   },
   "dashboard": {
+    "compare_plans": "Comparer les forfaits",
     "title": "Tableau de bord",
     "overview_welcome_back": "Bon retour, {name}",
     "overview_editorial_title": "Gardez l'elan de votre publication.",
@@ -1418,7 +1422,30 @@
     "order_tracking_error_description": "Nous ne pouvons pas charger le suivi de cette commande pour le moment. Veuillez reessayer.",
     "order_tracking_retry": "Reessayer",
     "order_tracking_missing_title": "Suivi indisponible",
-    "order_tracking_missing_description": "Ce lien de suivi ne contient pas de reference de commande."
+    "order_tracking_missing_description": "Ce lien de suivi ne contient pas de reference de commande.",
+    "print_new_book": "Imprimer un nouveau livre",
+    "new_project_title": "Demarrer un nouveau projet",
+    "new_project_subtitle": "Choisissez un forfait ou demandez un devis personnalise pour votre prochain livre.",
+    "new_project_get_quote": "Obtenir un devis personnalise",
+    "new_project_quote_hint": "Besoin de quelque chose de plus sur mesure ? Notre equipe peut creer un forfait personnalise pour vous.",
+    "new_book_categories_aria": "Categories de forfaits",
+    "new_book_copies_tab": "{copies} copies",
+    "new_book_card_base_label": "base",
+    "new_book_card_page_limit": "Jusqu'a {pages} pages",
+    "new_book_card_isbn_included": "ISBN inclus",
+    "new_book_select_package": "Choisir ce forfait",
+    "new_book_error_title": "Impossible de charger les forfaits",
+    "new_book_error_description": "Nous n'avons pas pu charger les forfaits disponibles pour le moment. Veuillez reessayer.",
+    "new_book_error_retry": "Reessayer",
+    "new_book_confirm_success_title": "Commande passée avec succès !",
+    "new_book_confirm_success_desc": "Votre nouvelle commande de livre a été créée. Vous pouvez commencer à télécharger votre manuscrit depuis votre tableau de bord.",
+    "new_book_confirm_bank_title": "Paiement en cours de vérification",
+    "new_book_confirm_bank_desc": "Nous avons reçu vos informations de virement bancaire. Votre paiement est en cours de vérification — cela prend généralement moins de 30 minutes. Vous recevrez une notification une fois confirmé.",
+    "new_book_confirm_bank_note": "Vous pouvez fermer cette page en toute sécurité. Nous vous notifierons par e-mail lorsque votre paiement sera approuvé.",
+    "new_book_confirm_failed_title": "Échec de la vérification du paiement",
+    "new_book_confirm_failed_desc": "Nous n'avons pas pu vérifier votre paiement pour le moment. Si vous avez déjà été débité, veuillez contacter le support — nous nous en occuperons.",
+    "new_book_confirm_view_orders": "Voir mes commandes",
+    "new_book_confirm_back_dashboard": "Retour au tableau de bord"
   },
   "legal_refund": {
     "title": "Politique de remboursement",
@@ -1668,7 +1695,9 @@
     "company_number": "© 2026 BookPrinta",
     "instagram": "Suivez-nous sur Instagram",
     "twitter": "Suivez-nous sur X",
-    "linkedin": "Suivez-nous sur LinkedIn"
+    "linkedin": "Suivez-nous sur LinkedIn",
+    "trust_secure_payments": "Paiements sécurisés par",
+    "trust_quality_prints": "Impressions de qualité par"
   },
   "language_switcher": {
     "label": "Changer de langue"
@@ -2586,6 +2615,7 @@
     "payments_pending_receipt_missing": "Reçu indisponible",
     "payments_pending_provider_ref": "Réf fournisseur : {reference}",
     "payments_pending_provider_ref_missing": "Référence en attente",
+    "payments_pending_checkout_stale": "Paiement en attente bloqué ({age})",
     "payments_pending_email": "Email client : {email}",
     "payments_pending_phone": "Téléphone client : {phone}",
     "payments_pending_meta_admin_note": "Note admin",

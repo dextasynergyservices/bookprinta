@@ -28,6 +28,8 @@ const footerMessages = {
   instagram: "Follow us on Instagram",
   twitter: "Follow us on X",
   linkedin: "Follow us on LinkedIn",
+  trust_secure_payments: "Secure payments by",
+  trust_quality_prints: "Quality prints by",
 } as const;
 
 jest.mock("next-intl", () => ({
@@ -55,6 +57,12 @@ jest.mock("@/lib/i18n/navigation", () => ({
   ),
 }));
 
+jest.mock("@/hooks/usePublicMarketingSettings", () => ({
+  usePublicMarketingSettings: () => ({
+    settings: null,
+  }),
+}));
+
 describe("Footer", () => {
   it("keeps the legal footer links pointed at the new localized routes", () => {
     render(<Footer />);
@@ -73,5 +81,14 @@ describe("Footer", () => {
       "/refund-policy"
     );
     expect(screen.queryByRole("link", { name: "Sustainability Policy" })).not.toBeInTheDocument();
+  });
+
+  it("renders the footer trust badges for Paystack and DEXTA", () => {
+    render(<Footer />);
+
+    expect(screen.getByText("Secure payments by")).toBeInTheDocument();
+    expect(screen.getByText("Quality prints by")).toBeInTheDocument();
+    expect(screen.getByAltText("Paystack")).toBeInTheDocument();
+    expect(screen.getByAltText("DEXTA")).toBeInTheDocument();
   });
 });

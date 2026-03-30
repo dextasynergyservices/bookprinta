@@ -5,6 +5,8 @@ import {
   renderBankTransferAdminEmail,
   renderBankTransferRejectedEmail,
   renderBankTransferUserEmail,
+  renderNewBookOrderAdminEmail,
+  renderNewBookOrderUserEmail,
   renderRefundConfirmEmail,
   renderReprintAdminConfirmEmail,
   renderReprintConfirmEmail,
@@ -17,6 +19,7 @@ import type {
   AdminPaymentsListResponse,
   AdminPendingBankTransferItem,
   AdminPendingBankTransfersResponse,
+  AdminPendingCheckoutSnapshot,
   AdminRefundRequestInput,
   AdminRefundResponse,
   RefundPolicySnapshot,
@@ -74,6 +77,7 @@ const DEFAULT_REPRINT_COST_PER_PAGE = 15;
 const DEFAULT_REPRINT_COVER_COST = 300;
 const REPRINT_COST_PER_PAGE_SETTING_KEY = "reprint_cost_per_page";
 const REPRINT_COVER_COST_SETTING_KEY = "reprint_cover_cost";
+const STALE_PENDING_CHECKOUT_MINUTES = 120;
 const PHONE_ALREADY_IN_USE_MESSAGE =
   "This phone number is already linked to another account. Use another phone number or sign in to your existing account.";
 const EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE =
@@ -120,6 +124,10 @@ type CheckoutMetadata = {
   quoteQuantity?: number;
   quotePrintSize?: string;
   quoteFinalPrice?: number;
+  /** "dashboard" when order placed by authenticated user from dashboard */
+  source?: string;
+  /** User ID when order placed from dashboard (set server-side by DashboardService) */
+  dashboardUserId?: string;
 };
 
 type CustomQuoteCheckoutMetadata = {
@@ -194,6 +202,12 @@ type PublicSignupLinkDeliveryStatus = {
   attemptCount: number;
   lastAttemptAt: string | null;
   retryEligible: boolean;
+};
+
+type DashboardOrderEmailDeliverySnapshot = {
+  userSentAt?: string | null;
+  adminSentAt?: string | null;
+  lastAttemptAt?: string | null;
 };
 
 const ADMIN_PAYMENT_SORTABLE_FIELDS: AdminPaymentSortField[] = [
@@ -359,15 +373,15 @@ export class PaymentsService {
   /**
    * Initialize a payment session with the chosen provider.
    *
-   * Per CLAUDE.md Section 8 (Path A, step 6) and the payment flow diagram:
-   * - The Payment record is NOT created here.
-   * - The webhook handler creates User → Order → Payment after the
-   *   provider confirms the charge.
-   * - This method only calls the provider API and returns the
-   *   authorization URL so the frontend can redirect the user.
+   * Public checkout keeps entity creation deferred until the provider confirms
+   * the charge. Dashboard new-book checkout additionally pre-creates a
+   * PENDING payment after the provider session is created so we persist the
+   * full checkout metadata before any webhook/provider truncation can happen.
    */
   async initialize(dto: InitializePaymentDto) {
     const provider = dto.provider.toUpperCase() as PaymentProvider;
+    const normalizedMetadata = this.asRecord(dto.metadata);
+    const checkoutMetadata = this.extractCheckoutMetadata(normalizedMetadata);
 
     // 1. Check gateway is enabled
     await this.ensureGatewayEnabled(provider);
@@ -377,9 +391,9 @@ export class PaymentsService {
 
     await this.assertCheckoutIdentityConflict({
       email: dto.email,
-      phone: this.extractCheckoutMetadata(this.asRecord(dto.metadata))?.phone ?? null,
+      phone: checkoutMetadata?.phone ?? null,
     });
-    await this.assertInitialCheckoutMetadataReady(this.asRecord(dto.metadata));
+    await this.assertInitialCheckoutMetadataReady(normalizedMetadata);
 
     // 3. Generate a unique reference
     const reference = this.generateReference();
@@ -455,6 +469,44 @@ export class PaymentsService {
 
     this.logger.log(`${provider} session created — ref: ${result.reference} — redirecting user`);
 
+    // 5. Pre-create a PENDING Payment record for dashboard orders.
+    // This persists the full metadata (dashboardUserId, packageId, addons, etc.)
+    // in the DB so the webhook/verify flow doesn't rely solely on the payment
+    // provider's metadata field, which can be truncated or lost.
+    // For public checkout this is skipped — the record is created on webhook/verify.
+    const dashboardUserId = this.asString(checkoutMetadata?.dashboardUserId);
+    const isDashboardCheckoutInitialization =
+      (checkoutMetadata?.source ?? "").toLowerCase() === "dashboard" &&
+      (checkoutMetadata?.paymentFlow ?? "").toUpperCase() === "CHECKOUT" &&
+      Boolean(dashboardUserId);
+
+    if (isDashboardCheckoutInitialization && dashboardUserId) {
+      try {
+        await this.prisma.payment.create({
+          data: {
+            provider,
+            type: PaymentType.INITIAL,
+            amount: dto.amount,
+            currency: (dto.currency ?? DEFAULT_CURRENCY).toUpperCase(),
+            status: PaymentStatus.PENDING,
+            providerRef: result.reference,
+            payerEmail: dto.email,
+            userId: dashboardUserId,
+            metadata: (normalizedMetadata ?? undefined) as Prisma.InputJsonValue | undefined,
+          },
+        });
+        this.logger.log(
+          `Pre-created PENDING payment for dashboard order — ref: ${result.reference}, userId: ${dashboardUserId}`
+        );
+      } catch (error) {
+        // Non-fatal: if this fails (e.g. duplicate ref from a race), the webhook/verify
+        // path will still create the record. Log and continue.
+        this.logger.warn(
+          `Failed to pre-create PENDING payment for ref ${result.reference}: ${error instanceof Error ? error.message : error}`
+        );
+      }
+    }
+
     return {
       ...result,
       provider,
@@ -517,6 +569,33 @@ export class PaymentsService {
       } catch (err) {
         this.logger.warn(`Failed to resolve order details for payment ${existing.id}: ${err}`);
       }
+
+      const existingMetadata = this.asRecord(existing.metadata);
+      const isDashboardOrder = this.asString(existingMetadata?.source) === "dashboard";
+      if (
+        isDashboardOrder &&
+        existing.status === PaymentStatus.SUCCESS &&
+        existing.payerEmail &&
+        orderDetails
+      ) {
+        await this.sendNewBookOrderEmails({
+          paymentId: existing.id,
+          baseMetadata: existingMetadata,
+          locale: this.resolveLocale(this.asString(existingMetadata?.locale)),
+          userName: this.pickDisplayName(
+            this.asString(existingMetadata?.fullName) || undefined,
+            existing.payerEmail
+          ),
+          userEmail: existing.payerEmail,
+          orderNumber: orderDetails.orderNumber,
+          packageName: orderDetails.packageName,
+          amountPaid: orderDetails.amountPaid,
+          addons: orderDetails.addons,
+          provider: existing.provider,
+          reference,
+        });
+      }
+
       return {
         status: existing.status === PaymentStatus.SUCCESS ? "success" : "failed",
         reference,
@@ -688,6 +767,83 @@ export class PaymentsService {
       amountPaid: orderDetails?.amountPaid ?? null,
       addons: orderDetails?.addons ?? [],
       signupDelivery: signupFollowUp.signupDelivery,
+    };
+  }
+
+  /**
+   * Submit a bank transfer for a new-book order initiated from the dashboard.
+   * The user is already authenticated — payment links directly to their userId.
+   * Skips reCAPTCHA and identity conflict checks.
+   */
+  async submitDashboardBankTransfer(params: {
+    userId: string;
+    payerName: string;
+    payerEmail: string;
+    payerPhone: string;
+    amount: number;
+    currency: string;
+    receiptUrl?: string;
+    metadata: Record<string, unknown>;
+  }): Promise<{ id: string; status: string; message: string }> {
+    await this.ensureGatewayEnabled(PaymentProvider.BANK_TRANSFER);
+
+    const reference = this.generateReference("bt");
+    const metadata: Record<string, unknown> = {
+      ...params.metadata,
+      fullName: params.payerName,
+      phone: params.payerPhone,
+      payerEmail: params.payerEmail,
+      email: params.payerEmail,
+    };
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        provider: PaymentProvider.BANK_TRANSFER,
+        type: PaymentType.INITIAL,
+        amount: params.amount,
+        currency: params.currency || DEFAULT_CURRENCY,
+        status: PaymentStatus.AWAITING_APPROVAL,
+        providerRef: reference,
+        receiptUrl: params.receiptUrl ?? null,
+        payerName: params.payerName,
+        payerEmail: params.payerEmail,
+        payerPhone: params.payerPhone,
+        userId: params.userId,
+        metadata,
+      } as Prisma.PaymentUncheckedCreateInput,
+    });
+
+    this.logger.log(
+      `Dashboard bank transfer submitted — ${params.payerName} — ₦${params.amount} — ref: ${reference}`
+    );
+
+    const orderSummary = await this.resolveBankTransferOrderSummary({
+      reference,
+      metadata,
+    });
+
+    const locale = this.resolveLocale(this.extractCheckoutMetadata(metadata)?.locale);
+
+    await this.triggerBankTransferNotifications({
+      paymentId: payment.id,
+      reference,
+      orderNumber: orderSummary.orderNumber,
+      packageName: orderSummary.packageName,
+      addons: orderSummary.addons,
+      payerName: params.payerName,
+      payerEmail: params.payerEmail,
+      payerPhone: params.payerPhone,
+      amount: params.amount,
+      receiptUrl: params.receiptUrl ?? "",
+      locale,
+    });
+
+    return {
+      id: payment.id,
+      status: payment.status,
+      message:
+        "Your payment is being verified. You will receive an email once approved. " +
+        "This typically takes less than 30 minutes.",
     };
   }
 
@@ -1090,11 +1246,29 @@ export class PaymentsService {
       });
     });
 
-    if (signupInfo?.signupToken) {
+    const paymentMetadata = this.asRecord(payment.metadata);
+    const isDashboardOrder = this.asString(paymentMetadata?.source) === "dashboard";
+
+    if (isDashboardOrder) {
+      // Dashboard order: user already has an account — send new-book confirmation emails
+      await this.sendNewBookOrderEmails({
+        paymentId: payment.id,
+        baseMetadata: paymentMetadata,
+        locale: signupInfo.locale,
+        userName: signupInfo.name,
+        userEmail: signupInfo.email,
+        orderNumber: signupInfo.orderNumber,
+        packageName: signupInfo.packageName,
+        amountPaid: signupInfo.amountPaid,
+        addons: signupInfo.addons,
+        provider: PaymentProvider.BANK_TRANSFER,
+        reference: payment.providerRef || payment.id,
+      });
+    } else if (signupInfo?.signupToken) {
       await this.attemptSignupLinkDelivery({
         paymentId: payment.id,
         paymentReference: payment.providerRef || payment.id,
-        baseMetadata: this.asRecord(payment.metadata),
+        baseMetadata: paymentMetadata,
         source: "BANK_TRANSFER_APPROVAL",
         email: signupInfo.email,
         name: signupInfo.name,
@@ -2179,7 +2353,13 @@ export class PaymentsService {
       const persistedMetadata = this.asRecord(existingPayment.metadata);
       const mergedMetadata =
         persistedMetadata || metadata
-          ? { ...(persistedMetadata ?? {}), ...(metadata ?? {}) }
+          ? {
+              // Persisted metadata is authoritative because initialize-time
+              // dashboard payments store the full checkout context before the
+              // provider webhook can truncate or reshape it.
+              ...(metadata ?? {}),
+              ...(persistedMetadata ?? {}),
+            }
           : null;
 
       // Atomic claim: only update if processedAt is still null.
@@ -2349,9 +2529,27 @@ export class PaymentsService {
         metadata: mergedMetadata,
         amount: data.amount,
         currency: data.currency,
+        existingUserId: this.asString(mergedMetadata?.dashboardUserId) || undefined,
       });
 
-      if (checkoutResult) {
+      const isDashboardOrder = this.asString(mergedMetadata?.source) === "dashboard";
+
+      if (checkoutResult && isDashboardOrder) {
+        // Dashboard order: user already has an account — send new-book confirmation emails
+        await this.sendNewBookOrderEmails({
+          paymentId: existingPayment.id,
+          baseMetadata: mergedMetadata,
+          locale: checkoutResult.locale,
+          userName: checkoutResult.name,
+          userEmail: checkoutResult.email,
+          orderNumber: checkoutResult.orderNumber,
+          packageName: checkoutResult.packageName,
+          amountPaid: checkoutResult.amountPaid,
+          addons: checkoutResult.addons,
+          provider: data.provider,
+          reference: data.providerRef,
+        });
+      } else if (checkoutResult) {
         await this.sendOnlinePaymentAdminEmail({
           orderNumber: checkoutResult.orderNumber,
           packageName: checkoutResult.packageName,
@@ -2363,7 +2561,7 @@ export class PaymentsService {
         });
       }
 
-      if (checkoutResult?.signupToken) {
+      if (checkoutResult?.signupToken && !isDashboardOrder) {
         await this.attemptSignupLinkDelivery({
           paymentId: existingPayment.id,
           paymentReference: data.providerRef,
@@ -2436,9 +2634,26 @@ export class PaymentsService {
       metadata,
       amount: data.amount,
       currency: data.currency,
+      existingUserId: this.asString(metadata?.dashboardUserId) || undefined,
     });
 
-    if (checkoutResult) {
+    const isDashboardNewPayment = this.asString(metadata?.source) === "dashboard";
+
+    if (checkoutResult && isDashboardNewPayment) {
+      await this.sendNewBookOrderEmails({
+        paymentId: payment.id,
+        baseMetadata: metadata,
+        locale: checkoutResult.locale,
+        userName: checkoutResult.name,
+        userEmail: checkoutResult.email,
+        orderNumber: checkoutResult.orderNumber,
+        packageName: checkoutResult.packageName,
+        amountPaid: checkoutResult.amountPaid,
+        addons: checkoutResult.addons,
+        provider: data.provider,
+        reference: data.providerRef,
+      });
+    } else if (checkoutResult) {
       await this.sendOnlinePaymentAdminEmail({
         orderNumber: checkoutResult.orderNumber,
         packageName: checkoutResult.packageName,
@@ -2450,7 +2665,7 @@ export class PaymentsService {
       });
     }
 
-    if (checkoutResult?.signupToken) {
+    if (checkoutResult?.signupToken && !isDashboardNewPayment) {
       await this.attemptSignupLinkDelivery({
         paymentId: payment.id,
         paymentReference: data.providerRef,
@@ -3471,6 +3686,8 @@ export class PaymentsService {
       discountAmount: this.asNumber(merged.discountAmount),
       totalPrice: this.asNumber(merged.totalPrice),
       addons,
+      source: this.asString(merged.source),
+      dashboardUserId: this.asString(merged.dashboardUserId),
     };
   }
 
@@ -4640,6 +4857,7 @@ export class PaymentsService {
       processedAt: row.processedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      pendingCheckout: this.buildAdminPendingCheckoutSnapshot(row),
       refundability: this.buildAdminPaymentRefundability(row),
     };
   }
@@ -4807,6 +5025,31 @@ export class PaymentsService {
     };
   }
 
+  private buildAdminPendingCheckoutSnapshot(
+    row: AdminPaymentListRow
+  ): AdminPendingCheckoutSnapshot | null {
+    if (row.type !== PaymentType.INITIAL || row.status !== PaymentStatus.PENDING) {
+      return null;
+    }
+
+    if (row.processedAt || row.orderId) {
+      return null;
+    }
+
+    const checkout = this.extractCheckoutMetadata(this.asRecord(row.metadata));
+    if ((checkout?.paymentFlow ?? "").toUpperCase() !== "CHECKOUT") {
+      return null;
+    }
+
+    const ageMinutes = Math.max(0, Math.floor((Date.now() - row.createdAt.getTime()) / 60_000));
+
+    return {
+      ageMinutes,
+      staleAfterMinutes: STALE_PENDING_CHECKOUT_MINUTES,
+      isStale: ageMinutes >= STALE_PENDING_CHECKOUT_MINUTES,
+    };
+  }
+
   private resolveAdminRefundProcessingMode(
     provider: PaymentProvider
   ): AdminPaymentRefundability["processingMode"] {
@@ -4918,6 +5161,167 @@ export class PaymentsService {
         error instanceof Error ? error.stack : undefined
       );
     }
+  }
+
+  /**
+   * Send confirmation emails when an authenticated user places a new book
+   * order from the dashboard ("Print a New Book" flow).
+   * - User: order confirmation (locale-aware)
+   * - Admin: new order alert (English only)
+   */
+  private async sendNewBookOrderEmails(params: {
+    paymentId: string;
+    baseMetadata?: Record<string, unknown> | null;
+    locale: Locale;
+    userName: string;
+    userEmail: string;
+    orderNumber: string;
+    packageName: string;
+    amountPaid: string;
+    addons: string[];
+    provider: PaymentProvider;
+    reference: string;
+  }): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn("RESEND_API_KEY not set — new book order emails skipped");
+      return;
+    }
+
+    const metadata = this.asRecord(params.baseMetadata);
+    const delivery = this.extractDashboardOrderEmailDelivery(metadata);
+    if (delivery.userSentAt && delivery.adminSentAt) {
+      return;
+    }
+
+    const dashboardUrl = this.buildLocalizedDashboardUrl(params.locale);
+    const adminPanelUrl = `${this.frontendBaseUrl}/admin/orders`;
+    const attemptedAt = new Date().toISOString();
+    let userSentAt = delivery.userSentAt ?? null;
+    let adminSentAt = delivery.adminSentAt ?? null;
+
+    // Send user confirmation email
+    if (!userSentAt) {
+      try {
+        const userEmail = await renderNewBookOrderUserEmail({
+          locale: params.locale,
+          userName: params.userName,
+          orderNumber: params.orderNumber,
+          packageName: params.packageName,
+          totalPrice: params.amountPaid,
+          addons: params.addons,
+          dashboardUrl,
+        });
+
+        const sendResult = await this.resend.emails.send({
+          from: this.customerPaymentsFromEmail,
+          to: params.userEmail,
+          subject: userEmail.subject,
+          html: userEmail.html,
+        });
+
+        if (sendResult.error) {
+          this.logger.error(
+            `Failed to send new book order user email: ${sendResult.error.name} — ${sendResult.error.message}`
+          );
+        } else {
+          userSentAt = attemptedAt;
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to send new book order email to ${params.userEmail}: ${error instanceof Error ? error.message : error}`,
+          error instanceof Error ? error.stack : undefined
+        );
+      }
+    }
+
+    // Send admin notification email
+    if (!adminSentAt) {
+      try {
+        const adminEmail = await renderNewBookOrderAdminEmail({
+          locale: "en",
+          userName: params.userName,
+          userEmail: params.userEmail,
+          orderNumber: params.orderNumber,
+          packageName: params.packageName,
+          totalPrice: params.amountPaid,
+          addons: params.addons,
+          provider: params.provider,
+          reference: params.reference,
+          adminPanelUrl,
+        });
+
+        const adminRecipients =
+          this.adminEmailRecipients.length > 0
+            ? this.adminEmailRecipients
+            : [this.adminNotificationsFromEmail];
+
+        const sendResult = await this.resend.emails.send({
+          from: this.adminNotificationsFromEmail,
+          to: adminRecipients,
+          subject: adminEmail.subject,
+          html: adminEmail.html,
+        });
+
+        if (sendResult.error) {
+          this.logger.error(
+            `Failed to send new book order admin notification: ${sendResult.error.name} — ${sendResult.error.message}`
+          );
+        } else {
+          adminSentAt = attemptedAt;
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to send new book order admin notification for ${params.orderNumber}: ${error instanceof Error ? error.message : error}`,
+          error instanceof Error ? error.stack : undefined
+        );
+      }
+    }
+
+    if (!metadata) {
+      return;
+    }
+
+    try {
+      await this.prisma.payment.update({
+        where: { id: params.paymentId },
+        data: {
+          metadata: this.withDashboardOrderEmailDelivery(metadata, {
+            userSentAt,
+            adminSentAt,
+            lastAttemptAt: attemptedAt,
+          }) as Prisma.InputJsonValue,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to persist new book order email delivery state for payment ${params.paymentId}: ${error instanceof Error ? error.message : error}`,
+        error instanceof Error ? error.stack : undefined
+      );
+    }
+  }
+
+  private extractDashboardOrderEmailDelivery(
+    metadata: Record<string, unknown> | null
+  ): DashboardOrderEmailDeliverySnapshot {
+    const snapshot = this.asRecord(metadata?.dashboardOrderEmailDelivery);
+    return {
+      userSentAt: this.asString(snapshot?.userSentAt),
+      adminSentAt: this.asString(snapshot?.adminSentAt),
+      lastAttemptAt: this.asString(snapshot?.lastAttemptAt),
+    };
+  }
+
+  private withDashboardOrderEmailDelivery(
+    metadata: Record<string, unknown>,
+    delivery: DashboardOrderEmailDeliverySnapshot
+  ): Record<string, unknown> {
+    return {
+      ...metadata,
+      dashboardOrderEmailDelivery: {
+        ...this.asRecord(metadata.dashboardOrderEmailDelivery),
+        ...delivery,
+      },
+    };
   }
 
   private async sendOnlinePaymentAdminEmail(params: {

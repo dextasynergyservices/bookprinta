@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useTranslations } from "next-intl";
+import { TrustBadgesStrip } from "@/components/shared/TrustBadgesStrip";
 import { usePublicMarketingSettings } from "@/hooks/usePublicMarketingSettings";
 import { Link } from "@/lib/i18n/navigation";
 
@@ -122,6 +123,14 @@ export function Footer() {
               />
             </Link>
           </div>
+
+          <TrustBadgesStrip
+            compact
+            borderless
+            securePaymentsLabel={t("trust_secure_payments")}
+            qualityPrintsLabel={t("trust_quality_prints")}
+            className="mb-10"
+          />
 
           <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
             {/* Pages column */}

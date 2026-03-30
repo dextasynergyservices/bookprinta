@@ -11,6 +11,8 @@ import { BankTransferUserEmail } from "./emails/BankTransferUserEmail.tsx";
 import { ContactAdminEmail } from "./emails/ContactAdminEmail.tsx";
 import { ContactConfirmationEmail } from "./emails/ContactConfirmationEmail.tsx";
 import { ManuscriptRejectedEmail } from "./emails/ManuscriptRejectedEmail.tsx";
+import { NewBookOrderAdminEmail } from "./emails/NewBookOrderAdminEmail.tsx";
+import { NewBookOrderUserEmail } from "./emails/NewBookOrderUserEmail.tsx";
 import { PasswordResetEmail } from "./emails/PasswordResetEmail.tsx";
 import { ProductionDelayEmail } from "./emails/ProductionDelayEmail.tsx";
 import { QuoteAdminNotificationEmail } from "./emails/QuoteAdminNotificationEmail.tsx";
@@ -227,6 +229,29 @@ export interface RenderReprintAdminConfirmProps {
   adminPanelUrl: string;
 }
 
+export interface RenderNewBookOrderUserProps {
+  locale?: Locale;
+  userName: string;
+  orderNumber: string;
+  packageName: string;
+  totalPrice: string;
+  addons?: string[];
+  dashboardUrl: string;
+}
+
+export interface RenderNewBookOrderAdminProps {
+  locale?: Locale;
+  userName: string;
+  userEmail: string;
+  orderNumber: string;
+  packageName: string;
+  totalPrice: string;
+  addons?: string[];
+  provider: string;
+  reference: string;
+  adminPanelUrl: string;
+}
+
 // ── Render helpers ───────────────────────────────────────────────────────────
 
 export async function renderContactAdminEmail(
@@ -437,6 +462,32 @@ export async function renderReprintAdminConfirmEmail(
   return {
     html,
     subject: getEmailSubject("reprint_admin", locale, {
+      orderNumber: props.orderNumber,
+    }),
+  };
+}
+
+export async function renderNewBookOrderUserEmail(
+  props: RenderNewBookOrderUserProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(NewBookOrderUserEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("new_book_order_confirm", locale, {
+      orderNumber: props.orderNumber,
+    }),
+  };
+}
+
+export async function renderNewBookOrderAdminEmail(
+  props: RenderNewBookOrderAdminProps
+): Promise<{ html: string; subject: string }> {
+  const locale = props.locale ?? "en";
+  const html = await render(NewBookOrderAdminEmail(props));
+  return {
+    html,
+    subject: getEmailSubject("new_book_order_admin", locale, {
       orderNumber: props.orderNumber,
     }),
   };

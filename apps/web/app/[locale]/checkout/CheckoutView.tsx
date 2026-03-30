@@ -5,10 +5,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Loader2, ShieldCheck, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddonCard } from "@/components/checkout/AddonCard";
 import { PaymentMethodModal } from "@/components/checkout/PaymentMethodModal";
 import { RecaptchaProvider } from "@/components/shared/RecaptchaProvider";
+import { TrustBadgesStrip } from "@/components/shared/TrustBadgesStrip";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { type Addon, useAddons } from "@/hooks/useAddons";
 import { usePackages } from "@/hooks/usePackages";
@@ -105,10 +106,16 @@ function AnimatedAmount({ value }: { value: number }) {
   );
 }
 
-export function CheckoutView() {
+interface CheckoutViewProps {
+  /** Render variant — "public" uses full-page layout, "dashboard" renders inline */
+  variant?: "public" | "dashboard";
+}
+
+export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
   const t = useTranslations("checkout");
   const router = useRouter();
   const isOnline = useOnlineStatus();
+  const isDashboard = variant === "dashboard";
   const checkoutTrackedRef = useRef(false);
   const searchParams = useSearchParams();
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -217,6 +224,7 @@ export function CheckoutView() {
   const visibleAddons = checkoutAddons;
 
   const pricingHref = useMemo(() => {
+    if (isDashboard) return "/dashboard/new-book";
     if (!isReviseReprintCheckout || !checkoutSourceBookId) {
       return "/pricing";
     }
@@ -226,7 +234,7 @@ export function CheckoutView() {
       sourceBookId: checkoutSourceBookId,
     });
     return `/pricing?${params.toString()}`;
-  }, [checkoutSourceBookId, isReviseReprintCheckout]);
+  }, [checkoutSourceBookId, isDashboard, isReviseReprintCheckout]);
 
   const basePaymentMetadata = toPaymentMetadata();
   const paymentMetadata =
@@ -237,6 +245,17 @@ export function CheckoutView() {
           sourceBookId: checkoutSourceBookId,
         }
       : basePaymentMetadata;
+
+  const dashboardCallbackBasePath = isDashboard
+    ? "/dashboard/new-book/checkout/confirmation"
+    : undefined;
+
+  const handleBankTransferSuccess = useCallback(
+    (_email: string) => {
+      router.push("/dashboard/new-book/checkout/confirmation");
+    },
+    [router]
+  );
 
   const couponMutation = useMutation({
     mutationFn: validateCouponCode,
@@ -462,9 +481,17 @@ export function CheckoutView() {
 
   const isLoading = isLoadingPackages || isLoadingAddons;
 
+  const PageWrapper = isDashboard ? "div" : "main";
+  const earlyReturnClass = isDashboard
+    ? "px-4 py-8 text-white md:px-6"
+    : "min-h-screen bg-black px-4 py-16 text-white md:px-6 lg:px-8";
+  const mainContentClass = isDashboard
+    ? "pb-32 text-white md:pb-12"
+    : "min-h-screen bg-black pb-32 text-white md:pb-12";
+
   if (!packageSlug) {
     return (
-      <main className="min-h-screen bg-black px-4 py-16 text-white md:px-6 lg:px-8">
+      <PageWrapper className={earlyReturnClass}>
         <div className="mx-auto max-w-3xl rounded-3xl border border-[#2A2A2A] bg-[#0a0a0a] p-8 text-center">
           <p className="font-sans text-base text-white/70">{t("addons_missing_package")}</p>
           <button
@@ -475,13 +502,13 @@ export function CheckoutView() {
             {t("addons_back_to_pricing")}
           </button>
         </div>
-      </main>
+      </PageWrapper>
     );
   }
 
   if (!isConfigurationComplete) {
     return (
-      <main className="min-h-screen bg-black px-4 py-16 text-white md:px-6 lg:px-8">
+      <PageWrapper className={earlyReturnClass}>
         <div className="mx-auto max-w-3xl rounded-3xl border border-[#2A2A2A] bg-[#0a0a0a] p-8 text-center">
           <p className="font-sans text-base text-white/70">{t("addons_configuration_required")}</p>
           <button
@@ -492,24 +519,24 @@ export function CheckoutView() {
             {t("addons_back_to_pricing")}
           </button>
         </div>
-      </main>
+      </PageWrapper>
     );
   }
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-black px-4 py-16 text-white md:px-6 lg:px-8">
+      <PageWrapper className={earlyReturnClass}>
         <div className="mx-auto flex max-w-3xl items-center justify-center gap-3 rounded-3xl border border-[#2A2A2A] bg-[#0a0a0a] p-10">
           <Loader2 className="size-4 animate-spin text-[#007eff]" aria-hidden="true" />
           <span className="font-sans text-sm text-white/65">{t("addons_loading")}</span>
         </div>
-      </main>
+      </PageWrapper>
     );
   }
 
   if (!selectedPackage || isAddonsError) {
     return (
-      <main className="min-h-screen bg-black px-4 py-16 text-white md:px-6 lg:px-8">
+      <PageWrapper className={earlyReturnClass}>
         <div className="mx-auto max-w-3xl rounded-3xl border border-[#2A2A2A] bg-[#0a0a0a] p-8 text-center">
           <p className="font-sans text-base text-white/70">{t("addons_error")}</p>
           <button
@@ -520,12 +547,12 @@ export function CheckoutView() {
             {t("addons_retry")}
           </button>
         </div>
-      </main>
+      </PageWrapper>
     );
   }
 
   return (
-    <main className="min-h-screen bg-black pb-32 text-white md:pb-12">
+    <PageWrapper className={mainContentClass}>
       <section className="relative overflow-hidden">
         <div
           className="pointer-events-none absolute inset-0"
@@ -727,6 +754,12 @@ export function CheckoutView() {
                   <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
                   {t("addons_continue")}
                 </button>
+
+                <TrustBadgesStrip
+                  securePaymentsLabel={t("trust_secure_payments")}
+                  qualityPrintsLabel={t("trust_quality_prints")}
+                  className="mt-4"
+                />
               </div>
             </aside>
           </div>
@@ -864,6 +897,12 @@ export function CheckoutView() {
                 {t("addons_continue")}
               </button>
 
+              <TrustBadgesStrip
+                securePaymentsLabel={t("trust_secure_payments")}
+                qualityPrintsLabel={t("trust_quality_prints")}
+                className="mt-4"
+              />
+
               <p className="mt-4 font-sans text-xs leading-relaxed text-white/45">
                 {t("payment_verified")}
               </p>
@@ -899,8 +938,11 @@ export function CheckoutView() {
           amount={orderTotal}
           packageName={selectedPackage.name}
           paymentMetadata={paymentMetadata}
+          isAuthenticatedCheckout={isDashboard}
+          callbackBasePath={dashboardCallbackBasePath}
+          onBankTransferSuccess={isDashboard ? handleBankTransferSuccess : undefined}
         />
       </RecaptchaProvider>
-    </main>
+    </PageWrapper>
   );
 }

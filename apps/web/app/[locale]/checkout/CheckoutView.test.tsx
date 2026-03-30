@@ -291,4 +291,17 @@ describe("CheckoutView coupon display", () => {
       })
     );
   });
+
+  it("renders payment trust badges in both desktop and mobile checkout summaries", async () => {
+    renderWithProviders();
+
+    await waitFor(() => {
+      expect(paymentMethodModalMock).toHaveBeenCalled();
+    });
+
+    expect(screen.getAllByText("trust_secure_payments")).toHaveLength(2);
+    expect(screen.getAllByText("trust_quality_prints")).toHaveLength(2);
+    expect(screen.getAllByAltText("Paystack")).toHaveLength(2);
+    expect(screen.getAllByAltText("DEXTA")).toHaveLength(2);
+  });
 });

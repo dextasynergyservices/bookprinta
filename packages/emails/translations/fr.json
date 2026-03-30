@@ -242,6 +242,31 @@
     "total_price": "Total payé",
     "cta": "Voir dans le panneau admin"
   },
+  "new_book_order_confirm": {
+    "subject": "Nouvelle commande de livre - #{orderNumber}",
+    "heading": "Votre nouvelle commande est confirmee !",
+    "body": "Votre nouvelle commande de livre a ete passee avec succes. Vous pouvez maintenant telecharger votre manuscrit et commencer le processus de publication depuis votre tableau de bord.",
+    "order_number": "Numero de commande",
+    "package": "Forfait",
+    "addons": "Services supplementaires",
+    "total_price": "Total paye",
+    "next_steps": "Rendez-vous sur votre tableau de bord pour telecharger votre manuscrit et configurer les parametres de votre livre.",
+    "cta": "Aller au tableau de bord"
+  },
+  "new_book_order_admin": {
+    "subject": "Nouvelle commande d'un utilisateur existant - #{orderNumber}",
+    "heading": "Nouvelle commande d'un utilisateur existant",
+    "body": "Un utilisateur existant a passe une nouvelle commande de livre depuis son tableau de bord.",
+    "order_number": "Numero de commande",
+    "customer_name": "Client",
+    "customer_email": "Email",
+    "package": "Forfait",
+    "addons": "Services supplementaires",
+    "provider": "Fournisseur de paiement",
+    "reference": "Reference de paiement",
+    "total_price": "Total paye",
+    "cta": "Voir dans le panneau admin"
+  },
   "production_delay": {
     "subject": "Mise a jour de production - Delais supplementaires prevus",
     "heading": "Mise a jour de production",

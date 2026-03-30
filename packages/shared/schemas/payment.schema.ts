@@ -257,6 +257,13 @@ export const AdminPaymentRefundabilitySchema = z.object({
 });
 export type AdminPaymentRefundability = z.infer<typeof AdminPaymentRefundabilitySchema>;
 
+export const AdminPendingCheckoutSnapshotSchema = z.object({
+  ageMinutes: z.number().int().min(0),
+  staleAfterMinutes: z.number().int().min(1),
+  isStale: z.boolean(),
+});
+export type AdminPendingCheckoutSnapshot = z.infer<typeof AdminPendingCheckoutSnapshotSchema>;
+
 /**
  * GET /api/v1/admin/payments?cursor=&limit=&status=&provider=&dateFrom=&dateTo=&q=&sortBy=&sortDirection=
  */
@@ -307,6 +314,7 @@ export const AdminPaymentsListItemSchema = z.object({
   processedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  pendingCheckout: AdminPendingCheckoutSnapshotSchema.nullable(),
   refundability: AdminPaymentRefundabilitySchema,
 });
 export type AdminPaymentsListItem = z.infer<typeof AdminPaymentsListItemSchema>;

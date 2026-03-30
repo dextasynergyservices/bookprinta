@@ -18,6 +18,7 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGoogleReCaptcha } from "react-google-recaptcha-v3";
 import { toast } from "sonner";
+import { TrustBadgesStrip } from "@/components/shared/TrustBadgesStrip";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useOnlineStatus } from "@/hooks/use-online-status";
@@ -38,6 +39,12 @@ interface PaymentMethodModalProps {
   amount: number;
   packageName: string;
   paymentMetadata: PaymentMetadata;
+  /** Override the callback base path for online payment providers (default: /payment/confirmation) */
+  callbackBasePath?: string;
+  /** Called on bank transfer success instead of the default checkout confirmation redirect */
+  onBankTransferSuccess?: (email: string) => void;
+  /** When true, pre-fills name/email from user session and locks email */
+  isAuthenticatedCheckout?: boolean;
 }
 
 type PaymentChoice = "online" | "bank_transfer";
@@ -101,6 +108,9 @@ export function PaymentMethodModal({
   amount,
   packageName,
   paymentMetadata,
+  callbackBasePath,
+  onBankTransferSuccess,
+  isAuthenticatedCheckout,
 }: PaymentMethodModalProps) {
   const t = useTranslations("checkout");
   const tCommon = useTranslations("common");
@@ -136,8 +146,17 @@ export function PaymentMethodModal({
     isAuthenticated &&
     typeof user?.email === "string" &&
     user.email.trim().length > 0;
-  const lockedReprintEmail = isAuthenticatedReprintCheckout ? user.email.trim().toLowerCase() : "";
-  const lockedReprintName = isAuthenticatedReprintCheckout ? user.displayName.trim() : "";
+  const shouldLockUserFields =
+    isAuthenticatedReprintCheckout ||
+    (isAuthenticatedCheckout === true &&
+      isAuthenticated &&
+      typeof user?.email === "string" &&
+      user.email.trim().length > 0);
+  const lockedReprintEmail =
+    shouldLockUserFields && user?.email ? user.email.trim().toLowerCase() : "";
+  const lockedReprintName =
+    shouldLockUserFields && user?.displayName ? user.displayName.trim() : "";
+  const lockedReprintPhone = shouldLockUserFields && user?.phone ? user.phone.trim() : "";
 
   const modalMotion = isMobile
     ? {
@@ -202,8 +221,12 @@ export function PaymentMethodModal({
         description: response.message,
       });
       onOpenChange(false);
-      const emailQuery = encodeURIComponent(variables.payerEmail);
-      router.push(`/checkout/confirmation?email=${emailQuery}`);
+      if (onBankTransferSuccess) {
+        onBankTransferSuccess(variables.payerEmail);
+      } else {
+        const emailQuery = encodeURIComponent(variables.payerEmail);
+        router.push(`/checkout/confirmation?email=${emailQuery}`);
+      }
     },
     onError: (error) => {
       if (error instanceof RateLimitError) {
@@ -257,7 +280,12 @@ export function PaymentMethodModal({
       setOnlineFullName((current) => current || lockedReprintName);
       setBankFullName((current) => current || lockedReprintName);
     }
-  }, [lockedReprintEmail, lockedReprintName, open]);
+
+    if (lockedReprintPhone) {
+      setOnlinePhone((current) => current || lockedReprintPhone);
+      setBankPhone((current) => current || lockedReprintPhone);
+    }
+  }, [lockedReprintEmail, lockedReprintName, lockedReprintPhone, open]);
 
   useEffect(() => {
     if (onlineRateLimitSeconds <= 0) return;
@@ -303,9 +331,10 @@ export function PaymentMethodModal({
       return;
     const payerEmail = lockedReprintEmail || onlineEmail.trim().toLowerCase();
 
+    const confirmPath = callbackBasePath || "/payment/confirmation";
     const callbackUrl =
       typeof window !== "undefined"
-        ? `${window.location.origin}/${locale}/payment/confirmation?provider=${onlineProvider.toLowerCase()}`
+        ? `${window.location.origin}/${locale}${confirmPath}?provider=${onlineProvider.toLowerCase()}`
         : undefined;
 
     initializeMutation.mutate({
@@ -509,6 +538,13 @@ export function PaymentMethodModal({
                     </p>
                   </div>
 
+                  <TrustBadgesStrip
+                    compact
+                    securePaymentsLabel={t("trust_secure_payments")}
+                    qualityPrintsLabel={t("trust_quality_prints")}
+                    className="mt-4"
+                  />
+
                   {isOffline ? (
                     <p
                       aria-live="polite"
@@ -708,6 +744,8 @@ export function PaymentMethodModal({
                               onChange={(event) => setOnlineFullName(event.target.value)}
                               placeholder={t("payment_modal_form_full_name")}
                               aria-label={t("payment_modal_form_full_name")}
+                              readOnly={Boolean(lockedReprintName)}
+                              aria-readonly={Boolean(lockedReprintName)}
                               className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                             />
                             <input
@@ -726,6 +764,8 @@ export function PaymentMethodModal({
                               onChange={(event) => setOnlinePhone(event.target.value)}
                               placeholder={t("payment_modal_form_phone")}
                               aria-label={t("payment_modal_form_phone")}
+                              readOnly={Boolean(lockedReprintPhone)}
+                              aria-readonly={Boolean(lockedReprintPhone)}
                               className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                             />
                           </div>
@@ -916,6 +956,8 @@ export function PaymentMethodModal({
                                   onChange={(event) => setBankFullName(event.target.value)}
                                   placeholder={t("payment_modal_form_full_name")}
                                   aria-label={t("payment_modal_form_full_name")}
+                                  readOnly={Boolean(lockedReprintName)}
+                                  aria-readonly={Boolean(lockedReprintName)}
                                   className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                                 />
                                 <input
@@ -934,6 +976,8 @@ export function PaymentMethodModal({
                                   onChange={(event) => setBankPhone(event.target.value)}
                                   placeholder={t("payment_modal_form_phone")}
                                   aria-label={t("payment_modal_form_phone")}
+                                  readOnly={Boolean(lockedReprintPhone)}
+                                  aria-readonly={Boolean(lockedReprintPhone)}
                                   className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 font-sans text-sm text-white placeholder:text-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
                                 />
 
