@@ -89,6 +89,7 @@ export const AuthSessionUserSchema = z.object({
   email: z.email("Invalid email address"),
   firstName: z.string(),
   lastName: z.string().nullable(),
+  phone: z.string().nullable(),
   role: z.string().min(1, "User role is required"),
   displayName: z.string().min(1, "Display name is required"),
   initials: z.string().min(1, "Initials are required"),

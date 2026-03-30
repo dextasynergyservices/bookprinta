@@ -159,6 +159,10 @@ export interface QuoteSubmissionContext {
   ip: string;
   nextLocale?: string;
   acceptLanguage?: string;
+  /** When set, the quote is linked to an authenticated user (dashboard flow). */
+  userId?: string;
+  /** When true, skip reCAPTCHA verification (authenticated dashboard flow). */
+  skipRecaptcha?: boolean;
 }
 
 @Injectable()
@@ -270,6 +274,7 @@ export class QuotesService {
       where: { paymentLinkToken: normalizedToken },
       select: {
         id: true,
+        userId: true,
         workingTitle: true,
         fullName: true,
         email: true,
@@ -384,6 +389,7 @@ export class QuotesService {
               fullName: quote.fullName,
               phone: quote.phone,
               email: quote.email,
+              ...(quote.userId ? { dashboardUserId: quote.userId, source: "dashboard" } : {}),
             },
           } as Prisma.PaymentUncheckedCreateInput,
         });
@@ -440,6 +446,7 @@ export class QuotesService {
           phone: quote.phone,
           email: quote.email,
           packageName: "Custom Quote",
+          ...(quote.userId ? { dashboardUserId: quote.userId, source: "dashboard" } : {}),
         },
       });
     } catch (error) {
@@ -504,9 +511,11 @@ export class QuotesService {
     context: QuoteSubmissionContext
   ): Promise<CreateQuoteResponse> {
     const locale = this.resolveLocale(context.nextLocale, context.acceptLanguage);
-    const isHuman = await this.verifyRecaptcha(input.recaptchaToken);
-    if (!isHuman) {
-      throw new BadRequestException("reCAPTCHA verification failed. Please try again.");
+    if (!context.skipRecaptcha) {
+      const isHuman = await this.verifyRecaptcha(input.recaptchaToken);
+      if (!isHuman) {
+        throw new BadRequestException("reCAPTCHA verification failed. Please try again.");
+      }
     }
 
     const specialRequirements = this.normalizeSpecialRequirements(
@@ -551,6 +560,7 @@ export class QuotesService {
         estimatedPriceLow,
         estimatedPriceHigh,
         status: "PENDING",
+        ...(context.userId ? { userId: context.userId } : {}),
       },
       select: {
         id: true,

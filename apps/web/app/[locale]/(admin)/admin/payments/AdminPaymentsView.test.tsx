@@ -224,6 +224,7 @@ function createPendingTransfersState() {
         processedAt: null,
         createdAt: "2026-03-13T09:33:00.000Z",
         updatedAt: "2026-03-13T09:33:00.000Z",
+        pendingCheckout: null,
         refundability: {
           isRefundable: false,
           processingMode: "manual",
@@ -293,6 +294,7 @@ function createPendingTransfer(params: {
     processedAt: null,
     createdAt: "2026-03-13T09:33:00.000Z",
     updatedAt: "2026-03-13T09:33:00.000Z",
+    pendingCheckout: null,
     refundability: {
       isRefundable: false,
       processingMode: "manual",

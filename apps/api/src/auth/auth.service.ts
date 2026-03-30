@@ -541,6 +541,7 @@ export class AuthService {
         email: true,
         firstName: true,
         lastName: true,
+        phoneNumber: true,
         role: true,
         isActive: true,
         isDeleted: true,
@@ -983,6 +984,7 @@ export class AuthService {
     email: string;
     firstName: string;
     lastName: string | null;
+    phoneNumber?: string | null;
     role: UserRole;
   }): SafeUser {
     const displayName = this.buildDisplayName(user.firstName, user.lastName, user.email);
@@ -992,6 +994,7 @@ export class AuthService {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
+      phone: user.phoneNumber ?? null,
       role: user.role,
       displayName,
       initials: this.buildInitials(displayName, user.email),
@@ -1464,6 +1467,7 @@ export interface SafeUser {
   email: string;
   firstName: string;
   lastName: string | null;
+  phone: string | null;
   role: UserRole;
   displayName: string;
   initials: string;

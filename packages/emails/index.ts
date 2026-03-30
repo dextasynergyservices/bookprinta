@@ -11,6 +11,8 @@ export { BookStatusEmail } from "./emails/BookStatusEmail.tsx";
 export { ContactAdminEmail } from "./emails/ContactAdminEmail.tsx";
 export { ContactConfirmationEmail } from "./emails/ContactConfirmationEmail.tsx";
 export { ManuscriptRejectedEmail } from "./emails/ManuscriptRejectedEmail.tsx";
+export { NewBookOrderAdminEmail } from "./emails/NewBookOrderAdminEmail.tsx";
+export { NewBookOrderUserEmail } from "./emails/NewBookOrderUserEmail.tsx";
 export { PasswordResetEmail } from "./emails/PasswordResetEmail.tsx";
 export { ProductionDelayEmail } from "./emails/ProductionDelayEmail.tsx";
 export { ProfileCompleteBannerEmail } from "./emails/ProfileCompleteBannerEmail.tsx";

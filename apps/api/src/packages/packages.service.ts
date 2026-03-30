@@ -150,6 +150,32 @@ export class PackagesService {
   }
 
   /**
+   * Lightweight active-package lookup used by internal services (e.g. DashboardService).
+   * Returns `null` when the package doesn't exist, is inactive, or its category is inactive.
+   */
+  async findActiveById(
+    id: string
+  ): Promise<{ id: string; name: string; slug: string; basePrice: number } | null> {
+    const pkg = await this.prisma.package.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        basePrice: true,
+        isActive: true,
+        category: { select: { isActive: true } },
+      },
+    });
+
+    if (!pkg || !pkg.isActive || !pkg.category.isActive) {
+      return null;
+    }
+
+    return { id: pkg.id, name: pkg.name, slug: pkg.slug, basePrice: Number(pkg.basePrice) };
+  }
+
+  /**
    * Find a single package by ID.
    * Throws NotFoundException if the package doesn't exist, is inactive,
    * or belongs to an inactive category.

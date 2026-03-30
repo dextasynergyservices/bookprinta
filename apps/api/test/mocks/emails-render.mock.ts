@@ -25,6 +25,12 @@ export const renderBankTransferUserEmail = async (): Promise<RenderedEmail> =>
 export const renderBankTransferAdminEmail = async (): Promise<RenderedEmail> =>
   buildRenderedEmail("Bank transfer admin");
 
+export const renderNewBookOrderUserEmail = async (): Promise<RenderedEmail> =>
+  buildRenderedEmail("New book user");
+
+export const renderNewBookOrderAdminEmail = async (): Promise<RenderedEmail> =>
+  buildRenderedEmail("New book admin");
+
 export const renderContactAdminEmail = async (): Promise<RenderedEmail> =>
   buildRenderedEmail("Contact admin");
 

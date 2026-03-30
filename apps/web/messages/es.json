@@ -455,6 +455,8 @@
     "pay_now": "Pagar ahora",
     "bank_transfer": "Transferencia bancaria",
     "upload_receipt": "Subir recibo",
+    "trust_secure_payments": "Pagos seguros con",
+    "trust_quality_prints": "Impresiones de calidad por",
     "payment_verified": "Tu pago está siendo verificado. Recibirás un correo una vez aprobado.",
     "transfer_done": "Ya realicé la transferencia",
     "configuration_title": "Configura tu libro",
@@ -593,6 +595,7 @@
     "payment_confirmed_direct_signup_note": "Puedes continuar ahora mismo usando el boton de registro seguro de abajo.",
     "payment_return_title": "Finalizando tu pago",
     "payment_return_verifying": "Espera mientras verificamos tu pago y preparamos tu enlace de registro.",
+    "payment_verify_loading": "Verificando tu pago…",
     "payment_return_waiting_webhook": "Pago confirmado. Estamos finalizando la creación de tu cuenta...",
     "payment_return_waiting_pending": "Tu pago aún se está confirmando. Esto suele tardar unos segundos.",
     "payment_return_waiting_email": "El pago fue exitoso. Aún estamos finalizando tu redirección de registro. Revisa tu correo para tu enlace.",
@@ -605,6 +608,7 @@
     "payment_return_contact": "Contactar soporte"
   },
   "dashboard": {
+    "compare_plans": "Comparar planes",
     "title": "Panel",
     "overview_welcome_back": "Bienvenido de nuevo, {name}",
     "overview_editorial_title": "Manten el impulso de tu publicacion.",
@@ -1418,7 +1422,30 @@
     "order_tracking_error_description": "No pudimos cargar el seguimiento de este pedido en este momento. Intentalo de nuevo.",
     "order_tracking_retry": "Reintentar",
     "order_tracking_missing_title": "Seguimiento no disponible",
-    "order_tracking_missing_description": "Este enlace de seguimiento no incluye una referencia de pedido."
+    "order_tracking_missing_description": "Este enlace de seguimiento no incluye una referencia de pedido.",
+    "print_new_book": "Imprimir un libro nuevo",
+    "new_project_title": "Iniciar un nuevo proyecto",
+    "new_project_subtitle": "Elige un paquete o solicita un presupuesto personalizado para tu proximo libro.",
+    "new_project_get_quote": "Solicitar presupuesto",
+    "new_project_quote_hint": "Necesitas algo mas a medida? Nuestro equipo puede crear un paquete personalizado para ti.",
+    "new_book_categories_aria": "Categorias de paquetes",
+    "new_book_copies_tab": "{copies} copias",
+    "new_book_card_base_label": "base",
+    "new_book_card_page_limit": "Hasta {pages} paginas",
+    "new_book_card_isbn_included": "ISBN incluido",
+    "new_book_select_package": "Seleccionar paquete",
+    "new_book_error_title": "No se pudieron cargar los paquetes",
+    "new_book_error_description": "No pudimos cargar los paquetes disponibles en este momento. Por favor, intentalo de nuevo.",
+    "new_book_error_retry": "Reintentar",
+    "new_book_confirm_success_title": "¡Pedido realizado con éxito!",
+    "new_book_confirm_success_desc": "Tu nuevo pedido de libro ha sido creado. Puedes comenzar a subir tu manuscrito desde tu panel de control.",
+    "new_book_confirm_bank_title": "Pago en verificación",
+    "new_book_confirm_bank_desc": "Hemos recibido tus datos de transferencia bancaria. Tu pago está siendo verificado — esto generalmente toma menos de 30 minutos. Recibirás una notificación una vez confirmado.",
+    "new_book_confirm_bank_note": "Puedes cerrar esta página con seguridad. Te notificaremos por correo electrónico cuando tu pago sea aprobado.",
+    "new_book_confirm_failed_title": "Error en la verificación del pago",
+    "new_book_confirm_failed_desc": "No pudimos verificar tu pago en este momento. Si ya se te ha cobrado, contacta a soporte — lo resolveremos.",
+    "new_book_confirm_view_orders": "Ver mis pedidos",
+    "new_book_confirm_back_dashboard": "Volver al panel"
   },
   "legal_refund": {
     "title": "Politica de reembolso",
@@ -1668,7 +1695,9 @@
     "company_number": "© 2026 BookPrinta",
     "instagram": "Síguenos en Instagram",
     "twitter": "Síguenos en X",
-    "linkedin": "Síguenos en LinkedIn"
+    "linkedin": "Síguenos en LinkedIn",
+    "trust_secure_payments": "Pagos seguros con",
+    "trust_quality_prints": "Impresiones de calidad por"
   },
   "language_switcher": {
     "label": "Cambiar idioma"
@@ -2586,6 +2615,7 @@
     "payments_pending_receipt_missing": "Recibo no disponible",
     "payments_pending_provider_ref": "Ref. del proveedor: {reference}",
     "payments_pending_provider_ref_missing": "Referencia pendiente",
+    "payments_pending_checkout_stale": "Pago pendiente estancado ({age})",
     "payments_pending_email": "Correo del cliente: {email}",
     "payments_pending_phone": "Teléfono del cliente: {phone}",
     "payments_pending_meta_admin_note": "Nota de administración",

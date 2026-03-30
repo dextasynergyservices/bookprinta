@@ -242,6 +242,31 @@
     "total_price": "Total Paid",
     "cta": "View in Admin Panel"
   },
+  "new_book_order_confirm": {
+    "subject": "New Book Order Placed - #{orderNumber}",
+    "heading": "Your New Book Order Is Placed!",
+    "body": "Your new book order has been successfully placed. You can now upload your manuscript and start the publishing process from your dashboard.",
+    "order_number": "Order Number",
+    "package": "Package",
+    "addons": "Extra Services",
+    "total_price": "Total Paid",
+    "next_steps": "Head to your dashboard to upload your manuscript and configure your book settings.",
+    "cta": "Go to Dashboard"
+  },
+  "new_book_order_admin": {
+    "subject": "New Book Order from Existing User - #{orderNumber}",
+    "heading": "New Book Order from Existing User",
+    "body": "An existing user has placed a new book order from their dashboard.",
+    "order_number": "Order Number",
+    "customer_name": "Customer",
+    "customer_email": "Email",
+    "package": "Package",
+    "addons": "Extra Services",
+    "provider": "Payment Provider",
+    "reference": "Payment Reference",
+    "total_price": "Total Paid",
+    "cta": "View in Admin Panel"
+  },
   "production_delay": {
     "subject": "Production Update - Longer Wait Times Expected",
     "heading": "Production Update",

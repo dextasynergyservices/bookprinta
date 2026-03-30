@@ -455,6 +455,8 @@
     "pay_now": "Pay Now",
     "bank_transfer": "Bank Transfer",
     "upload_receipt": "Upload Receipt",
+    "trust_secure_payments": "Secure payments by",
+    "trust_quality_prints": "Quality prints by",
     "payment_verified": "Your payment is being verified. You will receive an email once approved.",
     "transfer_done": "I've Transferred",
     "configuration_title": "Configure Your Book",
@@ -593,6 +595,7 @@
     "payment_confirmed_direct_signup_note": "You can continue right now using the secure signup button below.",
     "payment_return_title": "Finalizing Your Payment",
     "payment_return_verifying": "Please wait while we verify your payment and prepare your signup link.",
+    "payment_verify_loading": "Verifying your payment…",
     "payment_return_waiting_webhook": "Payment confirmed. Finalizing your account setup now...",
     "payment_return_waiting_pending": "Your payment is still being confirmed. This usually takes a few seconds.",
     "payment_return_waiting_email": "Payment is successful. We're still finalizing your signup redirect. Please check your email for your signup link.",
@@ -605,6 +608,7 @@
     "payment_return_contact": "Contact Support"
   },
   "dashboard": {
+    "compare_plans": "Compare Plans",
     "title": "Dashboard",
     "overview_welcome_back": "Welcome back, {name}",
     "overview_editorial_title": "Keep your publishing momentum moving.",
@@ -1418,7 +1422,30 @@
     "order_tracking_error_description": "We couldn't load this order tracking right now. Please try again.",
     "order_tracking_retry": "Retry",
     "order_tracking_missing_title": "Tracking unavailable",
-    "order_tracking_missing_description": "This tracking link is missing an order reference."
+    "order_tracking_missing_description": "This tracking link is missing an order reference.",
+    "print_new_book": "Print a New Book",
+    "new_project_title": "Start a New Project",
+    "new_project_subtitle": "Choose a package or get a custom quote for your next book.",
+    "new_project_get_quote": "Get a Custom Quote",
+    "new_project_quote_hint": "Need something more tailored? Our team can build a custom package for you.",
+    "new_book_categories_aria": "Package categories",
+    "new_book_copies_tab": "{copies} copies",
+    "new_book_card_base_label": "base",
+    "new_book_card_page_limit": "Up to {pages} pages",
+    "new_book_card_isbn_included": "ISBN Included",
+    "new_book_select_package": "Select Package",
+    "new_book_error_title": "Unable to load packages",
+    "new_book_error_description": "We couldn't load the available packages right now. Please try again.",
+    "new_book_error_retry": "Retry",
+    "new_book_confirm_success_title": "Order Placed Successfully!",
+    "new_book_confirm_success_desc": "Your new book order has been created. You can start uploading your manuscript from your dashboard.",
+    "new_book_confirm_bank_title": "Payment Being Verified",
+    "new_book_confirm_bank_desc": "We've received your bank transfer details. Your payment is being verified — this typically takes less than 30 minutes. You'll receive a notification once confirmed.",
+    "new_book_confirm_bank_note": "You can safely close this page. We'll notify you by email when your payment is approved.",
+    "new_book_confirm_failed_title": "Payment Verification Failed",
+    "new_book_confirm_failed_desc": "We couldn't verify your payment at this time. If you've already been charged, please contact support — we'll sort it out.",
+    "new_book_confirm_view_orders": "View My Orders",
+    "new_book_confirm_back_dashboard": "Back to Dashboard"
   },
   "legal_refund": {
     "title": "Refund Policy",
@@ -1668,7 +1695,9 @@
     "company_number": "© 2026 BookPrinta",
     "instagram": "Follow us on Instagram",
     "twitter": "Follow us on X",
-    "linkedin": "Follow us on LinkedIn"
+    "linkedin": "Follow us on LinkedIn",
+    "trust_secure_payments": "Secure payments by",
+    "trust_quality_prints": "Quality prints by"
   },
   "language_switcher": {
     "label": "Change language"
@@ -2586,6 +2615,7 @@
     "payments_pending_receipt_missing": "Receipt unavailable",
     "payments_pending_provider_ref": "Provider ref: {reference}",
     "payments_pending_provider_ref_missing": "Pending reference",
+    "payments_pending_checkout_stale": "Stale pending checkout ({age})",
     "payments_pending_email": "Customer email: {email}",
     "payments_pending_phone": "Customer phone: {phone}",
     "payments_pending_meta_admin_note": "Admin Note",

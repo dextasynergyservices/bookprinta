@@ -1,14 +1,24 @@
 import type {
+  CreateQuoteInput,
+  CreateQuoteResponse,
+  DashboardNewBookOrderInput,
+  DashboardNewBookOrderResponse,
+  DashboardNewBookPricingResponse,
   DashboardOverviewResponse,
   DashboardPendingAction,
   NotificationItem,
+  PackageCategoryResponse,
   ReviewBook,
   UserBookListItem,
 } from "@bookprinta/shared";
-import { Injectable } from "@nestjs/common";
+import { DEFAULT_CURRENCY } from "@bookprinta/shared";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { BooksService } from "../books/books.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { OrdersService } from "../orders/orders.service.js";
+import { PackagesService } from "../packages/packages.service.js";
+import { PaymentsService } from "../payments/payments.service.js";
+import { QuotesService } from "../quotes/quotes.service.js";
 import { ReviewsService } from "../reviews/reviews.service.js";
 import { UsersService } from "../users/users.service.js";
 
@@ -25,7 +35,10 @@ export class DashboardService {
     private readonly ordersService: OrdersService,
     private readonly notificationsService: NotificationsService,
     private readonly usersService: UsersService,
-    private readonly reviewsService: ReviewsService
+    private readonly reviewsService: ReviewsService,
+    private readonly packagesService: PackagesService,
+    private readonly paymentsService: PaymentsService,
+    private readonly quotesService: QuotesService
   ) {}
 
   async getUserDashboardOverview(userId: string): Promise<DashboardOverviewResponse> {
@@ -252,5 +265,125 @@ export class DashboardService {
     if (priority === "high") return 0;
     if (priority === "medium") return 1;
     return 2;
+  }
+
+  // ──────────────────────────────────────────────
+  // Print a New Book
+  // ──────────────────────────────────────────────
+
+  /**
+   * GET /dashboard/new-book
+   * Returns the same package categories + nested packages as the public pricing page.
+   */
+  async getNewBookPricing(): Promise<DashboardNewBookPricingResponse> {
+    const categories: PackageCategoryResponse[] =
+      await this.packagesService.findAllActiveByCategory();
+    return { categories };
+  }
+
+  /**
+   * POST /dashboard/new-book/order
+   * Initializes a payment for a new book order placed by an authenticated user.
+   * Injects `source: "dashboard"` and `dashboardUserId` into metadata so the
+   * webhook handler skips user creation and sends the correct emails.
+   */
+  async createNewBookOrder(
+    userId: string,
+    dto: DashboardNewBookOrderInput
+  ): Promise<DashboardNewBookOrderResponse> {
+    // Resolve user for email + name
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    // Validate package exists and is active
+    const pkg = await this.packagesService.findActiveById(dto.packageId);
+    if (!pkg) {
+      throw new BadRequestException("Selected package does not exist or is inactive.");
+    }
+
+    // Build metadata (same structure as public checkout, plus dashboard identifiers)
+    const metadata: Record<string, unknown> = {
+      source: "dashboard",
+      dashboardUserId: userId,
+      paymentFlow: "CHECKOUT",
+      locale: user.preferredLanguage ?? "en",
+      fullName: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
+      phone: user.phoneNumber ?? null,
+      packageId: pkg.id,
+      packageSlug: pkg.slug,
+      packageName: pkg.name,
+      hasCover: dto.hasCoverDesign,
+      hasFormatting: dto.hasFormatting,
+      bookSize: dto.bookSize,
+      paperColor: dto.paperColor,
+      lamination: dto.lamination,
+      basePrice: dto.basePrice,
+      addonTotal: dto.addonTotal,
+      totalPrice: dto.totalPrice,
+      couponCode: dto.couponCode ?? null,
+      addons: dto.addons.map((addon) => ({
+        id: addon.id,
+        slug: addon.slug ?? null,
+        name: addon.name ?? null,
+        price: addon.price,
+        wordCount: addon.wordCount ?? null,
+      })),
+    };
+
+    // Bank transfer path
+    if (dto.provider === "BANK_TRANSFER") {
+      const result = await this.paymentsService.submitDashboardBankTransfer({
+        userId,
+        payerName: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
+        payerEmail: user.email,
+        payerPhone: user.phoneNumber ?? "",
+        amount: dto.totalPrice,
+        currency: DEFAULT_CURRENCY,
+        receiptUrl: dto.receiptUrl,
+        metadata,
+      });
+
+      return {
+        type: "bank_transfer" as const,
+        message: result.message,
+        paymentId: result.id,
+      };
+    }
+
+    // Online payment path (Paystack / Stripe / PayPal)
+    const result = await this.paymentsService.initialize({
+      provider: dto.provider as "PAYSTACK" | "STRIPE" | "PAYPAL",
+      email: user.email,
+      amount: dto.totalPrice,
+      currency: DEFAULT_CURRENCY,
+      callbackUrl: dto.callbackUrl,
+      metadata,
+    });
+
+    return {
+      type: "redirect" as const,
+      authorizationUrl: result.authorizationUrl,
+      accessCode: result.accessCode,
+      reference: result.reference,
+      provider: result.provider,
+    };
+  }
+
+  /**
+   * Submit a custom quote from the dashboard.
+   * Skips reCAPTCHA and links the quote to the authenticated user.
+   */
+  async submitDashboardQuote(
+    userId: string,
+    dto: CreateQuoteInput,
+    context: { ip: string; acceptLanguage?: string; nextLocale?: string }
+  ): Promise<CreateQuoteResponse> {
+    return this.quotesService.create(dto, {
+      ...context,
+      userId,
+      skipRecaptcha: true,
+    });
   }
 }

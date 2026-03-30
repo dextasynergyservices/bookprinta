@@ -1,5 +1,20 @@
 /// <reference types="jest" />
+import {
+  renderReprintAdminConfirmEmail,
+  renderReprintConfirmEmail,
+} from "@bookprinta/emails/render";
 import { PaymentsService } from "./payments.service.js";
+
+jest.mock("@bookprinta/emails/render", () => ({
+  renderBankTransferAdminEmail: jest.fn(),
+  renderBankTransferRejectedEmail: jest.fn(),
+  renderBankTransferUserEmail: jest.fn(),
+  renderNewBookOrderAdminEmail: jest.fn(),
+  renderNewBookOrderUserEmail: jest.fn(),
+  renderRefundConfirmEmail: jest.fn(),
+  renderReprintAdminConfirmEmail: jest.fn(),
+  renderReprintConfirmEmail: jest.fn(),
+}));
 
 type PaymentsServicePrivate = {
   createPaymentFromWebhook: (data: {
@@ -23,6 +38,9 @@ function createService() {
     },
     book: {
       findUnique: jest.fn(),
+      create: jest.fn(),
+    },
+    file: {
       create: jest.fn(),
     },
     payment: {
@@ -77,6 +95,14 @@ function createService() {
 describe("PaymentsService reprint fulfillment", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (renderReprintConfirmEmail as jest.Mock).mockResolvedValue({
+      subject: "Reprint confirmed",
+      html: "<p>reprint</p>",
+    });
+    (renderReprintAdminConfirmEmail as jest.Mock).mockResolvedValue({
+      subject: "Reprint admin alert",
+      html: "<p>admin</p>",
+    });
   });
 
   it("creates a REPRINT order and review-ready book when a reprint payment succeeds", async () => {
@@ -118,6 +144,7 @@ describe("PaymentsService reprint fulfillment", () => {
       fontFamily: "Merriweather",
       fontSize: 12,
       finalPdfUrl: "https://example.com/final-current.pdf",
+      files: [],
       user: {
         email: "author@example.com",
       },
@@ -242,7 +269,7 @@ describe("PaymentsService reprint fulfillment", () => {
       tx
     );
     expect(whatsappNotificationsService.sendPaymentConfirmation).toHaveBeenCalled();
-    expect(resendMock.emails.send).toHaveBeenCalledTimes(1);
+    expect(resendMock.emails.send).toHaveBeenCalledTimes(3);
   });
 
   it("does not create duplicate reprint entities when the payment is already linked to an order", async () => {
@@ -281,5 +308,106 @@ describe("PaymentsService reprint fulfillment", () => {
     expect(tx.order.create).not.toHaveBeenCalled();
     expect(tx.book.create).not.toHaveBeenCalled();
     expect(notificationsService.createOrderStatusNotification).not.toHaveBeenCalled();
+  });
+
+  it("prefers persisted metadata over webhook metadata for pre-created reprint payments", async () => {
+    const { service, prisma, tx } = createService();
+
+    prisma.payment.findUnique.mockResolvedValue({
+      id: "payment_reprint_2",
+      type: "REPRINT",
+      userId: "user_1",
+      orderId: null,
+      processedAt: null,
+      payerEmail: "author@example.com",
+      metadata: {
+        sourceBookId: "book_source_1",
+        sourceOrderId: "order_source_1",
+        orderType: "REPRINT",
+        copies: 30,
+        bookSize: "A4",
+        paperColor: "white",
+        lamination: "gloss",
+        pageCount: 128,
+        finalPdfUrl: "https://example.com/final-persisted.pdf",
+      },
+    });
+    prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+    tx.book.findUnique.mockResolvedValue({
+      id: "book_source_1",
+      orderId: "order_source_1",
+      userId: "user_1",
+      title: "My Book",
+      coverImageUrl: "https://example.com/cover.jpg",
+      pageCount: 128,
+      wordCount: 42000,
+      estimatedPages: 132,
+      fontFamily: "Merriweather",
+      fontSize: 12,
+      finalPdfUrl: "https://example.com/final-current.pdf",
+      files: [],
+      user: {
+        email: "author@example.com",
+      },
+      order: {
+        id: "order_source_1",
+        packageId: "package_1",
+        packagePriceSnap: 49900,
+        package: {
+          name: "Premium Package",
+        },
+      },
+    });
+    tx.order.findUnique.mockResolvedValue(null);
+    tx.order.create.mockResolvedValue({
+      id: "order_reprint_2",
+      createdAt: new Date("2026-03-13T12:00:00.000Z"),
+    });
+    tx.book.create.mockResolvedValue({
+      id: "book_reprint_2",
+      createdAt: new Date("2026-03-13T12:00:01.000Z"),
+    });
+    tx.payment.update.mockResolvedValue({});
+    tx.auditLog.createMany.mockResolvedValue({ count: 2 });
+
+    await (service as unknown as PaymentsServicePrivate).createPaymentFromWebhook({
+      provider: "PAYSTACK",
+      providerRef: "rp_ref_2",
+      amount: 76800,
+      currency: "NGN",
+      payerEmail: "author@example.com",
+      gatewayResponse: {
+        status: "success",
+      },
+      metadata: {
+        copies: 5,
+        finalPdfUrl: "https://example.com/final-webhook.pdf",
+      },
+    });
+
+    expect(prisma.payment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({
+            copies: 30,
+            finalPdfUrl: "https://example.com/final-persisted.pdf",
+          }),
+        }),
+      })
+    );
+    expect(tx.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          copies: 30,
+        }),
+      })
+    );
+    expect(tx.book.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          finalPdfUrl: "https://example.com/final-persisted.pdf",
+        }),
+      })
+    );
   });
 });

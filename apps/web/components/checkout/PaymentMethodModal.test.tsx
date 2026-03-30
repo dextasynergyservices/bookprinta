@@ -175,7 +175,7 @@ describe("PaymentMethodModal", () => {
     renderWithProviders();
 
     fireEvent.click(screen.getByRole("button", { name: /payment_modal_option_online/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Paystack" }));
+    fireEvent.click(screen.getByRole("button", { name: /Paystack/i }));
 
     const fullNameInput = screen.getByLabelText("payment_modal_form_full_name");
     const emailInput = screen.getByLabelText("payment_modal_form_email");
@@ -223,5 +223,14 @@ describe("PaymentMethodModal", () => {
 
     expect(initializePaymentMock).not.toHaveBeenCalled();
     expect(submitBankTransferMock).not.toHaveBeenCalled();
+  });
+
+  it("shows Paystack and DEXTA trust badges near the payment summary", () => {
+    renderWithProviders();
+
+    expect(screen.getByText("trust_secure_payments")).toBeInTheDocument();
+    expect(screen.getByText("trust_quality_prints")).toBeInTheDocument();
+    expect(screen.getByAltText("Paystack")).toBeInTheDocument();
+    expect(screen.getByAltText("DEXTA")).toBeInTheDocument();
   });
 });
