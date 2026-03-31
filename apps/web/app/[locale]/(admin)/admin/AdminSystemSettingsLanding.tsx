@@ -46,6 +46,7 @@ import {
 } from "@/hooks/useAdminSettings";
 
 type SocialLinkDraft = {
+  id: string;
   label: string;
   url: string;
 };
@@ -62,9 +63,8 @@ type BusinessDraft = {
 type QuotePricingDraft = {
   quoteCostPerPage: string;
   quoteCoverCost: string;
-  reprintA4: string;
-  reprintA5: string;
-  reprintA6: string;
+  reprintCostPerPage: string;
+  reprintCoverCost: string;
   minimumCopies: string;
 };
 
@@ -159,9 +159,8 @@ const SETTING_KEYS: Record<string, AdminSystemSettingKey> = {
   business_social_links: "business_social_links",
   quote_cost_per_page: "quote_cost_per_page",
   quote_cover_cost: "quote_cover_cost",
-  reprint_cost_per_page_a4: "reprint_cost_per_page_a4",
-  reprint_cost_per_page_a5: "reprint_cost_per_page_a5",
-  reprint_cost_per_page_a6: "reprint_cost_per_page_a6",
+  reprint_cost_per_page: "reprint_cost_per_page",
+  reprint_cover_cost: "reprint_cover_cost",
   reprint_minimum_copies: "reprint_minimum_copies",
   comms_sender_name: "comms_sender_name",
   comms_sender_email: "comms_sender_email",
@@ -238,9 +237,22 @@ function normalizeSocialLinks(value: unknown): SocialLinkDraft[] {
 
       const label = toStringValue((entry as { label?: unknown }).label).trim();
       const url = toStringValue((entry as { url?: unknown }).url).trim();
-      return { label, url };
+      return createSocialLinkDraft({ label, url });
     })
     .filter((entry): entry is SocialLinkDraft => Boolean(entry));
+}
+
+function createSocialLinkDraft(
+  input: Pick<SocialLinkDraft, "label" | "url"> = { label: "", url: "" }
+): SocialLinkDraft {
+  return {
+    id:
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `social-link-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    label: input.label,
+    url: input.url,
+  };
 }
 
 function normalizeToggles(value: unknown): WhatsappToggleDraft[] {
@@ -469,9 +481,8 @@ export function AdminSystemSettingsLanding() {
   const [quoteDraft, setQuoteDraft] = useState<QuotePricingDraft>({
     quoteCostPerPage: "0",
     quoteCoverCost: "0",
-    reprintA4: "0",
-    reprintA5: "0",
-    reprintA6: "0",
+    reprintCostPerPage: "0",
+    reprintCoverCost: "0",
     minimumCopies: "25",
   });
   const [notificationDraft, setNotificationDraft] = useState<NotificationDraft>({
@@ -568,9 +579,8 @@ export function AdminSystemSettingsLanding() {
       const nextQuote: QuotePricingDraft = {
         quoteCostPerPage: toMoney(settingsMap.get(SETTING_KEYS.quote_cost_per_page)?.value),
         quoteCoverCost: toMoney(settingsMap.get(SETTING_KEYS.quote_cover_cost)?.value),
-        reprintA4: toMoney(settingsMap.get(SETTING_KEYS.reprint_cost_per_page_a4)?.value),
-        reprintA5: toMoney(settingsMap.get(SETTING_KEYS.reprint_cost_per_page_a5)?.value),
-        reprintA6: toMoney(settingsMap.get(SETTING_KEYS.reprint_cost_per_page_a6)?.value),
+        reprintCostPerPage: toMoney(settingsMap.get(SETTING_KEYS.reprint_cost_per_page)?.value),
+        reprintCoverCost: toMoney(settingsMap.get(SETTING_KEYS.reprint_cover_cost)?.value),
         minimumCopies: toInteger(settingsMap.get(SETTING_KEYS.reprint_minimum_copies)?.value, 25),
       };
 
@@ -878,9 +888,8 @@ export function AdminSystemSettingsLanding() {
     const numberFields: Array<[keyof QuotePricingDraft, string]> = [
       ["quoteCostPerPage", "quoteCostPerPage"],
       ["quoteCoverCost", "quoteCoverCost"],
-      ["reprintA4", "reprintA4"],
-      ["reprintA5", "reprintA5"],
-      ["reprintA6", "reprintA6"],
+      ["reprintCostPerPage", "reprintCostPerPage"],
+      ["reprintCoverCost", "reprintCoverCost"],
       ["minimumCopies", "minimumCopies"],
     ];
 
@@ -899,9 +908,8 @@ export function AdminSystemSettingsLanding() {
     try {
       const nextQuoteCostPerPage = Number.parseFloat(quoteDraft.quoteCostPerPage);
       const nextQuoteCoverCost = Number.parseFloat(quoteDraft.quoteCoverCost);
-      const nextReprintA4 = Number.parseFloat(quoteDraft.reprintA4);
-      const nextReprintA5 = Number.parseFloat(quoteDraft.reprintA5);
-      const nextReprintA6 = Number.parseFloat(quoteDraft.reprintA6);
+      const nextReprintCostPerPage = Number.parseFloat(quoteDraft.reprintCostPerPage);
+      const nextReprintCoverCost = Number.parseFloat(quoteDraft.reprintCoverCost);
       const nextMinimumCopies = Number.parseInt(quoteDraft.minimumCopies, 10);
 
       if (settingHasChanged(SETTING_KEYS.quote_cost_per_page, nextQuoteCostPerPage)) {
@@ -918,24 +926,17 @@ export function AdminSystemSettingsLanding() {
         });
       }
 
-      if (settingHasChanged(SETTING_KEYS.reprint_cost_per_page_a4, nextReprintA4)) {
+      if (settingHasChanged(SETTING_KEYS.reprint_cost_per_page, nextReprintCostPerPage)) {
         await updateSettingMutation.mutateAsync({
-          key: SETTING_KEYS.reprint_cost_per_page_a4,
-          body: { value: nextReprintA4, changeReason: undefined },
+          key: SETTING_KEYS.reprint_cost_per_page,
+          body: { value: nextReprintCostPerPage, changeReason: undefined },
         });
       }
 
-      if (settingHasChanged(SETTING_KEYS.reprint_cost_per_page_a5, nextReprintA5)) {
+      if (settingHasChanged(SETTING_KEYS.reprint_cover_cost, nextReprintCoverCost)) {
         await updateSettingMutation.mutateAsync({
-          key: SETTING_KEYS.reprint_cost_per_page_a5,
-          body: { value: nextReprintA5, changeReason: undefined },
-        });
-      }
-
-      if (settingHasChanged(SETTING_KEYS.reprint_cost_per_page_a6, nextReprintA6)) {
-        await updateSettingMutation.mutateAsync({
-          key: SETTING_KEYS.reprint_cost_per_page_a6,
-          body: { value: nextReprintA6, changeReason: undefined },
+          key: SETTING_KEYS.reprint_cover_cost,
+          body: { value: nextReprintCoverCost, changeReason: undefined },
         });
       }
 
@@ -1884,7 +1885,7 @@ export function AdminSystemSettingsLanding() {
                     onClick={() => {
                       const next = {
                         ...businessDraft,
-                        socialLinks: [...businessDraft.socialLinks, { label: "", url: "" }],
+                        socialLinks: [...businessDraft.socialLinks, createSocialLinkDraft()],
                       };
                       setBusinessDraft(next);
                       dirty.updateSectionDraft(SECTION_BUSINESS_PROFILE, next);
@@ -1897,7 +1898,7 @@ export function AdminSystemSettingsLanding() {
 
                 {businessDraft.socialLinks.map((link, index) => (
                   <div
-                    key={`${link.label.trim()}-${link.url.trim()}`}
+                    key={link.id}
                     className="grid gap-2 rounded-lg border border-[#232323] bg-[#111111] p-3"
                   >
                     <Input
@@ -2010,19 +2011,14 @@ export function AdminSystemSettingsLanding() {
                   settingKey: SETTING_KEYS.quote_cover_cost,
                 },
                 {
-                  key: "reprintA4" as const,
-                  label: tAdmin("system_settings_reprint_a4"),
-                  settingKey: SETTING_KEYS.reprint_cost_per_page_a4,
+                  key: "reprintCostPerPage" as const,
+                  label: tAdmin("system_settings_reprint_cost_per_page"),
+                  settingKey: SETTING_KEYS.reprint_cost_per_page,
                 },
                 {
-                  key: "reprintA5" as const,
-                  label: tAdmin("system_settings_reprint_a5"),
-                  settingKey: SETTING_KEYS.reprint_cost_per_page_a5,
-                },
-                {
-                  key: "reprintA6" as const,
-                  label: tAdmin("system_settings_reprint_a6"),
-                  settingKey: SETTING_KEYS.reprint_cost_per_page_a6,
+                  key: "reprintCoverCost" as const,
+                  label: tAdmin("system_settings_reprint_cover_cost"),
+                  settingKey: SETTING_KEYS.reprint_cover_cost,
                 },
               ].map((field) => (
                 <div key={field.key} className="grid gap-1.5">

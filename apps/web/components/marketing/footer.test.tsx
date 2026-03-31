@@ -2,6 +2,17 @@ import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { Footer } from "./footer";
 
+const publicMarketingSettingsMock = {
+  settings: null as null | {
+    businessProfile: {
+      supportEmail: string;
+      supportPhone: string;
+      officeAddress: string;
+      socialLinks: Array<{ label: string; url: string }>;
+    };
+  },
+};
+
 const footerMessages = {
   say_hello: "Say hello.",
   cta_description: "Have an enquiry? Simply get in touch using the button below.",
@@ -59,11 +70,15 @@ jest.mock("@/lib/i18n/navigation", () => ({
 
 jest.mock("@/hooks/usePublicMarketingSettings", () => ({
   usePublicMarketingSettings: () => ({
-    settings: null,
+    settings: publicMarketingSettingsMock.settings,
   }),
 }));
 
 describe("Footer", () => {
+  beforeEach(() => {
+    publicMarketingSettingsMock.settings = null;
+  });
+
   it("keeps the legal footer links pointed at the new localized routes", () => {
     render(<Footer />);
 
@@ -90,5 +105,31 @@ describe("Footer", () => {
     expect(screen.getByText("Quality prints by")).toBeInTheDocument();
     expect(screen.getByAltText("Paystack")).toBeInTheDocument();
     expect(screen.getByAltText("DEXTA")).toBeInTheDocument();
+  });
+
+  it("renders admin-managed social links when public marketing settings are available", () => {
+    publicMarketingSettingsMock.settings = {
+      businessProfile: {
+        supportEmail: "support@bookprinta.com",
+        supportPhone: "+2348000000000",
+        officeAddress: "Lagos, Nigeria",
+        socialLinks: [
+          { label: "Facebook", url: "https://facebook.com/bookprinta-ng" },
+          { label: "YouTube", url: "https://youtube.com/@bookprinta" },
+        ],
+      },
+    };
+
+    render(<Footer />);
+
+    expect(screen.getByRole("link", { name: "Facebook" })).toHaveAttribute(
+      "href",
+      "https://facebook.com/bookprinta-ng"
+    );
+    expect(screen.getByRole("link", { name: "YouTube" })).toHaveAttribute(
+      "href",
+      "https://youtube.com/@bookprinta"
+    );
+    expect(screen.queryByRole("link", { name: "Follow us on LinkedIn" })).not.toBeInTheDocument();
   });
 });

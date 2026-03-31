@@ -32,9 +32,8 @@ export const AdminSystemSettingKeySchema = z.enum([
   "business_social_links",
   "quote_cost_per_page",
   "quote_cover_cost",
-  "reprint_cost_per_page_a4",
-  "reprint_cost_per_page_a5",
-  "reprint_cost_per_page_a6",
+  "reprint_cost_per_page",
+  "reprint_cover_cost",
   "reprint_minimum_copies",
   "comms_sender_name",
   "comms_sender_email",
@@ -203,17 +202,12 @@ const keyValidationMap: Record<
     category: "quote_pricing",
     schema: DecimalMoneySchema,
   },
-  reprint_cost_per_page_a4: {
+  reprint_cost_per_page: {
     valueType: "decimal",
     category: "quote_pricing",
     schema: DecimalMoneySchema,
   },
-  reprint_cost_per_page_a5: {
-    valueType: "decimal",
-    category: "quote_pricing",
-    schema: DecimalMoneySchema,
-  },
-  reprint_cost_per_page_a6: {
+  reprint_cover_cost: {
     valueType: "decimal",
     category: "quote_pricing",
     schema: DecimalMoneySchema,
