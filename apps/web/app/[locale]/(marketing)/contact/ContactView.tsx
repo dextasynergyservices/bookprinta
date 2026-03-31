@@ -9,6 +9,10 @@ import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 import { ContactForm } from "@/components/marketing/contact/ContactForm";
 import { ScrollProgress } from "@/components/marketing/showcase/ScrollProgress";
+import {
+  CONTACT_FALLBACK_SOCIAL_LINKS,
+  MarketingSocialLinkList,
+} from "@/components/marketing/social-link-list";
 import { useLenis } from "@/hooks/use-lenis";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { usePublicMarketingSettings } from "@/hooks/usePublicMarketingSettings";
@@ -39,6 +43,7 @@ export function ContactView() {
   const whatsappNumber = settings?.contact.whatsappNumber?.trim() || "";
   const officeAddress = settings?.contact.officeAddress?.trim() || t("details_address");
   const detailsTitle = settings?.contact.heading?.trim() || t("details_title");
+  const managedSocialLinks = settings?.businessProfile.socialLinks ?? [];
 
   const normalizedPhoneLink = supportPhone.replace(/\s+/g, "");
   const normalizedWhatsappLink = whatsappNumber
@@ -351,44 +356,13 @@ export function ContactView() {
                   <p className="font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/30">
                     {t("details_social_label")}
                   </p>
-                  <div className="mt-3 flex gap-3">
-                    {[
-                      {
-                        label: "Instagram",
-                        href: "https://instagram.com/bookprinta",
-                        icon: "M7.8,2H16.2C19.4,2 22,4.6 22,7.8V16.2A5.8,5.8 0 0,1 16.2,22H7.8C4.6,22 2,19.4 2,16.2V7.8A5.8,5.8 0 0,1 7.8,2M7.6,4A3.6,3.6 0 0,0 4,7.6V16.4C4,18.39 5.61,20 7.6,20H16.4A3.6,3.6 0 0,0 20,16.4V7.6C20,5.61 18.39,4 16.4,4H7.6M17.25,5.5A1.25,1.25 0 0,1 18.5,6.75A1.25,1.25 0 0,1 17.25,8A1.25,1.25 0 0,1 16,6.75A1.25,1.25 0 0,1 17.25,5.5M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9Z",
-                      },
-                      {
-                        label: "Twitter / X",
-                        href: "https://x.com/bookprinta",
-                        icon: "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z",
-                      },
-                      {
-                        label: "Facebook",
-                        href: "https://facebook.com/bookprinta",
-                        icon: "M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z",
-                      },
-                    ].map((social) => (
-                      <a
-                        key={social.label}
-                        href={social.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={social.label}
-                        className="flex size-10 items-center justify-center rounded-lg border border-white/10 text-primary-foreground/40 transition-all duration-200 hover:border-accent/50 hover:text-accent"
-                      >
-                        <svg
-                          className="size-4"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                          aria-hidden="true"
-                        >
-                          <path d={social.icon} />
-                        </svg>
-                        <span className="sr-only">{social.label}</span>
-                      </a>
-                    ))}
-                  </div>
+                  <MarketingSocialLinkList
+                    links={managedSocialLinks}
+                    fallbackLinks={CONTACT_FALLBACK_SOCIAL_LINKS}
+                    className="mt-3 flex gap-3"
+                    linkClassName="rounded-lg border border-white/10 text-primary-foreground/40 transition-all duration-200 hover:border-accent/50 hover:text-accent"
+                    iconClassName="size-4"
+                  />
                 </div>
               </div>
             </div>
