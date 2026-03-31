@@ -102,23 +102,17 @@ const SETTING_DEFINITIONS: Record<AdminSystemSettingKey, SettingDefinition> = {
     description: "Default cover price in NGN for quote flow",
     defaultValue: 500,
   },
-  reprint_cost_per_page_a4: {
+  reprint_cost_per_page: {
     category: "quote_pricing",
     valueType: "decimal",
-    description: "Reprint per-page cost for A4 in NGN",
-    defaultValue: 30,
+    description: "Reprint per-page cost in NGN",
+    defaultValue: 15,
   },
-  reprint_cost_per_page_a5: {
+  reprint_cover_cost: {
     category: "quote_pricing",
     valueType: "decimal",
-    description: "Reprint per-page cost for A5 in NGN",
-    defaultValue: 25,
-  },
-  reprint_cost_per_page_a6: {
-    category: "quote_pricing",
-    valueType: "decimal",
-    description: "Reprint per-page cost for A6 in NGN",
-    defaultValue: 20,
+    description: "Reprint cover cost in NGN",
+    defaultValue: 300,
   },
   reprint_minimum_copies: {
     category: "quote_pricing",

@@ -412,6 +412,84 @@ describe("AdminSystemSettingsService", () => {
     expect(reprintItem?.requiresSuperAdmin).toBe(true);
   });
 
+  it("exposes the live reprint pricing keys used by the checkout and reprint flows", async () => {
+    systemSettingFindMany.mockResolvedValue([
+      {
+        key: "reprint_cost_per_page",
+        value: "18",
+        description: "Reprint per-page cost",
+        updatedBy: "cmadmin1",
+        updatedAt: new Date("2026-03-20T09:00:00.000Z"),
+      },
+      {
+        key: "reprint_cover_cost",
+        value: "450",
+        description: "Reprint cover cost",
+        updatedBy: "cmadmin1",
+        updatedAt: new Date("2026-03-20T09:00:00.000Z"),
+      },
+    ]);
+
+    const result = await service.getSettings();
+
+    expect(result.items.find((item) => item.key === "reprint_cost_per_page")?.value).toBe(18);
+    expect(result.items.find((item) => item.key === "reprint_cover_cost")?.value).toBe(450);
+    expect(result.items.map((item) => item.key)).not.toContain("reprint_cost_per_page_a4");
+  });
+
+  it("includes business social links in the public marketing settings response", async () => {
+    systemSettingFindMany.mockResolvedValue([
+      {
+        key: "business_social_links",
+        value: JSON.stringify([
+          { label: "Facebook", url: "https://facebook.com/bookprinta-ng" },
+          { label: "YouTube", url: "https://youtube.com/@bookprinta" },
+        ]),
+      },
+      {
+        key: "business_support_email",
+        value: "support@bookprinta.com",
+      },
+      {
+        key: "business_support_phone",
+        value: "+2348000000000",
+      },
+      {
+        key: "business_office_address",
+        value: "Lagos, Nigeria",
+      },
+      {
+        key: "content_contact_blocks",
+        value: JSON.stringify({
+          heading: "Contact BookPrinta",
+          supportEmail: "support@bookprinta.com",
+          supportPhone: "+2348000000000",
+          officeAddress: "Lagos, Nigeria",
+        }),
+      },
+      {
+        key: "content_homepage_hero_copy",
+        value: JSON.stringify({
+          title: "Your Book. Beautifully Printed.",
+          subtitle: "Publish fearlessly.",
+          primaryCtaLabel: "Start Publishing",
+          secondaryCtaLabel: "Get Custom Quote",
+        }),
+      },
+      {
+        key: "business_website_url",
+        value: "https://bookprinta.com",
+      },
+    ]);
+
+    const result = await service.getPublicMarketingSettings();
+
+    expect(result.businessProfile.socialLinks).toEqual([
+      { label: "Facebook", url: "https://facebook.com/bookprinta-ng" },
+      { label: "YouTube", url: "https://youtube.com/@bookprinta" },
+    ]);
+  });
+
   it("returns 404 when updating a non-existent gateway", async () => {
     paymentGatewayFindUnique.mockResolvedValue(null);
 

@@ -348,4 +348,25 @@ describe("AdminSystemSettingsLanding", () => {
       screen.getByPlaceholderText("system_settings_secret_replace_placeholder")
     ).toHaveAttribute("type", "text");
   });
+
+  it("keeps focus in a social link input while typing", async () => {
+    const user = userEvent.setup();
+    render(<AdminSystemSettingsLanding />);
+
+    const socialLinksLabel = screen.getByText("system_settings_business_social_links");
+    const socialLinksRow = socialLinksLabel.closest("div");
+    expect(socialLinksRow).not.toBeNull();
+
+    const addButton = within(socialLinksRow as HTMLElement).getByRole("button", {
+      name: "system_settings_add",
+    });
+
+    await user.click(addButton);
+
+    const labelInput = screen.getByPlaceholderText("system_settings_social_label_placeholder");
+    await user.type(labelInput, "Facebook");
+
+    expect(labelInput).toHaveValue("Facebook");
+    expect(labelInput).toHaveFocus();
+  });
 });
