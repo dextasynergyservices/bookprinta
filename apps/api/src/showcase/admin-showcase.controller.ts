@@ -51,13 +51,13 @@ export class AdminShowcaseController {
   @Post("cover-upload")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: "Authorize or finalize a showcase cover upload (admin)",
+    summary: "Authorize or finalize a showcase image upload (admin)",
     description:
-      'Send { action: "authorize", fileName, fileSize, mimeType } to get signed Cloudinary upload params, then send { action: "finalize", secureUrl, publicId, entryId? } after upload succeeds.',
+      'Send { action: "authorize", target, fileName, fileSize, mimeType } to get signed Cloudinary upload params, then send { action: "finalize", target, secureUrl, publicId, entryId? } after upload succeeds.',
   })
   @ApiResponse({
     status: 200,
-    description: "Authorize/finalize showcase cover upload response",
+    description: "Authorize/finalize showcase image upload response",
     type: AdminShowcaseCoverUploadResponseDto,
   })
   @ApiResponse({ status: 400, description: "Validation error or invalid upload metadata" })

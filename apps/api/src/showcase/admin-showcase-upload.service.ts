@@ -6,6 +6,7 @@ import type {
   AdminShowcaseCoverUploadBodyInput,
   AdminShowcaseCoverUploadMimeType,
   AdminShowcaseCoverUploadResponse,
+  AdminShowcaseImageUploadTarget,
 } from "@bookprinta/shared";
 import {
   AdminAuthorizeShowcaseCoverUploadBodySchema,
@@ -21,6 +22,8 @@ import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { AdminShowcaseService } from "./admin-showcase.service.js";
 
 const ADMIN_SHOWCASE_COVER_UPLOAD_FOLDER_ROOT = "bookprinta/showcase/covers";
+const ADMIN_SHOWCASE_FALLBACK_AUTHOR_IMAGE_UPLOAD_FOLDER_ROOT =
+  "bookprinta/showcase/fallback-author-images";
 const ALLOWED_SHOWCASE_COVER_MIME_TYPES: readonly AdminShowcaseCoverUploadMimeType[] = [
   "image/jpeg",
   "image/png",
@@ -51,30 +54,36 @@ export class AdminShowcaseUploadService {
     adminId: string
   ): AdminAuthorizeShowcaseCoverUploadResponse {
     const cloudinary = this.getCloudinaryService();
+    const assetLabel = input.target === "cover" ? "Cover image" : "Author image";
 
     if (!ALLOWED_SHOWCASE_COVER_MIME_TYPES.includes(input.mimeType)) {
-      throw new BadRequestException("Cover images must be JPEG or PNG files.");
+      throw new BadRequestException(`${assetLabel}s must be JPEG or PNG files.`);
     }
 
     if (input.fileSize <= 0) {
-      throw new BadRequestException("Cover image size must be greater than 0 bytes.");
+      throw new BadRequestException(`${assetLabel} size must be greater than 0 bytes.`);
     }
 
     if (input.fileName.trim().length === 0) {
-      throw new BadRequestException("Cover image file name is required.");
+      throw new BadRequestException(`${assetLabel} file name is required.`);
     }
 
     if (!cloudinary.isWithinSizeLimit(input.fileSize)) {
-      throw new BadRequestException("Cover image exceeds the maximum file size.");
+      throw new BadRequestException(`${assetLabel} exceeds the maximum file size.`);
     }
 
-    const publicId = `cover-${adminId}-${randomUUID().replace(/-/g, "")}`;
-    const folder = this.buildAdminShowcaseCoverUploadFolder();
+    const publicIdPrefix = input.target === "cover" ? "cover" : "fallback-author-image";
+    const publicId = `${publicIdPrefix}-${adminId}-${randomUUID().replace(/-/g, "")}`;
+    const folder = this.buildAdminShowcaseImageUploadFolder(input.target);
     const upload = cloudinary.generateSignature({
       folder,
       mimeType: input.mimeType,
       publicId,
-      tags: ["bookprinta", "source:admin-showcase-cover", `admin:${adminId}`],
+      tags: [
+        "bookprinta",
+        `source:${this.buildAdminShowcaseImageUploadSourceTag(input.target)}`,
+        `admin:${adminId}`,
+      ],
     });
 
     return {
@@ -93,9 +102,10 @@ export class AdminShowcaseUploadService {
     this.assertAllowedShowcaseCoverUpload({
       secureUrl: input.secureUrl,
       publicId: input.publicId,
+      target: input.target,
     });
 
-    if (!input.entryId) {
+    if (input.target !== "cover" || !input.entryId) {
       return {
         action: "finalize",
         secureUrl: input.secureUrl,
@@ -127,33 +137,37 @@ export class AdminShowcaseUploadService {
   private assertAllowedShowcaseCoverUpload(params: {
     secureUrl: string;
     publicId: string;
+    target: AdminShowcaseImageUploadTarget;
   }): string {
+    const assetLabel = params.target === "cover" ? "Cover image" : "Author image";
     let parsed: URL;
 
     try {
       parsed = new URL(params.secureUrl);
     } catch {
-      throw new BadRequestException("Cover image URL must be a valid secure Cloudinary URL");
+      throw new BadRequestException(`${assetLabel} URL must be a valid secure Cloudinary URL`);
     }
 
     if (parsed.protocol !== "https:" || parsed.hostname !== "res.cloudinary.com") {
-      throw new BadRequestException("Cover image URL must be a valid secure Cloudinary URL");
+      throw new BadRequestException(`${assetLabel} URL must be a valid secure Cloudinary URL`);
     }
 
     const pathSegments = parsed.pathname.split("/").filter(Boolean);
     const expectedCloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
     if (expectedCloudName && pathSegments[0] !== expectedCloudName) {
-      throw new BadRequestException("Cover image URL must belong to this Cloudinary account");
+      throw new BadRequestException(`${assetLabel} URL must belong to this Cloudinary account`);
     }
 
     const extractedPublicId = this.extractCloudinaryPublicId(params.secureUrl);
     if (!extractedPublicId) {
-      throw new BadRequestException("Cover image URL must be a valid secure Cloudinary URL");
+      throw new BadRequestException(`${assetLabel} URL must be a valid secure Cloudinary URL`);
     }
 
-    const expectedPublicId = `${this.buildAdminShowcaseCoverUploadFolder()}/${params.publicId}`;
+    const expectedPublicId = `${this.buildAdminShowcaseImageUploadFolder(params.target)}/${params.publicId}`;
     if (extractedPublicId !== expectedPublicId) {
-      throw new BadRequestException("Cover image upload metadata does not match the signed asset");
+      throw new BadRequestException(
+        `${assetLabel} upload metadata does not match the signed asset`
+      );
     }
 
     return extractedPublicId;
@@ -182,7 +196,13 @@ export class AdminShowcaseUploadService {
     }
   }
 
-  private buildAdminShowcaseCoverUploadFolder(): string {
-    return ADMIN_SHOWCASE_COVER_UPLOAD_FOLDER_ROOT;
+  private buildAdminShowcaseImageUploadFolder(target: AdminShowcaseImageUploadTarget): string {
+    return target === "cover"
+      ? ADMIN_SHOWCASE_COVER_UPLOAD_FOLDER_ROOT
+      : ADMIN_SHOWCASE_FALLBACK_AUTHOR_IMAGE_UPLOAD_FOLDER_ROOT;
+  }
+
+  private buildAdminShowcaseImageUploadSourceTag(target: AdminShowcaseImageUploadTarget): string {
+    return target === "cover" ? "admin-showcase-cover" : "admin-showcase-fallback-author-image";
   }
 }

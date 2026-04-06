@@ -39,6 +39,7 @@ describe("AdminShowcaseUploadService", () => {
     const response = await service.requestAdminShowcaseCoverUpload(
       {
         action: "authorize",
+        target: "cover",
         fileName: "cover.jpg",
         fileSize: 1024,
         mimeType: "image/jpeg",
@@ -72,6 +73,7 @@ describe("AdminShowcaseUploadService", () => {
       service.requestAdminShowcaseCoverUpload(
         {
           action: "finalize",
+          target: "cover",
           secureUrl:
             "https://res.cloudinary.com/demo/image/upload/v123/bookprinta/showcase/covers/cover-admin_1-abc.jpg",
           publicId: "cover-admin_1-abc",
@@ -124,6 +126,7 @@ describe("AdminShowcaseUploadService", () => {
     const response = await service.requestAdminShowcaseCoverUpload(
       {
         action: "finalize",
+        target: "cover",
         secureUrl:
           "https://res.cloudinary.com/demo/image/upload/v123/bookprinta/showcase/covers/cover-admin_1-abc.jpg",
         publicId: "cover-admin_1-abc",
@@ -158,6 +161,7 @@ describe("AdminShowcaseUploadService", () => {
       service.requestAdminShowcaseCoverUpload(
         {
           action: "finalize",
+          target: "cover",
           secureUrl: "https://example.com/not-cloudinary.jpg",
           publicId: "cover-admin_1-abc",
         },
@@ -177,6 +181,7 @@ describe("AdminShowcaseUploadService", () => {
       service.requestAdminShowcaseCoverUpload(
         {
           action: "authorize",
+          target: "cover",
           fileName: "cover.jpg",
           fileSize: 1024,
           mimeType: "image/jpeg",
@@ -205,6 +210,7 @@ describe("AdminShowcaseUploadService", () => {
       service.requestAdminShowcaseCoverUpload(
         {
           action: "authorize",
+          target: "cover",
           fileName: "huge-cover.png",
           fileSize: 4 * 1024 * 1024, // 4 MB — passes Zod but rejected by cloudinary
           mimeType: "image/png",
@@ -215,5 +221,83 @@ describe("AdminShowcaseUploadService", () => {
 
     expect(cloudinary.isWithinSizeLimit).toHaveBeenCalledWith(4 * 1024 * 1024);
     expect(cloudinary.generateSignature).not.toHaveBeenCalled();
+  });
+
+  it("authorizes fallback author image uploads in the dedicated Cloudinary folder", async () => {
+    const adminShowcaseService = {
+      setEntryCoverFromUpload: jest.fn(),
+    };
+
+    const cloudinary = {
+      generateSignature: jest.fn().mockReturnValue({
+        signature: "signed",
+        timestamp: 123456,
+        cloudName: "demo",
+        apiKey: "key",
+        folder: "bookprinta/showcase/fallback-author-images",
+      }),
+      isWithinSizeLimit: jest.fn().mockReturnValue(true),
+    };
+
+    const service = new AdminShowcaseUploadService(
+      adminShowcaseService as never,
+      cloudinary as unknown as CloudinaryService
+    );
+
+    const response = await service.requestAdminShowcaseCoverUpload(
+      {
+        action: "authorize",
+        target: "fallbackAuthorProfileImage",
+        fileName: "author.jpg",
+        fileSize: 1024,
+        mimeType: "image/jpeg",
+      },
+      "admin_1"
+    );
+
+    expect(response.action).toBe("authorize");
+    expect(response.upload).toMatchObject({
+      resourceType: "image",
+      folder: "bookprinta/showcase/fallback-author-images",
+    });
+    expect(cloudinary.generateSignature).toHaveBeenCalledWith(
+      expect.objectContaining({
+        folder: "bookprinta/showcase/fallback-author-images",
+        publicId: expect.stringMatching(/^fallback-author-image-admin_1-/),
+        tags: expect.arrayContaining(["source:admin-showcase-fallback-author-image"]),
+      })
+    );
+  });
+
+  it("finalizes fallback author image uploads without persisting the showcase entry", async () => {
+    const adminShowcaseService = {
+      setEntryCoverFromUpload: jest.fn(),
+    };
+
+    const service = new AdminShowcaseUploadService(
+      adminShowcaseService as never,
+      { generateSignature: jest.fn() } as unknown as CloudinaryService
+    );
+
+    await expect(
+      service.requestAdminShowcaseCoverUpload(
+        {
+          action: "finalize",
+          target: "fallbackAuthorProfileImage",
+          secureUrl:
+            "https://res.cloudinary.com/demo/image/upload/v123/bookprinta/showcase/fallback-author-images/fallback-author-image-admin_1-abc.jpg",
+          publicId: "fallback-author-image-admin_1-abc",
+          entryId: "cm_show_1",
+        },
+        "admin_1"
+      )
+    ).resolves.toEqual({
+      action: "finalize",
+      secureUrl:
+        "https://res.cloudinary.com/demo/image/upload/v123/bookprinta/showcase/fallback-author-images/fallback-author-image-admin_1-abc.jpg",
+      publicId: "fallback-author-image-admin_1-abc",
+    });
+
+    expect(adminShowcaseService.setEntryCoverFromUpload).not.toHaveBeenCalled();
   });
 });

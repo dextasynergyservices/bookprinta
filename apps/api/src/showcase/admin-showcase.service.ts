@@ -8,6 +8,7 @@ import type {
   AdminShowcaseEntriesListQuery,
   AdminShowcaseEntriesListResponse,
   AdminShowcaseEntry,
+  AdminShowcaseFallbackAuthorProfileInput,
   AdminShowcaseUserSearchQuery,
   AdminShowcaseUserSearchResponse,
   AdminUpdateShowcaseCategoryInput,
@@ -126,6 +127,7 @@ export class AdminShowcaseService {
         bookId: input.bookId ?? null,
         isFeatured: input.isFeatured ?? true,
         sortOrder: input.sortOrder ?? 0,
+        ...this.buildFallbackAuthorProfileData(input.fallbackAuthorProfile),
       },
       select: adminShowcaseEntrySelect,
     });
@@ -173,6 +175,9 @@ export class AdminShowcaseService {
           ...(input.bookId !== undefined ? { bookId: input.bookId ?? null } : {}),
           ...(input.isFeatured !== undefined ? { isFeatured: input.isFeatured } : {}),
           ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+          ...(input.fallbackAuthorProfile !== undefined
+            ? this.buildFallbackAuthorProfileData(input.fallbackAuthorProfile)
+            : {}),
         },
         select: adminShowcaseEntrySelect,
       });
@@ -379,6 +384,43 @@ export class AdminShowcaseService {
 
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private buildFallbackAuthorProfileData(
+    input: AdminShowcaseFallbackAuthorProfileInput | undefined
+  ): Record<string, unknown> {
+    if (!input) {
+      return {};
+    }
+
+    return {
+      ...(input.bio !== undefined ? { authorBio: this.normalizeNullableString(input.bio) } : {}),
+      ...(input.profileImageUrl !== undefined
+        ? {
+            authorProfileImageUrl: this.normalizeNullableString(input.profileImageUrl),
+          }
+        : {}),
+      ...(input.whatsAppNumber !== undefined
+        ? {
+            authorWhatsAppNumber: this.normalizeNullableString(input.whatsAppNumber),
+          }
+        : {}),
+      ...(input.websiteUrl !== undefined
+        ? {
+            authorWebsiteUrl: this.normalizeNullableString(input.websiteUrl),
+          }
+        : {}),
+      ...(input.purchaseLinks !== undefined
+        ? {
+            authorPurchaseLinks: input.purchaseLinks,
+          }
+        : {}),
+      ...(input.socialLinks !== undefined
+        ? {
+            authorSocialLinks: input.socialLinks,
+          }
+        : {}),
+    };
   }
 
   private async assertShowcaseCategoryExists(categoryId: string | null | undefined): Promise<void> {

@@ -105,16 +105,21 @@ function createShowcaseEntry(overrides: Partial<ShowcaseEntry> = {}): ShowcaseEn
     publishedAt: "2026-03-10T12:00:00.000Z",
     userId: "cmuser000000000000000000001",
     isFeatured: false,
+    hasAuthorProfile: true,
     isProfileComplete: true,
     ...overrides,
   };
 }
 
 describe("ShowcaseCard", () => {
-  it("hides the contact-author action when the author's profile is incomplete", () => {
+  it("hides the contact-author action when hasAuthorProfile is false even if the linked user exists", () => {
     render(
       <ShowcaseCard
-        entry={createShowcaseEntry({ isProfileComplete: false })}
+        entry={createShowcaseEntry({
+          hasAuthorProfile: false,
+          userId: "cmuser000000000000000000001",
+          isProfileComplete: true,
+        })}
         onContactAuthor={jest.fn()}
         index={0}
       />
@@ -123,10 +128,14 @@ describe("ShowcaseCard", () => {
     expect(screen.queryByRole("button", { name: "Contact Author" })).not.toBeInTheDocument();
   });
 
-  it("shows the contact-author action only when the author's profile is complete", async () => {
+  it("shows the contact-author action when hasAuthorProfile is true even without a linked user", async () => {
     const user = userEvent.setup();
     const onContactAuthor = jest.fn();
-    const entry = createShowcaseEntry();
+    const entry = createShowcaseEntry({
+      userId: null,
+      isProfileComplete: false,
+      hasAuthorProfile: true,
+    });
 
     render(<ShowcaseCard entry={entry} onContactAuthor={onContactAuthor} index={0} />);
 

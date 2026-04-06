@@ -1,6 +1,7 @@
 import type {
   AdminShowcaseCategory,
   AdminShowcaseEntry,
+  AdminShowcaseFallbackAuthorProfile,
   AdminShowcaseLinkedUser,
   AuthorProfileResponse,
   PurchaseLink,
@@ -26,6 +27,15 @@ export type AdminShowcaseCategoryRow = ShowcaseCategoryRow & {
   };
 };
 
+export type ShowcaseFallbackAuthorProfileRow = {
+  authorBio: string | null;
+  authorProfileImageUrl: string | null;
+  authorWhatsAppNumber: string | null;
+  authorWebsiteUrl: string | null;
+  authorPurchaseLinks: unknown;
+  authorSocialLinks: unknown;
+};
+
 export type ShowcaseListRow = {
   id: string;
   authorName: string;
@@ -40,10 +50,8 @@ export type ShowcaseListRow = {
   userId: string | null;
   isFeatured: boolean;
   sortOrder: number;
-  user: {
-    isProfileComplete: boolean;
-  } | null;
-};
+  user: AuthorProfileUserRow | null;
+} & ShowcaseFallbackAuthorProfileRow;
 
 export type AdminShowcaseEntryRow = {
   id: string;
@@ -68,15 +76,19 @@ export type AdminShowcaseEntryRow = {
   isFeatured: boolean;
   sortOrder: number;
   createdAt: Date;
-};
+} & ShowcaseFallbackAuthorProfileRow;
 
-export type AuthorProfileUserRow = {
+type RawAuthorProfileFields = {
   bio: string | null;
   profileImageUrl: string | null;
   whatsAppNumber: string | null;
   websiteUrl: string | null;
   purchaseLinks: unknown;
   socialLinks: unknown;
+};
+
+export type AuthorProfileUserRow = RawAuthorProfileFields & {
+  isProfileComplete: boolean;
 };
 
 export type ShowcaseUserSearchRow = {
@@ -115,6 +127,25 @@ export const adminShowcaseLinkedUserSelect = {
   isProfileComplete: true,
 } as const;
 
+export const showcaseFallbackAuthorProfileSelect = {
+  authorBio: true,
+  authorProfileImageUrl: true,
+  authorWhatsAppNumber: true,
+  authorWebsiteUrl: true,
+  authorPurchaseLinks: true,
+  authorSocialLinks: true,
+} as const;
+
+export const authorProfileUserSelect = {
+  bio: true,
+  profileImageUrl: true,
+  whatsAppNumber: true,
+  websiteUrl: true,
+  purchaseLinks: true,
+  socialLinks: true,
+  isProfileComplete: true,
+} as const;
+
 export const adminShowcaseEntrySelect = {
   id: true,
   authorName: true,
@@ -136,6 +167,7 @@ export const adminShowcaseEntrySelect = {
   isFeatured: true,
   sortOrder: true,
   createdAt: true,
+  ...showcaseFallbackAuthorProfileSelect,
 } as const;
 
 export const showcasePublicEntrySelect = {
@@ -154,21 +186,10 @@ export const showcasePublicEntrySelect = {
   userId: true,
   isFeatured: true,
   sortOrder: true,
+  ...showcaseFallbackAuthorProfileSelect,
   user: {
-    select: {
-      isProfileComplete: true,
-    },
+    select: authorProfileUserSelect,
   },
-} as const;
-
-export const authorProfileUserSelect = {
-  bio: true,
-  profileImageUrl: true,
-  whatsAppNumber: true,
-  websiteUrl: true,
-  purchaseLinks: true,
-  socialLinks: true,
-  isProfileComplete: true,
 } as const;
 
 export function serializeCategory(category: ShowcaseCategoryRow): ShowcaseCategory {
@@ -238,12 +259,18 @@ export function serializeAdminShowcaseEntry(row: AdminShowcaseEntryRow): AdminSh
     bookId: row.bookId,
     isFeatured: row.isFeatured,
     sortOrder: row.sortOrder,
+    fallbackAuthorProfile: serializeAdminShowcaseFallbackAuthorProfile(row),
     previewPath: `/showcase?entry=${row.id}`,
     createdAt: row.createdAt.toISOString(),
   };
 }
 
 export function serializeShowcaseEntry(row: ShowcaseListRow) {
+  const resolvedAuthorProfile = resolveShowcaseAuthorProfile({
+    user: row.user,
+    fallback: row,
+  });
+
   return {
     id: row.id,
     authorName: row.authorName,
@@ -257,6 +284,7 @@ export function serializeShowcaseEntry(row: ShowcaseListRow) {
     publishedAt: row.publishedAt?.toISOString() ?? null,
     userId: row.userId,
     isFeatured: row.isFeatured,
+    hasAuthorProfile: hasAuthorProfileDetails(resolvedAuthorProfile),
     isProfileComplete: row.user?.isProfileComplete ?? false,
   };
 }
@@ -279,16 +307,65 @@ function parseSocialLinks(value: unknown): SocialLink[] {
   });
 }
 
-export function serializeAuthorProfile(user: AuthorProfileUserRow): AuthorProfileResponse {
-  const purchaseLinks = parsePurchaseLinks(user.purchaseLinks);
-  const socialLinks = parseSocialLinks(user.socialLinks);
+function serializePublicAuthorProfile(value: RawAuthorProfileFields): AuthorProfileResponse {
+  const purchaseLinks = parsePurchaseLinks(value.purchaseLinks);
+  const socialLinks = parseSocialLinks(value.socialLinks);
 
   return {
-    ...(user.bio ? { bio: user.bio } : {}),
-    ...(user.profileImageUrl ? { profileImageUrl: user.profileImageUrl } : {}),
-    ...(user.whatsAppNumber ? { whatsAppNumber: user.whatsAppNumber } : {}),
-    ...(user.websiteUrl ? { websiteUrl: user.websiteUrl } : {}),
+    ...(value.bio ? { bio: value.bio } : {}),
+    ...(value.profileImageUrl ? { profileImageUrl: value.profileImageUrl } : {}),
+    ...(value.whatsAppNumber ? { whatsAppNumber: value.whatsAppNumber } : {}),
+    ...(value.websiteUrl ? { websiteUrl: value.websiteUrl } : {}),
     ...(purchaseLinks.length > 0 ? { purchaseLinks } : {}),
     ...(socialLinks.length > 0 ? { socialLinks } : {}),
   };
+}
+
+function toFallbackAuthorProfileFields(
+  row: ShowcaseFallbackAuthorProfileRow | null | undefined
+): RawAuthorProfileFields {
+  return {
+    bio: row?.authorBio ?? null,
+    profileImageUrl: row?.authorProfileImageUrl ?? null,
+    whatsAppNumber: row?.authorWhatsAppNumber ?? null,
+    websiteUrl: row?.authorWebsiteUrl ?? null,
+    purchaseLinks: row?.authorPurchaseLinks ?? [],
+    socialLinks: row?.authorSocialLinks ?? [],
+  };
+}
+
+export function resolveShowcaseAuthorProfile(params: {
+  user: RawAuthorProfileFields | null | undefined;
+  fallback: ShowcaseFallbackAuthorProfileRow | null | undefined;
+}): AuthorProfileResponse {
+  const fallbackProfile = serializePublicAuthorProfile(
+    toFallbackAuthorProfileFields(params.fallback)
+  );
+  const userProfile = params.user ? serializePublicAuthorProfile(params.user) : {};
+
+  return {
+    ...fallbackProfile,
+    ...userProfile,
+  };
+}
+
+export function hasAuthorProfileDetails(profile: AuthorProfileResponse): boolean {
+  return Object.keys(profile).length > 0;
+}
+
+export function serializeAdminShowcaseFallbackAuthorProfile(
+  row: ShowcaseFallbackAuthorProfileRow
+): AdminShowcaseFallbackAuthorProfile {
+  return {
+    bio: row.authorBio ?? null,
+    profileImageUrl: row.authorProfileImageUrl ?? null,
+    whatsAppNumber: row.authorWhatsAppNumber ?? null,
+    websiteUrl: row.authorWebsiteUrl ?? null,
+    purchaseLinks: parsePurchaseLinks(row.authorPurchaseLinks),
+    socialLinks: parseSocialLinks(row.authorSocialLinks),
+  };
+}
+
+export function serializeAuthorProfile(user: AuthorProfileUserRow): AuthorProfileResponse {
+  return resolveShowcaseAuthorProfile({ user, fallback: null });
 }
