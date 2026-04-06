@@ -1,0 +1,7 @@
+ALTER TABLE "AuthorShowcase"
+ADD COLUMN IF NOT EXISTS "authorBio" TEXT,
+ADD COLUMN IF NOT EXISTS "authorProfileImageUrl" TEXT,
+ADD COLUMN IF NOT EXISTS "authorWhatsAppNumber" TEXT,
+ADD COLUMN IF NOT EXISTS "authorWebsiteUrl" TEXT,
+ADD COLUMN IF NOT EXISTS "authorPurchaseLinks" JSONB,
+ADD COLUMN IF NOT EXISTS "authorSocialLinks" JSONB;

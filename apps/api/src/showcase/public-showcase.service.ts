@@ -9,10 +9,12 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 import {
   authorProfileUserSelect,
-  serializeAuthorProfile,
+  hasAuthorProfileDetails,
+  resolveShowcaseAuthorProfile,
   serializeCategory,
   serializeShowcaseEntry,
   showcaseCategorySelect,
+  showcaseFallbackAuthorProfileSelect,
   showcasePublicEntrySelect,
 } from "./showcase.mapper.js";
 
@@ -84,18 +86,23 @@ export class PublicShowcaseService {
     const showcase = await this.prisma.authorShowcase.findUnique({
       where: { id: showcaseId },
       select: {
-        userId: true,
+        ...showcaseFallbackAuthorProfileSelect,
         user: {
           select: authorProfileUserSelect,
         },
       },
     });
 
-    if (!showcase?.userId || !showcase.user || !showcase.user.isProfileComplete) {
+    const profile = resolveShowcaseAuthorProfile({
+      user: showcase?.user,
+      fallback: showcase ?? null,
+    });
+
+    if (!hasAuthorProfileDetails(profile)) {
       throw new NotFoundException(`Author profile for showcase "${showcaseId}" not found`);
     }
 
-    return serializeAuthorProfile(showcase.user);
+    return profile;
   }
 
   private resolveOrderBy(sort: ShowcaseSortOption, isFeatured?: boolean) {

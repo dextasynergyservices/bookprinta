@@ -39,7 +39,7 @@ export function AuthorModal({ entry, open, onOpenChange }: AuthorModalProps) {
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  const { data: profile, isLoading } = useAuthorProfile(open && entry ? entry.id : null);
+  const { data: profile, isLoading, isError } = useAuthorProfile(open && entry ? entry.id : null);
 
   if (isMobile) {
     return (
@@ -55,7 +55,12 @@ export function AuthorModal({ entry, open, onOpenChange }: AuthorModalProps) {
             <SheetDescription className="sr-only">{entry?.authorName}</SheetDescription>
           </SheetHeader>
           <ScrollArea className="h-full max-h-[calc(85dvh-5rem)] px-6 pb-8" data-lenis-prevent>
-            <AuthorProfileContent entry={entry} profile={profile ?? null} isLoading={isLoading} />
+            <AuthorProfileContent
+              entry={entry}
+              profile={profile ?? null}
+              isLoading={isLoading}
+              showUnavailableState={Boolean(entry) && !isLoading && (isError || !profile)}
+            />
           </ScrollArea>
         </SheetContent>
       </Sheet>
@@ -72,7 +77,12 @@ export function AuthorModal({ entry, open, onOpenChange }: AuthorModalProps) {
             </DialogTitle>
             <DialogDescription className="sr-only">{entry?.authorName}</DialogDescription>
           </DialogHeader>
-          <AuthorProfileContent entry={entry} profile={profile ?? null} isLoading={isLoading} />
+          <AuthorProfileContent
+            entry={entry}
+            profile={profile ?? null}
+            isLoading={isLoading}
+            showUnavailableState={Boolean(entry) && !isLoading && (isError || !profile)}
+          />
         </div>
       </DialogContent>
     </Dialog>
@@ -83,10 +93,12 @@ function AuthorProfileContent({
   entry,
   profile,
   isLoading,
+  showUnavailableState,
 }: {
   entry: ShowcaseEntry | null;
   profile: AuthorProfile | null;
   isLoading: boolean;
+  showUnavailableState: boolean;
 }) {
   const t = useTranslations("showcase");
 
@@ -106,7 +118,30 @@ function AuthorProfileContent({
     );
   }
 
-  if (!profile || !entry) return null;
+  if (!entry) return null;
+
+  if (showUnavailableState || !profile) {
+    return (
+      <div className="flex flex-col gap-4 pt-6">
+        <div className="flex items-center gap-4">
+          <div className="flex size-16 shrink-0 items-center justify-center bg-primary">
+            <span className="font-display text-lg font-bold text-primary-foreground">
+              {entry.authorName.charAt(0).toUpperCase()}
+            </span>
+          </div>
+          <div>
+            <h4 className="font-display text-base font-bold tracking-tight text-foreground">
+              {entry.authorName}
+            </h4>
+            <p className="font-sans text-sm text-muted-foreground">{entry.bookTitle}</p>
+          </div>
+        </div>
+        <p className="font-serif text-sm leading-relaxed text-muted-foreground">
+          {t("author_details_unavailable")}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6 pt-6">

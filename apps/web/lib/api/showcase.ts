@@ -47,6 +47,7 @@ async function fetchJson<T>(
   endpoint: string,
   options?: {
     revalidate?: number;
+    cache?: RequestCache;
   }
 ): Promise<T> {
   try {
@@ -58,6 +59,10 @@ async function fetchJson<T>(
 
     if (typeof options?.revalidate === "number") {
       init.next = { revalidate: options.revalidate };
+    }
+
+    if (options?.cache) {
+      init.cache = options.cache;
     }
 
     const res = await fetch(`${API_V1_BASE_URL}${endpoint}`, init);
@@ -125,5 +130,7 @@ export async function fetchShowcaseCategories(options?: {
 }
 
 export async function fetchAuthorProfile(showcaseId: string): Promise<AuthorProfile> {
-  return fetchJson<AuthorProfile>(`/showcase/${showcaseId}/author`);
+  return fetchJson<AuthorProfile>(`/showcase/${showcaseId}/author`, {
+    cache: "no-store",
+  });
 }

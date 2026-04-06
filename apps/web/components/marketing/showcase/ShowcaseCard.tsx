@@ -107,7 +107,7 @@ export function ShowcaseCard({ entry, onContactAuthor, index }: ShowcaseCardProp
           )}
 
           {/* Contact author — always visible on mobile, hover-reveal on desktop */}
-          {entry.isProfileComplete && entry.userId && (
+          {entry.hasAuthorProfile && (
             <button
               type="button"
               onClick={() => onContactAuthor(entry)}

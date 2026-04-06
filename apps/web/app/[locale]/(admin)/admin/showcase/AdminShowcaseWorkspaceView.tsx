@@ -1,5 +1,21 @@
 "use client";
 
+import {
+  type AdminCreateShowcaseEntryInput,
+  type AdminShowcaseFallbackAuthorProfile,
+  type AdminShowcaseFallbackAuthorProfileInput,
+  type AdminUpdateShowcaseEntryInput,
+  type PurchaseLink,
+  PurchaseLinkSchema,
+  PurchaseLinksSchema,
+  type SocialLink,
+  SocialLinkSchema,
+  SocialLinksSchema,
+  UserProfileBioSchema,
+  UserProfileImageUrlSchema,
+  UserWebsiteUrlSchema,
+  UserWhatsAppNumberSchema,
+} from "@bookprinta/shared";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +55,7 @@ import {
   useAdminShowcaseCategories,
   useAdminShowcaseCoverUploadMutation,
   useAdminShowcaseEntries,
+  useAdminShowcaseFallbackAuthorImageUploadMutation,
   useAdminShowcaseUserSearch,
   useCreateAdminShowcaseCategoryMutation,
   useCreateAdminShowcaseEntryMutation,
@@ -48,10 +65,38 @@ import {
 } from "@/hooks/useAdminShowcase";
 import {
   ADMIN_SHOWCASE_COVER_MAX_BYTES,
+  ADMIN_SHOWCASE_IMAGE_MAX_BYTES,
   validateAdminShowcaseCoverFile,
+  validateAdminShowcaseImageFile,
 } from "@/lib/api/admin-showcase";
 
 type CoverUploadStatus = "idle" | "uploading" | "completed" | "cancelled";
+type TranslationFn = ReturnType<typeof useTranslations>;
+
+const PROFILE_LINK_LIMIT = 10;
+
+type EditablePurchaseLink = {
+  id: string;
+  label: string;
+  url: string;
+};
+
+type EditableSocialLink = {
+  id: string;
+  platform: string;
+  url: string;
+};
+
+type AuthorFallbackDraft = {
+  bio: string;
+  profileImageUrl: string;
+  whatsAppNumber: string;
+  websiteUrl: string;
+  purchaseLinks: EditablePurchaseLink[];
+  socialLinks: EditableSocialLink[];
+};
+
+type AuthorFallbackField = keyof Omit<AuthorFallbackDraft, "purchaseLinks" | "socialLinks">;
 
 type EntryFormState = {
   authorName: string;
@@ -64,19 +109,7 @@ type EntryFormState = {
   isFeatured: boolean;
   sortOrder: string;
   coverImageUrl: string;
-};
-
-const INITIAL_ENTRY_FORM: EntryFormState = {
-  authorName: "",
-  bookTitle: "",
-  aboutBook: "",
-  categoryId: "",
-  linkedUserId: "",
-  linkedUserSearch: "",
-  publishedYear: "",
-  isFeatured: true,
-  sortOrder: "0",
-  coverImageUrl: "",
+  fallbackAuthorProfile: AuthorFallbackDraft;
 };
 
 type EditEntryFormState = {
@@ -88,12 +121,696 @@ type EditEntryFormState = {
   publishedYear: string;
   isFeatured: boolean;
   sortOrder: string;
+  fallbackAuthorProfile: AuthorFallbackDraft;
+};
+
+type AuthorFallbackProfileSectionProps = {
+  draft: AuthorFallbackDraft;
+  error: string | null;
+  tAdmin: TranslationFn;
+  onDraftChange: (updater: (draft: AuthorFallbackDraft) => AuthorFallbackDraft) => void;
 };
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getFallbackAuthorImageValidationMessage(
+  validation: "unsupported" | "empty" | "size",
+  tAdmin: TranslationFn
+): string {
+  if (validation === "unsupported") {
+    return tAdmin("showcase_fallback_author_image_validation_unsupported");
+  }
+
+  if (validation === "empty") {
+    return tAdmin("showcase_fallback_author_image_validation_empty");
+  }
+
+  return tAdmin("showcase_fallback_author_image_validation_size", {
+    size: formatFileSize(ADMIN_SHOWCASE_IMAGE_MAX_BYTES),
+  });
+}
+
+function createClientId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `showcase-fallback-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createEmptyAuthorFallbackDraft(): AuthorFallbackDraft {
+  return {
+    bio: "",
+    profileImageUrl: "",
+    whatsAppNumber: "",
+    websiteUrl: "",
+    purchaseLinks: [],
+    socialLinks: [],
+  };
+}
+
+function createAuthorFallbackDraft(
+  profile?: AdminShowcaseFallbackAuthorProfile | null
+): AuthorFallbackDraft {
+  if (!profile) {
+    return createEmptyAuthorFallbackDraft();
+  }
+
+  return {
+    bio: profile.bio ?? "",
+    profileImageUrl: profile.profileImageUrl ?? "",
+    whatsAppNumber: profile.whatsAppNumber ?? "",
+    websiteUrl: profile.websiteUrl ?? "",
+    purchaseLinks: profile.purchaseLinks.map((link) => ({
+      id: createClientId(),
+      label: link.label,
+      url: link.url,
+    })),
+    socialLinks: profile.socialLinks.map((link) => ({
+      id: createClientId(),
+      platform: link.platform,
+      url: link.url,
+    })),
+  };
+}
+
+function createInitialEntryFormState(): EntryFormState {
+  return {
+    authorName: "",
+    bookTitle: "",
+    aboutBook: "",
+    categoryId: "",
+    linkedUserId: "",
+    linkedUserSearch: "",
+    publishedYear: "",
+    isFeatured: true,
+    sortOrder: "0",
+    coverImageUrl: "",
+    fallbackAuthorProfile: createEmptyAuthorFallbackDraft(),
+  };
+}
+
+function updateAuthorFallbackField(
+  draft: AuthorFallbackDraft,
+  key: AuthorFallbackField,
+  value: string
+): AuthorFallbackDraft {
+  return {
+    ...draft,
+    [key]: value,
+  };
+}
+
+function updateAuthorFallbackPurchaseLink(
+  draft: AuthorFallbackDraft,
+  id: string,
+  key: "label" | "url",
+  value: string
+): AuthorFallbackDraft {
+  return {
+    ...draft,
+    purchaseLinks: draft.purchaseLinks.map((link) =>
+      link.id === id ? { ...link, [key]: value } : link
+    ),
+  };
+}
+
+function addAuthorFallbackPurchaseLink(draft: AuthorFallbackDraft): AuthorFallbackDraft {
+  if (draft.purchaseLinks.length >= PROFILE_LINK_LIMIT) {
+    return draft;
+  }
+
+  return {
+    ...draft,
+    purchaseLinks: [...draft.purchaseLinks, { id: createClientId(), label: "", url: "" }],
+  };
+}
+
+function removeAuthorFallbackPurchaseLink(
+  draft: AuthorFallbackDraft,
+  id: string
+): AuthorFallbackDraft {
+  return {
+    ...draft,
+    purchaseLinks: draft.purchaseLinks.filter((link) => link.id !== id),
+  };
+}
+
+function updateAuthorFallbackSocialLink(
+  draft: AuthorFallbackDraft,
+  id: string,
+  key: "platform" | "url",
+  value: string
+): AuthorFallbackDraft {
+  return {
+    ...draft,
+    socialLinks: draft.socialLinks.map((link) =>
+      link.id === id ? { ...link, [key]: value } : link
+    ),
+  };
+}
+
+function addAuthorFallbackSocialLink(draft: AuthorFallbackDraft): AuthorFallbackDraft {
+  if (draft.socialLinks.length >= PROFILE_LINK_LIMIT) {
+    return draft;
+  }
+
+  return {
+    ...draft,
+    socialLinks: [...draft.socialLinks, { id: createClientId(), platform: "", url: "" }],
+  };
+}
+
+function removeAuthorFallbackSocialLink(
+  draft: AuthorFallbackDraft,
+  id: string
+): AuthorFallbackDraft {
+  return {
+    ...draft,
+    socialLinks: draft.socialLinks.filter((link) => link.id !== id),
+  };
+}
+
+function buildFallbackAuthorProfilePayload(
+  draft: AuthorFallbackDraft,
+  tAdmin: TranslationFn
+): { payload: AdminShowcaseFallbackAuthorProfileInput } | { error: string } {
+  const bio = draft.bio.trim();
+  const profileImageUrl = draft.profileImageUrl.trim();
+  const whatsAppNumber = draft.whatsAppNumber.trim();
+  const websiteUrl = draft.websiteUrl.trim();
+
+  if (bio.length > 0 && !UserProfileBioSchema.safeParse(bio).success) {
+    return { error: tAdmin("showcase_fallback_author_validation_bio") };
+  }
+
+  if (profileImageUrl.length > 0 && !UserProfileImageUrlSchema.safeParse(profileImageUrl).success) {
+    return { error: tAdmin("showcase_fallback_author_validation_profile_image_url") };
+  }
+
+  if (whatsAppNumber.length > 0 && !UserWhatsAppNumberSchema.safeParse(whatsAppNumber).success) {
+    return { error: tAdmin("showcase_fallback_author_validation_whatsapp") };
+  }
+
+  if (websiteUrl.length > 0 && !UserWebsiteUrlSchema.safeParse(websiteUrl).success) {
+    return { error: tAdmin("showcase_fallback_author_validation_website") };
+  }
+
+  const purchaseLinks: PurchaseLink[] = [];
+  for (const [index, link] of draft.purchaseLinks.entries()) {
+    const label = link.label.trim();
+    const url = link.url.trim();
+
+    if (label.length === 0 && url.length === 0) {
+      continue;
+    }
+
+    const parsed = PurchaseLinkSchema.safeParse({ label, url });
+    if (!parsed.success) {
+      return {
+        error: tAdmin("showcase_fallback_author_validation_purchase_link", { index: index + 1 }),
+      };
+    }
+
+    purchaseLinks.push(parsed.data);
+  }
+
+  if (!PurchaseLinksSchema.safeParse(purchaseLinks).success) {
+    return { error: tAdmin("showcase_fallback_author_validation_purchase_links_limit") };
+  }
+
+  const socialLinks: SocialLink[] = [];
+  for (const [index, link] of draft.socialLinks.entries()) {
+    const platform = link.platform.trim();
+    const url = link.url.trim();
+
+    if (platform.length === 0 && url.length === 0) {
+      continue;
+    }
+
+    const parsed = SocialLinkSchema.safeParse({ platform, url });
+    if (!parsed.success) {
+      return {
+        error: tAdmin("showcase_fallback_author_validation_social_link", { index: index + 1 }),
+      };
+    }
+
+    socialLinks.push(parsed.data);
+  }
+
+  if (!SocialLinksSchema.safeParse(socialLinks).success) {
+    return { error: tAdmin("showcase_fallback_author_validation_social_links_limit") };
+  }
+
+  return {
+    payload: {
+      bio: bio.length > 0 ? bio : null,
+      profileImageUrl: profileImageUrl.length > 0 ? profileImageUrl : null,
+      whatsAppNumber: whatsAppNumber.length > 0 ? whatsAppNumber : null,
+      websiteUrl: websiteUrl.length > 0 ? websiteUrl : null,
+      purchaseLinks,
+      socialLinks,
+    },
+  };
+}
+
+function AuthorFallbackProfileSection({
+  draft,
+  error,
+  tAdmin,
+  onDraftChange,
+}: AuthorFallbackProfileSectionProps) {
+  const fallbackAuthorImageUploadMutation = useAdminShowcaseFallbackAuthorImageUploadMutation();
+  const [selectedProfileImageFile, setSelectedProfileImageFile] = useState<File | null>(null);
+  const [profileImageUploadProgress, setProfileImageUploadProgress] = useState<number>(0);
+  const [profileImageUploadStatus, setProfileImageUploadStatus] =
+    useState<CoverUploadStatus>("idle");
+  const [profileImageUploadError, setProfileImageUploadError] = useState<string | null>(null);
+  const profileImageUploadAbortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      profileImageUploadAbortControllerRef.current?.abort();
+    };
+  }, []);
+
+  async function handleProfileImageSelection(file: File | null) {
+    setSelectedProfileImageFile(file);
+    setProfileImageUploadError(null);
+    setProfileImageUploadStatus("idle");
+    setProfileImageUploadProgress(0);
+
+    if (!file) {
+      return;
+    }
+
+    let candidate = file;
+    if (file.size > ADMIN_SHOWCASE_IMAGE_MAX_BYTES) {
+      const compressed = await compressCoverIfNeeded(file);
+      if (!compressed) {
+        setProfileImageUploadError(
+          tAdmin("showcase_fallback_author_image_validation_cannot_compress", {
+            size: formatFileSize(ADMIN_SHOWCASE_IMAGE_MAX_BYTES),
+          })
+        );
+        return;
+      }
+
+      candidate = compressed;
+      if (candidate.size < file.size) {
+        toast.success(
+          tAdmin("showcase_fallback_author_image_toast_auto_compressed", {
+            original: formatFileSize(file.size),
+            compressed: formatFileSize(candidate.size),
+          })
+        );
+      }
+    }
+
+    setSelectedProfileImageFile(candidate);
+
+    const validation = validateAdminShowcaseImageFile(candidate);
+    if (!validation) {
+      return;
+    }
+
+    setProfileImageUploadError(getFallbackAuthorImageValidationMessage(validation, tAdmin));
+  }
+
+  async function uploadProfileImage() {
+    if (!selectedProfileImageFile) {
+      setProfileImageUploadError(tAdmin("showcase_fallback_author_image_validation_required"));
+      return;
+    }
+
+    const validation = validateAdminShowcaseImageFile(selectedProfileImageFile);
+    if (validation) {
+      setProfileImageUploadError(getFallbackAuthorImageValidationMessage(validation, tAdmin));
+      return;
+    }
+
+    profileImageUploadAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    profileImageUploadAbortControllerRef.current = controller;
+
+    setProfileImageUploadStatus("uploading");
+    setProfileImageUploadProgress(0);
+    setProfileImageUploadError(null);
+
+    try {
+      const result = await fallbackAuthorImageUploadMutation.mutateAsync({
+        file: selectedProfileImageFile,
+        signal: controller.signal,
+        onProgress: (percentage) => {
+          setProfileImageUploadProgress(percentage);
+        },
+      });
+
+      setProfileImageUploadStatus("completed");
+      setProfileImageUploadProgress(100);
+      setSelectedProfileImageFile(null);
+      onDraftChange((current) =>
+        updateAuthorFallbackField(current, "profileImageUrl", result.secureUrl)
+      );
+      toast.success(tAdmin("showcase_fallback_author_image_toast_uploaded"));
+    } catch (uploadError) {
+      const message =
+        uploadError instanceof Error
+          ? uploadError.message
+          : tAdmin("showcase_fallback_author_image_toast_upload_failed");
+
+      if (message.toLowerCase().includes("cancel")) {
+        setProfileImageUploadStatus("cancelled");
+        setProfileImageUploadError(tAdmin("showcase_fallback_author_image_status_cancelled"));
+      } else {
+        setProfileImageUploadStatus("idle");
+        setProfileImageUploadError(message);
+        toast.error(tAdmin("showcase_fallback_author_image_toast_upload_failed"));
+      }
+    } finally {
+      profileImageUploadAbortControllerRef.current = null;
+    }
+  }
+
+  function abortProfileImageUpload() {
+    profileImageUploadAbortControllerRef.current?.abort();
+  }
+
+  function removeProfileImage() {
+    profileImageUploadAbortControllerRef.current?.abort();
+    setSelectedProfileImageFile(null);
+    setProfileImageUploadStatus("idle");
+    setProfileImageUploadProgress(0);
+    setProfileImageUploadError(null);
+    onDraftChange((current) => updateAuthorFallbackField(current, "profileImageUrl", ""));
+  }
+
+  return (
+    <section className="grid gap-4 rounded-2xl border border-[#1F1F1F] bg-[#101010] p-4">
+      <div className="space-y-1">
+        <h3 className="font-display text-lg font-semibold text-white">
+          {tAdmin("showcase_fallback_author_title")}
+        </h3>
+        <p className="font-sans text-sm leading-6 text-[#AFAFAF]">
+          {tAdmin("showcase_fallback_author_description")}
+        </p>
+      </div>
+
+      <Field>
+        <FieldLabel>{tAdmin("showcase_fallback_author_field_bio")}</FieldLabel>
+        <FieldContent>
+          <Textarea
+            value={draft.bio}
+            rows={4}
+            onChange={(event) =>
+              onDraftChange((current) =>
+                updateAuthorFallbackField(current, "bio", event.target.value)
+              )
+            }
+            aria-label={tAdmin("showcase_fallback_author_field_bio")}
+          />
+        </FieldContent>
+      </Field>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field>
+          <FieldLabel>{tAdmin("showcase_fallback_author_field_profile_image")}</FieldLabel>
+          <FieldContent>
+            <div className="grid gap-3 rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex cursor-pointer items-center rounded-full border border-[#2D2D2D] px-3 py-2 font-sans text-xs text-[#E3E3E3] hover:bg-[#1A1A1A]">
+                  {tAdmin("showcase_fallback_author_image_action_choose")}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    className="sr-only"
+                    aria-label={tAdmin("showcase_fallback_author_field_profile_image")}
+                    onChange={(event) => {
+                      void handleProfileImageSelection(event.currentTarget.files?.[0] ?? null);
+                    }}
+                    disabled={profileImageUploadStatus === "uploading"}
+                  />
+                </label>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void uploadProfileImage()}
+                  disabled={!selectedProfileImageFile || profileImageUploadStatus === "uploading"}
+                  className="rounded-full text-black"
+                >
+                  {profileImageUploadStatus === "uploading"
+                    ? tAdmin("showcase_fallback_author_image_action_uploading")
+                    : tAdmin("showcase_fallback_author_image_action_upload")}
+                </Button>
+
+                {profileImageUploadStatus === "uploading" ? (
+                  <Button type="button" variant="ghost" onClick={abortProfileImageUpload}>
+                    {tAdmin("showcase_fallback_author_image_action_abort")}
+                  </Button>
+                ) : null}
+
+                {draft.profileImageUrl ? (
+                  <Button type="button" variant="ghost" onClick={removeProfileImage}>
+                    {tAdmin("showcase_fallback_author_image_action_remove")}
+                  </Button>
+                ) : null}
+              </div>
+
+              {selectedProfileImageFile ? (
+                <p className="font-sans text-xs text-[#9A9A9A]">
+                  {selectedProfileImageFile.name} ({formatFileSize(selectedProfileImageFile.size)})
+                </p>
+              ) : null}
+
+              {profileImageUploadStatus === "uploading" ||
+              profileImageUploadStatus === "completed" ? (
+                <div className="grid gap-2">
+                  <Progress
+                    value={profileImageUploadProgress}
+                    max={100}
+                    role="progressbar"
+                    aria-label={tAdmin("showcase_fallback_author_image_progress_label")}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={profileImageUploadProgress}
+                    className="h-2 bg-[#1F1F1F]"
+                  />
+                  <p className="font-sans text-xs text-[#9A9A9A]" aria-live="polite">
+                    {tAdmin("showcase_fallback_author_image_status_uploading", {
+                      progress: profileImageUploadProgress,
+                    })}
+                  </p>
+                </div>
+              ) : null}
+
+              {draft.profileImageUrl ? (
+                <div className="grid gap-2">
+                  <Image
+                    src={draft.profileImageUrl}
+                    alt={tAdmin("showcase_fallback_author_image_preview_alt")}
+                    width={96}
+                    height={96}
+                    className="size-24 rounded-xl border border-[#252525] object-cover"
+                  />
+                  <p className="font-sans text-xs text-[#88C89A]">
+                    {tAdmin("showcase_fallback_author_image_status_complete")}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </FieldContent>
+          {profileImageUploadError ? <FieldError>{profileImageUploadError}</FieldError> : null}
+        </Field>
+
+        <Field>
+          <FieldLabel>{tAdmin("showcase_fallback_author_field_whatsapp")}</FieldLabel>
+          <FieldContent>
+            <Input
+              type="tel"
+              value={draft.whatsAppNumber}
+              onChange={(event) =>
+                onDraftChange((current) =>
+                  updateAuthorFallbackField(current, "whatsAppNumber", event.target.value)
+                )
+              }
+              placeholder="+234 800 000 0000"
+              aria-label={tAdmin("showcase_fallback_author_field_whatsapp")}
+            />
+          </FieldContent>
+        </Field>
+      </div>
+
+      <Field>
+        <FieldLabel>{tAdmin("showcase_fallback_author_field_website")}</FieldLabel>
+        <FieldContent>
+          <Input
+            type="url"
+            value={draft.websiteUrl}
+            onChange={(event) =>
+              onDraftChange((current) =>
+                updateAuthorFallbackField(current, "websiteUrl", event.target.value)
+              )
+            }
+            placeholder="https://example.com"
+            aria-label={tAdmin("showcase_fallback_author_field_website")}
+          />
+        </FieldContent>
+      </Field>
+
+      <div className="grid gap-3 rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h4 className="font-sans text-sm font-medium text-white">
+              {tAdmin("showcase_fallback_author_purchase_links_title")}
+            </h4>
+            <p className="font-sans text-xs leading-5 text-[#9C9C9C]">
+              {tAdmin("showcase_fallback_author_purchase_links_description")}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full text-black"
+            disabled={draft.purchaseLinks.length >= PROFILE_LINK_LIMIT}
+            onClick={() => onDraftChange(addAuthorFallbackPurchaseLink)}
+          >
+            {tAdmin("showcase_fallback_author_add_purchase_link")}
+          </Button>
+        </div>
+
+        <div className="grid gap-3">
+          {draft.purchaseLinks.length === 0 ? (
+            <p className="font-sans text-xs text-[#8E8E8E]">
+              {tAdmin("showcase_fallback_author_purchase_links_empty")}
+            </p>
+          ) : null}
+
+          {draft.purchaseLinks.map((link, index) => (
+            <div
+              key={link.id}
+              className="grid gap-3 rounded-2xl border border-[#1F1F1F] bg-[#111111] p-3 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)_auto]"
+            >
+              <Input
+                value={link.label}
+                onChange={(event) =>
+                  onDraftChange((current) =>
+                    updateAuthorFallbackPurchaseLink(current, link.id, "label", event.target.value)
+                  )
+                }
+                placeholder={tAdmin("showcase_fallback_author_purchase_link_label")}
+                aria-label={tAdmin("showcase_fallback_author_purchase_link_label_indexed", {
+                  index: index + 1,
+                })}
+              />
+              <Input
+                type="url"
+                value={link.url}
+                onChange={(event) =>
+                  onDraftChange((current) =>
+                    updateAuthorFallbackPurchaseLink(current, link.id, "url", event.target.value)
+                  )
+                }
+                placeholder={tAdmin("showcase_fallback_author_purchase_link_url")}
+                aria-label={tAdmin("showcase_fallback_author_purchase_link_url_indexed", {
+                  index: index + 1,
+                })}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() =>
+                  onDraftChange((current) => removeAuthorFallbackPurchaseLink(current, link.id))
+                }
+              >
+                {tAdmin("showcase_fallback_author_remove_link")}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-3 rounded-2xl border border-[#1F1F1F] bg-[#0D0D0D] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h4 className="font-sans text-sm font-medium text-white">
+              {tAdmin("showcase_fallback_author_social_links_title")}
+            </h4>
+            <p className="font-sans text-xs leading-5 text-[#9C9C9C]">
+              {tAdmin("showcase_fallback_author_social_links_description")}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-full text-black"
+            disabled={draft.socialLinks.length >= PROFILE_LINK_LIMIT}
+            onClick={() => onDraftChange(addAuthorFallbackSocialLink)}
+          >
+            {tAdmin("showcase_fallback_author_add_social_link")}
+          </Button>
+        </div>
+
+        <div className="grid gap-3">
+          {draft.socialLinks.length === 0 ? (
+            <p className="font-sans text-xs text-[#8E8E8E]">
+              {tAdmin("showcase_fallback_author_social_links_empty")}
+            </p>
+          ) : null}
+
+          {draft.socialLinks.map((link, index) => (
+            <div
+              key={link.id}
+              className="grid gap-3 rounded-2xl border border-[#1F1F1F] bg-[#111111] p-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto]"
+            >
+              <Input
+                value={link.platform}
+                onChange={(event) =>
+                  onDraftChange((current) =>
+                    updateAuthorFallbackSocialLink(current, link.id, "platform", event.target.value)
+                  )
+                }
+                placeholder={tAdmin("showcase_fallback_author_social_link_platform")}
+                aria-label={tAdmin("showcase_fallback_author_social_link_platform_indexed", {
+                  index: index + 1,
+                })}
+              />
+              <Input
+                type="url"
+                value={link.url}
+                onChange={(event) =>
+                  onDraftChange((current) =>
+                    updateAuthorFallbackSocialLink(current, link.id, "url", event.target.value)
+                  )
+                }
+                placeholder={tAdmin("showcase_fallback_author_social_link_url")}
+                aria-label={tAdmin("showcase_fallback_author_social_link_url_indexed", {
+                  index: index + 1,
+                })}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() =>
+                  onDraftChange((current) => removeAuthorFallbackSocialLink(current, link.id))
+                }
+              >
+                {tAdmin("showcase_fallback_author_remove_link")}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {error ? <FieldError>{error}</FieldError> : null}
+    </section>
+  );
 }
 
 async function fileToImage(file: File): Promise<HTMLImageElement> {
@@ -198,17 +915,21 @@ export function AdminShowcaseWorkspaceView() {
   const toggleFeaturedMutation = useToggleAdminShowcaseEntryFeaturedMutation();
   const coverUploadMutation = useAdminShowcaseCoverUploadMutation();
 
-  const [form, setForm] = useState<EntryFormState>(INITIAL_ENTRY_FORM);
+  const [form, setForm] = useState<EntryFormState>(() => createInitialEntryFormState());
   const [selectedCoverFile, setSelectedCoverFile] = useState<File | null>(null);
   const [coverUploadProgress, setCoverUploadProgress] = useState<number>(0);
   const [coverUploadStatus, setCoverUploadStatus] = useState<CoverUploadStatus>("idle");
   const [coverUploadError, setCoverUploadError] = useState<string | null>(null);
+  const [fallbackAuthorProfileError, setFallbackAuthorProfileError] = useState<string | null>(null);
 
   const [replacingEntryId, setReplacingEntryId] = useState<string | null>(null);
   const [replaceProgress, setReplaceProgress] = useState<number>(0);
   const [replaceError, setReplaceError] = useState<string | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editForm, setEditForm] = useState<EditEntryFormState | null>(null);
+  const [editFallbackAuthorProfileError, setEditFallbackAuthorProfileError] = useState<
+    string | null
+  >(null);
   const [deleteConfirmationEntry, setDeleteConfirmationEntry] = useState<{
     id: string;
     bookTitle: string;
@@ -271,6 +992,26 @@ export function AdminShowcaseWorkspaceView() {
       ...previous,
       [key]: value,
     }));
+  }
+
+  function updateCreateFallbackDraft(updater: (draft: AuthorFallbackDraft) => AuthorFallbackDraft) {
+    setFallbackAuthorProfileError(null);
+    setForm((previous) => ({
+      ...previous,
+      fallbackAuthorProfile: updater(previous.fallbackAuthorProfile),
+    }));
+  }
+
+  function updateEditFallbackDraft(updater: (draft: AuthorFallbackDraft) => AuthorFallbackDraft) {
+    setEditFallbackAuthorProfileError(null);
+    setEditForm((previous) =>
+      previous
+        ? {
+            ...previous,
+            fallbackAuthorProfile: updater(previous.fallbackAuthorProfile),
+          }
+        : previous
+    );
   }
 
   function resetCoverUploadState() {
@@ -471,6 +1212,8 @@ export function AdminShowcaseWorkspaceView() {
   }
 
   async function onSubmitEntry() {
+    setFallbackAuthorProfileError(null);
+
     if (!form.coverImageUrl.trim()) {
       setCoverUploadError(tAdmin("showcase_entry_create_requires_cover"));
       return;
@@ -487,7 +1230,16 @@ export function AdminShowcaseWorkspaceView() {
     const parsedYear =
       form.publishedYear.trim().length > 0 ? Number.parseInt(form.publishedYear, 10) : null;
     const parsedSortOrder = Number.parseInt(form.sortOrder, 10);
-    const payload = {
+    const fallbackAuthorProfile = buildFallbackAuthorProfilePayload(
+      form.fallbackAuthorProfile,
+      tAdmin
+    );
+    if ("error" in fallbackAuthorProfile) {
+      setFallbackAuthorProfileError(fallbackAuthorProfile.error);
+      return;
+    }
+
+    const payload: AdminCreateShowcaseEntryInput = {
       authorName: form.authorName.trim(),
       bookTitle: form.bookTitle.trim(),
       coverImageUrl: form.coverImageUrl.trim(),
@@ -497,15 +1249,17 @@ export function AdminShowcaseWorkspaceView() {
       publishedYear: Number.isFinite(parsedYear ?? Number.NaN) ? parsedYear : null,
       isFeatured: form.isFeatured,
       sortOrder: Number.isFinite(parsedSortOrder) ? parsedSortOrder : 0,
+      fallbackAuthorProfile: fallbackAuthorProfile.payload,
     };
 
     try {
       await createEntryMutation.mutateAsync(payload);
       toast.success(tAdmin("showcase_entry_toast_created"));
 
-      setForm(INITIAL_ENTRY_FORM);
+      setForm(createInitialEntryFormState());
       setSelectedCoverFile(null);
       resetCoverUploadState();
+      setFallbackAuthorProfileError(null);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : tAdmin("showcase_entry_toast_create_failed");
@@ -615,6 +1369,7 @@ export function AdminShowcaseWorkspaceView() {
   }
 
   function onEditEntry(entry: (typeof entries)[number]) {
+    setEditFallbackAuthorProfileError(null);
     setEditForm({
       entryId: entry.id,
       authorName: entry.authorName,
@@ -624,6 +1379,7 @@ export function AdminShowcaseWorkspaceView() {
       publishedYear: entry.publishedYear ? String(entry.publishedYear) : "",
       isFeatured: entry.isFeatured,
       sortOrder: String(entry.sortOrder),
+      fallbackAuthorProfile: createAuthorFallbackDraft(entry.fallbackAuthorProfile),
     });
     setEditDialogOpen(true);
   }
@@ -633,27 +1389,41 @@ export function AdminShowcaseWorkspaceView() {
       return;
     }
 
+    setEditFallbackAuthorProfileError(null);
+
     const parsedYear =
       editForm.publishedYear.trim().length > 0 ? Number.parseInt(editForm.publishedYear, 10) : null;
     const parsedSortOrder = Number.parseInt(editForm.sortOrder, 10);
+    const fallbackAuthorProfile = buildFallbackAuthorProfilePayload(
+      editForm.fallbackAuthorProfile,
+      tAdmin
+    );
+    if ("error" in fallbackAuthorProfile) {
+      setEditFallbackAuthorProfileError(fallbackAuthorProfile.error);
+      return;
+    }
 
     try {
+      const input: AdminUpdateShowcaseEntryInput = {
+        authorName: editForm.authorName.trim(),
+        bookTitle: editForm.bookTitle.trim(),
+        aboutBook: editForm.aboutBook.trim() || null,
+        categoryId: editForm.categoryId || null,
+        publishedYear: Number.isFinite(parsedYear ?? Number.NaN) ? parsedYear : null,
+        isFeatured: editForm.isFeatured,
+        sortOrder: Number.isFinite(parsedSortOrder) ? parsedSortOrder : 0,
+        fallbackAuthorProfile: fallbackAuthorProfile.payload,
+      };
+
       await updateEntryMutation.mutateAsync({
         entryId: editForm.entryId,
-        input: {
-          authorName: editForm.authorName.trim(),
-          bookTitle: editForm.bookTitle.trim(),
-          aboutBook: editForm.aboutBook.trim() || null,
-          categoryId: editForm.categoryId || null,
-          publishedYear: Number.isFinite(parsedYear ?? Number.NaN) ? parsedYear : null,
-          isFeatured: editForm.isFeatured,
-          sortOrder: Number.isFinite(parsedSortOrder) ? parsedSortOrder : 0,
-        },
+        input,
       });
 
       toast.success(tAdmin("showcase_entry_toast_updated"));
       setEditDialogOpen(false);
       setEditForm(null);
+      setEditFallbackAuthorProfileError(null);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : tAdmin("showcase_entry_toast_update_failed");
@@ -1190,6 +1960,13 @@ export function AdminShowcaseWorkspaceView() {
               </Field>
             </div>
 
+            <AuthorFallbackProfileSection
+              draft={form.fallbackAuthorProfile}
+              error={fallbackAuthorProfileError}
+              tAdmin={tAdmin}
+              onDraftChange={updateCreateFallbackDraft}
+            />
+
             <Field>
               <FieldLabel>{tAdmin("showcase_entry_field_cover_image")}</FieldLabel>
               <FieldContent>
@@ -1294,6 +2071,7 @@ export function AdminShowcaseWorkspaceView() {
           setEditDialogOpen(open);
           if (!open) {
             setEditForm(null);
+            setEditFallbackAuthorProfileError(null);
           }
         }}
       >
@@ -1439,6 +2217,13 @@ export function AdminShowcaseWorkspaceView() {
                   </FieldContent>
                 </Field>
               </div>
+
+              <AuthorFallbackProfileSection
+                draft={editForm.fallbackAuthorProfile}
+                error={editFallbackAuthorProfileError}
+                tAdmin={tAdmin}
+                onDraftChange={updateEditFallbackDraft}
+              />
             </div>
           ) : null}
 
@@ -1450,6 +2235,7 @@ export function AdminShowcaseWorkspaceView() {
               onClick={() => {
                 setEditDialogOpen(false);
                 setEditForm(null);
+                setEditFallbackAuthorProfileError(null);
               }}
             >
               {tAdmin("showcase_entry_action_cancel")}

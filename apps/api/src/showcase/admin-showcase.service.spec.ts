@@ -157,6 +157,12 @@ describe("AdminShowcaseService", () => {
           isFeatured: true,
           sortOrder: 3,
           createdAt: new Date("2026-03-18T00:00:00.000Z"),
+          authorBio: "Author bio",
+          authorProfileImageUrl: "https://res.cloudinary.com/demo/image/upload/profile.jpg",
+          authorWhatsAppNumber: "+2348012345678",
+          authorWebsiteUrl: "https://author.example.com",
+          authorPurchaseLinks: [{ label: "Amazon", url: "https://amazon.example.com/book" }],
+          authorSocialLinks: [{ platform: "Instagram", url: "https://instagram.com/author" }],
         }),
       },
     };
@@ -174,10 +180,26 @@ describe("AdminShowcaseService", () => {
       publishedYear: 2025,
       sortOrder: 3,
       isFeatured: true,
+      fallbackAuthorProfile: {
+        bio: "Author bio",
+        profileImageUrl: "https://res.cloudinary.com/demo/image/upload/profile.jpg",
+        whatsAppNumber: "+2348012345678",
+        websiteUrl: "https://author.example.com",
+        purchaseLinks: [{ label: "Amazon", url: "https://amazon.example.com/book" }],
+        socialLinks: [{ platform: "Instagram", url: "https://instagram.com/author" }],
+      },
     });
 
     expect(result.id).toBe("cm_entry_1");
     expect(result.previewPath).toBe("/showcase?entry=cm_entry_1");
+    expect(result.fallbackAuthorProfile).toEqual({
+      bio: "Author bio",
+      profileImageUrl: "https://res.cloudinary.com/demo/image/upload/profile.jpg",
+      whatsAppNumber: "+2348012345678",
+      websiteUrl: "https://author.example.com",
+      purchaseLinks: [{ label: "Amazon", url: "https://amazon.example.com/book" }],
+      socialLinks: [{ platform: "Instagram", url: "https://instagram.com/author" }],
+    });
   });
 
   it("updates and deletes an admin showcase entry", async () => {
@@ -222,6 +244,12 @@ describe("AdminShowcaseService", () => {
           isFeatured: false,
           sortOrder: 3,
           createdAt: new Date("2026-03-18T00:00:00.000Z"),
+          authorBio: null,
+          authorProfileImageUrl: null,
+          authorWhatsAppNumber: null,
+          authorWebsiteUrl: null,
+          authorPurchaseLinks: [],
+          authorSocialLinks: [],
         }),
         delete: jest.fn().mockResolvedValue({ id: "cm_entry_1" }),
       },

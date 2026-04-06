@@ -38,5 +38,10 @@ export function useAuthorProfile(showcaseId: string | null) {
     },
     queryFn: () => fetchAuthorProfile(showcaseId as string),
     enabled: !!showcaseId,
+    retry: (failureCount, error) => {
+      const status =
+        typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
+      return status !== 404 && failureCount < 2;
+    },
   });
 }

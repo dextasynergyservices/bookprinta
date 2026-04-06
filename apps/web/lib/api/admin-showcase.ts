@@ -11,6 +11,7 @@ import type {
   AdminShowcaseCoverUploadResponse,
   AdminShowcaseEntriesListQuery,
   AdminShowcaseEntriesListResponse,
+  AdminShowcaseImageUploadTarget,
   AdminShowcaseUserSearchQuery,
   AdminShowcaseUserSearchResponse,
   AdminUpdateShowcaseCategoryInput,
@@ -352,13 +353,16 @@ export const ADMIN_SHOWCASE_COVER_MIME_TYPES: readonly AdminShowcaseCoverUploadM
   "image/jpeg",
   "image/png",
 ];
+export const ADMIN_SHOWCASE_IMAGE_MAX_BYTES = ADMIN_SHOWCASE_COVER_MAX_BYTES;
+export const ADMIN_SHOWCASE_IMAGE_MIME_TYPES = ADMIN_SHOWCASE_COVER_MIME_TYPES;
 
 export type AdminShowcaseCoverValidationError = "unsupported" | "empty" | "size";
+export type AdminShowcaseImageValidationError = AdminShowcaseCoverValidationError;
 
-export function validateAdminShowcaseCoverFile(
+export function validateAdminShowcaseImageFile(
   file: File
-): AdminShowcaseCoverValidationError | null {
-  if (!ADMIN_SHOWCASE_COVER_MIME_TYPES.includes(file.type as AdminShowcaseCoverUploadMimeType)) {
+): AdminShowcaseImageValidationError | null {
+  if (!ADMIN_SHOWCASE_IMAGE_MIME_TYPES.includes(file.type as AdminShowcaseCoverUploadMimeType)) {
     return "unsupported";
   }
 
@@ -366,15 +370,22 @@ export function validateAdminShowcaseCoverFile(
     return "empty";
   }
 
-  if (file.size > ADMIN_SHOWCASE_COVER_MAX_BYTES) {
+  if (file.size > ADMIN_SHOWCASE_IMAGE_MAX_BYTES) {
     return "size";
   }
 
   return null;
 }
 
+export function validateAdminShowcaseCoverFile(
+  file: File
+): AdminShowcaseCoverValidationError | null {
+  return validateAdminShowcaseImageFile(file);
+}
+
 export async function requestAdminShowcaseCoverUpload(
-  input: AdminShowcaseCoverUploadBodyInput
+  input: AdminShowcaseCoverUploadBodyInput,
+  options: { processingErrorMessage?: string } = {}
 ): Promise<AdminShowcaseCoverUploadResponse> {
   let response: Response;
 
@@ -389,7 +400,9 @@ export async function requestAdminShowcaseCoverUpload(
       body: JSON.stringify(input),
     });
   } catch {
-    throw new Error("Unable to process showcase cover upload right now.");
+    throw new Error(
+      options.processingErrorMessage ?? "Unable to process showcase cover upload right now."
+    );
   }
 
   if (!response.ok) {
@@ -404,6 +417,8 @@ export async function uploadFileToCloudinary(params: {
   upload: CloudinarySignedUploadPayload;
   signal?: AbortSignal;
   onProgress?: (percentage: number) => void;
+  uploadErrorMessage?: string;
+  cancelledErrorMessage?: string;
 }): Promise<{ secureUrl: string; publicId: string }> {
   return await new Promise<{ secureUrl: string; publicId: string }>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -418,7 +433,7 @@ export async function uploadFileToCloudinary(params: {
 
     if (params.signal) {
       if (params.signal.aborted) {
-        reject(new Error("The cover upload was cancelled."));
+        reject(new Error(params.cancelledErrorMessage ?? "The upload was cancelled."));
         return;
       }
 
@@ -435,11 +450,11 @@ export async function uploadFileToCloudinary(params: {
     };
 
     xhr.onerror = () => {
-      reject(new Error("Unable to upload the cover image right now."));
+      reject(new Error(params.uploadErrorMessage ?? "Unable to upload the image right now."));
     };
 
     xhr.onabort = () => {
-      reject(new Error("The cover upload was cancelled."));
+      reject(new Error(params.cancelledErrorMessage ?? "The upload was cancelled."));
     };
 
     xhr.onreadystatechange = () => {
@@ -474,7 +489,14 @@ export async function uploadFileToCloudinary(params: {
         return;
       }
 
-      reject(new Error(readXhrErrorMessage(xhr, "Unable to upload the cover image right now.")));
+      reject(
+        new Error(
+          readXhrErrorMessage(
+            xhr,
+            params.uploadErrorMessage ?? "Unable to upload the image right now."
+          )
+        )
+      );
     };
 
     const formData = new FormData();
@@ -503,15 +525,63 @@ export async function uploadAdminShowcaseCover(params: {
   signal?: AbortSignal;
   onProgress?: (percentage: number) => void;
 }): Promise<AdminFinalizeShowcaseCoverUploadResponse> {
-  const authorizeResponse = await requestAdminShowcaseCoverUpload({
-    action: "authorize",
-    fileName: params.file.name,
-    fileSize: params.file.size,
-    mimeType: params.file.type as AdminShowcaseCoverUploadMimeType,
+  return uploadAdminShowcaseImageAsset({
+    file: params.file,
+    entryId: params.entryId,
+    signal: params.signal,
+    onProgress: params.onProgress,
+    target: "cover",
+    processingErrorMessage: "Unable to process showcase cover upload right now.",
+    authorizationErrorMessage: "Unable to authorize showcase cover upload.",
+    uploadErrorMessage: "Unable to upload the cover image right now.",
+    cancelledErrorMessage: "The cover upload was cancelled.",
+    finalizationErrorMessage: "Unable to finalize showcase cover upload.",
   });
+}
+
+export async function uploadAdminShowcaseFallbackAuthorImage(params: {
+  file: File;
+  signal?: AbortSignal;
+  onProgress?: (percentage: number) => void;
+}): Promise<AdminFinalizeShowcaseCoverUploadResponse> {
+  return uploadAdminShowcaseImageAsset({
+    file: params.file,
+    signal: params.signal,
+    onProgress: params.onProgress,
+    target: "fallbackAuthorProfileImage",
+    processingErrorMessage: "Unable to process fallback author image upload right now.",
+    authorizationErrorMessage: "Unable to authorize fallback author image upload.",
+    uploadErrorMessage: "Unable to upload the author image right now.",
+    cancelledErrorMessage: "The author image upload was cancelled.",
+    finalizationErrorMessage: "Unable to finalize fallback author image upload.",
+  });
+}
+
+async function uploadAdminShowcaseImageAsset(params: {
+  file: File;
+  entryId?: string;
+  signal?: AbortSignal;
+  onProgress?: (percentage: number) => void;
+  target: AdminShowcaseImageUploadTarget;
+  processingErrorMessage: string;
+  authorizationErrorMessage: string;
+  uploadErrorMessage: string;
+  cancelledErrorMessage: string;
+  finalizationErrorMessage: string;
+}): Promise<AdminFinalizeShowcaseCoverUploadResponse> {
+  const authorizeResponse = await requestAdminShowcaseCoverUpload(
+    {
+      action: "authorize",
+      target: params.target,
+      fileName: params.file.name,
+      fileSize: params.file.size,
+      mimeType: params.file.type as AdminShowcaseCoverUploadMimeType,
+    },
+    { processingErrorMessage: params.processingErrorMessage }
+  );
 
   if (authorizeResponse.action !== "authorize" || !authorizeResponse.upload) {
-    throw new Error("Unable to authorize showcase cover upload.");
+    throw new Error(params.authorizationErrorMessage);
   }
 
   const uploadedFile = await uploadFileToCloudinary({
@@ -519,21 +589,27 @@ export async function uploadAdminShowcaseCover(params: {
     upload: authorizeResponse.upload,
     signal: params.signal,
     onProgress: params.onProgress,
+    uploadErrorMessage: params.uploadErrorMessage,
+    cancelledErrorMessage: params.cancelledErrorMessage,
   });
 
   // Cloudinary returns public_id including folder. The finalize endpoint expects
   // the signed publicId token (without folder) to validate signed metadata.
   const signedPublicId = authorizeResponse.upload.publicId;
 
-  const finalizeResponse = await requestAdminShowcaseCoverUpload({
-    action: "finalize",
-    secureUrl: uploadedFile.secureUrl,
-    publicId: signedPublicId,
-    entryId: params.entryId,
-  });
+  const finalizeResponse = await requestAdminShowcaseCoverUpload(
+    {
+      action: "finalize",
+      target: params.target,
+      secureUrl: uploadedFile.secureUrl,
+      publicId: signedPublicId,
+      entryId: params.entryId,
+    },
+    { processingErrorMessage: params.processingErrorMessage }
+  );
 
   if (finalizeResponse.action !== "finalize") {
-    throw new Error("Unable to finalize showcase cover upload.");
+    throw new Error(params.finalizationErrorMessage);
   }
 
   const finalized = AdminFinalizeShowcaseCoverUploadResponseSchema.parse(finalizeResponse);

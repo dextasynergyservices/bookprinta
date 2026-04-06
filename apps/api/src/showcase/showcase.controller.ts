@@ -64,11 +64,11 @@ export class ShowcaseController {
   }
 
   @Get(":id/author")
-  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=300")
+  @Header("Cache-Control", "no-store")
   @ApiOperation({
     summary: "Get author profile for a showcase entry",
     description:
-      "Returns the public author profile tied to a showcase entry when the linked user has completed their profile.",
+      "Returns the merged public author profile for a showcase entry, preferring linked user details and filling missing fields from admin fallback data.",
   })
   @ApiParam({
     name: "id",

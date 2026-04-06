@@ -13,7 +13,30 @@ describe("ShowcaseService", () => {
         findMany: jest.fn(),
       },
       authorShowcase: {
-        findMany: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "cm_show_1",
+            authorName: "A. Author",
+            bookTitle: "Stories",
+            bookCoverUrl: "https://res.cloudinary.com/demo/image/upload/stories.jpg",
+            aboutBook: "A short collection",
+            testimonial: null,
+            categoryId: null,
+            category: null,
+            publishedYear: 2025,
+            publishedAt: new Date("2025-10-10T00:00:00.000Z"),
+            userId: null,
+            isFeatured: true,
+            sortOrder: 0,
+            authorBio: "Fallback bio",
+            authorProfileImageUrl: null,
+            authorWhatsAppNumber: null,
+            authorWebsiteUrl: null,
+            authorPurchaseLinks: [],
+            authorSocialLinks: [],
+            user: null,
+          },
+        ]),
         findUnique: jest.fn(),
       },
     };
@@ -31,7 +54,12 @@ describe("ShowcaseService", () => {
     });
 
     expect(result).toEqual({
-      items: [],
+      items: [
+        expect.objectContaining({
+          id: "cm_show_1",
+          hasAuthorProfile: true,
+        }),
+      ],
       nextCursor: null,
       hasMore: false,
     });
@@ -47,7 +75,7 @@ describe("ShowcaseService", () => {
     );
   });
 
-  it("serializes only filled author-profile fields", async () => {
+  it("serializes merged author-profile fields and prefers user values", async () => {
     const prisma = {
       showcaseCategory: {
         findMany: jest.fn(),
@@ -55,7 +83,12 @@ describe("ShowcaseService", () => {
       authorShowcase: {
         findMany: jest.fn(),
         findUnique: jest.fn().mockResolvedValue({
-          userId: "cm_user_1",
+          authorBio: "Fallback bio",
+          authorProfileImageUrl: "https://res.cloudinary.com/demo/image/upload/fallback.jpg",
+          authorWhatsAppNumber: "+2348099999999",
+          authorWebsiteUrl: "https://fallback.example.com",
+          authorPurchaseLinks: [{ label: "Roving Heights", url: "https://rovingheights.com/book" }],
+          authorSocialLinks: [{ platform: "Instagram", url: "https://instagram.com/fallback" }],
           user: {
             bio: "Author bio",
             profileImageUrl: null,
@@ -76,13 +109,15 @@ describe("ShowcaseService", () => {
 
     await expect(service.getAuthorProfile("cm_showcase_1")).resolves.toEqual({
       bio: "Author bio",
+      profileImageUrl: "https://res.cloudinary.com/demo/image/upload/fallback.jpg",
       whatsAppNumber: "+2348012345678",
       purchaseLinks: [{ label: "Amazon", url: "https://amazon.example/book" }],
       socialLinks: [{ platform: "Instagram", url: "https://instagram.com/author" }],
+      websiteUrl: "https://fallback.example.com",
     });
   });
 
-  it("rejects author-profile requests when the linked user is not publicly available", async () => {
+  it("rejects author-profile requests only when both user and fallback details are empty", async () => {
     const prisma = {
       showcaseCategory: {
         findMany: jest.fn(),
@@ -90,9 +125,14 @@ describe("ShowcaseService", () => {
       authorShowcase: {
         findMany: jest.fn(),
         findUnique: jest.fn().mockResolvedValue({
-          userId: "cm_user_1",
+          authorBio: null,
+          authorProfileImageUrl: null,
+          authorWhatsAppNumber: null,
+          authorWebsiteUrl: null,
+          authorPurchaseLinks: [],
+          authorSocialLinks: [],
           user: {
-            bio: "Author bio",
+            bio: null,
             profileImageUrl: null,
             whatsAppNumber: null,
             websiteUrl: null,
@@ -366,6 +406,12 @@ describe("ShowcaseService", () => {
           isFeatured: false,
           sortOrder: 12,
           createdAt: new Date("2026-02-02T00:00:00.000Z"),
+          authorBio: null,
+          authorProfileImageUrl: null,
+          authorWhatsAppNumber: null,
+          authorWebsiteUrl: null,
+          authorPurchaseLinks: [],
+          authorSocialLinks: [],
         }),
       },
       user: {
