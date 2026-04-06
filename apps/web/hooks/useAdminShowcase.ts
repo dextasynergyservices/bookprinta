@@ -20,6 +20,7 @@ import {
   updateAdminShowcaseCategory,
   updateAdminShowcaseEntry,
   uploadAdminShowcaseCover,
+  uploadAdminShowcaseFallbackAuthorImage,
 } from "@/lib/api/admin-showcase";
 
 export const adminShowcaseQueryKeys = {
@@ -278,5 +279,15 @@ export function useAdminShowcaseCoverUploadMutation() {
     onSuccess: async () => {
       await invalidateAdminShowcaseQueries(queryClient);
     },
+  });
+}
+
+export function useAdminShowcaseFallbackAuthorImageUploadMutation() {
+  return useMutation({
+    mutationFn: (params: {
+      file: File;
+      signal?: AbortSignal;
+      onProgress?: (percentage: number) => void;
+    }) => uploadAdminShowcaseFallbackAuthorImage(params),
   });
 }

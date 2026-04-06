@@ -798,6 +798,14 @@ model AuthorShowcase {
   user           User?             @relation(fields: [userId], references: [id])
   bookId         String?
 
+  // Admin-managed fallback author profile used when linked user details are missing.
+  authorBio              String?   @db.Text
+  authorProfileImageUrl  String?
+  authorWhatsAppNumber   String?
+  authorWebsiteUrl       String?
+  authorPurchaseLinks    Json?
+  authorSocialLinks      Json?
+
   isFeatured     Boolean           @default(true)
   sortOrder      Int               @default(0)
 

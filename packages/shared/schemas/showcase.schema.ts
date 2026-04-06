@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { PublicAuthorProfileSchema } from "./user.schema.ts";
+import {
+  PublicAuthorProfileSchema,
+  PurchaseLinksSchema,
+  SocialLinksSchema,
+  UserProfileBioSchema,
+  UserProfileImageUrlSchema,
+  UserWebsiteUrlSchema,
+  UserWhatsAppNumberSchema,
+} from "./user.schema.ts";
 
 const SlugSchema = z
   .string()
@@ -21,6 +29,8 @@ export const AdminShowcaseCoverUploadMimeTypeSchema = z.enum(["image/jpeg", "ima
 export type AdminShowcaseCoverUploadMimeType = z.infer<
   typeof AdminShowcaseCoverUploadMimeTypeSchema
 >;
+export const AdminShowcaseImageUploadTargetSchema = z.enum(["cover", "fallbackAuthorProfileImage"]);
+export type AdminShowcaseImageUploadTarget = z.infer<typeof AdminShowcaseImageUploadTargetSchema>;
 
 export const ShowcaseSortOptionSchema = z.enum([
   "date_desc",
@@ -42,6 +52,34 @@ export type ShowcaseCategory = z.infer<typeof ShowcaseCategorySchema>;
 export const AuthorProfileSchema = PublicAuthorProfileSchema;
 export type AuthorProfile = z.infer<typeof AuthorProfileSchema>;
 
+export const AdminShowcaseFallbackAuthorProfileSchema = z
+  .object({
+    bio: UserProfileBioSchema.nullable(),
+    profileImageUrl: UserProfileImageUrlSchema.nullable(),
+    whatsAppNumber: UserWhatsAppNumberSchema.nullable(),
+    websiteUrl: UserWebsiteUrlSchema.nullable(),
+    purchaseLinks: PurchaseLinksSchema,
+    socialLinks: SocialLinksSchema,
+  })
+  .strict();
+export type AdminShowcaseFallbackAuthorProfile = z.infer<
+  typeof AdminShowcaseFallbackAuthorProfileSchema
+>;
+
+export const AdminShowcaseFallbackAuthorProfileInputSchema = z
+  .object({
+    bio: z.union([UserProfileBioSchema, z.null()]).optional(),
+    profileImageUrl: z.union([UserProfileImageUrlSchema, z.null()]).optional(),
+    whatsAppNumber: z.union([UserWhatsAppNumberSchema, z.null()]).optional(),
+    websiteUrl: z.union([UserWebsiteUrlSchema, z.null()]).optional(),
+    purchaseLinks: PurchaseLinksSchema.optional(),
+    socialLinks: SocialLinksSchema.optional(),
+  })
+  .strict();
+export type AdminShowcaseFallbackAuthorProfileInput = z.infer<
+  typeof AdminShowcaseFallbackAuthorProfileInputSchema
+>;
+
 export const ShowcaseEntrySchema = z.object({
   id: z.string().cuid(),
   authorName: z.string().trim().min(1).max(180),
@@ -55,6 +93,7 @@ export const ShowcaseEntrySchema = z.object({
   publishedAt: z.string().datetime().nullable(),
   userId: z.string().cuid().nullable(),
   isFeatured: z.boolean(),
+  hasAuthorProfile: z.boolean(),
   isProfileComplete: z.boolean(),
 });
 export type ShowcaseEntry = z.infer<typeof ShowcaseEntrySchema>;
@@ -160,6 +199,7 @@ export const AdminShowcaseEntrySchema = z.object({
   bookId: z.string().cuid().nullable(),
   isFeatured: z.boolean(),
   sortOrder: z.number().int().min(0),
+  fallbackAuthorProfile: AdminShowcaseFallbackAuthorProfileSchema,
   previewPath: z.string().trim().min(1).max(512),
   createdAt: z.string().datetime(),
 });
@@ -168,6 +208,7 @@ export type AdminShowcaseEntry = z.infer<typeof AdminShowcaseEntrySchema>;
 export const AdminAuthorizeShowcaseCoverUploadBodySchema = z
   .object({
     action: z.literal("authorize"),
+    target: AdminShowcaseImageUploadTargetSchema.default("cover"),
     fileName: z.string().trim().min(1).max(255),
     fileSize: z.number().int().min(1).max(ADMIN_SHOWCASE_COVER_UPLOAD_MAX_BYTES),
     mimeType: AdminShowcaseCoverUploadMimeTypeSchema,
@@ -180,6 +221,7 @@ export type AdminAuthorizeShowcaseCoverUploadBodyInput = z.infer<
 export const AdminFinalizeShowcaseCoverUploadBodySchema = z
   .object({
     action: z.literal("finalize"),
+    target: AdminShowcaseImageUploadTargetSchema.default("cover"),
     secureUrl: z.string().trim().url().max(2048),
     publicId: z.string().trim().min(1).max(255),
     entryId: z.string().cuid().optional(),
@@ -192,6 +234,7 @@ export type AdminFinalizeShowcaseCoverUploadBodyInput = z.infer<
 export const AdminShowcaseCoverUploadBodySchema = z
   .object({
     action: z.enum(["authorize", "finalize"]),
+    target: AdminShowcaseImageUploadTargetSchema.default("cover"),
     fileName: z.string().trim().min(1).max(255).optional(),
     fileSize: z.number().int().min(1).max(ADMIN_SHOWCASE_COVER_UPLOAD_MAX_BYTES).optional(),
     mimeType: AdminShowcaseCoverUploadMimeTypeSchema.optional(),
@@ -367,6 +410,7 @@ export const AdminCreateShowcaseEntrySchema = z.object({
   bookId: OptionalNullableCuidSchema,
   isFeatured: z.boolean().optional(),
   sortOrder: z.number().int().min(0).optional(),
+  fallbackAuthorProfile: AdminShowcaseFallbackAuthorProfileInputSchema.optional(),
 });
 export type AdminCreateShowcaseEntryInput = z.infer<typeof AdminCreateShowcaseEntrySchema>;
 
