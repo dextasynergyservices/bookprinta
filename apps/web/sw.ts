@@ -13,8 +13,8 @@ declare const self: ServiceWorkerGlobalScope;
 
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
-  // Keep updates waiting until the client explicitly confirms the reload.
-  skipWaiting: false,
+  // Activate new service worker immediately on deploy — no user prompt needed.
+  skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: pwaRuntimeCaching,

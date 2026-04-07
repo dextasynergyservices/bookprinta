@@ -20,11 +20,10 @@ import {
   isWebhookApiPath,
 } from "./cache-matchers";
 
-const ONE_HOUR_IN_SECONDS = 60 * 60;
-const THIRTY_MINUTES_IN_SECONDS = 30 * 60;
 const FIVE_MINUTES_IN_SECONDS = 5 * 60;
-const ONE_DAY_IN_SECONDS = 24 * 60 * 60;
-const ONE_YEAR_IN_SECONDS = 365 * ONE_DAY_IN_SECONDS;
+const FOUR_HOURS_IN_SECONDS = 4 * 60 * 60;
+const SEVEN_DAYS_IN_SECONDS = 7 * 24 * 60 * 60;
+const ONE_YEAR_IN_SECONDS = 365 * 24 * 60 * 60;
 
 export const PWA_RUNTIME_POLICY_CONFIG = {
   paymentDocuments: {
@@ -37,25 +36,25 @@ export const PWA_RUNTIME_POLICY_CONFIG = {
     strategy: "StaleWhileRevalidate",
     cacheName: "marketing-pages",
     maxEntries: 64,
-    maxAgeSeconds: ONE_HOUR_IN_SECONDS,
+    maxAgeSeconds: FIVE_MINUTES_IN_SECONDS,
   },
   marketingRsc: {
     strategy: "StaleWhileRevalidate",
     cacheName: "marketing-rsc",
     maxEntries: 64,
-    maxAgeSeconds: ONE_HOUR_IN_SECONDS,
+    maxAgeSeconds: FIVE_MINUTES_IN_SECONDS,
   },
   dashboardDocuments: {
     strategy: "StaleWhileRevalidate",
     cacheName: "dashboard-shell-pages",
     maxEntries: 64,
-    maxAgeSeconds: THIRTY_MINUTES_IN_SECONDS,
+    maxAgeSeconds: FIVE_MINUTES_IN_SECONDS,
   },
   dashboardRsc: {
     strategy: "StaleWhileRevalidate",
     cacheName: "dashboard-shell-rsc",
     maxEntries: 64,
-    maxAgeSeconds: THIRTY_MINUTES_IN_SECONDS,
+    maxAgeSeconds: FIVE_MINUTES_IN_SECONDS,
   },
   readonlyApi: {
     strategy: "NetworkFirst",
@@ -201,7 +200,7 @@ export const pwaRuntimeCaching: RuntimeCaching[] = [
     matcher: /\/_next\/image\?url=.+$/i,
     handler: new StaleWhileRevalidate({
       cacheName: "next-image-assets",
-      plugins: [createCacheableResponsePlugin(), createExpirationPlugin(64, ONE_DAY_IN_SECONDS)],
+      plugins: [createCacheableResponsePlugin(), createExpirationPlugin(64, FOUR_HOURS_IN_SECONDS)],
     }),
   },
   {
@@ -211,7 +210,7 @@ export const pwaRuntimeCaching: RuntimeCaching[] = [
       cacheName: "static-image-assets",
       plugins: [
         createCacheableResponsePlugin(),
-        createExpirationPlugin(128, 30 * ONE_DAY_IN_SECONDS),
+        createExpirationPlugin(128, SEVEN_DAYS_IN_SECONDS),
       ],
     }),
   },
