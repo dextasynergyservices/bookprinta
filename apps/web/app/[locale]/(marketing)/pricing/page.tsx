@@ -29,7 +29,7 @@ export default async function PricingPage({ params: { locale } }: { params: { lo
   // Prefetch categories with nested packages for SSR hydration
   await queryClient.prefetchQuery({
     queryKey: PACKAGE_CATEGORIES_QUERY_KEY,
-    queryFn: (): Promise<PackageCategory[]> => fetchPackageCategories({ revalidate: 600 }),
+    queryFn: (): Promise<PackageCategory[]> => fetchPackageCategories({ revalidate: 30 }),
   });
 
   return (

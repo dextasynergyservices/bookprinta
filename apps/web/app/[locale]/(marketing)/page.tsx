@@ -23,10 +23,10 @@ export async function HomePageContent({ params }: { params: Promise<{ locale: st
   const queryClient = new QueryClient();
 
   const [featuredShowcaseResult, packagePrefetchResult] = await Promise.allSettled([
-    fetchFeaturedShowcasePreview({ limit: 4, revalidate: 300 }),
+    fetchFeaturedShowcasePreview({ limit: 4, revalidate: 30 }),
     queryClient.prefetchQuery({
       queryKey: PACKAGE_CATEGORIES_QUERY_KEY,
-      queryFn: () => fetchPackageCategories({ revalidate: 300 }),
+      queryFn: () => fetchPackageCategories({ revalidate: 30 }),
     }),
   ]);
 

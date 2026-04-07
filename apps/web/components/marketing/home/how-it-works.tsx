@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, useScroll, useTransform } from "framer-motion";
-import { ArrowRight, Package, Palette, Upload } from "lucide-react";
+import { ArrowRight, Printer, ShoppingBag, Upload } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRef } from "react";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -9,9 +9,9 @@ import { Link } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 const steps = [
-  { key: "step1", icon: Upload, accent: "from-accent/10 via-accent/4 to-transparent" },
-  { key: "step2", icon: Palette, accent: "from-primary/8 via-primary/3 to-transparent" },
-  { key: "step3", icon: Package, accent: "from-accent/10 via-accent/4 to-transparent" },
+  { key: "step1", icon: ShoppingBag, accent: "from-accent/10 via-accent/4 to-transparent" },
+  { key: "step2", icon: Upload, accent: "from-primary/8 via-primary/3 to-transparent" },
+  { key: "step3", icon: Printer, accent: "from-accent/10 via-accent/4 to-transparent" },
 ] as const;
 
 export function HowItWorks() {

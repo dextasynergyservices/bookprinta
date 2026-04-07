@@ -65,8 +65,8 @@ describe("Marketing homepage server fetch", () => {
     render(page);
 
     expect(mockSetRequestLocale).toHaveBeenCalledWith("en");
-    expect(mockFetchPackageCategories).toHaveBeenCalledWith({ revalidate: 300 });
-    expect(mockFetchFeaturedShowcasePreview).toHaveBeenCalledWith({ limit: 4, revalidate: 300 });
+    expect(mockFetchPackageCategories).toHaveBeenCalledWith({ revalidate: 30 });
+    expect(mockFetchFeaturedShowcasePreview).toHaveBeenCalledWith({ limit: 4, revalidate: 30 });
     expect(screen.getByTestId("pricing-preview")).toBeInTheDocument();
     expect(screen.getByTestId("showcase-preview")).toHaveTextContent(
       "Lagos After Rain, Building With Discipline"
