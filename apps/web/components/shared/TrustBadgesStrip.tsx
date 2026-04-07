@@ -1,6 +1,6 @@
 "use client";
 
-import { ShieldCheck } from "lucide-react";
+import { Printer, ShieldCheck } from "lucide-react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
@@ -52,11 +52,11 @@ export function TrustBadgesStrip({
             {securePaymentsLabel}
           </p>
           <Image
-            src="/logos/paystack-logo.svg"
+            src="/logos/paystack-logo-white.svg"
             alt="Paystack"
             width={157}
             height={28}
-            className={cn("mt-1 w-auto", compact ? "h-4" : "h-5")}
+            className={cn("mt-1 w-auto opacity-90", compact ? "h-4" : "h-5")}
           />
         </div>
       </div>
@@ -70,6 +70,15 @@ export function TrustBadgesStrip({
           compact ? "px-3 py-2" : "px-4 py-3"
         )}
       >
+        <span
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-full border border-[#007eff]/35 bg-[#007eff]/12 text-[#7fd2ff]",
+            compact ? "size-8" : "size-10"
+          )}
+        >
+          <Printer className="size-4" aria-hidden="true" />
+        </span>
+
         <div className="min-w-0">
           <p
             className={cn(

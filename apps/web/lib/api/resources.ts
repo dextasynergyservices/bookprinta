@@ -116,7 +116,7 @@ export async function fetchResourceDetailForServer(slug: string): Promise<Resour
   const response = await fetch(
     `${API_V1_BASE_URL}/resources/${encodeURIComponent(normalizedSlug)}`,
     {
-      next: { revalidate: 300 },
+      next: { revalidate: 30 },
     }
   );
 
