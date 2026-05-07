@@ -74,7 +74,13 @@ import {
 import { BooksPipelineService } from "./books-pipeline.service.js";
 import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
 
-const BOOK_DETAIL_JOB_STATUSES: JobStatus[] = ["QUEUED", "PROCESSING", "FAILED", "COMPLETED"];
+const BOOK_DETAIL_JOB_STATUSES: JobStatus[] = [
+  "QUEUED",
+  "PROCESSING",
+  "FAILED",
+  "COMPLETED",
+  "PENDING_REDIS",
+];
 const ADMIN_BOOK_SORTABLE_FIELDS: AdminBooksListResponse["sortableFields"] = [
   "title",
   "authorName",

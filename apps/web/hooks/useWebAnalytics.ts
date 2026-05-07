@@ -176,9 +176,9 @@ export function useWebLiveVisitors() {
   return useQuery<WebLiveVisitors>({
     queryKey: keys.liveVisitors,
     queryFn: ({ signal }) => fetchWebLiveVisitors(signal),
-    staleTime: 15_000,
-    gcTime: 60_000,
-    refetchInterval: 30_000,
+    staleTime: 90_000, // slightly under cache TTL so stale check fires before server cache expires
+    gcTime: 300_000,
+    refetchInterval: 120_000, // aligned with backend cache TTL (2 min)
     refetchOnWindowFocus: true,
     retry: 1,
   });

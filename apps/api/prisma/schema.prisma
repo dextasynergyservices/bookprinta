@@ -107,6 +107,7 @@ enum JobStatus {
   PROCESSING
   COMPLETED
   FAILED
+  PENDING_REDIS
 }
 
 // Added: CLEANED_HTML, PREVIEW_PDF, FINAL_PDF for engine pipeline tracking
@@ -628,6 +629,10 @@ model Notification {
   isRead    Boolean  @default(false)
 
   createdAt DateTime @default(now())
+
+  @@index([userId, isRead])  // Fast unread count + per-user unread filter (4.1)
+  @@index([userId, createdAt]) // Fast per-user paginated list (dashboard inbox)
+  @@index([userId, type])   // Fast per-user type existence check (1.5 banner flag)
 }
 
 // ==========================================

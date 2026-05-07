@@ -12,7 +12,12 @@ import {
 import { PrismaService } from "../prisma/prisma.service.js";
 
 type OrchestrationTrigger = "upload" | "settings_change";
-type EnqueueResultReason = "QUEUED" | "NO_MANUSCRIPT" | "ALREADY_ACTIVE" | "RESTORED_FROM_CACHE";
+type EnqueueResultReason =
+  | "QUEUED"
+  | "NO_MANUSCRIPT"
+  | "ALREADY_ACTIVE"
+  | "RESTORED_FROM_CACHE"
+  | "PENDING_REDIS";
 type QueueJobState =
   | "waiting"
   | "active"
@@ -29,7 +34,7 @@ export type EnqueueResult = {
   queueJobId: string | null;
 };
 
-const ACTIVE_DB_JOB_STATUSES = ["QUEUED", "PROCESSING"] as const;
+const ACTIVE_DB_JOB_STATUSES = ["QUEUED", "PROCESSING", "PENDING_REDIS"] as const;
 const ACTIVE_DB_JOB_STALE_AFTER_MS = 15 * 60 * 1000;
 const ACTIVE_QUEUE_STATES = new Set<QueueJobState>([
   "waiting",
@@ -206,6 +211,7 @@ export class BooksPipelineService {
       formatProfileVersion: FORMAT_CACHE_PROFILE_VERSION,
       renderProfileVersion: RENDER_CACHE_PROFILE_VERSION,
       fingerprint,
+      queueJobId,
       queuedAt: new Date().toISOString(),
     };
 
@@ -241,6 +247,23 @@ export class BooksPipelineService {
           jobRecordId: null,
           queueJobId,
         };
+      }
+
+      if (this.isRedisConnectionError(error)) {
+        await this.prisma.job.update({
+          where: { id: jobRecord.id },
+          data: { status: "PENDING_REDIS" },
+        });
+        this.logger.warn(
+          `Redis unavailable — parked FORMAT_MANUSCRIPT job ${jobRecord.id} as PENDING_REDIS for book ${book.id}`
+        );
+        await this.markFormattingQueued({
+          bookId: book.id,
+          orderId: book.orderId,
+          bookStatus: book.status,
+          orderStatus: book.order.status,
+        });
+        return { queued: false, reason: "PENDING_REDIS", jobRecordId: jobRecord.id, queueJobId };
       }
 
       await this.prisma.job.update({
@@ -361,6 +384,7 @@ export class BooksPipelineService {
       sourceAiJobRecordId: params.sourceAiJobRecordId ?? null,
       renderProfileVersion: RENDER_CACHE_PROFILE_VERSION,
       fingerprint,
+      queueJobId,
       queuedAt: new Date().toISOString(),
     };
 
@@ -396,6 +420,23 @@ export class BooksPipelineService {
           jobRecordId: null,
           queueJobId,
         };
+      }
+
+      if (this.isRedisConnectionError(error)) {
+        await this.prisma.job.update({
+          where: { id: jobRecord.id },
+          data: { status: "PENDING_REDIS" },
+        });
+        this.logger.warn(
+          `Redis unavailable — parked COUNT_PAGES job ${jobRecord.id} as PENDING_REDIS for book ${book.id}`
+        );
+        await this.markPageCountQueued({
+          bookId: book.id,
+          orderId: book.orderId,
+          bookStatus: book.status,
+          orderStatus: book.order.status,
+        });
+        return { queued: false, reason: "PENDING_REDIS", jobRecordId: jobRecord.id, queueJobId };
       }
 
       await this.prisma.job.update({
@@ -516,6 +557,7 @@ export class BooksPipelineService {
       fontSize: book.fontSize,
       renderProfileVersion: RENDER_CACHE_PROFILE_VERSION,
       fingerprint,
+      queueJobId,
       queuedAt: new Date().toISOString(),
     };
 
@@ -551,6 +593,17 @@ export class BooksPipelineService {
           jobRecordId: null,
           queueJobId,
         };
+      }
+
+      if (this.isRedisConnectionError(error)) {
+        await this.prisma.job.update({
+          where: { id: jobRecord.id },
+          data: { status: "PENDING_REDIS" },
+        });
+        this.logger.warn(
+          `Redis unavailable — parked GENERATE_PDF job ${jobRecord.id} as PENDING_REDIS for book ${book.id}`
+        );
+        return { queued: false, reason: "PENDING_REDIS", jobRecordId: jobRecord.id, queueJobId };
       }
 
       await this.prisma.job.update({
@@ -658,7 +711,7 @@ export class BooksPipelineService {
     const activeDbJobs = await this.prisma.job.findMany({
       where: {
         bookId,
-        status: { in: ["QUEUED", "PROCESSING"] },
+        status: { in: ["QUEUED", "PROCESSING", "PENDING_REDIS"] },
       },
       select: { id: true, type: true },
     });
@@ -678,7 +731,7 @@ export class BooksPipelineService {
       await this.prisma.job.updateMany({
         where: {
           bookId,
-          status: { in: ["QUEUED", "PROCESSING"] },
+          status: { in: ["QUEUED", "PROCESSING", "PENDING_REDIS"] },
         },
         data: {
           status: "FAILED",
@@ -1021,6 +1074,19 @@ export class BooksPipelineService {
 
   private isSupportedFontSize(value: number | null): value is 11 | 12 | 14 {
     return value === 11 || value === 12 || value === 14;
+  }
+
+  private isRedisConnectionError(error: unknown): boolean {
+    const msg = this.toErrorMessage(error).toLowerCase();
+    return (
+      msg.includes("econnrefused") ||
+      msg.includes("connection is closed") ||
+      msg.includes("econnreset") ||
+      msg.includes("stream isn't writeable") ||
+      msg.includes("etimedout") ||
+      msg.includes("socket closed unexpectedly") ||
+      msg.includes("epipe")
+    );
   }
 
   private isDuplicateQueueJobError(error: unknown): boolean {

@@ -8,8 +8,13 @@ import { PaymentsService } from "./payments.service.js";
 import { PayPalProvider } from "./providers/paypal.provider.js";
 import { PaystackProvider } from "./providers/paystack.provider.js";
 import { StripeProvider } from "./providers/stripe.provider.js";
+import { AdminPaymentListService } from "./services/admin-payment-list.service.js";
+import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
+import { GatewayService } from "./services/gateway.service.js";
 import { PayPalService } from "./services/paypal.service.js";
 import { PaystackService } from "./services/paystack.service.js";
+import { RefundService } from "./services/refund.service.js";
+import { ReprintPaymentService } from "./services/reprint-payment.service.js";
 import { StripeService } from "./services/stripe.service.js";
 
 /**
@@ -44,7 +49,14 @@ import { StripeService } from "./services/stripe.service.js";
     StripeService,
     PayPalService,
 
-    // Orchestrator
+    // Domain sub-services (extracted from PaymentsService monolith)
+    GatewayService,
+    AdminPaymentListService,
+    RefundService,
+    ReprintPaymentService,
+    ExtraPagesPaymentService,
+
+    // Orchestrator (facade — delegates to sub-services above)
     PaymentsService,
   ],
   exports: [PaymentsService],
