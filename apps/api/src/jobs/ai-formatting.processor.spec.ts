@@ -20,6 +20,7 @@ const mockPrismaService = {
   job: {
     update: jest.fn(),
     updateMany: jest.fn(),
+    findUnique: jest.fn().mockResolvedValue(null), // used by isJobCancelled
   },
   book: {
     findUnique: jest.fn(),
@@ -38,7 +39,7 @@ const mockPrismaService = {
   $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
     callback({
       book: { update: txBookUpdate },
-      job: { update: txJobUpdate },
+      job: { update: txJobUpdate, findUnique: jest.fn().mockResolvedValue(null) },
     })
   ),
 };

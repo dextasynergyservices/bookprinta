@@ -1,4 +1,5 @@
 export { AiFormattingProcessor } from "./ai-formatting.processor.js";
+export { JobRecoveryService } from "./job-recovery.service.js";
 export {
   ALL_QUEUES,
   JOB_NAMES,

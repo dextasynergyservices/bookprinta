@@ -6,7 +6,6 @@ import type {
   DashboardNewBookPricingResponse,
   DashboardOverviewResponse,
   DashboardPendingAction,
-  NotificationItem,
   PackageCategoryResponse,
   ReviewBook,
   UserBookListItem,
@@ -42,7 +41,11 @@ export class DashboardService {
   ) {}
 
   async getUserDashboardOverview(userId: string): Promise<DashboardOverviewResponse> {
-    const [books, recentOrders, unreadCount, notificationState, profile, reviewState] =
+    // Fix 1.5: collapsed from 6 parallel queries to 5.
+    // `findUserNotifications(limit:50)` was fetched solely to derive a single boolean flag
+    // (`hasProductionDelayBanner`). Replaced with a dedicated EXISTS check backed by the
+    // `@@index([userId, type])` composite index — O(1) vs O(N) full-list scan.
+    const [books, recentOrders, unreadCount, hasDelayBanner, profile, reviewState] =
       await Promise.all([
         this.booksService.findUserBooks(userId, {
           page: 1,
@@ -53,10 +56,7 @@ export class DashboardService {
           limit: 3,
         }),
         this.notificationsService.getUnreadCount(userId),
-        this.notificationsService.findUserNotifications(userId, {
-          page: 1,
-          limit: 50,
-        }),
+        this.notificationsService.hasProductionDelayBanner(userId),
         this.usersService.getMyProfile(userId),
         this.reviewsService.getMyReviews(userId),
       ]);
@@ -84,7 +84,7 @@ export class DashboardService {
       recentOrders: recentOrders.items,
       notifications: {
         unreadCount: unreadCount.unreadCount,
-        hasProductionDelayBanner: this.hasProductionDelayBanner(notificationState.items),
+        hasProductionDelayBanner: hasDelayBanner,
       },
       profile: {
         isProfileComplete: profile.isProfileComplete,
@@ -124,10 +124,6 @@ export class DashboardService {
     );
 
     return inProgressBook ?? books[0] ?? null;
-  }
-
-  private hasProductionDelayBanner(items: NotificationItem[]): boolean {
-    return items.some((item) => item.data.presentation?.persistentBanner === "production_delay");
   }
 
   private buildPendingActions(params: {

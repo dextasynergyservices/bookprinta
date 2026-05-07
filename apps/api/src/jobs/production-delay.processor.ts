@@ -11,6 +11,8 @@ type ProductionDelayMonitorPayload = {
 @Injectable()
 @Processor(QUEUE_PRODUCTION_DELAY, {
   concurrency: 1,
+  // Reduce idle Redis polling from the BullMQ default (5s) to 60s.
+  drainDelay: 60_000,
 })
 export class ProductionDelayProcessor extends WorkerHost {
   private readonly logger = new Logger(ProductionDelayProcessor.name);

@@ -14,9 +14,10 @@ import {
   NotificationTypeSchema,
   type NotificationUnreadCountResponse,
 } from "@bookprinta/shared";
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 import { isUserNotificationChannelEnabled } from "./notification-preference-policy.js";
 
 const NOTIFICATION_SELECT = {
@@ -101,6 +102,14 @@ type SystemNotificationParams = NotificationEntityRefs & {
   bypassPreference?: boolean;
 };
 
+type JobFailedNotificationParams = {
+  queueName: string;
+  jobId: string | undefined;
+  bookId?: string;
+  orderId?: string;
+  errorMessage: string;
+};
+
 const NOTIFICATION_TRANSLATION_KEYS = {
   bankTransferReceived: {
     title: "notifications.bank_transfer_received.title",
@@ -130,17 +139,114 @@ const PRODUCTION_DELAY_FALLBACK_MESSAGE =
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(NotificationsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly redis?: RedisService
+  ) {}
+
+  // ─── Redis unread counter helpers ──────────────────────────────────────────
+  // Key: `bp:notif:unread:{userId}` — integer counter, no TTL (authoritative).
+  // On cache miss (key absent), falls back to DB COUNT and re-seeds the key.
+
+  private unreadKey(userId: string): string {
+    return `bp:notif:unread:${userId}`;
+  }
+
+  private async incrUnread(userIds: string[]): Promise<void> {
+    const client = this.redis?.getClient();
+    if (!client || userIds.length === 0) return;
+    try {
+      const pipeline = client.pipeline();
+      for (const id of userIds) pipeline.incr(this.unreadKey(id));
+      await pipeline.exec();
+    } catch (err) {
+      this.logger.warn(`Redis unread INCR failed — counter may drift: ${err}`);
+    }
+  }
+
+  private async decrUnread(userId: string, by = 1): Promise<void> {
+    if (by <= 0) return;
+    const client = this.redis?.getClient();
+    if (!client) return;
+    try {
+      // DECRBY but clamp to 0 — Lua script avoids going negative
+      const key = this.unreadKey(userId);
+      await client.eval(
+        "local v = redis.call('decrby', KEYS[1], ARGV[1]); if v < 0 then redis.call('set', KEYS[1], 0) end; return v",
+        1,
+        key,
+        String(by)
+      );
+    } catch (err) {
+      this.logger.warn(`Redis unread DECR failed — counter may drift: ${err}`);
+    }
+  }
+
+  private async resetUnread(userId: string): Promise<void> {
+    const client = this.redis?.getClient();
+    if (!client) return;
+    try {
+      await client.set(this.unreadKey(userId), 0);
+    } catch (err) {
+      this.logger.warn(`Redis unread reset failed — counter may drift: ${err}`);
+    }
+  }
+
+  private async getUnreadFromRedis(userId: string): Promise<number | null> {
+    const client = this.redis?.getClient();
+    if (!client) return null;
+    try {
+      const val = await client.get(this.unreadKey(userId));
+      if (val === null) return null; // cache miss
+      const parsed = Number.parseInt(val, 10);
+      return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+    } catch {
+      return null; // degrade to DB on any Redis error
+    }
+  }
+
+  private async seedUnreadCache(userId: string): Promise<number> {
+    const count = await this.prisma.notification.count({
+      where: { userId, isRead: false },
+    });
+    const client = this.redis?.getClient();
+    if (client) {
+      try {
+        await client.set(this.unreadKey(userId), count);
+      } catch {
+        // Non-critical — DB count is still returned
+      }
+    }
+    return count;
+  }
+  // ───────────────────────────────────────────────────────────────────────────
 
   async getUnreadCount(userId: string): Promise<NotificationUnreadCountResponse> {
-    const unreadCount = await this.prisma.notification.count({
-      where: {
-        userId,
-        isRead: false,
-      },
-    });
-
+    const cached = await this.getUnreadFromRedis(userId);
+    if (cached !== null) {
+      return { unreadCount: cached };
+    }
+    // Cache miss — query DB and re-seed Redis
+    const unreadCount = await this.seedUnreadCache(userId);
     return { unreadCount };
+  }
+
+  /**
+   * Fix 1.5 — cheap banner flag for the dashboard overview.
+   *
+   * Replaces the old `findUserNotifications(limit: 50)` fan-out which fetched a full
+   * 50-row notification list just to derive a single boolean.  This issues one
+   * `SELECT id … WHERE userId=$1 AND type='PRODUCTION_DELAY' LIMIT 1` — covered by
+   * the `@@index([userId, type])` composite index so it's an O(1) index seek.
+   */
+  async hasProductionDelayBanner(userId: string): Promise<boolean> {
+    const found = await this.prisma.notification.findFirst({
+      where: { userId, type: "PRODUCTION_DELAY" },
+      select: { id: true },
+    });
+    return found !== null;
   }
 
   async findUserNotifications(
@@ -207,6 +313,9 @@ export class NotificationsService {
       select: NOTIFICATION_SELECT,
     });
 
+    // Decrement Redis counter by 1
+    await this.decrUnread(userId);
+
     return {
       notification: this.serializeNotification(updated),
     };
@@ -222,6 +331,9 @@ export class NotificationsService {
         isRead: true,
       },
     });
+
+    // Reset Redis counter to 0
+    await this.resetUnread(userId);
 
     return {
       updatedCount: result.count,
@@ -406,6 +518,50 @@ export class NotificationsService {
     );
   }
 
+  async notifyAdminsJobFailed(params: JobFailedNotificationParams): Promise<void> {
+    const admins = await this.prisma.user.findMany({
+      where: { role: { in: [...ADMIN_ROLES] } },
+      select: { id: true },
+    });
+
+    if (admins.length === 0) return;
+
+    const jobLabel = params.bookId ?? params.jobId ?? "unknown";
+    const actionHref = params.bookId ? `/admin/books/${params.bookId}` : "/admin/books";
+
+    await this.persistNotifications(
+      admins.map((admin) => ({
+        userId: admin.id,
+        type: "SYSTEM" as const,
+        fallbackTitle: `Job failed: ${params.queueName}`,
+        fallbackMessage: `Job for ${jobLabel} failed permanently in "${params.queueName}": ${params.errorMessage.slice(0, 200)}`,
+        preferenceKind: "system" as const,
+        bypassPreference: true,
+        data: {
+          titleKey: "notifications.job_failed.title",
+          messageKey: "notifications.job_failed.message",
+          params: {
+            queueName: params.queueName,
+            jobLabel,
+            errorMessage: params.errorMessage.slice(0, 200),
+          },
+          entity:
+            params.bookId || params.orderId
+              ? {
+                  ...(params.bookId ? { bookId: params.bookId } : {}),
+                  ...(params.orderId ? { orderId: params.orderId } : {}),
+                }
+              : undefined,
+          action: {
+            kind: "navigate" as const,
+            href: actionHref,
+          },
+        },
+      })),
+      this.prisma
+    );
+  }
+
   private serializeNotification(row: NotificationRow): NotificationItem {
     const type = this.normalizeNotificationType(row.type);
     const data = this.normalizeNotificationData(row, type);
@@ -520,6 +676,10 @@ export class NotificationsService {
     await executor.notification.createMany({
       data: eligibleRecords.map((record) => this.toNotificationCreateManyInput(record)),
     });
+
+    // Increment Redis unread counters for every user that received a notification
+    const recipientIds = eligibleRecords.map((r) => r.userId);
+    await this.incrUnread(recipientIds);
   }
 
   private toNotificationCreateManyInput(

@@ -18,18 +18,20 @@ const mockPrismaService = {
   },
   job: {
     updateMany: jest.fn(),
+    findUnique: jest.fn().mockResolvedValue(null), // used by isJobCancelled
   },
   $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
     callback({
       book: { update: txBookUpdate },
       order: { update: txOrderUpdate },
-      job: { update: txJobUpdate },
+      job: { update: txJobUpdate, findUnique: jest.fn().mockResolvedValue(null) },
     })
   ),
 };
 
 const mockGotenbergPageCountService = {
   renderPdf: jest.fn(),
+  waitForReady: jest.fn().mockResolvedValue(true),
 };
 
 const mockFilesService = {

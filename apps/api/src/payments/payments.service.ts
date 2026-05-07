@@ -7,22 +7,13 @@ import {
   renderBankTransferUserEmail,
   renderNewBookOrderAdminEmail,
   renderNewBookOrderUserEmail,
-  renderRefundConfirmEmail,
-  renderReprintAdminConfirmEmail,
-  renderReprintConfirmEmail,
 } from "@bookprinta/emails/render";
 import type {
-  AdminPaymentRefundability,
-  AdminPaymentSortField,
-  AdminPaymentsListItem,
   AdminPaymentsListQuery,
   AdminPaymentsListResponse,
-  AdminPendingBankTransferItem,
   AdminPendingBankTransfersResponse,
-  AdminPendingCheckoutSnapshot,
   AdminRefundRequestInput,
   AdminRefundResponse,
-  RefundPolicySnapshot,
 } from "@bookprinta/shared";
 import { DEFAULT_CURRENCY } from "@bookprinta/shared";
 import {
@@ -55,14 +46,18 @@ import { NotificationsService } from "../notifications/notifications.service.js"
 import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
 import { WhatsappService } from "../notifications/whatsapp.service.js";
 import { WhatsappNotificationsService } from "../notifications/whatsapp-notifications.service.js";
-import { buildRefundPolicySnapshot } from "../orders/admin-order-workflow.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { ScannerService } from "../scanner/scanner.service.js";
 import type { InitializePaymentDto } from "./dto/payment-request.dto.js";
+import { AdminPaymentListService } from "./services/admin-payment-list.service.js";
+import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
+import { GatewayService } from "./services/gateway.service.js";
 import { PayPalService } from "./services/paypal.service.js";
 import type { PaystackWebhookPayload } from "./services/paystack.service.js";
 import { PaystackService } from "./services/paystack.service.js";
+import { RefundService } from "./services/refund.service.js";
+import { ReprintPaymentService } from "./services/reprint-payment.service.js";
 import { StripeService } from "./services/stripe.service.js";
 
 const MAX_SIGNUP_TOKEN_HOURS = 24;
@@ -77,7 +72,6 @@ const DEFAULT_REPRINT_COST_PER_PAGE = 15;
 const DEFAULT_REPRINT_COVER_COST = 300;
 const REPRINT_COST_PER_PAGE_SETTING_KEY = "reprint_cost_per_page";
 const REPRINT_COVER_COST_SETTING_KEY = "reprint_cover_cost";
-const STALE_PENDING_CHECKOUT_MINUTES = 120;
 const PHONE_ALREADY_IN_USE_MESSAGE =
   "This phone number is already linked to another account. Use another phone number or sign in to your existing account.";
 const EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE =
@@ -210,83 +204,6 @@ type DashboardOrderEmailDeliverySnapshot = {
   lastAttemptAt?: string | null;
 };
 
-const ADMIN_PAYMENT_SORTABLE_FIELDS: AdminPaymentSortField[] = [
-  "orderReference",
-  "customerName",
-  "customerEmail",
-  "amount",
-  "provider",
-  "status",
-  "createdAt",
-];
-
-const ADMIN_PAYMENT_LIST_SELECT = {
-  id: true,
-  orderId: true,
-  userId: true,
-  provider: true,
-  type: true,
-  amount: true,
-  currency: true,
-  status: true,
-  providerRef: true,
-  processedAt: true,
-  receiptUrl: true,
-  payerName: true,
-  payerEmail: true,
-  payerPhone: true,
-  adminNote: true,
-  approvedAt: true,
-  approvedBy: true,
-  metadata: true,
-  createdAt: true,
-  updatedAt: true,
-  order: {
-    select: {
-      id: true,
-      orderNumber: true,
-      status: true,
-      version: true,
-      refundedAt: true,
-      totalAmount: true,
-      currency: true,
-      userId: true,
-      user: {
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          phoneNumber: true,
-          preferredLanguage: true,
-        },
-      },
-      book: {
-        select: {
-          id: true,
-          status: true,
-          productionStatus: true,
-          version: true,
-        },
-      },
-    },
-  },
-  user: {
-    select: {
-      id: true,
-      email: true,
-      firstName: true,
-      lastName: true,
-      phoneNumber: true,
-      preferredLanguage: true,
-    },
-  },
-} as const;
-
-type AdminPaymentListRow = Prisma.PaymentGetPayload<{
-  select: typeof ADMIN_PAYMENT_LIST_SELECT;
-}>;
-
 // ──────────────────────────────────────────────
 // Orchestrator service for all payment operations.
 //
@@ -303,11 +220,27 @@ type AdminPaymentListRow = Prisma.PaymentGetPayload<{
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
-  private readonly resend: Resend | null;
+  private _resend: Resend | null = null;
+  private get resend(): Resend | null {
+    return this._resend;
+  }
+  private set resend(value: Resend | null) {
+    this._resend = value;
+    if (this.reprintPaymentService)
+      (this.reprintPaymentService as unknown as { resend: Resend | null }).resend = value;
+    if (this.refundService)
+      (this.refundService as unknown as { resend: Resend | null }).resend = value;
+  }
   private readonly frontendBaseUrl: string;
   private readonly customerPaymentsFromEmail: string;
   private readonly adminNotificationsFromEmail: string;
   private readonly adminEmailRecipients: string[];
+  // Sub-services injected by NestJS DI in production; created internally in tests for backward compat
+  private gatewayService!: GatewayService;
+  private adminPaymentListService!: AdminPaymentListService;
+  private refundService!: RefundService;
+  private reprintPaymentService!: ReprintPaymentService;
+  private extraPagesService!: ExtraPagesPaymentService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -323,13 +256,39 @@ export class PaymentsService {
     @Optional()
     private readonly whatsappNotificationsService: WhatsappNotificationsService = new WhatsappNotificationsService(
       new WhatsappService()
-    )
+    ),
+    @Optional() gatewayServiceInject?: GatewayService,
+    @Optional() adminPaymentListServiceInject?: AdminPaymentListService,
+    @Optional() refundServiceInject?: RefundService,
+    @Optional() reprintPaymentServiceInject?: ReprintPaymentService,
+    @Optional() extraPagesServiceInject?: ExtraPagesPaymentService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.frontendBaseUrl = this.resolveFrontendBaseUrl();
     this.customerPaymentsFromEmail = this.resolveCustomerFacingFromEmail();
     this.adminNotificationsFromEmail = this.resolveAdminNotificationsFromEmail();
     this.adminEmailRecipients = this.resolveAdminEmailRecipients();
+    // Sub-service initialization: NestJS provides instances in production;
+    // tests using `new PaymentsService(prisma, ...)` get internally-created instances.
+    this.gatewayService =
+      gatewayServiceInject ??
+      new GatewayService(prisma, paystackService, stripeService, paypalService);
+    this.adminPaymentListService =
+      adminPaymentListServiceInject ?? new AdminPaymentListService(prisma);
+    this.refundService =
+      refundServiceInject ??
+      new RefundService(
+        prisma,
+        paystackService,
+        stripeService,
+        notificationsService,
+        this.whatsappNotificationsService
+      );
+    this.reprintPaymentService =
+      reprintPaymentServiceInject ??
+      new ReprintPaymentService(prisma, this.gatewayService, notificationsService);
+    this.extraPagesService =
+      extraPagesServiceInject ?? new ExtraPagesPaymentService(prisma, this.gatewayService, rollout);
   }
 
   // ────────────────────────────────────────────
@@ -345,29 +304,7 @@ export class PaymentsService {
    * BANK_TRANSFER is config-only (no SDK keys required).
    */
   async listAvailableGateways() {
-    const gateways = await this.prisma.paymentGateway.findMany({
-      where: { isEnabled: true },
-      orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
-    });
-
-    return gateways
-      .filter((gateway) => this.isGatewayAvailableForCheckout(gateway.provider))
-      .map((gateway) => ({
-        id: gateway.id,
-        provider: gateway.provider,
-        name: gateway.name,
-        isEnabled: gateway.isEnabled,
-        isTestMode: gateway.isTestMode,
-        bankDetails:
-          gateway.provider === PaymentProvider.BANK_TRANSFER
-            ? ((gateway.bankDetails as Record<string, unknown> | null) ?? null)
-            : null,
-        instructions:
-          gateway.provider === PaymentProvider.BANK_TRANSFER
-            ? (gateway.instructions ?? null)
-            : null,
-        priority: gateway.priority,
-      }));
+    return this.gatewayService.listAvailableGateways();
   }
 
   /**
@@ -1091,71 +1028,11 @@ export class PaymentsService {
   }
 
   async listAdminPayments(query: AdminPaymentsListQuery): Promise<AdminPaymentsListResponse> {
-    const limit = query.limit ?? 20;
-    const sortBy = query.sortBy ?? "createdAt";
-    const sortDirection = query.sortDirection ?? "desc";
-    const where = this.buildAdminPaymentsWhere(query);
-    const rows = await this.prisma.payment.findMany({
-      where,
-      select: ADMIN_PAYMENT_LIST_SELECT,
-    });
-    const items = this.sortAdminPaymentItems(
-      rows.map((row) => this.serializeAdminPaymentListItem(row)),
-      sortBy,
-      sortDirection
-    );
-
-    let startIndex = 0;
-    if (query.cursor) {
-      const cursorIndex = items.findIndex((item) => item.id === query.cursor);
-      if (cursorIndex === -1) {
-        throw new BadRequestException("Invalid payments cursor");
-      }
-      startIndex = cursorIndex + 1;
-    }
-
-    const pageItems = items.slice(startIndex, startIndex + limit);
-    const nextCursor =
-      startIndex + limit < items.length && pageItems.length > 0
-        ? (pageItems[pageItems.length - 1]?.id ?? null)
-        : null;
-
-    return {
-      items: pageItems,
-      nextCursor,
-      hasMore: nextCursor !== null,
-      totalItems: items.length,
-      limit,
-      sortBy,
-      sortDirection,
-      sortableFields: [...ADMIN_PAYMENT_SORTABLE_FIELDS],
-    };
+    return this.adminPaymentListService.listAdminPayments(query);
   }
 
   async listAdminPendingBankTransfers(): Promise<AdminPendingBankTransfersResponse> {
-    const rows = await this.prisma.payment.findMany({
-      where: {
-        provider: PaymentProvider.BANK_TRANSFER,
-        status: PaymentStatus.AWAITING_APPROVAL,
-      },
-      select: ADMIN_PAYMENT_LIST_SELECT,
-    });
-    const items = this.sortAdminPaymentItems(
-      rows.map((row) => this.serializeAdminPaymentListItem(row)),
-      "createdAt",
-      "asc"
-    ).map((item) => ({
-      ...item,
-      provider: PaymentProvider.BANK_TRANSFER,
-      status: PaymentStatus.AWAITING_APPROVAL,
-      slaSnapshot: this.buildPendingBankTransferSlaSnapshot(item.createdAt),
-    })) as AdminPendingBankTransferItem[];
-
-    return {
-      items,
-      totalItems: items.length,
-      refreshedAt: new Date().toISOString(),
-    };
+    return this.adminPaymentListService.listAdminPendingBankTransfers();
   }
 
   async listPendingBankTransfers(): Promise<AdminPendingBankTransfersResponse> {
@@ -1580,354 +1457,7 @@ export class PaymentsService {
     adminId: string;
     input: AdminRefundRequestInput;
   }): Promise<AdminRefundResponse> {
-    const payment = await this.prisma.payment.findUnique({
-      where: { id: params.paymentId },
-      select: {
-        id: true,
-        orderId: true,
-        userId: true,
-        provider: true,
-        type: true,
-        amount: true,
-        currency: true,
-        status: true,
-        providerRef: true,
-        payerName: true,
-        payerEmail: true,
-        payerPhone: true,
-        adminNote: true,
-        gatewayResponse: true,
-        order: {
-          select: {
-            id: true,
-            orderNumber: true,
-            userId: true,
-            status: true,
-            version: true,
-            totalAmount: true,
-            currency: true,
-            refundedAt: true,
-            refundAmount: true,
-            user: {
-              select: {
-                firstName: true,
-                lastName: true,
-                email: true,
-                phoneNumber: true,
-                preferredLanguage: true,
-                emailNotificationsEnabled: true,
-                whatsAppNotificationsEnabled: true,
-              },
-            },
-            book: {
-              select: {
-                id: true,
-                status: true,
-                productionStatus: true,
-                version: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!payment) {
-      throw new NotFoundException("Payment not found");
-    }
-
-    if (!payment.order) {
-      throw new BadRequestException("This payment is not linked to an order.");
-    }
-    const order = payment.order;
-    const orderBook = order.book;
-
-    if (payment.type === PaymentType.REFUND) {
-      throw new BadRequestException("Refund payments cannot be refunded again.");
-    }
-
-    if (payment.status !== PaymentStatus.SUCCESS) {
-      throw new BadRequestException("Only successful payments can be refunded.");
-    }
-
-    if (order.status === OrderStatus.REFUNDED || order.refundedAt) {
-      throw new BadRequestException("This order has already been refunded.");
-    }
-
-    if (order.version !== params.input.expectedOrderVersion) {
-      throw new ConflictException("Order was updated by another admin. Refresh and try again.");
-    }
-
-    if (
-      orderBook &&
-      params.input.expectedBookVersion !== undefined &&
-      orderBook.version !== params.input.expectedBookVersion
-    ) {
-      throw new ConflictException("Book was updated by another admin. Refresh and try again.");
-    }
-
-    const policySnapshot = buildRefundPolicySnapshot({
-      orderTotalAmount: this.toCurrency(order.totalAmount),
-      orderStatus: order.status,
-      book: orderBook
-        ? {
-            status: orderBook.status,
-            productionStatus: orderBook.productionStatus,
-          }
-        : null,
-    });
-
-    this.assertRefundPolicySnapshotMatches(params.input.policySnapshot, policySnapshot);
-
-    if (!policySnapshot.eligible) {
-      throw new BadRequestException(policySnapshot.policyMessage);
-    }
-
-    const originalPaymentAmount = this.toCurrency(payment.amount);
-    const refundedAmount = this.resolveAdminRefundAmount({
-      input: params.input,
-      paymentAmount: originalPaymentAmount,
-      policySnapshot,
-    });
-    const normalizedReason = params.input.reason.trim();
-    const normalizedNote = params.input.note?.trim() || null;
-    const refundedAt = new Date();
-
-    const providerDispatch = await this.dispatchAdminRefund({
-      provider: payment.provider,
-      providerRef: payment.providerRef,
-      gatewayResponse: this.asRecord(payment.gatewayResponse),
-      amount: refundedAmount,
-    });
-
-    const { refundPayment, updatedOrder, updatedBook, audit } = await this.prisma.$transaction(
-      async (tx) => {
-        const orderUpdated = await tx.order.updateMany({
-          where: {
-            id: order.id,
-            version: params.input.expectedOrderVersion,
-            refundedAt: null,
-          },
-          data: {
-            status: OrderStatus.REFUNDED,
-            refundAmount: refundedAmount,
-            refundReason: normalizedReason,
-            refundedAt,
-            refundedBy: params.adminId,
-            version: {
-              increment: 1,
-            },
-          },
-        });
-
-        if (orderUpdated.count === 0) {
-          throw new ConflictException("Order was updated by another admin. Refresh and try again.");
-        }
-
-        let updatedBook: {
-          id: string;
-          status: BookStatus;
-          version: number;
-        } | null = null;
-
-        if (orderBook) {
-          const expectedBookVersion = params.input.expectedBookVersion ?? orderBook.version;
-          const bookUpdated = await tx.book.updateMany({
-            where: {
-              id: orderBook.id,
-              version: expectedBookVersion,
-            },
-            data: {
-              status: BookStatus.CANCELLED,
-              productionStatus: BookStatus.CANCELLED,
-              productionStatusUpdatedAt: refundedAt,
-              version: {
-                increment: 1,
-              },
-            },
-          });
-
-          if (bookUpdated.count === 0) {
-            throw new ConflictException(
-              "Book was updated by another admin. Refresh and try again."
-            );
-          }
-
-          updatedBook = await tx.book.findUnique({
-            where: { id: orderBook.id },
-            select: {
-              id: true,
-              status: true,
-              version: true,
-            },
-          });
-        }
-
-        if (refundedAmount >= originalPaymentAmount) {
-          await tx.payment.update({
-            where: { id: payment.id },
-            data: {
-              status: PaymentStatus.REFUNDED,
-              adminNote: normalizedNote ?? payment.adminNote ?? null,
-            },
-          });
-        } else if (normalizedNote && normalizedNote !== payment.adminNote) {
-          await tx.payment.update({
-            where: { id: payment.id },
-            data: {
-              adminNote: normalizedNote,
-            },
-          });
-        }
-
-        const refundPayment = await tx.payment.create({
-          data: {
-            orderId: order.id,
-            userId: payment.userId ?? order.userId,
-            provider: payment.provider,
-            type: PaymentType.REFUND,
-            amount: -refundedAmount,
-            currency: payment.currency,
-            status: PaymentStatus.REFUNDED,
-            providerRef: providerDispatch.providerRefundReference ?? undefined,
-            processedAt: refundedAt,
-            payerName: payment.payerName ?? null,
-            payerEmail: payment.payerEmail ?? order.user.email,
-            payerPhone: payment.payerPhone ?? null,
-            adminNote: normalizedNote,
-            approvedAt: refundedAt,
-            approvedBy: params.adminId,
-            metadata: {
-              originalPaymentId: payment.id,
-              refundType: params.input.type,
-              policySnapshot,
-            },
-            gatewayResponse: providerDispatch.response ?? undefined,
-          } as Prisma.PaymentUncheckedCreateInput,
-        });
-
-        const updatedOrder = await tx.order.findUnique({
-          where: { id: order.id },
-          select: {
-            id: true,
-            status: true,
-            version: true,
-          },
-        });
-
-        if (!updatedOrder) {
-          throw new NotFoundException(`Order "${order.id}" not found`);
-        }
-
-        const audit = await tx.auditLog.create({
-          data: {
-            userId: params.adminId,
-            action: "ADMIN_ORDER_REFUND_PROCESSED",
-            entityType: "ORDER",
-            entityId: order.id,
-            details: {
-              paymentId: payment.id,
-              refundPaymentId: refundPayment.id,
-              refundType: params.input.type,
-              refundedAmount,
-              provider: payment.provider,
-              processingMode: providerDispatch.processingMode,
-              providerRefundReference: providerDispatch.providerRefundReference,
-              reason: normalizedReason,
-              note: normalizedNote,
-              policySnapshot,
-            },
-          },
-        });
-
-        await tx.auditLog.create({
-          data: {
-            userId: params.adminId,
-            action: "ORDER_STATUS_REACHED",
-            entityType: "ORDER_TRACKING",
-            entityId: order.id,
-            details: {
-              source: "order",
-              status: OrderStatus.REFUNDED,
-              reachedAt: refundedAt.toISOString(),
-              label: "Refunded",
-            },
-          },
-        });
-
-        await this.notificationsService.createOrderStatusNotification(
-          {
-            userId: order.userId,
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            status: OrderStatus.REFUNDED,
-            source: "order",
-            bookId: orderBook?.id,
-          },
-          tx
-        );
-
-        return {
-          refundPayment,
-          updatedOrder,
-          updatedBook,
-          audit,
-        };
-      }
-    );
-
-    const emailSent = await this.sendRefundConfirmationEmail({
-      email: order.user.email,
-      userName: this.pickDisplayName(
-        [order.user.firstName, order.user.lastName].filter(Boolean).join(" ") || undefined,
-        order.user.email
-      ),
-      locale: this.resolveLocale(order.user.preferredLanguage),
-      orderNumber: order.orderNumber,
-      originalAmount: originalPaymentAmount,
-      refundedAmount,
-      refundReason: normalizedReason,
-      emailNotificationsEnabled: order.user.emailNotificationsEnabled,
-    });
-
-    await this.sendRefundConfirmationWhatsApp({
-      userName: this.pickDisplayName(
-        [order.user.firstName, order.user.lastName].filter(Boolean).join(" ") || undefined,
-        order.user.email
-      ),
-      phoneNumber: payment.payerPhone ?? order.user.phoneNumber ?? null,
-      preferredLanguage: order.user.preferredLanguage,
-      whatsAppNotificationsEnabled: order.user.whatsAppNotificationsEnabled,
-      orderNumber: order.orderNumber,
-      originalAmount: this.formatNaira(originalPaymentAmount),
-      refundAmount: this.formatNaira(refundedAmount),
-      refundReason: normalizedReason,
-      dashboardUrl: this.buildLocalizedDashboardUrl(
-        this.resolveLocale(order.user.preferredLanguage)
-      ),
-    });
-
-    return {
-      orderId: order.id,
-      paymentId: payment.id,
-      refundPaymentId: refundPayment.id,
-      provider: payment.provider,
-      processingMode: providerDispatch.processingMode,
-      refundType: params.input.type,
-      refundedAmount,
-      currency: payment.currency,
-      paymentStatus: refundPayment.status,
-      providerRefundReference: providerDispatch.providerRefundReference,
-      orderStatus: updatedOrder.status,
-      bookStatus: updatedBook?.status ?? null,
-      refundedAt: refundedAt.toISOString(),
-      refundReason: normalizedReason,
-      orderVersion: updatedOrder.version,
-      bookVersion: updatedBook?.version ?? null,
-      emailSent,
-      policySnapshot,
-      audit: this.serializeAdminAuditEntry(audit, params.adminId),
-    };
+    return this.refundService.refundAdminPayment(params);
   }
 
   /**
@@ -2389,7 +1919,7 @@ export class PaymentsService {
 
       if (shouldCreateReprintEntities) {
         try {
-          const reprintResult = await this.createReprintEntitiesFromMetadata({
+          const reprintResult = await this.reprintPaymentService.createReprintEntitiesFromMetadata({
             paymentId: existingPayment.id,
             userId: existingPayment.userId,
             payerEmail: data.payerEmail ?? existingPayment.payerEmail,
@@ -2409,7 +1939,7 @@ export class PaymentsService {
               reference: data.providerRef,
             });
 
-            await this.sendReprintConfirmationEmails({
+            await this.reprintPaymentService.sendReprintConfirmationEmails({
               locale: reprintResult.locale,
               userName: reprintResult.name,
               userEmail: reprintResult.email,
@@ -2517,8 +2047,11 @@ export class PaymentsService {
 
       if (!shouldCreateCheckoutEntities) {
         if (existingPayment.type === PaymentType.EXTRA_PAGES && existingPayment.orderId) {
-          await this.reconcileExtraPagesBillingGate(existingPayment.orderId);
-          await this.sendExtraPagesPaymentConfirmationWhatsApp(existingPayment.orderId);
+          await this.extraPagesService.reconcileExtraPagesBillingGate(existingPayment.orderId);
+          await this.extraPagesService.sendExtraPagesPaymentConfirmationWhatsApp(
+            existingPayment.orderId,
+            this.whatsappNotificationsService
+          );
         }
         return;
       }
@@ -2704,66 +2237,6 @@ export class PaymentsService {
   ): Record<string, unknown> | null {
     if (!metadata || typeof metadata !== "object") return null;
     return metadata;
-  }
-
-  private async reconcileExtraPagesBillingGate(orderId: string): Promise<void> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        status: true,
-        package: {
-          select: {
-            pageLimit: true,
-          },
-        },
-        book: {
-          select: {
-            pageCount: true,
-          },
-        },
-        payments: {
-          where: {
-            type: PaymentType.EXTRA_PAGES,
-            status: PaymentStatus.SUCCESS,
-          },
-          select: {
-            amount: true,
-          },
-        },
-      },
-    });
-
-    if (!order || !order.book || typeof order.book.pageCount !== "number") {
-      return;
-    }
-
-    if (
-      order.status === OrderStatus.APPROVED ||
-      order.status === OrderStatus.IN_PRODUCTION ||
-      order.status === OrderStatus.COMPLETED ||
-      order.status === OrderStatus.CANCELLED ||
-      order.status === OrderStatus.REFUNDED
-    ) {
-      return;
-    }
-
-    const overagePages = Math.max(0, order.book.pageCount - order.package.pageLimit);
-    const requiredAmount = overagePages * EXTRA_PAGE_PRICE_NGN;
-    const paidAmount = order.payments.reduce((sum, payment) => {
-      return sum + this.toCurrency(payment.amount);
-    }, 0);
-
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: {
-        status:
-          requiredAmount > 0 && paidAmount < requiredAmount
-            ? OrderStatus.PENDING_EXTRA_PAYMENT
-            : OrderStatus.PREVIEW_READY,
-        extraAmount: requiredAmount,
-      },
-    });
   }
 
   private async ensureBankTransferApprovalSignupInfo(params: {
@@ -4661,410 +4134,6 @@ export class PaymentsService {
     });
   }
 
-  private async sendRefundConfirmationWhatsApp(params: {
-    userName: string;
-    phoneNumber?: string | null;
-    preferredLanguage?: string | null;
-    whatsAppNotificationsEnabled?: boolean;
-    orderNumber: string;
-    originalAmount: string;
-    refundAmount: string;
-    refundReason: string;
-    dashboardUrl?: string | null;
-  }): Promise<void> {
-    await this.whatsappNotificationsService.sendRefundConfirmation({
-      recipient: {
-        userName: params.userName,
-        phoneNumber: params.phoneNumber,
-        preferredLanguage: params.preferredLanguage,
-        whatsAppNotificationsEnabled: params.whatsAppNotificationsEnabled,
-      },
-      orderNumber: params.orderNumber,
-      originalAmountLabel: params.originalAmount,
-      refundAmountLabel: params.refundAmount,
-      refundReason: params.refundReason,
-      dashboardUrl: params.dashboardUrl,
-    });
-  }
-
-  private async sendExtraPagesPaymentConfirmationWhatsApp(orderId: string): Promise<void> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        orderNumber: true,
-        totalAmount: true,
-        package: {
-          select: {
-            name: true,
-          },
-        },
-        payments: {
-          where: {
-            type: PaymentType.EXTRA_PAGES,
-            status: PaymentStatus.SUCCESS,
-          },
-          orderBy: [{ processedAt: "desc" }, { createdAt: "desc" }],
-          take: 1,
-          select: {
-            amount: true,
-          },
-        },
-        user: {
-          select: {
-            email: true,
-            firstName: true,
-            lastName: true,
-            phoneNumber: true,
-            preferredLanguage: true,
-            whatsAppNotificationsEnabled: true,
-          },
-        },
-      },
-    });
-
-    if (!order) return;
-
-    const locale = this.resolveLocale(order.user.preferredLanguage);
-    await this.sendPaymentConfirmationWhatsApp({
-      userName: this.pickDisplayName(
-        [order.user.firstName, order.user.lastName].filter(Boolean).join(" ") || undefined,
-        order.user.email
-      ),
-      phoneNumber: order.user.phoneNumber ?? null,
-      preferredLanguage: order.user.preferredLanguage,
-      whatsAppNotificationsEnabled: order.user.whatsAppNotificationsEnabled,
-      orderNumber: order.orderNumber,
-      packageName: order.package.name,
-      amountPaid: this.formatNaira(this.toCurrency(order.payments[0]?.amount ?? order.totalAmount)),
-      addons: [],
-      variant: "extra_pages",
-      dashboardUrl: this.buildLocalizedDashboardUrl(locale),
-    });
-  }
-
-  private buildAdminPaymentsWhere(
-    query: Pick<AdminPaymentsListQuery, "status" | "provider" | "dateFrom" | "dateTo" | "q">
-  ): Prisma.PaymentWhereInput {
-    const where: Prisma.PaymentWhereInput = {};
-
-    if (query.status) {
-      where.status = query.status;
-    }
-
-    if (query.provider) {
-      where.provider = query.provider;
-    }
-
-    if (query.dateFrom || query.dateTo) {
-      where.createdAt = {
-        ...(query.dateFrom ? { gte: this.parseDateOnlyStart(query.dateFrom) } : {}),
-        ...(query.dateTo ? { lt: this.parseDateOnlyExclusiveEnd(query.dateTo) } : {}),
-      };
-    }
-
-    const normalizedQuery = query.q?.trim();
-    if (normalizedQuery) {
-      where.OR = [
-        { id: { contains: normalizedQuery, mode: "insensitive" } },
-        { providerRef: { contains: normalizedQuery, mode: "insensitive" } },
-        { payerName: { contains: normalizedQuery, mode: "insensitive" } },
-        { payerEmail: { contains: normalizedQuery, mode: "insensitive" } },
-        { payerPhone: { contains: normalizedQuery, mode: "insensitive" } },
-        {
-          order: {
-            is: {
-              orderNumber: {
-                contains: normalizedQuery,
-                mode: "insensitive",
-              },
-            },
-          },
-        },
-        {
-          order: {
-            is: {
-              user: {
-                is: {
-                  OR: [
-                    { email: { contains: normalizedQuery, mode: "insensitive" } },
-                    { firstName: { contains: normalizedQuery, mode: "insensitive" } },
-                    { lastName: { contains: normalizedQuery, mode: "insensitive" } },
-                  ],
-                },
-              },
-            },
-          },
-        },
-        {
-          user: {
-            is: {
-              OR: [
-                { email: { contains: normalizedQuery, mode: "insensitive" } },
-                { firstName: { contains: normalizedQuery, mode: "insensitive" } },
-                { lastName: { contains: normalizedQuery, mode: "insensitive" } },
-              ],
-            },
-          },
-        },
-      ];
-    }
-
-    return where;
-  }
-
-  private serializeAdminPaymentListItem(row: AdminPaymentListRow): AdminPaymentsListItem {
-    const linkedUser = row.user ?? row.order?.user ?? null;
-    const checkout = this.extractCheckoutMetadata(this.asRecord(row.metadata));
-    const fallbackName = [linkedUser?.firstName, linkedUser?.lastName]
-      .filter(Boolean)
-      .join(" ")
-      .trim();
-    const customerName =
-      fallbackName || row.payerName?.trim() || checkout?.fullName?.trim() || null;
-    const customerEmail = linkedUser?.email?.trim() || row.payerEmail?.trim() || null;
-    const customerPhone =
-      linkedUser?.phoneNumber?.trim() || row.payerPhone?.trim() || checkout?.phone?.trim() || null;
-    const preferredLanguage = linkedUser?.preferredLanguage?.trim() || checkout?.locale || null;
-    const orderReference = row.order?.orderNumber?.trim() || row.providerRef?.trim() || row.id;
-
-    return {
-      id: row.id,
-      orderReference,
-      orderNumber: row.order?.orderNumber ?? null,
-      orderId: row.orderId,
-      userId: row.userId,
-      customer: {
-        fullName: customerName,
-        email: customerEmail,
-        phoneNumber: customerPhone,
-        preferredLanguage,
-      },
-      provider: row.provider,
-      type: row.type,
-      status: row.status,
-      amount: this.toCurrency(row.amount),
-      currency: row.currency,
-      providerRef: row.providerRef ?? null,
-      receiptUrl: row.receiptUrl ?? null,
-      payerName: row.payerName?.trim() || null,
-      payerEmail: row.payerEmail?.trim() || null,
-      payerPhone: row.payerPhone?.trim() || null,
-      adminNote: row.adminNote ?? null,
-      hasAdminNote: Boolean(row.adminNote?.trim()),
-      approvedAt: row.approvedAt?.toISOString() ?? null,
-      approvedBy: row.approvedBy ?? null,
-      processedAt: row.processedAt?.toISOString() ?? null,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-      pendingCheckout: this.buildAdminPendingCheckoutSnapshot(row),
-      refundability: this.buildAdminPaymentRefundability(row),
-    };
-  }
-
-  private buildAdminPaymentRefundability(row: AdminPaymentListRow): AdminPaymentRefundability {
-    const order = row.order;
-    const processingMode = this.resolveAdminRefundProcessingMode(row.provider);
-    const orderVersion = order?.version ?? null;
-    const bookVersion = order?.book?.version ?? null;
-
-    if (!order) {
-      return {
-        isRefundable: false,
-        processingMode,
-        reason: "This payment is not linked to an order.",
-        policySnapshot: null,
-        orderVersion,
-        bookVersion,
-      };
-    }
-
-    const policySnapshot = buildRefundPolicySnapshot({
-      orderTotalAmount: this.toCurrency(order.totalAmount),
-      orderStatus: order.status,
-      book: order.book
-        ? {
-            status: order.book.status,
-            productionStatus: order.book.productionStatus,
-          }
-        : null,
-    });
-
-    if (row.type === PaymentType.REFUND) {
-      return {
-        isRefundable: false,
-        processingMode,
-        reason: "Refund payments cannot be refunded again.",
-        policySnapshot,
-        orderVersion,
-        bookVersion,
-      };
-    }
-
-    if (row.provider === PaymentProvider.PAYPAL) {
-      return {
-        isRefundable: false,
-        processingMode,
-        reason: "PayPal refunds are not supported by the admin refund workflow yet.",
-        policySnapshot,
-        orderVersion,
-        bookVersion,
-      };
-    }
-
-    if (row.status !== PaymentStatus.SUCCESS) {
-      return {
-        isRefundable: false,
-        processingMode,
-        reason: "Only successful payments can be refunded.",
-        policySnapshot,
-        orderVersion,
-        bookVersion,
-      };
-    }
-
-    if (order.status === OrderStatus.REFUNDED || order.refundedAt) {
-      return {
-        isRefundable: false,
-        processingMode,
-        reason: "This order has already been refunded.",
-        policySnapshot,
-        orderVersion,
-        bookVersion,
-      };
-    }
-
-    if (!policySnapshot.eligible) {
-      return {
-        isRefundable: false,
-        processingMode,
-        reason: policySnapshot.policyMessage,
-        policySnapshot,
-        orderVersion,
-        bookVersion,
-      };
-    }
-
-    return {
-      isRefundable: true,
-      processingMode,
-      reason: null,
-      policySnapshot,
-      orderVersion,
-      bookVersion,
-    };
-  }
-
-  private sortAdminPaymentItems(
-    items: AdminPaymentsListItem[],
-    sortBy: AdminPaymentSortField,
-    sortDirection: "asc" | "desc"
-  ): AdminPaymentsListItem[] {
-    const direction = sortDirection === "asc" ? 1 : -1;
-    const sorted = [...items];
-
-    sorted.sort((left, right) => {
-      const primary = this.compareAdminPaymentValues(
-        this.getAdminPaymentSortValue(left, sortBy),
-        this.getAdminPaymentSortValue(right, sortBy)
-      );
-      if (primary !== 0) return primary * direction;
-
-      const createdAtComparison = this.compareAdminPaymentValues(
-        Date.parse(left.createdAt),
-        Date.parse(right.createdAt)
-      );
-      if (createdAtComparison !== 0) return createdAtComparison * direction;
-
-      return this.compareAdminPaymentValues(left.id, right.id) * direction;
-    });
-
-    return sorted;
-  }
-
-  private getAdminPaymentSortValue(
-    item: AdminPaymentsListItem,
-    sortBy: AdminPaymentSortField
-  ): number | string {
-    switch (sortBy) {
-      case "orderReference":
-        return item.orderReference.toLowerCase();
-      case "customerName":
-        return (item.customer.fullName ?? item.payerName ?? "").toLowerCase();
-      case "customerEmail":
-        return (item.customer.email ?? item.payerEmail ?? "").toLowerCase();
-      case "amount":
-        return item.amount;
-      case "provider":
-        return item.provider;
-      case "status":
-        return item.status;
-      default:
-        return Date.parse(item.createdAt);
-    }
-  }
-
-  private compareAdminPaymentValues(left: number | string, right: number | string): number {
-    if (typeof left === "number" && typeof right === "number") {
-      return left === right ? 0 : left > right ? 1 : -1;
-    }
-
-    return String(left).localeCompare(String(right), undefined, {
-      sensitivity: "base",
-      numeric: true,
-    });
-  }
-
-  private buildPendingBankTransferSlaSnapshot(
-    createdAtIso: string
-  ): AdminPendingBankTransferItem["slaSnapshot"] {
-    const ageMinutes = Math.max(0, Math.floor((Date.now() - Date.parse(createdAtIso)) / 60_000));
-    return {
-      ageMinutes,
-      state: ageMinutes < 15 ? "green" : ageMinutes < 30 ? "yellow" : "red",
-    };
-  }
-
-  private buildAdminPendingCheckoutSnapshot(
-    row: AdminPaymentListRow
-  ): AdminPendingCheckoutSnapshot | null {
-    if (row.type !== PaymentType.INITIAL || row.status !== PaymentStatus.PENDING) {
-      return null;
-    }
-
-    if (row.processedAt || row.orderId) {
-      return null;
-    }
-
-    const checkout = this.extractCheckoutMetadata(this.asRecord(row.metadata));
-    if ((checkout?.paymentFlow ?? "").toUpperCase() !== "CHECKOUT") {
-      return null;
-    }
-
-    const ageMinutes = Math.max(0, Math.floor((Date.now() - row.createdAt.getTime()) / 60_000));
-
-    return {
-      ageMinutes,
-      staleAfterMinutes: STALE_PENDING_CHECKOUT_MINUTES,
-      isStale: ageMinutes >= STALE_PENDING_CHECKOUT_MINUTES,
-    };
-  }
-
-  private resolveAdminRefundProcessingMode(
-    provider: PaymentProvider
-  ): AdminPaymentRefundability["processingMode"] {
-    return provider === PaymentProvider.BANK_TRANSFER ? "manual" : "gateway";
-  }
-
-  private parseDateOnlyStart(value: string): Date {
-    return new Date(`${value}T00:00:00.000Z`);
-  }
-
-  private parseDateOnlyExclusiveEnd(value: string): Date {
-    const start = this.parseDateOnlyStart(value);
-    return new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  }
-
   private async sendReprintConfirmationEmails(params: {
     locale: Locale;
     userName: string;
@@ -5078,89 +4147,7 @@ export class PaymentsService {
     lamination: string;
     totalPrice: string;
   }): Promise<void> {
-    if (!this.resend) {
-      this.logger.warn("RESEND_API_KEY not set — reprint confirmation emails skipped");
-      return;
-    }
-
-    const dashboardUrl = this.buildLocalizedDashboardUrl(params.locale);
-    const adminPanelUrl = `${this.frontendBaseUrl}/admin/orders`;
-
-    // Send user confirmation email
-    try {
-      const userEmail = await renderReprintConfirmEmail({
-        locale: params.locale,
-        userName: params.userName,
-        orderNumber: params.orderNumber,
-        bookTitle: params.bookTitle,
-        copies: params.copies,
-        costPerCopy: params.costPerCopy,
-        pageSize: params.bookSize,
-        paperColor: params.paperColor,
-        lamination: params.lamination,
-        totalPrice: params.totalPrice,
-        dashboardUrl,
-      });
-
-      const sendResult = await this.resend.emails.send({
-        from: this.customerPaymentsFromEmail,
-        to: params.userEmail,
-        subject: userEmail.subject,
-        html: userEmail.html,
-      });
-
-      if (sendResult.error) {
-        this.logger.error(
-          `Failed to send reprint confirmation email: ${sendResult.error.name} — ${sendResult.error.message}`
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to send reprint confirmation email to ${params.userEmail}: ${error instanceof Error ? error.message : error}`,
-        error instanceof Error ? error.stack : undefined
-      );
-    }
-
-    // Send admin notification email
-    try {
-      const adminEmail = await renderReprintAdminConfirmEmail({
-        locale: "en",
-        userName: params.userName,
-        userEmail: params.userEmail,
-        orderNumber: params.orderNumber,
-        bookTitle: params.bookTitle,
-        copies: params.copies,
-        costPerCopy: params.costPerCopy,
-        pageSize: params.bookSize,
-        paperColor: params.paperColor,
-        lamination: params.lamination,
-        totalPrice: params.totalPrice,
-        adminPanelUrl,
-      });
-
-      const adminRecipients =
-        this.adminEmailRecipients.length > 0
-          ? this.adminEmailRecipients
-          : [this.adminNotificationsFromEmail];
-
-      const sendResult = await this.resend.emails.send({
-        from: this.adminNotificationsFromEmail,
-        to: adminRecipients,
-        subject: adminEmail.subject,
-        html: adminEmail.html,
-      });
-
-      if (sendResult.error) {
-        this.logger.error(
-          `Failed to send reprint admin notification: ${sendResult.error.name} — ${sendResult.error.message}`
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to send reprint admin notification for ${params.orderNumber}: ${error instanceof Error ? error.message : error}`,
-        error instanceof Error ? error.stack : undefined
-      );
-    }
+    return this.reprintPaymentService.sendReprintConfirmationEmails(params);
   }
 
   /**
@@ -5370,216 +4357,6 @@ export class PaymentsService {
         `Failed to send online payment admin email: ${sendResult.error.name} — ${sendResult.error.message}`
       );
     }
-  }
-
-  private assertRefundPolicySnapshotMatches(
-    clientSnapshot: RefundPolicySnapshot,
-    serverSnapshot: RefundPolicySnapshot
-  ): void {
-    const sameAllowedTypes =
-      clientSnapshot.allowedRefundTypes.length === serverSnapshot.allowedRefundTypes.length &&
-      clientSnapshot.allowedRefundTypes.every(
-        (value, index) => value === serverSnapshot.allowedRefundTypes[index]
-      );
-
-    const matches =
-      clientSnapshot.stage === serverSnapshot.stage &&
-      clientSnapshot.statusSource === serverSnapshot.statusSource &&
-      clientSnapshot.policyDecision === serverSnapshot.policyDecision &&
-      clientSnapshot.eligible === serverSnapshot.eligible &&
-      sameAllowedTypes &&
-      this.toCurrency(clientSnapshot.orderTotalAmount) ===
-        this.toCurrency(serverSnapshot.orderTotalAmount) &&
-      this.toCurrency(clientSnapshot.recommendedAmount) ===
-        this.toCurrency(serverSnapshot.recommendedAmount) &&
-      this.toCurrency(clientSnapshot.maxRefundAmount) ===
-        this.toCurrency(serverSnapshot.maxRefundAmount) &&
-      this.toCurrency(clientSnapshot.policyPercent) ===
-        this.toCurrency(serverSnapshot.policyPercent);
-
-    if (!matches) {
-      throw new ConflictException(
-        "Refund policy changed. Refresh the order and review the latest policy."
-      );
-    }
-  }
-
-  private resolveAdminRefundAmount(params: {
-    input: AdminRefundRequestInput;
-    paymentAmount: number;
-    policySnapshot: RefundPolicySnapshot;
-  }): number {
-    if (!params.policySnapshot.allowedRefundTypes.includes(params.input.type)) {
-      throw new BadRequestException(
-        "Selected refund type is not allowed for the current order stage."
-      );
-    }
-
-    const maxRefundAmount = this.toCurrency(
-      Math.min(params.policySnapshot.maxRefundAmount, params.paymentAmount)
-    );
-
-    let resolvedAmount = 0;
-    switch (params.input.type) {
-      case "FULL":
-        resolvedAmount = maxRefundAmount;
-        break;
-      case "PARTIAL":
-        resolvedAmount = this.toCurrency(
-          Math.min(params.policySnapshot.recommendedAmount, maxRefundAmount)
-        );
-        break;
-      case "CUSTOM":
-        resolvedAmount = this.toCurrency(params.input.customAmount ?? 0);
-        if (resolvedAmount > maxRefundAmount) {
-          throw new BadRequestException(
-            `Custom refund amount cannot exceed ${this.formatNaira(maxRefundAmount)} for this payment.`
-          );
-        }
-        break;
-      default:
-        throw new BadRequestException("Unsupported refund type.");
-    }
-
-    if (resolvedAmount <= 0) {
-      throw new BadRequestException("Refund amount must be greater than zero.");
-    }
-
-    return resolvedAmount;
-  }
-
-  private async dispatchAdminRefund(params: {
-    provider: PaymentProvider;
-    providerRef: string | null;
-    gatewayResponse: Record<string, unknown> | null;
-    amount: number;
-  }): Promise<{
-    processingMode: "gateway" | "manual";
-    providerRefundReference: string | null;
-    response: Prisma.InputJsonValue | undefined;
-  }> {
-    switch (params.provider) {
-      case PaymentProvider.PAYSTACK: {
-        if (!params.providerRef) {
-          throw new BadRequestException("Paystack payment reference is missing for this refund.");
-        }
-        const response = await this.paystackService.refund(params.providerRef, params.amount);
-        return {
-          processingMode: "gateway",
-          providerRefundReference: this.extractRefundReference(response),
-          response: response as Prisma.InputJsonValue,
-        };
-      }
-
-      case PaymentProvider.STRIPE: {
-        const stripeReference =
-          this.asString(params.gatewayResponse?.payment_intent) ?? params.providerRef;
-        if (!stripeReference) {
-          throw new BadRequestException("Stripe payment reference is missing for this refund.");
-        }
-        const response = await this.stripeService.refund(stripeReference, params.amount);
-        return {
-          processingMode: "gateway",
-          providerRefundReference: this.extractRefundReference(response),
-          response: response as Prisma.InputJsonValue,
-        };
-      }
-
-      case PaymentProvider.BANK_TRANSFER:
-        return {
-          processingMode: "manual",
-          providerRefundReference: null,
-          response: undefined,
-        };
-
-      case PaymentProvider.PAYPAL:
-        throw new BadRequestException(
-          "PayPal refunds are not supported by the admin refund workflow yet."
-        );
-
-      default:
-        throw new BadRequestException(`Unsupported refund provider: ${params.provider}`);
-    }
-  }
-
-  private async sendRefundConfirmationEmail(params: {
-    email: string;
-    userName: string;
-    locale: Locale;
-    orderNumber: string;
-    originalAmount: number;
-    refundedAmount: number;
-    refundReason: string;
-    emailNotificationsEnabled?: boolean | null;
-  }): Promise<boolean> {
-    if (
-      !isUserNotificationChannelEnabled({
-        enabled: params.emailNotificationsEnabled,
-        kind: "refund_confirmation",
-      })
-    ) {
-      return false;
-    }
-
-    if (!this.resend) {
-      this.logger.warn("RESEND_API_KEY not set — refund confirmation email skipped");
-      return false;
-    }
-
-    const email = await renderRefundConfirmEmail({
-      locale: params.locale,
-      userName: params.userName,
-      orderNumber: params.orderNumber,
-      originalAmount: this.formatNaira(params.originalAmount),
-      refundAmount: this.formatNaira(params.refundedAmount),
-      refundReason: params.refundReason,
-    });
-
-    const sendResult = await this.resend.emails.send({
-      from: this.customerPaymentsFromEmail,
-      to: params.email,
-      subject: email.subject,
-      html: email.html,
-    });
-
-    if (sendResult.error) {
-      this.logger.error(
-        `Failed to send refund confirmation email: ${sendResult.error.name} — ${sendResult.error.message}`
-      );
-      return false;
-    }
-
-    return true;
-  }
-
-  private extractRefundReference(response: Record<string, unknown>): string | null {
-    return (
-      this.asString(response.id) ??
-      this.asString(response.reference) ??
-      this.asString(response.refund_reference) ??
-      this.asString(response.transaction_reference) ??
-      null
-    );
-  }
-
-  private serializeAdminAuditEntry(
-    row: Pick<
-      Prisma.AuditLogGetPayload<object>,
-      "id" | "action" | "entityType" | "entityId" | "details" | "createdAt"
-    >,
-    recordedBy: string
-  ): AdminRefundResponse["audit"] {
-    const details = this.asRecord(row.details);
-    return {
-      auditId: row.id,
-      action: row.action,
-      entityType: row.entityType,
-      entityId: row.entityId,
-      recordedAt: row.createdAt.toISOString(),
-      recordedBy,
-      note: this.asString(details?.note) ?? null,
-      reason: this.asString(details?.reason) ?? null,
-    };
   }
 
   private pickDisplayName(fullName: string | undefined, email: string): string {
@@ -6112,56 +4889,21 @@ export class PaymentsService {
    * Ensure a payment gateway is enabled in the database.
    */
   private async ensureGatewayEnabled(provider: PaymentProvider): Promise<void> {
-    const gateway = await this.prisma.paymentGateway.findUnique({
-      where: { provider },
-    });
-
-    if (!gateway) {
-      throw new NotFoundException(
-        `Payment gateway "${provider}" is not configured. Please contact support.`
-      );
-    }
-
-    if (!gateway.isEnabled) {
-      throw new ServiceUnavailableException(`Payment gateway "${provider}" is currently disabled.`);
-    }
+    return this.gatewayService.ensureGatewayEnabled(provider);
   }
 
   /**
    * Ensure the provider SDK/service is available (keys are configured).
    */
   private ensureProviderAvailable(provider: PaymentProvider): void {
-    const available =
-      (provider === PaymentProvider.PAYSTACK && this.paystackService.isAvailable) ||
-      (provider === PaymentProvider.STRIPE && this.stripeService.isAvailable) ||
-      (provider === PaymentProvider.PAYPAL && this.paypalService.isAvailable);
-
-    if (!available) {
-      throw new ServiceUnavailableException(`${provider} is not configured. API keys are missing.`);
-    }
+    this.gatewayService.ensureProviderAvailable(provider);
   }
 
   /**
    * Whether an enabled gateway can be shown in checkout.
    */
   private isGatewayAvailableForCheckout(provider: PaymentProvider): boolean {
-    if (provider === PaymentProvider.BANK_TRANSFER) {
-      return true;
-    }
-
-    if (provider === PaymentProvider.PAYSTACK) {
-      return this.paystackService.isAvailable;
-    }
-
-    if (provider === PaymentProvider.STRIPE) {
-      return this.stripeService.isAvailable;
-    }
-
-    if (provider === PaymentProvider.PAYPAL) {
-      return this.paypalService.isAvailable;
-    }
-
-    return false;
+    return this.gatewayService.isGatewayAvailableForCheckout(provider);
   }
 
   /**
