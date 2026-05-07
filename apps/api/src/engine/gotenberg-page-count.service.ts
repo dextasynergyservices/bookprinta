@@ -17,6 +17,30 @@ const PAGE_SIZE_TO_MARGINS_MM: Record<
   A5: { top: 14, right: 14, bottom: 14, left: 14 },
 };
 
+/**
+ * Maximum fetch attempts per (baseUrl × headerVariant) combination.
+ * 1 initial attempt + 2 retries = 3 total.
+ * Each retry waits for the next delay in GOTENBERG_COLD_START_RETRY_DELAYS_MS.
+ */
+const GOTENBERG_MAX_ATTEMPTS_PER_ENDPOINT = 3;
+
+/**
+ * Progressive retry delays for transient Gotenberg failures.
+ * Targets the Render free-tier cold-start window (30–60s spin-up time).
+ *   Attempt 1 fails → wait 5s  → attempt 2
+ *   Attempt 2 fails → wait 15s → attempt 3
+ *   Attempt 3 fails → exhaust retries for this (baseUrl, headerVariant) pair.
+ */
+const GOTENBERG_COLD_START_RETRY_DELAYS_MS = [5_000, 15_000] as const;
+
+/**
+ * HTTP status codes that indicate a transient gateway/server error worth retrying.
+ *   502 — Render load balancer got no response (most common cold-start symptom).
+ *   503 — Service unavailable / Gotenberg container still starting.
+ *   429 — Rate limited (unlikely from Gotenberg itself, but defensive).
+ */
+const GOTENBERG_TRANSIENT_STATUS_CODES = new Set([429, 502, 503]);
+
 export type AuthoritativePageCountInput = {
   html: string;
   pageSize: SupportedPageSize;
@@ -168,7 +192,7 @@ export class GotenbergPageCountService {
     }
 
     const headerVariants = this.buildGotenbergHeaderVariants();
-    const maxAttemptsPerEndpoint = 2;
+    const maxAttemptsPerEndpoint = GOTENBERG_MAX_ATTEMPTS_PER_ENDPOINT;
     const pageConfig = PAGE_SIZE_TO_INCHES[pageSize];
     const renderTimeoutMs = this.getRenderTimeoutMs();
     const errors: string[] = [];
@@ -199,7 +223,9 @@ export class GotenbergPageCountService {
           const timeout = setTimeout(() => controller.abort(), renderTimeoutMs);
 
           let response: Response | null = null;
-          let wasAborted = false;
+          // True when the failure is transient (cold-start 502, timeout, network error)
+          // and a retry with backoff is worthwhile.
+          let isTransientFailure = false;
           try {
             response = await fetch(`${baseUrl}/forms/chromium/convert/html`, {
               method: "POST",
@@ -208,7 +234,7 @@ export class GotenbergPageCountService {
               signal: controller.signal,
             });
           } catch (error) {
-            wasAborted = controller.signal.aborted;
+            const wasAborted = controller.signal.aborted;
             const reason = wasAborted
               ? `Client-side timeout after ${renderTimeoutMs}ms`
               : error instanceof Error
@@ -218,6 +244,9 @@ export class GotenbergPageCountService {
               `Gotenberg render failed on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${baseUrl}: ${reason}`
             );
             errors.push(`[${baseUrl} attempt ${attempt}] ${reason}`);
+            // Both timeout (AbortError from cold-start) and network errors are transient.
+            // The old code broke immediately on timeout, preventing cold-start recovery.
+            isTransientFailure = true;
           } finally {
             clearTimeout(timeout);
           }
@@ -227,18 +256,13 @@ export class GotenbergPageCountService {
             return Buffer.from(bytes);
           }
 
-          // Don't retry timeouts — Gotenberg is just slow, retrying wastes time
-          if (wasAborted) {
-            break;
-          }
-
           if (response && hasAuthHeader && (response.status === 401 || response.status === 403)) {
             const msg = `Auth rejected (HTTP ${response.status})`;
             errors.push(`[${baseUrl}] ${msg}`);
             this.logger.warn(
               `Gotenberg rejected configured basic auth via ${baseUrl}; retrying without auth headers.`
             );
-            break;
+            break; // Try next header variant (without auth)
           }
 
           if (response) {
@@ -249,12 +273,24 @@ export class GotenbergPageCountService {
             const msg = `HTTP ${response.status}${bodySnippet ? `: ${bodySnippet}` : ""}`;
             errors.push(`[${baseUrl} attempt ${attempt}] ${msg}`);
             this.logger.error(
-              `Gotenberg returned ${response.status} on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${baseUrl} while counting pages. ${bodySnippet}`
+              `Gotenberg returned ${response.status} on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${baseUrl}. ${bodySnippet}`
             );
+            // 502/503 are transient (Render cold-start, brief outages).
+            // Other 4xx/5xx (e.g. 400 Bad Request from malformed HTML) are permanent —
+            // retrying the same HTML against the same endpoint won't help.
+            isTransientFailure = GOTENBERG_TRANSIENT_STATUS_CODES.has(response.status);
+            if (!isTransientFailure) {
+              break; // Non-retryable error — skip remaining attempts for this endpoint
+            }
           }
 
-          if (attempt < maxAttemptsPerEndpoint) {
-            await this.delay(400 * attempt);
+          if (attempt < maxAttemptsPerEndpoint && isTransientFailure) {
+            const retryDelayMs = GOTENBERG_COLD_START_RETRY_DELAYS_MS[attempt - 1] ?? 15_000;
+            this.logger.log(
+              `Gotenberg transient failure on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${baseUrl}. ` +
+                `Retrying in ${Math.round(retryDelayMs / 1_000)}s (cold-start or transient error).`
+            );
+            await this.delay(retryDelayMs);
           }
         }
       }

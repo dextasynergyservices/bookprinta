@@ -68,6 +68,9 @@ function capturePackageError(endpoint: string, error: unknown): void {
   });
 }
 
+/** 8 s cap prevents Render cold-starts from hanging the Vercel build (60 s page timeout). */
+const SERVER_FETCH_TIMEOUT_MS = 8_000;
+
 export async function fetchPackageCategories(options?: {
   revalidate?: number;
 }): Promise<PackageCategory[]> {
@@ -76,7 +79,9 @@ export async function fetchPackageCategories(options?: {
       next?: {
         revalidate: number;
       };
-    } = {};
+    } = {
+      signal: AbortSignal.timeout(SERVER_FETCH_TIMEOUT_MS),
+    };
 
     if (typeof options?.revalidate === "number") {
       requestInit.next = { revalidate: options.revalidate };

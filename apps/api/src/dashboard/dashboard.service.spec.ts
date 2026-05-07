@@ -3,12 +3,16 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { BooksService } from "../books/books.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { OrdersService } from "../orders/orders.service.js";
+import { PackagesService } from "../packages/packages.service.js";
+import { PaymentsService } from "../payments/payments.service.js";
+import { QuotesService } from "../quotes/quotes.service.js";
 import { ReviewsService } from "../reviews/reviews.service.js";
 import { UsersService } from "../users/users.service.js";
 import { DashboardService } from "./dashboard.service.js";
 
 const booksServiceMock = {
   findUserBooks: jest.fn(),
+  hasActiveReprint: jest.fn(),
 };
 
 const ordersServiceMock = {
@@ -17,7 +21,7 @@ const ordersServiceMock = {
 
 const notificationsServiceMock = {
   getUnreadCount: jest.fn(),
-  findUserNotifications: jest.fn(),
+  hasProductionDelayBanner: jest.fn(),
 };
 
 const usersServiceMock = {
@@ -27,6 +31,11 @@ const usersServiceMock = {
 const reviewsServiceMock = {
   getMyReviews: jest.fn(),
 };
+
+// Stub-only — not exercised in getUserDashboardOverview tests but required for DI resolution
+const packagesServiceMock = {};
+const paymentsServiceMock = {};
+const quotesServiceMock = {};
 
 describe("DashboardService", () => {
   let service: DashboardService;
@@ -40,6 +49,9 @@ describe("DashboardService", () => {
         { provide: NotificationsService, useValue: notificationsServiceMock },
         { provide: UsersService, useValue: usersServiceMock },
         { provide: ReviewsService, useValue: reviewsServiceMock },
+        { provide: PackagesService, useValue: packagesServiceMock },
+        { provide: PaymentsService, useValue: paymentsServiceMock },
+        { provide: QuotesService, useValue: quotesServiceMock },
       ],
     }).compile();
 
@@ -137,31 +149,7 @@ describe("DashboardService", () => {
     notificationsServiceMock.getUnreadCount.mockResolvedValue({
       unreadCount: 4,
     });
-    notificationsServiceMock.findUserNotifications.mockResolvedValue({
-      items: [
-        {
-          id: "cmnotification1111111111111111",
-          type: "PRODUCTION_DELAY",
-          isRead: true,
-          createdAt: "2026-03-11T10:00:00.000Z",
-          data: {
-            titleKey: "notifications.production_delay.title",
-            messageKey: "notifications.production_delay.message",
-            presentation: {
-              persistentBanner: "production_delay",
-            },
-          },
-        },
-      ],
-      pagination: {
-        page: 1,
-        pageSize: 50,
-        totalItems: 1,
-        totalPages: 1,
-        hasPreviousPage: false,
-        hasNextPage: false,
-      },
-    });
+    notificationsServiceMock.hasProductionDelayBanner.mockResolvedValue(true);
     usersServiceMock.getMyProfile.mockResolvedValue({
       bio: null,
       profileImageUrl: null,
@@ -291,17 +279,8 @@ describe("DashboardService", () => {
     notificationsServiceMock.getUnreadCount.mockResolvedValue({
       unreadCount: 0,
     });
-    notificationsServiceMock.findUserNotifications.mockResolvedValue({
-      items: [],
-      pagination: {
-        page: 1,
-        pageSize: 50,
-        totalItems: 0,
-        totalPages: 0,
-        hasPreviousPage: false,
-        hasNextPage: false,
-      },
-    });
+    notificationsServiceMock.hasProductionDelayBanner.mockResolvedValue(false);
+    booksServiceMock.hasActiveReprint.mockResolvedValue(false);
     usersServiceMock.getMyProfile.mockResolvedValue({
       bio: "Complete",
       profileImageUrl: "https://cdn.example.com/profile.jpg",

@@ -1,10 +1,12 @@
-import { Processor, WorkerHost } from "@nestjs/bullmq";
+import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Injectable, Logger, Optional } from "@nestjs/common";
+import * as Sentry from "@sentry/node";
 import type { Job } from "bullmq";
 import { GotenbergPageCountService } from "../engine/gotenberg-page-count.service.js";
 import { ProcessingEventsService } from "../engine/processing-events.service.js";
 import { FilesService } from "../files/files.service.js";
 import type { JobStatus, JobType } from "../generated/prisma/enums.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/redis.service.js";
 import { JOB_NAMES, QUEUE_PAGE_COUNT } from "./jobs.constants.js";
@@ -58,6 +60,8 @@ const COST_PER_EXTRA_PAGE = 10;
 @Injectable()
 @Processor(QUEUE_PAGE_COUNT, {
   concurrency: 1,
+  // Reduce idle Redis polling from the BullMQ default (5s) to 60s.
+  drainDelay: 60_000,
 })
 export class PageCountProcessor extends WorkerHost {
   private readonly logger = new Logger(PageCountProcessor.name);
@@ -67,7 +71,8 @@ export class PageCountProcessor extends WorkerHost {
     private readonly gotenbergPageCount: GotenbergPageCountService,
     private readonly filesService: FilesService,
     @Optional() private readonly processingEvents?: ProcessingEventsService,
-    @Optional() private readonly redis?: RedisService
+    @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly notifications?: NotificationsService
   ) {
     super();
   }
@@ -296,7 +301,8 @@ export class PageCountProcessor extends WorkerHost {
 
   /**
    * Try Redis first (cached by ai-formatting processor), fall back to Cloudinary.
-   * Saves 500ms-2s per page-count/recount when HTML is still cached.
+   * Saves 500ms–2s per page-count/recount when HTML is still cached.
+   * Redis cache is shared across all API instances, so this works correctly at any scale.
    */
   private async fetchCleanedHtmlWithCache(url: string): Promise<string> {
     try {
@@ -486,6 +492,56 @@ export class PageCountProcessor extends WorkerHost {
       book?.fontSize === payload.fontSize &&
       (htmlMatchesCurrentBook || htmlMatchesLatestFile)
     );
+  }
+
+  @OnWorkerEvent("failed")
+  async onJobFailed(job: Job | undefined, error: unknown): Promise<void> {
+    if (!job) return;
+
+    const maxAttempts = Number.isFinite(job.opts.attempts as number)
+      ? (job.opts.attempts as number)
+      : 1;
+    if (job.attemptsMade < maxAttempts) return; // still has retries remaining
+
+    const payload =
+      typeof job.data === "object" && job.data !== null
+        ? (job.data as Record<string, unknown>)
+        : undefined;
+    const bookId = typeof payload?.bookId === "string" ? payload.bookId : undefined;
+    const orderId = typeof payload?.orderId === "string" ? payload.orderId : undefined;
+    const errorMessage =
+      error instanceof Error && error.message.trim().length > 0 ? error.message : String(error);
+
+    // (a) In-app SYSTEM notification to all admins
+    try {
+      await this.notifications?.notifyAdminsJobFailed({
+        queueName: QUEUE_PAGE_COUNT,
+        jobId: job.id !== undefined ? String(job.id) : undefined,
+        bookId,
+        orderId,
+        errorMessage,
+      });
+    } catch (notifyErr) {
+      this.logger.error(
+        `Failed to notify admins of permanently failed job ${job.id}: ${notifyErr}`
+      );
+    }
+
+    // (b) Capture to Sentry with full job context for debugging
+    Sentry.withScope((scope) => {
+      scope.setTag("queue", QUEUE_PAGE_COUNT);
+      scope.setTag("job_id", String(job.id ?? "unknown"));
+      scope.setTag("permanently_failed", "true");
+      if (bookId) scope.setTag("book_id", bookId);
+      if (orderId) scope.setTag("order_id", orderId);
+      scope.setContext("job", {
+        id: job.id,
+        name: job.name,
+        attemptsMade: job.attemptsMade,
+        data: payload,
+      });
+      Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+    });
   }
 
   /**

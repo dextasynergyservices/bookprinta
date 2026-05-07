@@ -3,6 +3,7 @@ import { ADMIN_ROLES } from "@bookprinta/shared";
 import { NotFoundException } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 import { NotificationsService } from "./notifications.service.js";
 
 const mockPrismaService = {
@@ -19,21 +20,58 @@ const mockPrismaService = {
   },
 };
 
+// Minimal Redis pipeline mock
+const mockPipeline = {
+  incr: jest.fn().mockReturnThis(),
+  exec: jest.fn().mockResolvedValue([]),
+};
+
+const mockRedisClient = {
+  get: jest.fn(),
+  set: jest.fn(),
+  eval: jest.fn(),
+  del: jest.fn(),
+  pipeline: jest.fn().mockReturnValue(mockPipeline),
+};
+
+const mockRedisService = {
+  getClient: jest.fn().mockReturnValue(mockRedisClient),
+};
+
 describe("NotificationsService", () => {
   let service: NotificationsService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [NotificationsService, { provide: PrismaService, useValue: mockPrismaService }],
+      providers: [
+        NotificationsService,
+        { provide: PrismaService, useValue: mockPrismaService },
+        { provide: RedisService, useValue: mockRedisService },
+      ],
     }).compile();
 
     service = module.get<NotificationsService>(NotificationsService);
     jest.resetAllMocks();
     mockPrismaService.user.findMany.mockResolvedValue([]);
+    // Default: Redis client is available
+    mockRedisService.getClient.mockReturnValue(mockRedisClient);
+    // Default: pipeline works
+    mockRedisClient.pipeline.mockReturnValue(mockPipeline);
+    mockPipeline.exec.mockResolvedValue([]);
   });
 
   describe("getUnreadCount", () => {
-    it("returns unread count for the authenticated user", async () => {
+    it("returns cached count from Redis when key exists", async () => {
+      mockRedisClient.get.mockResolvedValue("3");
+
+      await expect(service.getUnreadCount("user_1")).resolves.toEqual({ unreadCount: 3 });
+      expect(mockRedisClient.get).toHaveBeenCalledWith("bp:notif:unread:user_1");
+      // DB should NOT be queried on cache hit
+      expect(mockPrismaService.notification.count).not.toHaveBeenCalled();
+    });
+
+    it("falls back to DB and seeds Redis on cache miss", async () => {
+      mockRedisClient.get.mockResolvedValue(null); // cache miss
       mockPrismaService.notification.count.mockResolvedValue(3);
 
       await expect(service.getUnreadCount("user_1")).resolves.toEqual({ unreadCount: 3 });
@@ -43,6 +81,15 @@ describe("NotificationsService", () => {
           isRead: false,
         },
       });
+      expect(mockRedisClient.set).toHaveBeenCalledWith("bp:notif:unread:user_1", 3);
+    });
+
+    it("falls back to DB when Redis is unavailable", async () => {
+      mockRedisService.getClient.mockReturnValue(null);
+      mockPrismaService.notification.count.mockResolvedValue(5);
+
+      await expect(service.getUnreadCount("user_1")).resolves.toEqual({ unreadCount: 5 });
+      expect(mockPrismaService.notification.count).toHaveBeenCalled();
     });
   });
 
@@ -284,6 +331,25 @@ describe("NotificationsService", () => {
           createdAt: true,
         },
       });
+      // Redis counter should be decremented for the unread→read transition
+      expect(mockRedisClient.eval).toHaveBeenCalled();
+    });
+
+    it("does not call Redis decr when notification was already read", async () => {
+      mockPrismaService.notification.findFirst.mockResolvedValue({
+        id: "cm_already_read",
+        isRead: true,
+        userId: "user_1",
+        title: "T",
+        message: "M",
+        type: null,
+        data: null,
+        createdAt: new Date(),
+      });
+
+      await service.markNotificationRead("user_1", "cm_already_read");
+      expect(mockPrismaService.notification.update).not.toHaveBeenCalled();
+      expect(mockRedisClient.eval).not.toHaveBeenCalled();
     });
 
     it("throws NotFoundException when notification does not belong to user", async () => {
@@ -296,7 +362,7 @@ describe("NotificationsService", () => {
   });
 
   describe("markAllNotificationsRead", () => {
-    it("returns the number of updated notifications", async () => {
+    it("returns the number of updated notifications and resets Redis counter", async () => {
       mockPrismaService.notification.updateMany.mockResolvedValue({ count: 4 });
 
       await expect(service.markAllNotificationsRead("user_1")).resolves.toEqual({
@@ -311,6 +377,28 @@ describe("NotificationsService", () => {
           isRead: true,
         },
       });
+      // Redis counter should be reset to 0
+      expect(mockRedisClient.set).toHaveBeenCalledWith("bp:notif:unread:user_1", 0);
+    });
+  });
+
+  describe("hasProductionDelayBanner", () => {
+    it("returns true when a PRODUCTION_DELAY notification exists for the user", async () => {
+      mockPrismaService.notification.findFirst.mockResolvedValue({
+        id: "cmnotif_delay_1111111111111111",
+      });
+
+      await expect(service.hasProductionDelayBanner("user_1")).resolves.toBe(true);
+      expect(mockPrismaService.notification.findFirst).toHaveBeenCalledWith({
+        where: { userId: "user_1", type: "PRODUCTION_DELAY" },
+        select: { id: true },
+      });
+    });
+
+    it("returns false when no PRODUCTION_DELAY notification exists for the user", async () => {
+      mockPrismaService.notification.findFirst.mockResolvedValue(null);
+
+      await expect(service.hasProductionDelayBanner("user_1")).resolves.toBe(false);
     });
   });
 

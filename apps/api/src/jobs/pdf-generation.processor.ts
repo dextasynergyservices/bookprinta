@@ -1,10 +1,12 @@
-import { Processor, WorkerHost } from "@nestjs/bullmq";
+import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Injectable, Logger, Optional } from "@nestjs/common";
+import * as Sentry from "@sentry/node";
 import type { Job } from "bullmq";
 import { GotenbergPageCountService } from "../engine/gotenberg-page-count.service.js";
 import { ProcessingEventsService } from "../engine/processing-events.service.js";
 import { FilesService } from "../files/files.service.js";
 import type { JobStatus, JobType } from "../generated/prisma/enums.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { JOB_NAMES, QUEUE_PDF_GENERATION } from "./jobs.constants.js";
 
@@ -31,6 +33,8 @@ type GeneratePdfResult = {
 @Injectable()
 @Processor(QUEUE_PDF_GENERATION, {
   concurrency: 1,
+  // Reduce idle Redis polling from the BullMQ default (5s) to 60s.
+  drainDelay: 60_000,
 })
 export class PdfGenerationProcessor extends WorkerHost {
   private readonly logger = new Logger(PdfGenerationProcessor.name);
@@ -39,7 +43,8 @@ export class PdfGenerationProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly gotenbergPageCount: GotenbergPageCountService,
     private readonly filesService: FilesService,
-    @Optional() private readonly processingEvents?: ProcessingEventsService
+    @Optional() private readonly processingEvents?: ProcessingEventsService,
+    @Optional() private readonly notifications?: NotificationsService
   ) {
     super();
   }
@@ -93,6 +98,9 @@ export class PdfGenerationProcessor extends WorkerHost {
       this.logger.warn(
         `No usable PREVIEW_PDF for book ${payload.bookId}; falling back to Gotenberg render.`
       );
+      // Wait for Gotenberg to be healthy before rendering (handles Render cold starts).
+      // The page-count processor does this too; replicate it here for the fallback path.
+      await this.gotenbergPageCount.waitForReady();
       const cleanedHtml = await this.fetchCleanedHtml(payload.cleanedHtmlUrl);
       const rendered = await this.gotenbergPageCount.renderPdf({
         html: cleanedHtml,
@@ -347,6 +355,56 @@ export class PdfGenerationProcessor extends WorkerHost {
       return error.message;
     }
     return String(error);
+  }
+
+  @OnWorkerEvent("failed")
+  async onJobFailed(job: Job | undefined, error: unknown): Promise<void> {
+    if (!job) return;
+
+    const maxAttempts = Number.isFinite(job.opts.attempts as number)
+      ? (job.opts.attempts as number)
+      : 1;
+    if (job.attemptsMade < maxAttempts) return; // still has retries remaining
+
+    const payload =
+      typeof job.data === "object" && job.data !== null
+        ? (job.data as Record<string, unknown>)
+        : undefined;
+    const bookId = typeof payload?.bookId === "string" ? payload.bookId : undefined;
+    const orderId = typeof payload?.orderId === "string" ? payload.orderId : undefined;
+    const errorMessage =
+      error instanceof Error && error.message.trim().length > 0 ? error.message : String(error);
+
+    // (a) In-app SYSTEM notification to all admins
+    try {
+      await this.notifications?.notifyAdminsJobFailed({
+        queueName: QUEUE_PDF_GENERATION,
+        jobId: job.id !== undefined ? String(job.id) : undefined,
+        bookId,
+        orderId,
+        errorMessage,
+      });
+    } catch (notifyErr) {
+      this.logger.error(
+        `Failed to notify admins of permanently failed job ${job.id}: ${notifyErr}`
+      );
+    }
+
+    // (b) Capture to Sentry with full job context for debugging
+    Sentry.withScope((scope) => {
+      scope.setTag("queue", QUEUE_PDF_GENERATION);
+      scope.setTag("job_id", String(job.id ?? "unknown"));
+      scope.setTag("permanently_failed", "true");
+      if (bookId) scope.setTag("book_id", bookId);
+      if (orderId) scope.setTag("order_id", orderId);
+      scope.setContext("job", {
+        id: job.id,
+        name: job.name,
+        attemptsMade: job.attemptsMade,
+        data: payload,
+      });
+      Sentry.captureException(error instanceof Error ? error : new Error(String(error)));
+    });
   }
 
   /**

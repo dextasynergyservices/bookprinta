@@ -43,6 +43,9 @@ function captureShowcaseError(endpoint: string, error: unknown): void {
   });
 }
 
+/** 8 s cap prevents Render cold-starts from hanging the Vercel build (60 s page timeout). */
+const SERVER_FETCH_TIMEOUT_MS = 8_000;
+
 async function fetchJson<T>(
   endpoint: string,
   options?: {
@@ -55,7 +58,9 @@ async function fetchJson<T>(
       next?: {
         revalidate: number;
       };
-    } = {};
+    } = {
+      signal: AbortSignal.timeout(SERVER_FETCH_TIMEOUT_MS),
+    };
 
     if (typeof options?.revalidate === "number") {
       init.next = { revalidate: options.revalidate };

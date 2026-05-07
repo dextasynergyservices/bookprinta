@@ -5,6 +5,21 @@ import { RedisService } from "../redis/redis.service.js";
 
 const GEMINI_ENDPOINT_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+/**
+ * Stable fallback chain used when GEMINI_FALLBACK_MODEL env var is not set.
+ * Each model has an independent rate-limit quota, so the chain provides
+ * meaningful redundancy during traffic spikes or regional outages.
+ *
+ * Chain rationale:
+ *   1. gemini-2.5-flash       — primary: balanced quality + speed (manuscript formatting
+ *                               is a moderately complex task; flash-lite risks poor HTML
+ *                               structure and degrades the 70% page-count accuracy target)
+ *   2. gemini-2.5-flash-lite  — cheaper/faster fallback when flash quota is exhausted or unavailable
+ *   3. gemini-2.5-pro         — most capable; ultimate safety net for complex manuscripts
+ *
+ * All three are STABLE models. Never use preview models in this default chain.
+ */
+const DEFAULT_FALLBACK_MODELS: readonly string[] = ["gemini-2.5-flash-lite", "gemini-2.5-pro"];
 const CHUNK_TRIGGER_WORD_COUNT = 12_000;
 const TARGET_CHUNK_WORDS = 10_000;
 const DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 90_000;
@@ -366,10 +381,20 @@ export class GeminiFormattingService {
           }
 
           const hasAnotherModel = model !== modelsToTry[modelsToTry.length - 1];
-          if (hasAnotherModel && isTransient && this.shouldTryAlternateModel(error)) {
-            this.logger.warn(
-              `Gemini request using ${model} failed. Retrying with alternate model.`
-            );
+          if (hasAnotherModel) {
+            if (isTransient) {
+              this.logger.warn(
+                `Gemini request using ${model} failed transiently (attempt ${attempt}/${MAX_TRANSIENT_RETRIES_PER_MODEL}). Moving to next model in chain.`
+              );
+            } else if (this.isQuotaExhaustedGeminiError(error)) {
+              this.logger.warn(
+                `Gemini quota exhausted on ${model}. Moving to next model in chain.`
+              );
+            } else {
+              this.logger.warn(
+                `Gemini request using ${model} failed with non-transient error. Moving to next model in chain.`
+              );
+            }
           }
 
           break;
@@ -381,24 +406,25 @@ export class GeminiFormattingService {
   }
 
   /**
-   * Returns explicitly configured fallback models from GEMINI_FALLBACK_MODEL env.
-   * Supports comma-separated list for multiple fallback pools:
-   *   GEMINI_FALLBACK_MODEL=gemini-2.0-flash,gemini-1.5-flash
-   * Each model has its own rate limit, so more models = more effective RPM.
+   * Returns the ordered list of fallback models to try after the primary fails.
+   * Env var GEMINI_FALLBACK_MODEL (comma-separated) overrides the hardcoded defaults,
+   * allowing per-environment tuning without a code deploy.
+   *
+   * The primary model (GEMINI_MODEL / DEFAULT_GEMINI_MODEL) is NOT included here —
+   * it is prepended in generateChunk() before the dedup filter runs.
    */
   private getFallbackModels(): string[] {
     const configured = process.env.GEMINI_FALLBACK_MODEL?.trim();
-    if (!configured || configured.length === 0) {
-      return [];
+    if (configured && configured.length > 0) {
+      return configured
+        .split(",")
+        .map((m) => m.trim())
+        .filter((m) => m.length > 0);
     }
-    return configured
-      .split(",")
-      .map((m) => m.trim())
-      .filter((m) => m.length > 0);
-  }
-
-  private shouldTryAlternateModel(error: unknown): boolean {
-    return !this.isQuotaExhaustedGeminiError(error);
+    // Use the hardcoded default chain when env var is not set.
+    // This ensures production always has fallback coverage even if the env var
+    // is accidentally omitted from a deploy.
+    return [...DEFAULT_FALLBACK_MODELS];
   }
 
   private async generateChunkWithModel(

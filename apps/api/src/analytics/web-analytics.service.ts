@@ -27,7 +27,7 @@ const CACHE_TTL = {
   devices: 1800, // 30 min
   funnel: 600, // 10 min
   customEvents: 600, // 10 min
-  liveVisitors: 30, // 30 sec
+  liveVisitors: 120, // 2 min
 } as const;
 
 const CUSTOM_EVENTS = [

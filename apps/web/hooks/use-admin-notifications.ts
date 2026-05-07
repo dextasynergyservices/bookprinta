@@ -81,7 +81,7 @@ export function useAdminNotificationUnreadCount() {
     retry: 1,
     enabled: isEnabled,
     refetchInterval: isEnabled ? ADMIN_NOTIFICATIONS_POLL_INTERVAL_MS : false,
-    refetchIntervalInBackground: isEnabled,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: isEnabled,
     refetchOnMount: isEnabled ? "always" : false,
   });

@@ -3,9 +3,11 @@ import { Logger, Module } from "@nestjs/common";
 import { BooksModule } from "../books/books.module.js";
 import { EngineModule } from "../engine/engine.module.js";
 import { FilesModule } from "../files/files.module.js";
+import { NotificationsModule } from "../notifications/notifications.module.js";
 import { ProductionDelayModule } from "../production-delay/production-delay.module.js";
 import { AiFormattingProcessor } from "./ai-formatting.processor.js";
 import { resolveBullMqConnection } from "./bullmq-connection.js";
+import { JobRecoveryService } from "./job-recovery.service.js";
 import {
   QUEUE_AI_FORMATTING,
   QUEUE_PAGE_COUNT,
@@ -152,6 +154,7 @@ export class JobsModule {
         FilesModule,
         BooksModule,
         ProductionDelayModule,
+        NotificationsModule,
       ],
       providers: [
         AiFormattingProcessor,
@@ -159,6 +162,7 @@ export class JobsModule {
         PdfGenerationProcessor,
         ProductionDelayProcessor,
         ProductionDelayScheduler,
+        JobRecoveryService,
       ],
       exports: [BullModule],
     };

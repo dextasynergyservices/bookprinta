@@ -1140,6 +1140,7 @@ export function AdminUsersView() {
   const { user: sessionUser } = useAuthSession();
   const isSuperAdmin = sessionUser?.role === "SUPER_ADMIN";
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [pendingDeleteRow, setPendingDeleteRow] = useState<AdminUserRow | null>(null);
   const updateMutation = useAdminUpdateUserMutation();
   const deleteMutation = useAdminDeleteUserMutation();
   const reactivateMutation = useAdminReactivateUserMutation();
@@ -1557,7 +1558,7 @@ export function AdminUsersView() {
                       disabled={isDeletePending}
                       onSelect={(event) => {
                         event.preventDefault();
-                        void handleDeleteFromList(row.original);
+                        setPendingDeleteRow(row.original);
                       }}
                       className="min-h-11 rounded-xl font-sans text-sm text-[#ffb3b3] focus:text-[#ffb3b3]"
                     >
@@ -1577,7 +1578,6 @@ export function AdminUsersView() {
     ],
     [
       handleDeactivateFromList,
-      handleDeleteFromList,
       handleReactivateFromList,
       locale,
       pendingListAction,
@@ -1690,6 +1690,54 @@ export function AdminUsersView() {
       {isSuperAdmin ? (
         <CreateAdminDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
       ) : null}
+
+      <Dialog
+        open={pendingDeleteRow !== null}
+        onOpenChange={(open) => {
+          if (!open && !pendingListAction) {
+            setPendingDeleteRow(null);
+          }
+        }}
+      >
+        <DialogContent className="h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] max-w-[calc(100%-1rem)] overflow-y-auto rounded-[1.5rem] border border-[#3E1414] bg-[#120909] p-6 text-white md:h-auto md:max-h-[calc(100dvh-4rem)] md:max-w-xl md:rounded-[1.75rem]">
+          <DialogHeader>
+            <DialogTitle className="font-display text-2xl font-semibold tracking-tight text-white">
+              {tAdmin("users_detail_delete_dialog_title")}
+            </DialogTitle>
+            <DialogDescription className="font-sans text-sm leading-6 text-[#FFCFCF]">
+              {tAdmin("users_detail_delete_dialog_description")}
+            </DialogDescription>
+            <p className="font-sans text-xs leading-5 text-[#FF9999]">
+              {tAdmin("users_detail_delete_dialog_warning")}
+            </p>
+          </DialogHeader>
+
+          <DialogFooter className="pt-2 md:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!!pendingListAction}
+              onClick={() => setPendingDeleteRow(null)}
+              className="min-h-11 rounded-full border-[#2A2A2A] bg-[#111111] px-5 font-sans text-sm text-white hover:border-[#3A3A3A] hover:bg-[#181818]"
+            >
+              {tAdmin("users_detail_delete_cancel")}
+            </Button>
+            <Button
+              type="button"
+              disabled={!!pendingListAction}
+              onClick={() => {
+                const row = pendingDeleteRow;
+                if (!row) return;
+                setPendingDeleteRow(null);
+                void handleDeleteFromList(row);
+              }}
+              className="min-h-11 rounded-full bg-[#A32020] px-5 font-sans text-sm font-medium text-white hover:bg-[#8d1a1a]"
+            >
+              {tAdmin("users_detail_delete_confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
