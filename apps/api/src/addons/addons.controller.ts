@@ -11,7 +11,7 @@ import { AddonResponseDto } from "./dto/addon-response.dto.js";
  */
 @ApiTags("Addons")
 @Controller("addons")
-@SkipThrottle()
+@SkipThrottle({ short: true, long: true })
 export class AddonsController {
   constructor(private readonly addonsService: AddonsService) {}
 

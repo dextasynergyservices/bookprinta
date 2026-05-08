@@ -11,7 +11,7 @@ import { PackagesService } from "./packages.service.js";
  */
 @ApiTags("Packages")
 @Controller("packages")
-@SkipThrottle()
+@SkipThrottle({ short: true, long: true })
 export class PackagesController {
   constructor(private readonly packagesService: PackagesService) {}
 

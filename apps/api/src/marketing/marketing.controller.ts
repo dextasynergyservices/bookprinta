@@ -6,7 +6,7 @@ import { MarketingService } from "./marketing.service.js";
 
 @ApiTags("Marketing")
 @Controller("marketing")
-@SkipThrottle()
+@SkipThrottle({ short: true, long: true })
 export class MarketingController {
   constructor(private readonly marketingService: MarketingService) {}
 

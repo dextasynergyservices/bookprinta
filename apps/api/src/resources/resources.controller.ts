@@ -11,7 +11,7 @@ import { ResourcesService } from "./resources.service.js";
 
 @ApiTags("Resources")
 @Controller("resources")
-@SkipThrottle()
+@SkipThrottle({ short: true, long: true })
 export class ResourcesController {
   constructor(private readonly resourcesService: ResourcesService) {}
 

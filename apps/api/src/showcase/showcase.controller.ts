@@ -11,7 +11,7 @@ import { PublicShowcaseService } from "./public-showcase.service.js";
 
 @ApiTags("Showcase")
 @Controller("showcase")
-@SkipThrottle()
+@SkipThrottle({ short: true, long: true })
 export class ShowcaseController {
   constructor(private readonly publicShowcaseService: PublicShowcaseService) {}
 
