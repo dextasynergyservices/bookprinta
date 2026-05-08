@@ -427,7 +427,7 @@ export class PaymentsController {
    */
   @Post("webhook/paystack")
   @HttpCode(HttpStatus.OK)
-  @SkipThrottle()
+  @SkipThrottle({ short: true, long: true })
   @ApiOperation({
     summary: "Paystack webhook endpoint",
     description:
@@ -469,7 +469,7 @@ export class PaymentsController {
    */
   @Post("webhook/stripe")
   @HttpCode(HttpStatus.OK)
-  @SkipThrottle()
+  @SkipThrottle({ short: true, long: true })
   @ApiOperation({
     summary: "Stripe webhook endpoint",
     description:

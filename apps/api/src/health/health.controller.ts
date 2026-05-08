@@ -5,7 +5,7 @@ import { HealthService } from "./health.service.js";
 
 @ApiTags("Health")
 @Controller("health")
-@SkipThrottle()
+@SkipThrottle({ short: true, long: true })
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 

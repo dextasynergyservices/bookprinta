@@ -10,7 +10,7 @@ import { PackagesService } from "./packages.service.js";
  */
 @ApiTags("Package Categories")
 @Controller("package-categories")
-@SkipThrottle()
+@SkipThrottle({ short: true, long: true })
 export class PackageCategoriesController {
   constructor(private readonly packagesService: PackagesService) {}
 
