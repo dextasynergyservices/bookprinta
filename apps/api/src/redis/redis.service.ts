@@ -55,6 +55,51 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
+   * Get a cached JSON value. Returns null on miss or Redis unavailable.
+   */
+  async get<T>(key: string): Promise<T | null> {
+    if (!this.redis) return null;
+    try {
+      const raw = await this.redis.get(key);
+      if (raw === null) return null;
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Set a JSON value with an optional TTL in seconds.
+   * Silently no-ops if Redis is unavailable.
+   */
+  async set(key: string, value: unknown, ttlSeconds?: number): Promise<void> {
+    if (!this.redis) return;
+    try {
+      const serialized = JSON.stringify(value);
+      if (ttlSeconds !== undefined) {
+        await this.redis.set(key, serialized, "EX", ttlSeconds);
+      } else {
+        await this.redis.set(key, serialized);
+      }
+    } catch {
+      // Non-fatal: cache miss on next read is acceptable
+    }
+  }
+
+  /**
+   * Delete one or more cache keys.
+   * Silently no-ops if Redis is unavailable.
+   */
+  async del(...keys: string[]): Promise<void> {
+    if (!this.redis || keys.length === 0) return;
+    try {
+      await this.redis.del(...keys);
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /**
    * Gracefully disconnect on app shutdown.
    */
   async onModuleDestroy() {

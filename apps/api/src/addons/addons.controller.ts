@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from "@nestjs/common";
+import { Controller, Get, Header, Param } from "@nestjs/common";
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { SkipThrottle } from "@nestjs/throttler";
 import { AddonsService } from "./addons.service.js";
@@ -20,6 +20,7 @@ export class AddonsController {
    * List all active addons sorted by display order.
    */
   @Get()
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
   @ApiOperation({
     summary: "List active addons",
     description:
@@ -44,6 +45,7 @@ export class AddonsController {
    * Get a single addon by ID.
    */
   @Get(":id")
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
   @ApiOperation({
     summary: "Get addon by ID",
     description:

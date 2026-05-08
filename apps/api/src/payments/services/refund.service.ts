@@ -49,7 +49,7 @@ export class RefundService {
     private readonly paystackService: PaystackService,
     private readonly stripeService: StripeService,
     private readonly notificationsService: NotificationsService,
-    private readonly whatsappNotificationsService: WhatsappNotificationsService
+    private readonly whatsappNotificationsService: WhatsappNotificationsService | null
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     const raw = process.env.FRONTEND_URL?.trim();
@@ -607,6 +607,7 @@ export class RefundService {
     refundReason: string;
     dashboardUrl?: string | null;
   }): Promise<void> {
+    if (!this.whatsappNotificationsService) return;
     await this.whatsappNotificationsService.sendRefundConfirmation({
       recipient: {
         userName: params.userName,

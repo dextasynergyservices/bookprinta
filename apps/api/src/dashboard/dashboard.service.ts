@@ -45,12 +45,13 @@ export class DashboardService {
     // `findUserNotifications(limit:50)` was fetched solely to derive a single boolean flag
     // (`hasProductionDelayBanner`). Replaced with a dedicated EXISTS check backed by the
     // `@@index([userId, type])` composite index — O(1) vs O(N) full-list scan.
-    const [books, recentOrders, unreadCount, hasDelayBanner, profile, reviewState] =
+    //
+    // Fix 4.6: replaced `findUserBooks(page:1, limit:10)` (10 rows with full
+    // joins fetched in JS, then reduced to 1) with `findActiveBook(userId)` —
+    // a dedicated two-query DB path that returns exactly 1 book.
+    const [activeBook, recentOrders, unreadCount, hasDelayBanner, profile, reviewState] =
       await Promise.all([
-        this.booksService.findUserBooks(userId, {
-          page: 1,
-          limit: 10,
-        }),
+        this.booksService.findActiveBook(userId),
         this.ordersService.findUserOrders(userId, {
           page: 1,
           limit: 3,
@@ -60,8 +61,6 @@ export class DashboardService {
         this.usersService.getMyProfile(userId),
         this.reviewsService.getMyReviews(userId),
       ]);
-
-    const activeBook = this.resolveActiveBook(books.items);
 
     // Check if the active book already has an in-progress reprint so we
     // don't surface a misleading "Reprint Available" action.
@@ -95,35 +94,6 @@ export class DashboardService {
         items: pendingActionItems,
       },
     };
-  }
-
-  private resolveActiveBook(books: UserBookListItem[]): UserBookListItem | null {
-    // 1. Prefer the most recently CREATED delivered/completed book.
-    //    The books list is sorted by updatedAt desc (from the query), but when
-    //    a user has multiple delivered books we want to surface the newest
-    //    project — the one created last, not the one updated last.
-    const deliveredBooks = books.filter(
-      (book) =>
-        book.productionStatus === "DELIVERED" ||
-        book.productionStatus === "COMPLETED" ||
-        book.status === "DELIVERED" ||
-        book.status === "COMPLETED"
-    );
-
-    if (deliveredBooks.length > 0) {
-      return deliveredBooks.reduce((newest, book) =>
-        new Date(book.createdAt).getTime() > new Date(newest.createdAt).getTime() ? book : newest
-      );
-    }
-
-    // 2. Next, prefer the first in-progress (non-terminal) book
-    const inProgressBook = books.find(
-      (book) =>
-        !DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.has(book.productionStatus) &&
-        !DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.has(book.status)
-    );
-
-    return inProgressBook ?? books[0] ?? null;
   }
 
   private buildPendingActions(params: {

@@ -5,6 +5,7 @@
     "module": "Preserve",
     "moduleResolution": "bundler",
     "rootDir": "../..",
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "resolvePackageJsonExports": true,
     "emitDecoratorMetadata": true,

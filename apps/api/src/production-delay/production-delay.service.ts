@@ -16,6 +16,7 @@ import {
   PRODUCTION_DELAY_ACTIVE_BACKLOG_BOOK_STATUSES,
   resolveProductionDelayLifecycleStatus,
 } from "./production-delay-status.js";
+import { SystemSettingsCacheService } from "./system-settings-cache.service.js";
 
 const PRODUCTION_DELAY_STATUS_SETTING_KEYS = [
   PRODUCTION_BACKLOG_THRESHOLD_SYSTEM_SETTING_KEY,
@@ -23,10 +24,7 @@ const PRODUCTION_DELAY_STATUS_SETTING_KEYS = [
   PRODUCTION_DELAY_OVERRIDE_STATE_SYSTEM_SETTING_KEY,
 ] as const;
 
-type ProductionDelayReadExecutor = Pick<
-  PrismaService,
-  "systemSetting" | "productionDelayEvent" | "book"
->;
+type ProductionDelayReadExecutor = Pick<PrismaService, "productionDelayEvent" | "book">;
 
 const ACTIVE_DELAY_EVENT_SELECT = {
   id: true,
@@ -114,34 +112,16 @@ export type ProductionDelayStatusResolution = {
 
 @Injectable()
 export class ProductionDelayService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settingsCache: SystemSettingsCacheService
+  ) {}
 
   async resolveStatus(
     executor: ProductionDelayReadExecutor = this.prisma
   ): Promise<ProductionDelayStatusResolution> {
-    const settings = await executor.systemSetting.findMany({
-      where: {
-        key: { in: [...PRODUCTION_DELAY_STATUS_SETTING_KEYS] },
-      },
-      select: {
-        key: true,
-        value: true,
-      },
-    });
-    const activeEvent = await executor.productionDelayEvent.findFirst({
-      where: {
-        status: "ACTIVE",
-      },
-      orderBy: [{ activatedAt: "desc" }, { id: "desc" }],
-      select: ACTIVE_DELAY_EVENT_SELECT,
-    });
-    const affectedBookRows = (await executor.book.findMany({
-      where: this.buildAffectedBooksWhere(),
-      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      select: AFFECTED_BOOK_SELECT,
-    })) as AffectedBookRow[];
+    const settingMap = await this.settingsCache.getMany([...PRODUCTION_DELAY_STATUS_SETTING_KEYS]);
 
-    const settingMap = new Map(settings.map((row) => [row.key, row.value]));
     const threshold = this.parsePositiveIntegerSetting(
       settingMap.get(PRODUCTION_BACKLOG_THRESHOLD_SYSTEM_SETTING_KEY),
       DEFAULT_PRODUCTION_BACKLOG_THRESHOLD
@@ -153,18 +133,44 @@ export class ProductionDelayService {
     const manualOverrideState = this.parseOverrideSetting(
       settingMap.get(PRODUCTION_DELAY_OVERRIDE_STATE_SYSTEM_SETTING_KEY)
     );
-    const affectedBooks = affectedBookRows.map((row) => this.serializeAffectedBook(row));
-    const affectedUsers = this.groupAffectedUsers(affectedBookRows, affectedBooks);
-    const backlogCount = affectedBooks.length;
-    const autoDelayActive = backlogCount >= threshold;
-    const isDelayActive = this.resolveEffectiveDelayState({
-      autoDelayActive,
-      manualOverrideState,
+
+    // Fix 4.4 — two-phase query: cheap count first, expensive join only when needed.
+    //
+    // Phase 1: index-backed count (@@index([productionStatus]) + @@index([status])).
+    // This runs on every 15-minute tick and is ~10-100× cheaper than the full
+    // findMany() with 4 JOINs we used before.
+    const activeEvent = await executor.productionDelayEvent.findFirst({
+      where: { status: "ACTIVE" },
+      orderBy: [{ activatedAt: "desc" }, { id: "desc" }],
+      select: ACTIVE_DELAY_EVENT_SELECT,
     });
+
+    const backlogCount = await executor.book.count({ where: this.buildAffectedBooksWhere() });
+    const autoDelayActive = backlogCount >= threshold;
+    const isDelayActive = this.resolveEffectiveDelayState({ autoDelayActive, manualOverrideState });
     const resolvedDelayStateSource = this.resolveDelayStateSource({
       autoDelayActive,
       manualOverrideState,
     });
+
+    // Phase 2: full findMany() with user/file joins — only when the delay is
+    // active or an existing event might need resolution.  When delay is off and
+    // there is no open event, affectedBooks/affectedUsers are empty, which is
+    // safe: the delivery service short-circuits on empty arrays, and the monitor
+    // has nothing to open/close.
+    let affectedBooks: ProductionDelayAffectedBook[] = [];
+    let affectedUsers: ProductionDelayAffectedUser[] = [];
+
+    if (isDelayActive || Boolean(activeEvent)) {
+      const affectedBookRows = (await executor.book.findMany({
+        where: this.buildAffectedBooksWhere(),
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        select: AFFECTED_BOOK_SELECT,
+      })) as AffectedBookRow[];
+
+      affectedBooks = affectedBookRows.map((row) => this.serializeAffectedBook(row));
+      affectedUsers = this.groupAffectedUsers(affectedBookRows, affectedBooks);
+    }
 
     return {
       threshold,

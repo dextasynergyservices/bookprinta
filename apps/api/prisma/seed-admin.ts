@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { BCRYPT_SALT_ROUNDS } from "@bookprinta/shared";
 import { PrismaPg } from "@prisma/adapter-pg";
 import * as bcrypt from "bcrypt";
 import { PrismaClient } from "../src/generated/prisma/client.js";
@@ -12,7 +13,6 @@ if (!connectionString) {
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
-const SALT_ROUNDS = 12;
 const DEFAULT_ADMIN_EMAIL = "admin@bookprinta.local";
 const DEFAULT_ADMIN_PASSWORD = "Admin123!ChangeMe";
 const DEFAULT_ADMIN_FIRST_NAME = "BookPrinta";
@@ -101,7 +101,7 @@ async function seedAdmin() {
     );
   }
 
-  const hashedPassword = await bcrypt.hash(config.password, SALT_ROUNDS);
+  const hashedPassword = await bcrypt.hash(config.password, BCRYPT_SALT_ROUNDS);
 
   const admin = await prisma.user.upsert({
     where: { email: config.email },

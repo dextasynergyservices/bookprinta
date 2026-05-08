@@ -252,11 +252,8 @@ export class PaymentsService {
     private readonly signupNotificationsService: SignupNotificationsService,
     private readonly notificationsService: NotificationsService,
     private readonly rollout: RolloutService,
-    private readonly whatsappService: WhatsappService = new WhatsappService(),
-    @Optional()
-    private readonly whatsappNotificationsService: WhatsappNotificationsService = new WhatsappNotificationsService(
-      new WhatsappService()
-    ),
+    @Optional() private readonly whatsappService: WhatsappService | null,
+    @Optional() private readonly whatsappNotificationsService: WhatsappNotificationsService | null,
     @Optional() gatewayServiceInject?: GatewayService,
     @Optional() adminPaymentListServiceInject?: AdminPaymentListService,
     @Optional() refundServiceInject?: RefundService,
@@ -272,7 +269,7 @@ export class PaymentsService {
     // tests using `new PaymentsService(prisma, ...)` get internally-created instances.
     this.gatewayService =
       gatewayServiceInject ??
-      new GatewayService(prisma, paystackService, stripeService, paypalService);
+      new GatewayService(prisma, null, paystackService, stripeService, paypalService);
     this.adminPaymentListService =
       adminPaymentListServiceInject ?? new AdminPaymentListService(prisma);
     this.refundService =
@@ -3832,7 +3829,12 @@ export class PaymentsService {
     amount: number;
     receiptUrl: string;
   }): Promise<void> {
-    const recipients = await this.resolveBankTransferAdminWhatsAppRecipients();
+    const ws = this.whatsappService;
+    if (!ws) {
+      this.logger.debug("WhatsappService not available — skipping admin WhatsApp notification");
+      return;
+    }
+    const recipients = await this.resolveBankTransferAdminWhatsAppRecipients(ws);
     if (recipients.length === 0) {
       this.logger.warn("No admin phone numbers found for bank transfer WhatsApp notifications");
       return;
@@ -3843,7 +3845,7 @@ export class PaymentsService {
 
     await Promise.allSettled(
       recipients.map(async (to) => {
-        const templateResult = await this.whatsappService.sendTemplate({
+        const templateResult = await ws.sendTemplate({
           to,
           templateName: "bank_transfer_admin",
           language: "en",
@@ -3868,7 +3870,7 @@ export class PaymentsService {
           return templateResult;
         }
 
-        return this.whatsappService.sendText({
+        return ws.sendText({
           to,
           kind: "bank transfer admin alert text fallback",
           text:
@@ -3908,7 +3910,14 @@ export class PaymentsService {
     packageName?: string;
     addons?: string[];
   }): Promise<void> {
-    await this.whatsappNotificationsService.sendBankTransferVerification({
+    const wns = this.whatsappNotificationsService;
+    if (!wns) {
+      this.logger.debug(
+        "WhatsappNotificationsService not available — skipping user WhatsApp notification"
+      );
+      return;
+    }
+    await wns.sendBankTransferVerification({
       recipient: {
         userName: params.payerName,
         phoneNumber: params.payerPhone,
@@ -3922,8 +3931,8 @@ export class PaymentsService {
     });
   }
 
-  private async resolveBankTransferAdminWhatsAppRecipients(): Promise<string[]> {
-    const configuredRecipients = await this.resolveConfiguredAdminWhatsAppRecipients();
+  private async resolveBankTransferAdminWhatsAppRecipients(ws: WhatsappService): Promise<string[]> {
+    const configuredRecipients = await this.resolveConfiguredAdminWhatsAppRecipients(ws);
     if (configuredRecipients.length > 0) {
       return configuredRecipients;
     }
@@ -3936,18 +3945,18 @@ export class PaymentsService {
     });
 
     const dbRecipients = admins
-      .map((admin) => this.whatsappService.normalizePhone(admin.phoneNumber))
+      .map((admin) => ws.normalizePhone(admin.phoneNumber))
       .filter((phone) => phone.length > 0);
 
     if (dbRecipients.length > 0) {
       return Array.from(new Set(dbRecipients));
     }
 
-    const fallback = this.whatsappService.normalizePhone(BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK);
+    const fallback = ws.normalizePhone(BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK);
     return fallback ? [fallback] : [];
   }
 
-  private async resolveConfiguredAdminWhatsAppRecipients(): Promise<string[]> {
+  private async resolveConfiguredAdminWhatsAppRecipients(ws: WhatsappService): Promise<string[]> {
     const systemSettingModel = (
       this.prisma as PrismaService & {
         systemSetting?: {
@@ -3964,10 +3973,13 @@ export class PaymentsService {
       select: { value: true },
     });
 
-    return this.parseAdminWhatsAppRecipients(configured?.value ?? null);
+    return this.parseAdminWhatsAppRecipients(configured?.value ?? null, ws);
   }
 
-  private parseAdminWhatsAppRecipients(value: string | null | undefined): string[] {
+  private parseAdminWhatsAppRecipients(
+    value: string | null | undefined,
+    ws: WhatsappService
+  ): string[] {
     const normalized = value?.trim();
     if (!normalized) return [];
 
@@ -3975,7 +3987,7 @@ export class PaymentsService {
       new Set(
         normalized
           .split(",")
-          .map((entry) => this.whatsappService.normalizePhone(entry))
+          .map((entry) => ws.normalizePhone(entry))
           .filter((entry) => entry.length > 0)
       )
     );
@@ -4118,6 +4130,7 @@ export class PaymentsService {
     variant?: "standard" | "quote" | "reprint" | "extra_pages" | "bank_transfer";
     dashboardUrl?: string | null;
   }): Promise<void> {
+    if (!this.whatsappNotificationsService) return;
     await this.whatsappNotificationsService.sendPaymentConfirmation({
       recipient: {
         userName: params.userName,

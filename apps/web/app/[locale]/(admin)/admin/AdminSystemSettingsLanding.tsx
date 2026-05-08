@@ -10,6 +10,7 @@ import { AlertCircle, Eye, EyeOff, Loader2, Plus, Save, ShieldAlert, Trash2 } fr
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { AdminQueueHealthPanel } from "@/components/admin/admin-queue-health-panel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -3034,6 +3035,8 @@ export function AdminSystemSettingsLanding() {
             </div>
           </article>
         </div>
+
+        <AdminQueueHealthPanel />
       </div>
 
       <AlertDialog open={maintenanceConfirmOpen} onOpenChange={setMaintenanceConfirmOpen}>

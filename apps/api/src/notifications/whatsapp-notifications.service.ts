@@ -25,7 +25,7 @@ const WHATSAPP_TEMPLATE_NAMES = {
 export class WhatsappNotificationsService {
   constructor(
     @Optional()
-    private readonly whatsappService: WhatsappService = new WhatsappService()
+    private readonly whatsappService: WhatsappService | undefined
   ) {}
 
   async sendPaymentConfirmation(params: {
@@ -268,6 +268,10 @@ export class WhatsappNotificationsService {
       return this.buildSkippedResult("Phone number not provided");
     }
 
+    if (!this.whatsappService) {
+      return this.buildSkippedResult("WhatsappService not configured");
+    }
+
     return this.whatsappService.sendText({
       to: phoneNumber,
       text: params.text,
@@ -302,6 +306,10 @@ export class WhatsappNotificationsService {
     const phoneNumber = params.recipient.phoneNumber?.trim();
     if (!phoneNumber) {
       return this.buildSkippedResult("Phone number not provided");
+    }
+
+    if (!this.whatsappService) {
+      return this.buildSkippedResult("WhatsappService not configured");
     }
 
     return this.whatsappService.sendTemplate({

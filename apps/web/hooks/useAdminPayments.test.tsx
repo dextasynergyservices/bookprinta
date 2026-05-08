@@ -78,6 +78,7 @@ describe("useAdminPayments", () => {
               ageMinutes: 15,
               state: "yellow",
             },
+            signupLinkDelivery: null,
           },
         ],
         totalItems: 1,

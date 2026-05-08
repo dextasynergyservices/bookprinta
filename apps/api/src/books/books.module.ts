@@ -10,6 +10,7 @@ import {
   QUEUE_PDF_GENERATION,
 } from "../jobs/jobs.constants.js";
 import { NotificationsModule } from "../notifications/notifications.module.js";
+import { ProductionDelayModule } from "../production-delay/production-delay.module.js";
 import { RolloutModule } from "../rollout/rollout.module.js";
 import { AdminBooksController } from "./admin-books.controller.js";
 import { BooksController } from "./books.controller.js";
@@ -33,6 +34,7 @@ import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
     NotificationsModule,
     RolloutModule,
     EngineModule,
+    ProductionDelayModule,
   ],
   controllers: [BooksController, AdminBooksController],
   providers: [BooksService, BooksPipelineService, ManuscriptAnalysisService],

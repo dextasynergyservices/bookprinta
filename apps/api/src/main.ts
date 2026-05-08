@@ -80,6 +80,11 @@ async function bootstrap() {
   app.enableCors({
     origin: allowedOrigins,
     credentials: true,
+    // Explicitly list every HTTP method the API uses.
+    // GET/POST/PATCH/PUT/DELETE = real endpoints. OPTIONS = CORS preflight
+    // (browsers send this automatically before every cross-origin request).
+    // HEAD = Express auto-responds for every GET route (safe to include).
+    methods: ["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
   });
 
   // Global Zod validation pipe (validates all incoming DTOs)

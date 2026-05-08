@@ -26,6 +26,7 @@ import type {
   UpdateMyProfileResponse,
 } from "@bookprinta/shared";
 import {
+  BCRYPT_SALT_ROUNDS,
   PurchaseLinkSchema,
   SocialLinkSchema,
   UserProfileBioSchema,
@@ -47,7 +48,6 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 
 const PROFILE_IMAGE_FOLDER_ROOT = "bookprinta/profile-images";
-const PASSWORD_SALT_ROUNDS = 12;
 
 const USER_PROFILE_SELECT = {
   id: true,
@@ -355,7 +355,7 @@ export class UsersService {
       throw new BadRequestException("New password must be different from the current password");
     }
 
-    const hashedPassword = await bcrypt.hash(input.newPassword, PASSWORD_SALT_ROUNDS);
+    const hashedPassword = await bcrypt.hash(input.newPassword, BCRYPT_SALT_ROUNDS);
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -480,7 +480,7 @@ export class UsersService {
       throw new ConflictException("A user with this email address already exists.");
     }
 
-    const hashedPassword = await bcrypt.hash(input.password, PASSWORD_SALT_ROUNDS);
+    const hashedPassword = await bcrypt.hash(input.password, BCRYPT_SALT_ROUNDS);
     const firstName = input.firstName.trim();
     const lastName = input.lastName?.trim() || null;
 
