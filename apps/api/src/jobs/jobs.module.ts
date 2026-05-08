@@ -6,10 +6,13 @@ import { FilesModule } from "../files/files.module.js";
 import { NotificationsModule } from "../notifications/notifications.module.js";
 import { ProductionDelayModule } from "../production-delay/production-delay.module.js";
 import { AiFormattingProcessor } from "./ai-formatting.processor.js";
+import { AuditLogArchiverProcessor } from "./audit-log-archiver.processor.js";
+import { AuditLogArchiverScheduler } from "./audit-log-archiver.scheduler.js";
 import { resolveBullMqConnection } from "./bullmq-connection.js";
 import { JobRecoveryService } from "./job-recovery.service.js";
 import {
   QUEUE_AI_FORMATTING,
+  QUEUE_AUDIT_LOG_ARCHIVER,
   QUEUE_PAGE_COUNT,
   QUEUE_PDF_GENERATION,
   QUEUE_PRODUCTION_DELAY,
@@ -29,6 +32,7 @@ const logger = new Logger("JobsModule");
  *  - pdf-generation:  Gotenberg HTML → print-ready PDF   (concurrency 1, 3/min)
  *  - page-count:      Gotenberg HTML → page count         (concurrency 1, 3/min)
  *  - production-delay: scheduled backlog monitor          (every 15 minutes)
+ *  - audit-log-archiver: nightly hard-delete of old AuditLog rows (every 24 hours)
  *
  * AI formatting, authoritative page-count, and final PDF workers are registered here.
  *
@@ -148,7 +152,23 @@ export class JobsModule {
             },
           },
         }),
-
+        // ─────────────────────────────────────
+        // Queue: audit-log-archiver
+        // Nightly hard-delete of AuditLog rows older than 90 days (Fix 4.2)
+        // Triggered every 24 hours by a job scheduler
+        // ─────────────────────────────────────
+        BullModule.registerQueue({
+          name: QUEUE_AUDIT_LOG_ARCHIVER,
+          defaultJobOptions: {
+            attempts: 1,
+            removeOnComplete: {
+              count: 7,
+            },
+            removeOnFail: {
+              count: 14,
+            },
+          },
+        }),
         // Services used by job processors (Gemini formatting, validation, pipeline chaining)
         EngineModule,
         FilesModule,
@@ -162,6 +182,8 @@ export class JobsModule {
         PdfGenerationProcessor,
         ProductionDelayProcessor,
         ProductionDelayScheduler,
+        AuditLogArchiverProcessor,
+        AuditLogArchiverScheduler,
         JobRecoveryService,
       ],
       exports: [BullModule],

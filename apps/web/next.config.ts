@@ -6,6 +6,24 @@ import { pwaPluginConfig } from "./lib/pwa/plugin-config";
 
 const withNextIntl = createNextIntlPlugin("./lib/i18n/request.ts");
 
+const SECURITY_HEADERS = [
+  // Prevent MIME-type sniffing (e.g. serving a .txt as JS)
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  // Block the page from being embedded in an iframe (clickjacking)
+  { key: "X-Frame-Options", value: "DENY" },
+  // Only send origin in Referer header, not the full path, for cross-origin requests
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // Opt out of browser APIs BookPrinta does not use.
+  // Note: payment is intentionally omitted — Stripe's Payment Request API
+  // (Apple Pay / Google Pay) may be added in future.
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=()",
+  },
+  // Improve DNS prefetch performance for external resources
+  { key: "X-DNS-Prefetch-Control", value: "on" },
+];
+
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
@@ -18,6 +36,15 @@ const nextConfig: NextConfig = {
         hostname: "res.cloudinary.com",
       },
     ],
+  },
+  async headers() {
+    return [
+      {
+        // Apply to every route, including API proxy routes
+        source: "/:path*",
+        headers: SECURITY_HEADERS,
+      },
+    ];
   },
   async rewrites() {
     // Proxy all /api/* requests through Vercel to the NestJS backend.

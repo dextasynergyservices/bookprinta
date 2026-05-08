@@ -5,6 +5,7 @@
     "allowJs": true,
     "noEmit": true,
     "jsx": "preserve",
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "plugins": [
       {

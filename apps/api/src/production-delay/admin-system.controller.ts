@@ -12,11 +12,12 @@ import {
   Req,
   UseGuards,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
 import { AdminDashboardAnalyticsService } from "./admin-dashboard-analytics.service.js";
+import { AdminQueueStatsService } from "./admin-queue-stats.service.js";
 import { AdminSystemLogsService } from "./admin-system-logs.service.js";
 import { AdminSystemSettingsService } from "./admin-system-settings.service.js";
 import {
@@ -41,6 +42,7 @@ import {
   ProductionDelayStatusResponseDto,
   UpdateProductionDelayBodyDto,
 } from "./dto/production-delay.dto.js";
+import { QueueJobsResponseDto, QueueStatsResponseDto } from "./dto/queue-stats.dto.js";
 import { ProductionDelayAdminService } from "./production-delay-admin.service.js";
 
 // ──────────────────────────────────────────────────────────────────────
@@ -65,7 +67,8 @@ export class AdminSystemController {
     private readonly productionDelayAdminService: ProductionDelayAdminService,
     private readonly adminSystemSettingsService: AdminSystemSettingsService,
     private readonly adminSystemLogsService: AdminSystemLogsService,
-    private readonly adminDashboardAnalyticsService: AdminDashboardAnalyticsService
+    private readonly adminDashboardAnalyticsService: AdminDashboardAnalyticsService,
+    private readonly adminQueueStatsService: AdminQueueStatsService
   ) {}
 
   @Get("dashboard/stats")
@@ -300,5 +303,70 @@ export class AdminSystemController {
     @Body() body: UpdateProductionDelayBodyDto
   ): Promise<ProductionDelayStatusResponseDto> {
     return this.productionDelayAdminService.updateProductionDelayOverride(adminId, body);
+  }
+
+  @Get("queue-stats")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Get BullMQ queue depth and job counts",
+    description:
+      "Returns a point-in-time snapshot of job counts (waiting, active, failed, " +
+      "completed, delayed, paused) for every registered BullMQ queue. " +
+      "Useful for monitoring queue backlog and identifying stuck or failing jobs. " +
+      "When Redis is unavailable, counts are returned as -1 and redisAvailable is false.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Queue stats snapshot retrieved successfully",
+    type: QueueStatsResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 403, description: "Forbidden — admin role required" })
+  async getQueueStats(): Promise<QueueStatsResponseDto> {
+    return this.adminQueueStatsService.getQueueStats();
+  }
+
+  @Get("queue-jobs")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "List jobs in a specific queue and state",
+    description:
+      "Returns paginated job details for a given BullMQ queue name and job state. " +
+      "Failed jobs include failedReason and stacktrace. " +
+      "Job payloads are serialised as JSON strings (truncated to 5,000 chars, " +
+      "sensitive keys redacted). Returns an empty list when the queue is unknown " +
+      "or Redis is unavailable.",
+  })
+  @ApiQuery({
+    name: "queue",
+    description: "BullMQ queue name, e.g. ai-formatting",
+    example: "ai-formatting",
+  })
+  @ApiQuery({
+    name: "state",
+    description: "Job state to list",
+    enum: ["waiting", "active", "failed", "completed", "delayed", "paused"],
+    example: "failed",
+  })
+  @ApiQuery({ name: "page", description: "Zero-based page index", required: false, example: 0 })
+  @ApiQuery({ name: "limit", description: "Page size (max 50)", required: false, example: 10 })
+  @ApiResponse({
+    status: 200,
+    description: "Job list retrieved successfully",
+    type: QueueJobsResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 403, description: "Forbidden — admin role required" })
+  async getQueueJobs(
+    @Query("queue") queueName: string,
+    @Query("state") state: string,
+    @Query("page") pageRaw?: string,
+    @Query("limit") limitRaw?: string
+  ): Promise<QueueJobsResponseDto> {
+    const page = Math.max(0, Number.parseInt(pageRaw ?? "0", 10) || 0);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(limitRaw ?? "10", 10) || 10));
+    return this.adminQueueStatsService.getQueueJobs(queueName ?? "", state ?? "", page, limit);
   }
 }

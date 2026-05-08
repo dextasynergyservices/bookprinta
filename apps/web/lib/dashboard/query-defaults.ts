@@ -7,6 +7,11 @@ export const DASHBOARD_HISTORY_STALE_TIME_MS = 60_000;
 export const DASHBOARD_STATUS_STALE_TIME_MS = 15_000;
 export const DASHBOARD_LIVE_STALE_TIME_MS = 0;
 export const DASHBOARD_POLL_INTERVAL_MS = 30_000;
+/**
+ * Reduced polling rate used when SSE is active or the book is in a slow-changing
+ * production/logistics state. Acts as a heartbeat rather than a real-time signal.
+ */
+export const DASHBOARD_HEARTBEAT_POLL_INTERVAL_MS = 120_000;
 
 export const dashboardBaseQueryOptions = {
   gcTime: DASHBOARD_QUERY_GC_TIME_MS,

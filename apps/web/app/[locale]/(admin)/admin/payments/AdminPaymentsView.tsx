@@ -1,6 +1,6 @@
 "use client";
 
-import type { PendingBankTransferSlaState } from "@bookprinta/shared";
+import type { PendingBankTransferSlaState, SignupLinkDeliverySnapshot } from "@bookprinta/shared";
 import {
   AlertCircle,
   Clock3,
@@ -223,6 +223,50 @@ function PendingTransferReceiptAction({
   );
 }
 
+function SignupLinkDeliveryBadge({ delivery }: { delivery: SignupLinkDeliverySnapshot }) {
+  const tAdmin = useTranslations("admin");
+
+  if (delivery.status === "DELIVERED") return null;
+
+  const isFailed = delivery.status === "FAILED";
+  const partialMessage = delivery.emailDelivered
+    ? tAdmin("payments_pending_meta_signup_link_partial_email")
+    : tAdmin("payments_pending_meta_signup_link_partial_whatsapp");
+  const message = isFailed ? tAdmin("payments_pending_meta_signup_link_failed") : partialMessage;
+
+  return (
+    <div
+      className={cn(
+        "rounded-[1.25rem] border p-4",
+        isFailed ? "border-[#6B1A1A] bg-[#140808]" : "border-[#4A3915] bg-[#171108]"
+      )}
+    >
+      <p
+        className={cn(
+          "font-sans text-[11px] font-medium uppercase tracking-[0.18em]",
+          isFailed ? "text-[#EF4444]" : "text-[#EAB308]"
+        )}
+      >
+        {tAdmin("payments_pending_meta_signup_link_label")}
+      </p>
+      <p
+        className={cn(
+          "mt-2 flex items-start gap-2 font-sans text-sm leading-5",
+          isFailed ? "text-[#FCA5A5]" : "text-[#E9DFB0]"
+        )}
+      >
+        <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <span>{message}</span>
+      </p>
+      {delivery.attemptCount > 0 ? (
+        <p className="mt-1.5 font-sans text-xs text-[#7D7D7D]">
+          {tAdmin("payments_pending_meta_signup_link_attempts", { count: delivery.attemptCount })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 type PendingBankTransferRowProps = {
   item: PendingBankTransferWithLiveSla;
   locale: string;
@@ -356,6 +400,10 @@ function PendingTransferCard({
             </p>
             <p className="mt-2 font-sans text-sm leading-6 text-[#E9DFB0]">{item.adminNote}</p>
           </div>
+        ) : null}
+
+        {item.signupLinkDelivery ? (
+          <SignupLinkDeliveryBadge delivery={item.signupLinkDelivery} />
         ) : null}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -515,6 +563,9 @@ function PendingTransferDesktopTable({
                         </span>
                         <span className="mt-1 block leading-6">{item.adminNote}</span>
                       </div>
+                    ) : null}
+                    {item.signupLinkDelivery ? (
+                      <SignupLinkDeliveryBadge delivery={item.signupLinkDelivery} />
                     ) : null}
                   </div>
                 </TableCell>

@@ -324,3 +324,113 @@ export async function updateAdminProductionDelayOverride(input: {
 
   return (await response.json()) as ProductionDelayStatusResponse;
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Queue Stats
+// ──────────────────────────────────────────────────────────────────────
+
+export type QueueCountsItem = {
+  name: string;
+  waiting: number;
+  active: number;
+  failed: number;
+  completed: number;
+  delayed: number;
+  paused: number;
+};
+
+export type QueueStatsResponse = {
+  queues: QueueCountsItem[];
+  timestamp: string;
+  redisAvailable: boolean;
+};
+
+export async function fetchAdminQueueStats(
+  input: { signal?: AbortSignal } = {}
+): Promise<QueueStatsResponse> {
+  let response: Response;
+
+  try {
+    response = await fetchApiV1WithRefresh("/admin/system/queue-stats", {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      signal: input.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
+    throw new Error("Unable to load queue stats right now.");
+  }
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to load queue stats");
+  }
+
+  return (await response.json()) as QueueStatsResponse;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Queue Job Detail
+// ──────────────────────────────────────────────────────────────────────
+
+export type QueueJobDetailItem = {
+  id: string;
+  name: string;
+  attemptsMade: number;
+  failedReason: string | null;
+  stacktrace: string[];
+  timestamp: number;
+  processedOn: number | null;
+  finishedOn: number | null;
+  delay: number;
+  progress: string;
+  data: string;
+};
+
+export type QueueJobsResponse = {
+  jobs: QueueJobDetailItem[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+export async function fetchAdminQueueJobs(input: {
+  queue: string;
+  state: string;
+  page: number;
+  limit?: number;
+  signal?: AbortSignal;
+}): Promise<QueueJobsResponse> {
+  const params = new URLSearchParams({
+    queue: input.queue,
+    state: input.state,
+    page: String(input.page),
+    limit: String(input.limit ?? 10),
+  });
+
+  let response: Response;
+
+  try {
+    response = await fetchApiV1WithRefresh(`/admin/system/queue-jobs?${params.toString()}`, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      signal: input.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
+    throw new Error("Unable to load job details right now.");
+  }
+
+  if (!response.ok) {
+    await throwApiError(response, "Unable to load job details");
+  }
+
+  return (await response.json()) as QueueJobsResponse;
+}

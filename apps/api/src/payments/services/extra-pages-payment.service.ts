@@ -229,8 +229,9 @@ export class ExtraPagesPaymentService {
         dashboardUrl?: string | null;
         variant?: "standard" | "quote" | "reprint" | "extra_pages" | "bank_transfer";
       }) => Promise<unknown>;
-    }
+    } | null
   ): Promise<void> {
+    if (!whatsappNotificationsService) return;
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: {

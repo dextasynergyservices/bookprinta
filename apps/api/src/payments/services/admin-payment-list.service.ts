@@ -7,6 +7,7 @@ import type {
   AdminPendingBankTransferItem,
   AdminPendingBankTransfersResponse,
   AdminPendingCheckoutSnapshot,
+  SignupLinkDeliverySnapshot,
 } from "@bookprinta/shared";
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "../../generated/prisma/client.js";
@@ -167,6 +168,14 @@ export class AdminPaymentListService {
       },
       select: ADMIN_PAYMENT_LIST_SELECT,
     });
+    // Build a delivery snapshot lookup keyed by payment ID (rows may be reordered by sort)
+    const deliveryByPaymentId = new Map<string, SignupLinkDeliverySnapshot | null>(
+      rows.map((row) => [
+        row.id,
+        this.extractSignupLinkDeliverySnapshot(this.asRecord(row.metadata)),
+      ])
+    );
+
     const items = this.sortAdminPaymentItems(
       rows.map((row) => this.serializeAdminPaymentListItem(row)),
       "createdAt",
@@ -176,6 +185,7 @@ export class AdminPaymentListService {
       provider: PaymentProvider.BANK_TRANSFER,
       status: PaymentStatus.AWAITING_APPROVAL,
       slaSnapshot: this.buildPendingBankTransferSlaSnapshot(item.createdAt),
+      signupLinkDelivery: deliveryByPaymentId.get(item.id) ?? null,
     })) as AdminPendingBankTransferItem[];
 
     return {
@@ -612,6 +622,32 @@ export class AdminPaymentListService {
       paymentFlow: this.asString(merged.paymentFlow),
       source: this.asString(merged.source),
       ...(addons.length > 0 ? { addons } : {}),
+    };
+  }
+
+  /**
+   * Extract the signup link delivery snapshot from a payment's metadata blob.
+   * This snapshot is written by PaymentsService.attemptSignupLinkDelivery().
+   */
+  private extractSignupLinkDeliverySnapshot(
+    metadata: Record<string, unknown> | null
+  ): SignupLinkDeliverySnapshot | null {
+    const raw = this.asRecord(metadata?.signupLinkDelivery);
+    if (!raw) return null;
+
+    const status = this.asString(raw.status);
+    if (status !== "DELIVERED" && status !== "PARTIAL" && status !== "FAILED") return null;
+
+    return {
+      status,
+      emailDelivered: raw.emailDelivered === true,
+      whatsappDelivered: raw.whatsappDelivered === true,
+      emailFailureReason: this.asString(raw.emailFailureReason) ?? null,
+      whatsappFailureReason: this.asString(raw.whatsappFailureReason) ?? null,
+      attemptCount: this.asNumber(raw.attemptCount) ?? 0,
+      lastAttemptAt: this.asString(raw.lastAttemptAt) ?? null,
+      lastSuccessfulAt: this.asString(raw.lastSuccessfulAt) ?? null,
+      lastAttemptSource: this.asString(raw.lastAttemptSource) ?? null,
     };
   }
 }

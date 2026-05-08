@@ -23,7 +23,9 @@ function createService() {
     {} as never,
     {} as never,
     {} as never,
-    { assertBillingGateAccess: jest.fn() } as never
+    { assertBillingGateAccess: jest.fn() } as never,
+    null,
+    null
   );
 
   return { service, prisma };

@@ -4,6 +4,7 @@ import {
   Header,
   Param,
   Query,
+  Req,
   Res,
   StreamableFile,
   UseGuards,
@@ -17,7 +18,7 @@ import {
   ApiResponse,
   ApiTags,
 } from "@nestjs/swagger";
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import { CurrentUser, JwtAuthGuard } from "../auth/index.js";
 import {
   OrderDetailResponseDto,
@@ -67,7 +68,6 @@ export class OrdersController {
    * Authenticated user can only access their own order.
    */
   @Get(":id")
-  @Header("Cache-Control", "private, no-store")
   @Header("Vary", "Cookie")
   @ApiOperation({
     summary: "Get order detail",
@@ -85,13 +85,25 @@ export class OrdersController {
     description: "Order detail retrieved successfully",
     type: OrderDetailResponseDto,
   })
+  @ApiResponse({ status: 304, description: "Not Modified — client cache is current" })
   @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
   @ApiResponse({ status: 404, description: "Order not found" })
   async findMyOrderById(
     @CurrentUser("sub") userId: string,
-    @Param() params: OrderParamsDto
-  ): Promise<OrderDetailResponseDto> {
-    return this.ordersService.findUserOrderById(userId, params.id);
+    @Param() params: OrderParamsDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<OrderDetailResponseDto | undefined> {
+    const data = await this.ordersService.findUserOrderById(userId, params.id);
+    const etag = `W/"${data.updatedAt}"`;
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "private, no-cache");
+    const ifNoneMatch = req.headers["if-none-match"];
+    if (typeof ifNoneMatch === "string" && ifNoneMatch === etag) {
+      res.status(304).end();
+      return;
+    }
+    return data;
   }
 
   /**

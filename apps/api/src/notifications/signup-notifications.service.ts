@@ -4,7 +4,7 @@ import {
   renderSignupVerificationEmail,
   renderWelcomeEmail,
 } from "@bookprinta/emails/render";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { Resend } from "resend";
 import { isUserNotificationChannelEnabled } from "./notification-preference-policy.js";
 import { WhatsappService } from "./whatsapp.service.js";
@@ -36,7 +36,7 @@ export class SignupNotificationsService {
   private readonly frontendBaseUrl: string;
   private readonly fallbackFromEmail: string;
 
-  constructor(private readonly whatsappService: WhatsappService = new WhatsappService()) {
+  constructor(@Optional() private readonly whatsappService: WhatsappService | undefined) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.frontendBaseUrl = this.resolveFrontendBaseUrl();
     this.fallbackFromEmail =
@@ -248,6 +248,14 @@ export class SignupNotificationsService {
     amountPaid?: string;
     addons?: string[];
   }): Promise<ChannelDeliveryResult> {
+    const ws = this.whatsappService;
+    if (!ws) {
+      return {
+        delivered: false,
+        failureReason: "WhatsApp service not configured",
+      };
+    }
+
     if (!params.phoneNumber?.trim()) {
       return {
         delivered: false,
@@ -256,7 +264,7 @@ export class SignupNotificationsService {
     }
 
     const signupUrl = this.buildSignupFinishUrl(params.token, params.locale);
-    const result = await this.whatsappService.sendTemplate({
+    const result = await ws.sendTemplate({
       to: params.phoneNumber,
       templateName: SIGNUP_LINK_TEMPLATE_NAME,
       language: params.locale,
@@ -283,7 +291,7 @@ export class SignupNotificationsService {
       };
     }
 
-    const fallbackResult = await this.whatsappService.sendText({
+    const fallbackResult = await ws.sendText({
       to: params.phoneNumber,
       kind: "signup link text fallback",
       text: this.buildRegistrationLinkWhatsAppMessage({
@@ -384,6 +392,14 @@ export class SignupNotificationsService {
     verificationToken: string;
     locale: Locale;
   }): Promise<ChannelDeliveryResult> {
+    const ws = this.whatsappService;
+    if (!ws) {
+      return {
+        delivered: false,
+        failureReason: "WhatsApp service not configured",
+      };
+    }
+
     if (!params.phoneNumber?.trim()) {
       return {
         delivered: false,
@@ -400,7 +416,7 @@ export class SignupNotificationsService {
       verificationUrl,
     });
 
-    const result = await this.whatsappService.sendText({
+    const result = await ws.sendText({
       to: params.phoneNumber,
       text,
       kind: "signup verification",

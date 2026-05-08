@@ -58,6 +58,7 @@ import { PaymentProvider, PaymentStatus, PaymentType } from "../generated/prisma
 import { WhatsappService } from "../notifications/whatsapp.service.js";
 import { PaymentsService } from "../payments/payments.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SystemSettingsCacheService } from "../production-delay/system-settings-cache.service.js";
 
 const DEFAULT_QUOTE_COST_PER_PAGE = 10;
 const DEFAULT_QUOTE_COVER_COST = 500;
@@ -176,6 +177,7 @@ export class QuotesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paymentsService: PaymentsService,
+    private readonly settingsCache: SystemSettingsCacheService,
     private readonly whatsappService: WhatsappService = new WhatsappService()
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -2101,17 +2103,10 @@ export class QuotesService {
   }
 
   private async getEstimatorSettings(): Promise<QuoteEstimatorSettings> {
-    const rows = await this.prisma.systemSetting.findMany({
-      where: {
-        key: { in: [QUOTE_COST_PER_PAGE_KEY, QUOTE_COVER_COST_KEY] },
-      },
-      select: {
-        key: true,
-        value: true,
-      },
-    });
-
-    const values = new Map(rows.map((row) => [row.key, row.value]));
+    const values = await this.settingsCache.getMany([
+      QUOTE_COST_PER_PAGE_KEY,
+      QUOTE_COVER_COST_KEY,
+    ]);
 
     return {
       costPerPage: this.parseSettingNumber(
