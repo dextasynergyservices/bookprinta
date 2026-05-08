@@ -11,6 +11,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { Resend } from "resend";
 import type { Prisma } from "../../generated/prisma/client.js";
@@ -49,7 +50,7 @@ export class RefundService {
     private readonly paystackService: PaystackService,
     private readonly stripeService: StripeService,
     private readonly notificationsService: NotificationsService,
-    private readonly whatsappNotificationsService: WhatsappNotificationsService | null
+    @Optional() private readonly whatsappNotificationsService: WhatsappNotificationsService | null
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     const raw = process.env.FRONTEND_URL?.trim();
