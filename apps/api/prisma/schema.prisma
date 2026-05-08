@@ -214,6 +214,8 @@ model User {
   updatedAt         DateTime       @updatedAt
 
   @@index([email])
+  @@index([role])
+  @@index([isDeleted, createdAt])
 }
 
 // ==========================================
@@ -448,6 +450,9 @@ model File {
   createdBy String?  // "AI", "ADMIN", "SYSTEM", or User ID
 
   createdAt DateTime @default(now())
+
+  @@index([bookId])
+  @@index([bookId, fileType])
 }
 
 // ==========================================
@@ -499,6 +504,7 @@ model Payment {
 
   @@index([providerRef])
   @@index([orderId])
+  @@index([userId])
   @@index([createdAt])
   @@index([status, createdAt])
   @@index([provider, status, createdAt])
@@ -611,6 +617,7 @@ model Review {
   createdAt DateTime @default(now())
 
   @@unique([bookId, userId]) // One review per user per book
+  @@index([isPublic, createdAt])
 }
 
 // ==========================================
@@ -751,6 +758,7 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@index([userId])
+  @@index([createdAt])
 }
 
 // ==========================================
@@ -955,5 +963,6 @@ model ContactSubmission {
   createdAt     DateTime        @default(now())
 
   @@index([isRead])
+  @@index([isArchived, createdAt])
   @@index([createdAt])
 }

@@ -68,7 +68,9 @@ function createService() {
     {} as never,
     { sendRegistrationLink: jest.fn() } as never,
     notificationsService as never,
-    rollout as never
+    rollout as never,
+    null,
+    null
   );
 
   return { service, prisma, paystackService, rollout, notificationsService };

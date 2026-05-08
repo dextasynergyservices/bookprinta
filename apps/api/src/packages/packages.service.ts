@@ -13,6 +13,7 @@ import type {
 } from "@bookprinta/shared";
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 
 type CategorySummaryRow = {
   id: string;
@@ -63,7 +64,14 @@ type AdminCategoryRow = CategorySummaryRow & {
  */
 @Injectable()
 export class PackagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private static readonly CACHE_TTL_SECONDS = 900; // 15 minutes
+  private static readonly CACHE_KEY_PACKAGES = "bp:public:packages";
+  private static readonly CACHE_KEY_CATEGORIES = "bp:public:package-categories";
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService
+  ) {}
 
   /**
    * Shared Prisma projection for package fields.
@@ -121,6 +129,9 @@ export class PackagesService {
    * Kept for compatibility with consumers that still read /packages directly.
    */
   async findAllActive(): Promise<PackageResponse[]> {
+    const cached = await this.redis.get<PackageResponse[]>(PackagesService.CACHE_KEY_PACKAGES);
+    if (cached !== null) return cached;
+
     const packages = await this.prisma.package.findMany({
       where: {
         isActive: true,
@@ -130,7 +141,13 @@ export class PackagesService {
       select: PackagesService.PACKAGE_WITH_CATEGORY_SELECT_FIELDS,
     });
 
-    return packages.map((pkg) => this.serializePackage(pkg));
+    const result = packages.map((pkg) => this.serializePackage(pkg));
+    await this.redis.set(
+      PackagesService.CACHE_KEY_PACKAGES,
+      result,
+      PackagesService.CACHE_TTL_SECONDS
+    );
+    return result;
   }
 
   /**
@@ -138,15 +155,26 @@ export class PackagesService {
    * Categories with zero active packages are omitted.
    */
   async findAllActiveByCategory(): Promise<PackageCategoryResponse[]> {
+    const cached = await this.redis.get<PackageCategoryResponse[]>(
+      PackagesService.CACHE_KEY_CATEGORIES
+    );
+    if (cached !== null) return cached;
+
     const categories = await this.prisma.packageCategory.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" },
       select: PackagesService.CATEGORY_WITH_PACKAGES_SELECT_FIELDS,
     });
 
-    return categories
+    const result = categories
       .filter((category) => category.packages.length > 0)
       .map((category) => this.serializeCategory(category));
+    await this.redis.set(
+      PackagesService.CACHE_KEY_CATEGORIES,
+      result,
+      PackagesService.CACHE_TTL_SECONDS
+    );
+    return result;
   }
 
   /**
@@ -218,8 +246,8 @@ export class PackagesService {
   async createAdminPackageCategory(
     input: AdminCreatePackageCategoryInput
   ): Promise<AdminPackageCategory> {
-    try {
-      const created = await this.prisma.packageCategory.create({
+    const created = await this.prisma.packageCategory
+      .create({
         data: {
           name: input.name.trim(),
           slug: this.slugify(input.name),
@@ -238,23 +266,23 @@ export class PackagesService {
             },
           },
         },
+      })
+      .catch((error) => {
+        if (this.isPrismaUniqueViolation(error)) {
+          throw new ConflictException("Package category name/slug must be unique");
+        }
+        throw error;
       });
-
-      return this.serializeAdminCategory(created);
-    } catch (error) {
-      if (this.isPrismaUniqueViolation(error)) {
-        throw new ConflictException("Package category name/slug must be unique");
-      }
-      throw error;
-    }
+    await this.invalidatePublicCache();
+    return this.serializeAdminCategory(created);
   }
 
   async updateAdminPackageCategory(
     id: string,
     input: AdminUpdatePackageCategoryInput
   ): Promise<AdminPackageCategory> {
-    try {
-      const updated = await this.prisma.packageCategory.update({
+    const updated = await this.prisma.packageCategory
+      .update({
         where: { id },
         data: {
           ...(input.name !== undefined
@@ -280,18 +308,18 @@ export class PackagesService {
             },
           },
         },
+      })
+      .catch((error) => {
+        if (this.isPrismaUniqueViolation(error)) {
+          throw new ConflictException("Package category name/slug must be unique");
+        }
+        if (this.isPrismaRecordNotFound(error)) {
+          throw new NotFoundException("Package category not found");
+        }
+        throw error;
       });
-
-      return this.serializeAdminCategory(updated);
-    } catch (error) {
-      if (this.isPrismaUniqueViolation(error)) {
-        throw new ConflictException("Package category name/slug must be unique");
-      }
-      if (this.isPrismaRecordNotFound(error)) {
-        throw new NotFoundException("Package category not found");
-      }
-      throw error;
-    }
+    await this.invalidatePublicCache();
+    return this.serializeAdminCategory(updated);
   }
 
   async deleteAdminPackageCategory(id: string): Promise<AdminDeletePackageCategoryResponse> {
@@ -324,6 +352,7 @@ export class PackagesService {
       throw error;
     }
 
+    await this.invalidatePublicCache();
     return { id, deleted: true };
   }
 
@@ -342,8 +371,8 @@ export class PackagesService {
   async createAdminPackage(input: AdminCreatePackageInput): Promise<AdminPackage> {
     await this.assertPackageCategoryExists(input.categoryId);
 
-    try {
-      const created = await this.prisma.package.create({
+    const created = await this.prisma.package
+      .create({
         data: {
           categoryId: input.categoryId,
           name: input.name.trim(),
@@ -360,15 +389,15 @@ export class PackagesService {
           ...PackagesService.PACKAGE_WITH_CATEGORY_SELECT_FIELDS,
           categoryId: true,
         },
+      })
+      .catch((error) => {
+        if (this.isPrismaUniqueViolation(error)) {
+          throw new ConflictException("Package name/slug must be unique");
+        }
+        throw error;
       });
-
-      return this.serializeAdminPackage(created);
-    } catch (error) {
-      if (this.isPrismaUniqueViolation(error)) {
-        throw new ConflictException("Package name/slug must be unique");
-      }
-      throw error;
-    }
+    await this.invalidatePublicCache();
+    return this.serializeAdminPackage(created);
   }
 
   async updateAdminPackage(id: string, input: AdminUpdatePackageInput): Promise<AdminPackage> {
@@ -376,8 +405,8 @@ export class PackagesService {
       await this.assertPackageCategoryExists(input.categoryId);
     }
 
-    try {
-      const updated = await this.prisma.package.update({
+    const updated = await this.prisma.package
+      .update({
         where: { id },
         data: {
           ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
@@ -403,18 +432,18 @@ export class PackagesService {
           ...PackagesService.PACKAGE_WITH_CATEGORY_SELECT_FIELDS,
           categoryId: true,
         },
+      })
+      .catch((error) => {
+        if (this.isPrismaUniqueViolation(error)) {
+          throw new ConflictException("Package name/slug must be unique");
+        }
+        if (this.isPrismaRecordNotFound(error)) {
+          throw new NotFoundException("Package not found");
+        }
+        throw error;
       });
-
-      return this.serializeAdminPackage(updated);
-    } catch (error) {
-      if (this.isPrismaUniqueViolation(error)) {
-        throw new ConflictException("Package name/slug must be unique");
-      }
-      if (this.isPrismaRecordNotFound(error)) {
-        throw new NotFoundException("Package not found");
-      }
-      throw error;
-    }
+    await this.invalidatePublicCache();
+    return this.serializeAdminPackage(updated);
   }
 
   async deleteAdminPackage(id: string): Promise<AdminDeletePackageResponse> {
@@ -447,15 +476,17 @@ export class PackagesService {
       throw error;
     }
 
-    return {
-      id,
-      deleted: true,
-    };
+    await this.invalidatePublicCache();
+    return { id, deleted: true };
   }
 
   // ─────────────────────────────────────────────
   // Private helpers
   // ─────────────────────────────────────────────
+
+  private async invalidatePublicCache(): Promise<void> {
+    await this.redis.del(PackagesService.CACHE_KEY_PACKAGES, PackagesService.CACHE_KEY_CATEGORIES);
+  }
 
   /**
    * Serialize category summary row to API shape.

@@ -47,7 +47,9 @@ function createService() {
       createOrderStatusNotification: jest.fn(),
       notifyAdminsBankTransferReceived: jest.fn(),
     } as never,
-    {} as never
+    {} as never,
+    null,
+    null
   );
 
   return {

@@ -56,7 +56,9 @@ function createService() {
     {} as never,
     signupNotificationsService as never,
     notificationsService as never,
-    { assertBillingGateAccess: jest.fn() } as never
+    { assertBillingGateAccess: jest.fn() } as never,
+    null,
+    null
   );
 
   return {

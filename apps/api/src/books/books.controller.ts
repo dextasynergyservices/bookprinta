@@ -411,6 +411,13 @@ export class BooksController {
     // Send initial connection event
     res.write("event: connected\ndata: {}\n\n");
 
+    // Define cleanup before subscribing so the handler can safely reference it.
+    // heartbeatInterval and maxLifetimeTimeout are null until they are assigned
+    // below (after the snapshot check). cleanup is idempotent and null-safe.
+    let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+    let maxLifetimeTimeout: ReturnType<typeof setTimeout> | null = null;
+    let cleaned = false;
+
     // Subscribe to Redis pub/sub for this book
     const subscription = this.processingEvents.subscribe(params.id, (event: ProcessingEvent) => {
       try {
@@ -425,13 +432,42 @@ export class BooksController {
       }
     });
 
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      if (heartbeatInterval) clearInterval(heartbeatInterval);
+      if (maxLifetimeTimeout) clearTimeout(maxLifetimeTimeout);
+      subscription?.unsubscribe();
+      try {
+        res.end();
+      } catch {
+        // already closed
+      }
+    };
+
     if (!subscription) {
       res.status(503).json({ message: "Real-time streaming unavailable. Use polling." });
       return;
     }
 
+    // Check for a cached terminal event (complete/error). This handles the case where
+    // the client reconnected AFTER the job already finished — the pub/sub channel will
+    // never emit again, so we replay the snapshot immediately and close.
+    // Subscribe first (above) to avoid a race where the job finishes between the snapshot
+    // read and the subscribe call; both paths are idempotent.
+    const snapshot = await this.processingEvents.getSnapshot(params.id);
+    if (snapshot && !res.writableEnded) {
+      try {
+        res.write(`event: ${snapshot.type}\ndata: ${JSON.stringify(snapshot)}\n\n`);
+      } catch {
+        // Client already disconnected
+      }
+      cleanup();
+      return;
+    }
+
     // Heartbeat every 15 seconds to keep the connection alive
-    const heartbeatInterval = setInterval(() => {
+    heartbeatInterval = setInterval(() => {
       try {
         res.write(":heartbeat\n\n");
       } catch {
@@ -440,7 +476,7 @@ export class BooksController {
     }, 15_000);
 
     // Auto-close after 5 minutes to prevent resource leaks
-    const maxLifetimeTimeout = setTimeout(
+    maxLifetimeTimeout = setTimeout(
       () => {
         try {
           res.write("event: timeout\ndata: {}\n\n");
@@ -451,20 +487,6 @@ export class BooksController {
       },
       5 * 60 * 1000
     );
-
-    let cleaned = false;
-    const cleanup = () => {
-      if (cleaned) return;
-      cleaned = true;
-      clearInterval(heartbeatInterval);
-      clearTimeout(maxLifetimeTimeout);
-      subscription.unsubscribe();
-      try {
-        res.end();
-      } catch {
-        // already closed
-      }
-    };
 
     // Clean up when client disconnects
     res.on("close", cleanup);
@@ -507,7 +529,6 @@ export class BooksController {
    * Authenticated user can only access their own book.
    */
   @Get(":id")
-  @Header("Cache-Control", "private, no-store")
   @Header("Vary", "Cookie")
   @ApiOperation({
     summary: "Get book detail",
@@ -525,13 +546,25 @@ export class BooksController {
     description: "Book detail retrieved successfully",
     type: BookDetailResponseDto,
   })
+  @ApiResponse({ status: 304, description: "Not Modified — client cache is current" })
   @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
   @ApiResponse({ status: 404, description: "Book not found" })
   async findMyBookById(
     @CurrentUser("sub") userId: string,
-    @Param() params: BookParamsDto
-  ): Promise<BookDetailResponseDto> {
-    return this.booksService.findUserBookById(userId, params.id);
+    @Param() params: BookParamsDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response
+  ): Promise<BookDetailResponseDto | undefined> {
+    const data = await this.booksService.findUserBookById(userId, params.id);
+    const etag = `W/"${data.updatedAt}"`;
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "private, no-cache");
+    const ifNoneMatch = req.headers["if-none-match"];
+    if (typeof ifNoneMatch === "string" && ifNoneMatch === etag) {
+      res.status(304).end();
+      return;
+    }
+    return data;
   }
 
   private buildPreviewStreamUrl(request: Request, bookId: string): string {

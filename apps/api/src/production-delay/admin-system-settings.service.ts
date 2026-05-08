@@ -1,19 +1,17 @@
-import type {
-  AdminPublicMarketingSettingsResponse,
-  AdminSystemGatewayCredentialField,
-  AdminSystemPaymentGateway,
-  AdminSystemPaymentGatewayListResponse,
-  AdminSystemSettingKey,
-  AdminSystemSettingsCategory,
-  AdminSystemSettingsListResponse,
-  AdminSystemSettingValueType,
-  AdminSystemUpdatePaymentGatewayBodyInput,
-  AdminSystemUpdateSettingBodyInput,
-} from "@bookprinta/shared";
 import {
+  type AdminPublicMarketingSettingsResponse,
+  type AdminSystemGatewayCredentialField,
+  type AdminSystemPaymentGateway,
+  type AdminSystemPaymentGatewayListResponse,
+  type AdminSystemSettingKey,
   AdminSystemSettingKeySchema,
   AdminSystemSettingMutationSchema,
+  type AdminSystemSettingsCategory,
+  type AdminSystemSettingsListResponse,
+  type AdminSystemSettingValueType,
+  type AdminSystemUpdatePaymentGatewayBodyInput,
   AdminSystemUpdatePaymentGatewayBodySchema,
+  type AdminSystemUpdateSettingBodyInput,
 } from "@bookprinta/shared";
 import {
   BadRequestException,
@@ -25,6 +23,8 @@ import { ZodError } from "zod";
 import { Prisma } from "../generated/prisma/client.js";
 import type { PaymentProvider } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
+import { SystemSettingsCacheService } from "./system-settings-cache.service.js";
 
 type AdminActorContext = {
   adminId: string;
@@ -275,7 +275,13 @@ const PROVIDER_CREDENTIAL_FIELDS: Record<
 
 @Injectable()
 export class AdminSystemSettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private static readonly GATEWAY_CACHE_KEY = "bp:gateways:active";
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+    private readonly settingsCache: SystemSettingsCacheService
+  ) {}
 
   private buildValidationException(error: ZodError, fallbackMessage: string): BadRequestException {
     const fieldErrors: Record<string, string> = {};
@@ -422,7 +428,14 @@ export class AdminSystemSettingsService {
       },
     });
 
+    await this.invalidateGatewayCache();
     return this.serializeGateway(updated);
+  }
+
+  // Invalidate the checkout gateway cache so the next request re-fetches
+  // the updated gateway list from the DB.
+  private async invalidateGatewayCache(): Promise<void> {
+    await this.redis.del(AdminSystemSettingsService.GATEWAY_CACHE_KEY);
   }
 
   async getSettings(): Promise<AdminSystemSettingsListResponse> {
@@ -643,6 +656,8 @@ export class AdminSystemSettingsService {
         } as Prisma.InputJsonValue,
       },
     });
+
+    this.settingsCache.invalidate();
 
     return {
       key,

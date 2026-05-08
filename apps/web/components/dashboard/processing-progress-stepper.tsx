@@ -1,10 +1,12 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, Circle, Loader2, Sparkles } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { dashboardOverviewQueryKey } from "@/hooks/useDashboardOverview";
 import { useProcessingStream } from "@/hooks/useProcessingStream";
 import { cn } from "@/lib/utils";
 import type { BookProcessingState, BookProcessingStep } from "@/types/book-progress";
@@ -143,6 +145,7 @@ export function ProcessingProgressStepper({
 }: ProcessingProgressStepperProps) {
   const t = useTranslations("dashboard");
   const prefersReducedMotion = useReducedMotion();
+  const queryClient = useQueryClient();
   const [tipIndex, setTipIndex] = useState(0);
   const [phase, setPhase] = useState<ProcessingPhase>("idle");
   const [elapsedTick, setElapsedTick] = useState(() => Date.now());
@@ -157,14 +160,17 @@ export function ProcessingProgressStepper({
   const effectiveStep: BookProcessingStep | null =
     sse.isConnected && sse.currentStep ? sse.currentStep : processing.currentStep;
 
-  // Use SSE completion to trigger phase change faster than polling
+  // Use SSE completion to trigger phase change faster than polling.
+  // Also invalidate the dashboard query immediately so that the reduced heartbeat
+  // poll (2 min) does not leave the UI showing stale "processing" state.
   useEffect(() => {
     if (sse.isComplete && phase === "processing") {
       setPhase("completed");
       completionTimestampRef.current = Date.now();
       clearPersistedState();
+      void queryClient.invalidateQueries({ queryKey: dashboardOverviewQueryKey });
     }
-  }, [sse.isComplete, phase]);
+  }, [sse.isComplete, phase, queryClient]);
 
   // ─── Resolve processing phase ───────────────────────────
 

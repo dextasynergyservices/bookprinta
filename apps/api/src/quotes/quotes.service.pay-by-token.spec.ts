@@ -26,7 +26,7 @@ function createService() {
     initialize: jest.fn(),
   };
 
-  const service = new QuotesService(prisma as never, paymentsService as never);
+  const service = new QuotesService(prisma as never, paymentsService as never, {} as never);
 
   return {
     service,

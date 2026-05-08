@@ -5,17 +5,20 @@ import {
   ProductionDelayService,
   type ProductionDelayStatusResolution,
 } from "./production-delay.service.js";
+import { SystemSettingsCacheService } from "./system-settings-cache.service.js";
 
 const mockPrismaService = {
-  systemSetting: {
-    findMany: jest.fn(),
-  },
   productionDelayEvent: {
     findFirst: jest.fn(),
   },
   book: {
+    count: jest.fn(),
     findMany: jest.fn(),
   },
+};
+
+const mockSettingsCache = {
+  getMany: jest.fn(),
 };
 
 describe("ProductionDelayService", () => {
@@ -23,7 +26,11 @@ describe("ProductionDelayService", () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ProductionDelayService, { provide: PrismaService, useValue: mockPrismaService }],
+      providers: [
+        ProductionDelayService,
+        { provide: PrismaService, useValue: mockPrismaService },
+        { provide: SystemSettingsCacheService, useValue: mockSettingsCache },
+      ],
     }).compile();
 
     service = module.get<ProductionDelayService>(ProductionDelayService);
@@ -31,12 +38,15 @@ describe("ProductionDelayService", () => {
   });
 
   it("resolves active backlog books and users by auto threshold logic", async () => {
-    mockPrismaService.systemSetting.findMany.mockResolvedValue([
-      { key: "production_backlog_threshold", value: "2" },
-      { key: "production_delay_active", value: "false" },
-      { key: "production_delay_override_state", value: "auto" },
-    ]);
+    mockSettingsCache.getMany.mockResolvedValue(
+      new Map([
+        ["production_backlog_threshold", "2"],
+        ["production_delay_active", "false"],
+        ["production_delay_override_state", "auto"],
+      ])
+    );
     mockPrismaService.productionDelayEvent.findFirst.mockResolvedValue(null);
+    mockPrismaService.book.count.mockResolvedValue(2);
     mockPrismaService.book.findMany.mockResolvedValue([
       {
         id: "cmbook111111111111111111111111",
@@ -130,16 +140,19 @@ describe("ProductionDelayService", () => {
   });
 
   it("forces the delay active when manual override is enabled below threshold", async () => {
-    mockPrismaService.systemSetting.findMany.mockResolvedValue([
-      { key: "production_backlog_threshold", value: "20" },
-      { key: "production_delay_active", value: "false" },
-      { key: "production_delay_override_state", value: "force_active" },
-    ]);
+    mockSettingsCache.getMany.mockResolvedValue(
+      new Map([
+        ["production_backlog_threshold", "20"],
+        ["production_delay_active", "false"],
+        ["production_delay_override_state", "force_active"],
+      ])
+    );
     mockPrismaService.productionDelayEvent.findFirst.mockResolvedValue({
       id: "cmdelay111111111111111111111111",
       source: "MANUAL",
       activatedAt: new Date("2026-03-11T12:00:00.000Z"),
     });
+    mockPrismaService.book.count.mockResolvedValue(1);
     mockPrismaService.book.findMany.mockResolvedValue([
       {
         id: "cmbook333333333333333333333333",
@@ -176,16 +189,19 @@ describe("ProductionDelayService", () => {
   });
 
   it("forces the delay inactive when manual override disables an otherwise active backlog", async () => {
-    mockPrismaService.systemSetting.findMany.mockResolvedValue([
-      { key: "production_backlog_threshold", value: "1" },
-      { key: "production_delay_active", value: "true" },
-      { key: "production_delay_override_state", value: "force_inactive" },
-    ]);
+    mockSettingsCache.getMany.mockResolvedValue(
+      new Map([
+        ["production_backlog_threshold", "1"],
+        ["production_delay_active", "true"],
+        ["production_delay_override_state", "force_inactive"],
+      ])
+    );
     mockPrismaService.productionDelayEvent.findFirst.mockResolvedValue({
       id: "cmdelay222222222222222222222222",
       source: "AUTO",
       activatedAt: new Date("2026-03-11T13:00:00.000Z"),
     });
+    mockPrismaService.book.count.mockResolvedValue(1);
     mockPrismaService.book.findMany.mockResolvedValue([
       {
         id: "cmbook444444444444444444444444",

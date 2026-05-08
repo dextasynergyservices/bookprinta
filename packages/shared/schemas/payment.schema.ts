@@ -339,10 +339,32 @@ export type AdminPendingBankTransferSlaSnapshot = z.infer<
   typeof AdminPendingBankTransferSlaSnapshotSchema
 >;
 
+// ─────────────────────────────────────────────────────────────
+// Signup link delivery snapshot (stored in payment.metadata)
+// Surfaced on pending bank transfer items so admin can see
+// whether the signup link reached the user via email / WhatsApp.
+// ─────────────────────────────────────────────────────────────
+export const SignupLinkDeliveryStatusSchema = z.enum(["DELIVERED", "PARTIAL", "FAILED"]);
+export type SignupLinkDeliveryStatus = z.infer<typeof SignupLinkDeliveryStatusSchema>;
+
+export const SignupLinkDeliverySnapshotSchema = z.object({
+  status: SignupLinkDeliveryStatusSchema,
+  emailDelivered: z.boolean(),
+  whatsappDelivered: z.boolean(),
+  emailFailureReason: z.string().nullable(),
+  whatsappFailureReason: z.string().nullable(),
+  attemptCount: z.number().int().min(0),
+  lastAttemptAt: z.string().datetime().nullable(),
+  lastSuccessfulAt: z.string().datetime().nullable(),
+  lastAttemptSource: z.string().nullable(),
+});
+export type SignupLinkDeliverySnapshot = z.infer<typeof SignupLinkDeliverySnapshotSchema>;
+
 export const AdminPendingBankTransferItemSchema = AdminPaymentsListItemSchema.extend({
   provider: z.literal("BANK_TRANSFER"),
   status: z.literal("AWAITING_APPROVAL"),
   slaSnapshot: AdminPendingBankTransferSlaSnapshotSchema,
+  signupLinkDelivery: SignupLinkDeliverySnapshotSchema.nullable(),
 });
 export type AdminPendingBankTransferItem = z.infer<typeof AdminPendingBankTransferItemSchema>;
 

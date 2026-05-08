@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from "@nestjs/common";
+import { Controller, Get, Header, Param } from "@nestjs/common";
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { SkipThrottle } from "@nestjs/throttler";
 import { PackageResponseDto } from "./dto/package-response.dto.js";
@@ -20,6 +20,7 @@ export class PackagesController {
    * List all active packages sorted by display order.
    */
   @Get()
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
   @ApiOperation({
     summary: "List active packages",
     description:
@@ -40,6 +41,7 @@ export class PackagesController {
    * Get a single package by ID.
    */
   @Get(":id")
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
   @ApiOperation({
     summary: "Get package by ID",
     description:

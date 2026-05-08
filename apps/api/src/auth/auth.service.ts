@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import type { Locale } from "@bookprinta/emails";
 import { renderPasswordResetEmail } from "@bookprinta/emails/render";
-import { isAdminRole } from "@bookprinta/shared";
+import { BCRYPT_SALT_ROUNDS, isAdminRole } from "@bookprinta/shared";
 import {
   BadRequestException,
   ConflictException,
@@ -57,7 +57,6 @@ const AUTH_ACCOUNT_DELETED_MESSAGE =
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly resend: Resend | null;
-  private readonly SALT_ROUNDS = 12;
   private readonly JWT_SECRET: string;
   private readonly ACCESS_TOKEN_EXPIRY: string;
   private readonly REFRESH_TOKEN_EXPIRY_USER: string;
@@ -186,7 +185,7 @@ export class AuthService {
     }
 
     // Hash the password
-    const hashedPassword = await bcrypt.hash(dto.password, this.SALT_ROUNDS);
+    const hashedPassword = await bcrypt.hash(dto.password, BCRYPT_SALT_ROUNDS);
 
     // Generate a 6-digit email verification code
     const verificationCode = this.generateVerificationCode();
@@ -694,7 +693,7 @@ export class AuthService {
 
     const user = await this.getValidResetTokenUser(dto.token);
 
-    const hashedPassword = await bcrypt.hash(dto.newPassword, this.SALT_ROUNDS);
+    const hashedPassword = await bcrypt.hash(dto.newPassword, BCRYPT_SALT_ROUNDS);
 
     // Update password, clear reset token, invalidate all refresh tokens
     await this.prisma.user.update({

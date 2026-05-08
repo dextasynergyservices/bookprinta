@@ -7,6 +7,7 @@ import type {
 } from "@bookprinta/shared";
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 
 /**
  * Handles retrieval of public addon data.
@@ -20,7 +21,13 @@ import { PrismaService } from "../prisma/prisma.service.js";
  */
 @Injectable()
 export class AddonsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private static readonly CACHE_TTL_SECONDS = 900; // 15 minutes
+  private static readonly CACHE_KEY = "bp:public:addons";
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService
+  ) {}
 
   /**
    * The Prisma `select` clause used by both list and detail queries.
@@ -47,17 +54,22 @@ export class AddonsService {
    * Only returns addons where `isActive: true`.
    */
   async findAllActive(): Promise<AddonResponse[]> {
+    const cached = await this.redis.get<AddonResponse[]>(AddonsService.CACHE_KEY);
+    if (cached !== null) return cached;
+
     const addons = await this.prisma.addon.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" },
       select: AddonsService.SELECT_FIELDS,
     });
 
-    return addons.map((addon) => this.serialize(addon));
+    const result = addons.map((addon) => this.serialize(addon));
+    await this.redis.set(AddonsService.CACHE_KEY, result, AddonsService.CACHE_TTL_SECONDS);
+    return result;
   }
 
   /**
-   * Find a single addon by ID.
+   * Find a single active addon by ID.
    * Throws NotFoundException if the addon doesn't exist or is inactive.
    */
   async findOneById(id: string): Promise<AddonResponse> {
@@ -92,8 +104,8 @@ export class AddonsService {
       pricePerWord: input.pricePerWord,
     });
 
-    try {
-      const created = await this.prisma.addon.create({
+    const created = await this.prisma.addon
+      .create({
         data: {
           name: input.name.trim(),
           slug: this.slugify(input.name),
@@ -105,15 +117,15 @@ export class AddonsService {
           isActive: input.isActive ?? true,
         },
         select: AddonsService.ADMIN_SELECT_FIELDS,
+      })
+      .catch((error) => {
+        if (this.isPrismaUniqueViolation(error)) {
+          throw new ConflictException("Addon name/slug must be unique");
+        }
+        throw error;
       });
-
-      return this.serializeAdmin(created);
-    } catch (error) {
-      if (this.isPrismaUniqueViolation(error)) {
-        throw new ConflictException("Addon name/slug must be unique");
-      }
-      throw error;
-    }
+    await this.invalidatePublicCache();
+    return this.serializeAdmin(created);
   }
 
   async updateAdminAddon(id: string, input: AdminUpdateAddonInput): Promise<AdminAddon> {
@@ -140,8 +152,8 @@ export class AddonsService {
         (existing.pricePerWord != null ? this.toNumber(existing.pricePerWord) : null),
     });
 
-    try {
-      const updated = await this.prisma.addon.update({
+    const updated = await this.prisma.addon
+      .update({
         where: { id },
         data: {
           ...(input.name !== undefined
@@ -160,35 +172,35 @@ export class AddonsService {
           ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
         },
         select: AddonsService.ADMIN_SELECT_FIELDS,
+      })
+      .catch((error) => {
+        if (this.isPrismaUniqueViolation(error)) {
+          throw new ConflictException("Addon name/slug must be unique");
+        }
+        if (this.isPrismaRecordNotFound(error)) {
+          throw new NotFoundException("Addon not found");
+        }
+        throw error;
       });
-
-      return this.serializeAdmin(updated);
-    } catch (error) {
-      if (this.isPrismaUniqueViolation(error)) {
-        throw new ConflictException("Addon name/slug must be unique");
-      }
-      if (this.isPrismaRecordNotFound(error)) {
-        throw new NotFoundException("Addon not found");
-      }
-      throw error;
-    }
+    await this.invalidatePublicCache();
+    return this.serializeAdmin(updated);
   }
 
   async softDeleteAdminAddon(id: string): Promise<AdminAddon> {
-    try {
-      const updated = await this.prisma.addon.update({
+    const updated = await this.prisma.addon
+      .update({
         where: { id },
         data: { isActive: false },
         select: AddonsService.ADMIN_SELECT_FIELDS,
+      })
+      .catch((error) => {
+        if (this.isPrismaRecordNotFound(error)) {
+          throw new NotFoundException("Addon not found");
+        }
+        throw error;
       });
-
-      return this.serializeAdmin(updated);
-    } catch (error) {
-      if (this.isPrismaRecordNotFound(error)) {
-        throw new NotFoundException("Addon not found");
-      }
-      throw error;
-    }
+    await this.invalidatePublicCache();
+    return this.serializeAdmin(updated);
   }
 
   async deleteAdminAddon(id: string): Promise<AdminDeleteAddonResponse> {
@@ -221,15 +233,17 @@ export class AddonsService {
       throw error;
     }
 
-    return {
-      id,
-      deleted: true,
-    };
+    await this.invalidatePublicCache();
+    return { id, deleted: true };
   }
 
   // ─────────────────────────────────────────────
   // Private helpers
   // ─────────────────────────────────────────────
+
+  private async invalidatePublicCache(): Promise<void> {
+    await this.redis.del(AddonsService.CACHE_KEY);
+  }
 
   /**
    * Convert a Prisma Addon row into the public API response shape.

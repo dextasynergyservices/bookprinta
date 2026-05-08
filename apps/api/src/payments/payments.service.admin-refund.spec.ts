@@ -89,7 +89,9 @@ function createService() {
     {} as never,
     { sendRegistrationLink: jest.fn() } as never,
     notificationsService as never,
-    { assertBillingGateAccess: jest.fn() } as never
+    { assertBillingGateAccess: jest.fn() } as never,
+    null,
+    null
   );
 
   const resendMock = {

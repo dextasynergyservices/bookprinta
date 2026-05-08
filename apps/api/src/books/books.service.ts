@@ -35,6 +35,7 @@ import type {
   BookStatus,
   UpdateAdminBookProductionStatusInput,
   UpdateBookSettingsInput,
+  UserBookListItem,
   UserBooksListQueryInput,
   UserBooksListResponse,
 } from "@bookprinta/shared";
@@ -56,6 +57,7 @@ import { isUserNotificationChannelEnabled } from "../notifications/notification-
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { WhatsappNotificationsService } from "../notifications/whatsapp-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SystemSettingsCacheService } from "../production-delay/system-settings-cache.service.js";
 import {
   isReviewEligibleLifecycleStatus,
   resolveReviewLifecycleStatus,
@@ -369,6 +371,7 @@ export class BooksService {
     private readonly manuscriptAnalysis: ManuscriptAnalysisService,
     private readonly notifications: NotificationsService,
     private readonly rollout: RolloutService,
+    private readonly settingsCache: SystemSettingsCacheService,
     @Optional() private readonly whatsappNotificationsService?: WhatsappNotificationsService,
     @Optional() private readonly cloudinary?: CloudinaryService
   ) {
@@ -674,6 +677,66 @@ export class BooksService {
     };
   }
 
+  /**
+   * Fix 4.6 — Dedicated "active book" query for the dashboard overview.
+   *
+   * Previously the overview loaded a page of 10 books (with files/jobs/order
+   * joins) just to pick the single most relevant book in JavaScript.  This
+   * method replicates the same three-priority selection entirely in the DB,
+   * fetching at most 2 rows:
+   *
+   *   1. Most-recently-created DELIVERED/COMPLETED book  (priority 1)
+   *      → "You finished a book — surface it so you can reprint or review it"
+   *   2. Most-recently-updated in-progress (non-terminal) book  (priority 2)
+   *      → "You have an active book in the pipeline — show its progress"
+   *   3. Absolute latest book regardless of status  (priority 3 / fallback)
+   *      → "User has only terminal books — still show the most recent one"
+   *
+   * Priorities 2 and 3 are resolved with a single LIMIT 1 query (ordered by
+   * updatedAt desc) — if the first result is non-terminal it satisfies
+   * priority 2; otherwise it satisfies the fallback (priority 3).
+   *
+   * The terminal statuses mirror DashboardService.ACTIVE_BOOK_TERMINAL_STATUSES.
+   */
+  async findActiveBook(userId: string): Promise<UserBookListItem | null> {
+    // Phase 1: most-recently-CREATED DELIVERED/COMPLETED book.
+    // "CANCELLED" is intentionally excluded — a cancelled book should not be
+    // surfaced as the "active" book in the overview.
+    const terminalRow = (await this.prisma.book.findFirst({
+      where: {
+        userId,
+        OR: [
+          { productionStatus: { in: ["DELIVERED", "COMPLETED"] } },
+          {
+            productionStatus: null,
+            status: { in: ["DELIVERED", "COMPLETED"] },
+          },
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: USER_BOOK_LIST_SELECT,
+    })) as UserBookListRow | null;
+
+    if (terminalRow) {
+      const reprintSourceTitles = await this.resolveReprintSourceTitles([terminalRow]);
+      return this.serializeUserBookListItem(terminalRow, reprintSourceTitles);
+    }
+
+    // Phase 2 + fallback: most-recently-updated book regardless of status.
+    // If it is non-terminal it satisfies priority 2; if it is terminal
+    // (CANCELLED) it satisfies the fallback — either way we only need 1 row.
+    const latestRow = (await this.prisma.book.findFirst({
+      where: { userId },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: USER_BOOK_LIST_SELECT,
+    })) as UserBookListRow | null;
+
+    if (!latestRow) return null;
+
+    const reprintSourceTitles = await this.resolveReprintSourceTitles([latestRow]);
+    return this.serializeUserBookListItem(latestRow, reprintSourceTitles);
+  }
+
   async findUserBookById(userId: string, bookId: string): Promise<BookDetailResponse> {
     const row = (await this.prisma.book.findFirst({
       where: {
@@ -785,32 +848,30 @@ export class BooksService {
     const limit = query.limit ?? 20;
     const sortBy = query.sortBy ?? "uploadedAt";
     const sortDirection = query.sortDirection ?? "desc";
-    const rows = await this.prisma.book.findMany({
-      where: this.buildAdminBookListWhere(query.status),
-      select: ADMIN_BOOK_LIST_SELECT,
-    });
-    const reprintSourceTitles = await this.resolveReprintSourceTitles(rows);
+    const where = this.buildAdminBookListWhere(query.status);
+    const orderBy = this.buildAdminBookListOrderBy(sortBy, sortDirection);
 
-    const items = rows
-      .map((row) => this.serializeAdminBookListItem(row, reprintSourceTitles))
-      .sort((left, right) =>
-        this.compareAdminBookListItems(left, right, {
-          sortBy,
-          sortDirection,
-        })
-      );
+    const [rows, totalItems] = await Promise.all([
+      this.prisma.book.findMany({
+        where,
+        orderBy,
+        take: limit + 1,
+        ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+        select: ADMIN_BOOK_LIST_SELECT,
+      }),
+      this.prisma.book.count({ where }),
+    ]);
 
-    const startIndex = query.cursor
-      ? Math.max(0, items.findIndex((item) => item.id === query.cursor) + 1)
-      : 0;
-    const pagedItems = items.slice(startIndex, startIndex + limit);
-    const hasMore = startIndex + limit < items.length;
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const reprintSourceTitles = await this.resolveReprintSourceTitles(pageRows);
+    const items = pageRows.map((row) => this.serializeAdminBookListItem(row, reprintSourceTitles));
 
     return {
-      items: pagedItems,
-      nextCursor: hasMore ? (pagedItems.at(-1)?.id ?? null) : null,
+      items,
+      nextCursor: hasMore && items.length > 0 ? (items[items.length - 1]?.id ?? null) : null,
       hasMore,
-      totalItems: items.length,
+      totalItems,
       limit,
       sortBy,
       sortDirection,
@@ -1762,20 +1823,10 @@ export class BooksService {
       throw new NotFoundException(`Book "${bookId}" not found`);
     }
 
-    const systemSettings = await this.prisma.systemSetting.findMany({
-      where: {
-        key: {
-          in: [
-            BooksService.REPRINT_COST_PER_PAGE_SETTING_KEY,
-            BooksService.REPRINT_COVER_COST_SETTING_KEY,
-          ],
-        },
-      },
-      select: {
-        key: true,
-        value: true,
-      },
-    });
+    const systemSettings = await this.settingsCache.getMany([
+      BooksService.REPRINT_COST_PER_PAGE_SETTING_KEY,
+      BooksService.REPRINT_COVER_COST_SETTING_KEY,
+    ]);
 
     const costPerPage = this.resolveReprintSettingValue(
       systemSettings,
@@ -2139,6 +2190,29 @@ export class BooksService {
     };
   }
 
+  private buildAdminBookListOrderBy(
+    sortBy: AdminBooksListQuery["sortBy"],
+    sortDirection: AdminBooksListQuery["sortDirection"]
+  ): Prisma.BookOrderByWithRelationInput[] {
+    const dir = sortDirection ?? "desc";
+    const idTie: Prisma.BookOrderByWithRelationInput = { id: dir };
+
+    switch (sortBy) {
+      case "title":
+        return [{ title: dir }, idTie];
+      case "authorName":
+        return [{ user: { firstName: dir } }, { user: { lastName: dir } }, idTie];
+      case "displayStatus":
+        // productionStatus overrides status when set; sort both for approximation
+        return [{ productionStatus: dir }, { status: dir }, idTie];
+      case "orderNumber":
+        return [{ order: { orderNumber: dir } }, idTie];
+      default:
+        // uploadedAt is derived from files; createdAt is the closest DB-level proxy
+        return [{ createdAt: dir }, idTie];
+    }
+  }
+
   private buildAdminBookListWhere(status?: AdminBooksListQuery["status"]): Prisma.BookWhereInput {
     if (!status) {
       return {};
@@ -2282,40 +2356,6 @@ export class BooksService {
         jobs: row.jobs,
       }),
     };
-  }
-
-  private compareAdminBookListItems(
-    left: AdminBooksListResponse["items"][number],
-    right: AdminBooksListResponse["items"][number],
-    params: {
-      sortBy: AdminBooksListQuery["sortBy"];
-      sortDirection: AdminBooksListQuery["sortDirection"];
-    }
-  ): number {
-    const direction = params.sortDirection === "asc" ? 1 : -1;
-
-    const compareString = (leftValue: string, rightValue: string): number => {
-      const result = leftValue.localeCompare(rightValue, undefined, { sensitivity: "base" });
-      return result !== 0 ? result * direction : left.id.localeCompare(right.id) * direction;
-    };
-
-    if (params.sortBy === "title") {
-      return compareString(left.title ?? "", right.title ?? "");
-    }
-
-    if (params.sortBy === "authorName") {
-      return compareString(left.author.fullName, right.author.fullName);
-    }
-
-    if (params.sortBy === "displayStatus") {
-      return compareString(left.displayStatus, right.displayStatus);
-    }
-
-    if (params.sortBy === "orderNumber") {
-      return compareString(left.order.orderNumber, right.order.orderNumber);
-    }
-
-    return compareString(left.uploadedAt ?? left.createdAt, right.uploadedAt ?? right.createdAt);
   }
 
   private buildAdminBookStatusControl(params: {
@@ -3444,11 +3484,11 @@ export class BooksService {
   }
 
   private resolveReprintSettingValue(
-    rows: Array<{ key: string; value: string }>,
+    settings: Map<string, string>,
     key: string,
     fallback: number
   ): number {
-    const configuredValue = rows.find((row) => row.key === key)?.value;
+    const configuredValue = settings.get(key);
     const parsedValue = this.readMoneyValue(configuredValue);
     return parsedValue > 0 ? parsedValue : fallback;
   }

@@ -12,9 +12,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import {
   fetchAdminProductionStatus,
+  fetchAdminQueueJobs,
+  fetchAdminQueueStats,
   fetchAdminSystemPaymentGateways,
   fetchAdminSystemSettings,
   normalizeAdminSettingsError,
+  type QueueJobsResponse,
+  type QueueStatsResponse,
   updateAdminProductionDelayOverride,
   updateAdminSystemPaymentGateway,
   updateAdminSystemSetting,
@@ -25,6 +29,7 @@ export const adminSystemSettingsQueryKeys = {
   settings: ["admin", "system-settings", "settings"] as const,
   gateways: ["admin", "system-settings", "payment-gateways"] as const,
   productionStatus: ["admin", "system-settings", "production-status"] as const,
+  queueStats: ["admin", "system-settings", "queue-stats"] as const,
 };
 
 function replaceSettingInList(
@@ -215,7 +220,68 @@ export function useUpdateAdminProductionDelayOverrideMutation() {
   });
 }
 
+export function useAdminQueueStats() {
+  const query = useQuery<QueueStatsResponse>({
+    queryKey: adminSystemSettingsQueryKeys.queueStats,
+    meta: {
+      sentryName: "fetchAdminQueueStats",
+      sentryEndpoint: "/api/v1/admin/system/queue-stats",
+    },
+    queryFn: ({ signal }) => fetchAdminQueueStats({ signal }),
+    staleTime: 30_000,
+    gcTime: 1000 * 60 * 10,
+    retry: 1,
+    refetchInterval: 60_000, // 60 s — ~30 Redis cmds/poll; stops when tab is not focused
+    // refetchIntervalInBackground defaults to false
+  });
+
+  return {
+    ...query,
+    stats: query.data ?? null,
+    isInitialLoading: query.isPending && !query.data,
+  };
+}
+
 export { normalizeAdminSettingsError };
+
+/**
+ * Fetches paginated job details for a specific queue + state.
+ * The query is disabled until both `queueName` and `state` are non-null.
+ * No polling — loaded on demand when the modal opens.
+ */
+export function useAdminQueueJobs(
+  queueName: string | null,
+  state: string | null,
+  page: number,
+  limit = 10
+) {
+  const enabled = queueName !== null && state !== null;
+
+  const query = useQuery<QueueJobsResponse>({
+    queryKey: ["admin", "system-settings", "queue-jobs", queueName, state, page, limit] as const,
+    enabled,
+    meta: {
+      sentryName: "fetchAdminQueueJobs",
+      sentryEndpoint: "/api/v1/admin/system/queue-jobs",
+    },
+    queryFn: ({ signal }) => {
+      // Both queueName and state are non-null here (enforced by `enabled`)
+      const q = queueName as string;
+      const s = state as string;
+      return fetchAdminQueueJobs({ queue: q, state: s, page, limit, signal });
+    },
+    staleTime: 15_000,
+    gcTime: 1000 * 60 * 5,
+    retry: 1,
+    // No refetchInterval — this is an on-demand detail query
+  });
+
+  return {
+    ...query,
+    result: query.data ?? null,
+    isInitialLoading: query.isPending && enabled && !query.data,
+  };
+}
 
 type SectionSnapshotState = Record<
   string,

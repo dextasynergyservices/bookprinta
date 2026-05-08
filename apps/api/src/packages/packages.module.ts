@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { RedisModule } from "../redis/redis.module.js";
 import { AdminPackageCategoriesController } from "./admin-package-categories.controller.js";
 import { AdminPackagesController } from "./admin-packages.controller.js";
 import { PackageCategoriesController } from "./package-categories.controller.js";
@@ -6,6 +7,7 @@ import { PackagesController } from "./packages.controller.js";
 import { PackagesService } from "./packages.service.js";
 
 @Module({
+  imports: [RedisModule],
   controllers: [
     AdminPackageCategoriesController,
     AdminPackagesController,

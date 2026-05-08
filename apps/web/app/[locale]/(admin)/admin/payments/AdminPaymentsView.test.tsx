@@ -237,6 +237,7 @@ function createPendingTransfersState() {
           ageMinutes: 42,
           state: "red",
         },
+        signupLinkDelivery: null,
         liveSla: {
           ageMinutes: 42,
           label: "42m",
@@ -307,6 +308,7 @@ function createPendingTransfer(params: {
       ageMinutes: params.ageMinutes,
       state: params.state,
     },
+    signupLinkDelivery: null,
     liveSla: {
       ageMinutes: params.ageMinutes,
       label: params.label,

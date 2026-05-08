@@ -26,7 +26,7 @@ export async function HomePageContent({ params }: { params: Promise<{ locale: st
     fetchFeaturedShowcasePreview({ limit: 4, revalidate: 30 }),
     queryClient.prefetchQuery({
       queryKey: PACKAGE_CATEGORIES_QUERY_KEY,
-      queryFn: () => fetchPackageCategories({ revalidate: 30 }),
+      queryFn: () => fetchPackageCategories({ revalidate: 900 }),
     }),
   ]);
 
