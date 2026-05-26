@@ -56,26 +56,31 @@ import { UsersModule } from "./users/users.module.js";
     // AI formatting + authoritative page-count processors are wired.
     JobsModule.register(),
 
-    // Rate limiting — Redis-backed with in-memory fallback (lossy)
+    // Rate limiting — configurable storage via RATE_LIMIT_STORAGE env var
+    // Default: in-memory (saves Redis quota on free tier)
+    // Set RATE_LIMIT_STORAGE=redis for distributed rate limiting in production
     // Individual endpoints can override with @Throttle()
     ThrottlerModule.forRootAsync({
       imports: [RedisModule],
       inject: [RedisService],
-      useFactory: (redisService: RedisService) => ({
-        storage: new RedisThrottlerStorage(redisService),
-        throttlers: [
-          {
-            name: "short",
-            ttl: 60000, // 1 minute
-            limit: 10, // 10 requests
-          },
-          {
-            name: "long",
-            ttl: 3600000, // 1 hour
-            limit: 100, // 100 requests
-          },
-        ],
-      }),
+      useFactory: (redisService: RedisService) => {
+        const useRedis = process.env.RATE_LIMIT_STORAGE === "redis";
+        return {
+          storage: useRedis ? new RedisThrottlerStorage(redisService) : undefined,
+          throttlers: [
+            {
+              name: "short",
+              ttl: 60000, // 1 minute
+              limit: 10, // 10 requests
+            },
+            {
+              name: "long",
+              ttl: 3600000, // 1 hour
+              limit: 100, // 100 requests
+            },
+          ],
+        };
+      },
     }),
 
     // Authentication & authorization
