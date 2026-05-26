@@ -20,38 +20,27 @@ export class HealthService {
   ) {}
 
   /**
-   * Keep-alive health check — pings DB and Redis to keep connections warm.
+   * Keep-alive health check — pings DB to keep the Neon connection warm.
    *
    * Why this touches the DB: Neon PostgreSQL (serverless) suspends after ~5 min
    * of inactivity. If UptimeRobot only keeps the Node process alive but not the
    * DB connection, the first real request (e.g. contact form) triggers a Neon
    * cold start → 10-30s delay → Render's 30s proxy timeout → CORS-less error.
    *
-   * The DB/Redis pings run concurrently and have short timeouts so this endpoint
-   * still responds in < 2 seconds even if a dependency is slow.
+   * Redis warmup was removed to reduce Upstash command consumption on free tier.
+   * ioredis maintains connections with auto-reconnect; BullMQ has separate connections.
+   * The detailedStatus() endpoint still pings Redis for explicit diagnostics.
    */
   async ping() {
-    // Fire DB + Redis pings concurrently — don't block on either
-    const warmups = [
-      this.prisma.$queryRawUnsafe("SELECT 1").catch((err: unknown) => {
-        this.logger.warn("Health: DB warmup failed", err);
-      }),
-    ];
-
-    const redis = this.redisService.getClient();
-    if (redis) {
-      warmups.push(
-        redis.ping().catch((err: unknown) => {
-          this.logger.warn("Health: Redis warmup failed", err);
-        })
-      );
+    // Fire DB warmup (Redis warmup removed to save Upstash commands)
+    try {
+      await Promise.race([
+        this.prisma.$queryRawUnsafe("SELECT 1"),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("DB warmup timeout")), 5000)),
+      ]);
+    } catch (err: unknown) {
+      this.logger.warn("Health: DB warmup failed", err);
     }
-
-    // Wait for both but cap at 5s so the endpoint always responds fast
-    await Promise.race([
-      Promise.allSettled(warmups),
-      new Promise((resolve) => setTimeout(resolve, 5000)),
-    ]);
 
     return {
       status: "ok",

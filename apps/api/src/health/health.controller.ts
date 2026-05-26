@@ -19,7 +19,8 @@ export class HealthController {
     summary: "Lightweight keep-warm ping",
     description:
       "Preferred keep-alive endpoint for UptimeRobot or UptimeBoot. " +
-      "Warms DB and Redis with short timeouts and returns runtime cold-start telemetry.",
+      "Warms the Neon DB connection and returns runtime cold-start telemetry. " +
+      "Redis is NOT pinged here to conserve Upstash quota.",
   })
   @ApiResponse({
     status: 200,
