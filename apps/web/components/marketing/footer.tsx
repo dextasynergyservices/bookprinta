@@ -34,7 +34,7 @@ export function Footer() {
         aria-hidden="true"
         style={{
           backgroundImage:
-            "url(https://res.cloudinary.com/dxoorukfj/image/upload/v1774276632/bg_-_bp_v39dky.png)",
+            "url(https://res.cloudinary.com/domwvt0rk/image/upload/q_auto/f_auto/v1780939336/bg_-_bp_v39dky_ben8ha.png)",
           backgroundRepeat: "no-repeat",
           backgroundSize: "cover",
           backgroundPosition: "center",
