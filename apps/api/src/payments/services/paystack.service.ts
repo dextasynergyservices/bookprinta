@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { DEFAULT_CURRENCY } from "@bookprinta/shared";
 import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import type { AxiosInstance } from "axios";
@@ -128,18 +128,45 @@ export class PaystackService {
    * Verify the webhook signature from Paystack.
    * See: CLAUDE.md Section 11 — Security Checklist
    *
-   * Paystack signs webhook payloads with HMAC SHA-512 using
-   * the secret key. The signature is in `x-paystack-signature`.
+   * Paystack signs webhook payloads with HMAC SHA-512 using the secret key.
+   * The signature arrives in the `x-paystack-signature` header.
+   *
+   * The comparison is constant-time (`timingSafeEqual`): a plain `===` on the
+   * hex digest leaks, via early-exit timing, how many leading characters an
+   * attacker guessed correctly, which over many requests can be used to forge a
+   * valid signature. This is a payment-authorisation path, so it must be
+   * textbook regardless of how impractical the attack is over network jitter.
+   *
+   * Returns false — never throws — for a missing, malformed, or wrong-length
+   * signature, so a bad header is treated as an unverified webhook rather than
+   * a 500. (The controller also guards the missing-header case; this is defence
+   * in depth for any other caller.)
    */
-  verifyWebhookSignature(payload: string | Buffer, signature: string): boolean {
+  verifyWebhookSignature(payload: string | Buffer, signature: string | undefined | null): boolean {
     if (!this.config) {
       this.logger.error("Cannot verify Paystack webhook — keys not configured");
       return false;
     }
 
-    const hash = createHmac("sha512", this.config.secretKey).update(payload).digest("hex");
+    if (typeof signature !== "string" || signature.length === 0) {
+      this.logger.warn("Paystack webhook rejected — missing or empty signature header");
+      return false;
+    }
 
-    return hash === signature;
+    const expected = createHmac("sha512", this.config.secretKey).update(payload).digest("hex");
+
+    const expectedBuffer = Buffer.from(expected, "utf8");
+    const providedBuffer = Buffer.from(signature, "utf8");
+
+    // timingSafeEqual throws if the two buffers differ in length, so the length
+    // check must come first. A wrong-length signature is simply invalid — a
+    // correct Paystack signature is always a 128-char SHA-512 hex digest.
+    if (expectedBuffer.length !== providedBuffer.length) {
+      this.logger.warn("Paystack webhook rejected — signature length mismatch");
+      return false;
+    }
+
+    return timingSafeEqual(expectedBuffer, providedBuffer);
   }
 
   /**

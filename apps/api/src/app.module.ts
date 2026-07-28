@@ -9,6 +9,7 @@ import { AppService } from "./app.service.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { BooksModule } from "./books/books.module.js";
 import { CloudinaryModule } from "./cloudinary/cloudinary.module.js";
+import { PendingRedisSignalModule } from "./common/pending-redis-signal.js";
 import { ContactModule } from "./contact/contact.module.js";
 import { CouponsModule } from "./coupons/coupons.module.js";
 import { DashboardModule } from "./dashboard/dashboard.module.js";
@@ -45,6 +46,9 @@ import { UsersModule } from "./users/users.module.js";
 
     // Global Redis connection (Upstash in production, Docker locally)
     RedisModule,
+
+    // Global in-memory signal: gates JobRecoveryService's DB polling (Phase 6)
+    PendingRedisSignalModule,
 
     // Global Cloudinary signed upload infrastructure
     CloudinaryModule,

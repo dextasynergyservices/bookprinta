@@ -118,30 +118,37 @@ describe("AdminDashboardAnalyticsService", () => {
   it("builds charts datasets and SLA trend buckets", async () => {
     redisGet.mockResolvedValue(null);
 
-    orderFindMany.mockResolvedValue([
-      { createdAt: new Date("2026-03-17T10:00:00.000Z") },
-      { createdAt: new Date("2026-03-18T10:00:00.000Z") },
-    ]);
+    // `range: "7d"` derives its window from "now", so these fixtures must fall
+    // inside the last 7 days. They were previously absolute March 2026 dates,
+    // which silently fell outside the window once wall-clock moved on (every
+    // bucket then reported zero orders). Relative offsets cannot rot.
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000);
+    const twoDaysAgo = hoursAgo(48);
+    const oneDayAgo = hoursAgo(24);
+
+    orderFindMany.mockResolvedValue([{ createdAt: twoDaysAgo }, { createdAt: oneDayAgo }]);
 
     paymentFindMany.mockResolvedValue([
       {
-        createdAt: new Date("2026-03-17T11:00:00.000Z"),
-        approvedAt: new Date("2026-03-17T11:10:00.000Z"),
+        createdAt: twoDaysAgo,
+        // Approved 10 min later — inside the 30-minute SLA.
+        approvedAt: new Date(twoDaysAgo.getTime() + 10 * 60 * 1000),
         amount: "10000",
         provider: "PAYSTACK",
         status: "SUCCESS",
         type: "INITIAL",
       },
       {
-        createdAt: new Date("2026-03-18T12:00:00.000Z"),
-        approvedAt: new Date("2026-03-18T12:40:00.000Z"),
+        createdAt: oneDayAgo,
+        // Approved 40 min later — breaches the 30-minute SLA (drives over30m > 0).
+        approvedAt: new Date(oneDayAgo.getTime() + 40 * 60 * 1000),
         amount: "20000",
         provider: "BANK_TRANSFER",
         status: "SUCCESS",
         type: "INITIAL",
       },
       {
-        createdAt: new Date("2026-03-18T14:00:00.000Z"),
+        createdAt: oneDayAgo,
         approvedAt: null,
         amount: "0",
         provider: "BANK_TRANSFER",

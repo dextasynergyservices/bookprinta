@@ -257,6 +257,8 @@ describe("AuthService login instrumentation", () => {
       role: "ADMIN",
       firstName: "  Ada   ",
       lastName: "  Okafor  ",
+      // `phone` is part of the SafeUser contract; null when the row has no phoneNumber.
+      phone: null,
       displayName: "Ada Okafor",
       initials: "AO",
     });
@@ -267,6 +269,7 @@ describe("AuthService login instrumentation", () => {
         email: true,
         firstName: true,
         lastName: true,
+        phoneNumber: true,
         role: true,
         isActive: true,
         isDeleted: true,

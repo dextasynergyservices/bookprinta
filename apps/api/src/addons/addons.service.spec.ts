@@ -2,7 +2,16 @@
 import { NotFoundException } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 import { AddonsService } from "./addons.service.js";
+
+// Cache-miss stub: every read returns null so the service falls through to the
+// DB path these tests were written against (before response caching was added).
+const mockRedisService = {
+  get: jest.fn().mockResolvedValue(null),
+  set: jest.fn().mockResolvedValue(undefined),
+  del: jest.fn().mockResolvedValue(undefined),
+};
 
 // ─────────────────────────────────────────────
 // Test data factories
@@ -88,7 +97,11 @@ describe("AddonsService", () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [AddonsService, { provide: PrismaService, useValue: mockPrismaService }],
+      providers: [
+        AddonsService,
+        { provide: PrismaService, useValue: mockPrismaService },
+        { provide: RedisService, useValue: mockRedisService },
+      ],
     }).compile();
 
     service = module.get<AddonsService>(AddonsService);

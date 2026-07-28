@@ -9,7 +9,7 @@ import type { JobStatus, JobType } from "../generated/prisma/enums.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/redis.service.js";
-import { JOB_NAMES, QUEUE_PAGE_COUNT } from "./jobs.constants.js";
+import { JOB_NAMES, PIPELINE_WORKER_OPTS, QUEUE_PAGE_COUNT } from "./jobs.constants.js";
 
 type OrchestrationTrigger = "upload" | "settings_change";
 type SupportedPageSize = "A4" | "A5";
@@ -58,11 +58,7 @@ type CompletedCountPagesResult = CountPagesResult & {
 const COST_PER_EXTRA_PAGE = 10;
 
 @Injectable()
-@Processor(QUEUE_PAGE_COUNT, {
-  concurrency: 1,
-  // Reduce idle Redis polling from the BullMQ default (5s) to 60s.
-  drainDelay: 60_000,
-})
+@Processor(QUEUE_PAGE_COUNT, PIPELINE_WORKER_OPTS)
 export class PageCountProcessor extends WorkerHost {
   private readonly logger = new Logger(PageCountProcessor.name);
 

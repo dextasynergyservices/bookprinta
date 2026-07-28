@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { InjectQueue } from "@nestjs/bullmq";
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
+import { PendingRedisSignal } from "../common/pending-redis-signal.js";
 import { PaymentStatus, PaymentType } from "../generated/prisma/enums.js";
 import {
   JOB_NAMES,
@@ -64,6 +65,7 @@ export class BooksPipelineService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly pendingRedisSignal: PendingRedisSignal,
     @InjectQueue(QUEUE_AI_FORMATTING) private readonly aiFormattingQueue: Queue,
     @InjectQueue(QUEUE_PAGE_COUNT) private readonly pageCountQueue: Queue,
     @InjectQueue(QUEUE_PDF_GENERATION) private readonly pdfGenerationQueue: Queue
@@ -254,6 +256,8 @@ export class BooksPipelineService {
           where: { id: jobRecord.id },
           data: { status: "PENDING_REDIS" },
         });
+        // Wake the recovery loop: it stays idle (no DB polling) until a job is parked.
+        this.pendingRedisSignal.markPending();
         this.logger.warn(
           `Redis unavailable — parked FORMAT_MANUSCRIPT job ${jobRecord.id} as PENDING_REDIS for book ${book.id}`
         );
@@ -427,6 +431,8 @@ export class BooksPipelineService {
           where: { id: jobRecord.id },
           data: { status: "PENDING_REDIS" },
         });
+        // Wake the recovery loop: it stays idle (no DB polling) until a job is parked.
+        this.pendingRedisSignal.markPending();
         this.logger.warn(
           `Redis unavailable — parked COUNT_PAGES job ${jobRecord.id} as PENDING_REDIS for book ${book.id}`
         );
@@ -600,6 +606,8 @@ export class BooksPipelineService {
           where: { id: jobRecord.id },
           data: { status: "PENDING_REDIS" },
         });
+        // Wake the recovery loop: it stays idle (no DB polling) until a job is parked.
+        this.pendingRedisSignal.markPending();
         this.logger.warn(
           `Redis unavailable — parked GENERATE_PDF job ${jobRecord.id} as PENDING_REDIS for book ${book.id}`
         );

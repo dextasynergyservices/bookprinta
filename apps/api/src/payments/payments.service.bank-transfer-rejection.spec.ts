@@ -169,6 +169,9 @@ describe("PaymentsService bank transfer rejection", () => {
       orderNumber: "BP-2026-0003",
       paymentReference: "BT-003",
       rejectionReason: "Receipt amount does not match our statement.",
+      // User notification preference, threaded through so the mailer can honour
+      // an opt-out. null when the fixture row omits the field.
+      emailNotificationsEnabled: null,
     });
     expect(result).toEqual({
       id: "payment_3",
@@ -217,6 +220,8 @@ describe("PaymentsService bank transfer rejection", () => {
       orderNumber: "BT-004",
       paymentReference: "BT-004",
       rejectionReason: "Receipt image is unreadable.",
+      // No linked user account → no stored preference.
+      emailNotificationsEnabled: null,
     });
     expect(result).toEqual({
       id: "payment_4",

@@ -5,6 +5,7 @@ import { ROLES_KEY } from "../auth/decorators/roles.decorator.js";
 import { JwtAuthGuard, RolesGuard } from "../auth/guards/index.js";
 import { UserRole } from "../auth/index.js";
 import { AdminDashboardAnalyticsService } from "./admin-dashboard-analytics.service.js";
+import { AdminQueueStatsService } from "./admin-queue-stats.service.js";
 import { AdminSystemController } from "./admin-system.controller.js";
 import { AdminSystemLogsService } from "./admin-system-logs.service.js";
 import { AdminSystemSettingsService } from "./admin-system-settings.service.js";
@@ -33,6 +34,11 @@ const adminDashboardAnalyticsServiceMock = {
   getDashboardCharts: jest.fn(),
 };
 
+const adminQueueStatsServiceMock = {
+  getQueueStats: jest.fn(),
+  getQueueJobs: jest.fn(),
+};
+
 describe("AdminSystemController", () => {
   let controller: AdminSystemController;
 
@@ -55,6 +61,10 @@ describe("AdminSystemController", () => {
         {
           provide: AdminDashboardAnalyticsService,
           useValue: adminDashboardAnalyticsServiceMock,
+        },
+        {
+          provide: AdminQueueStatsService,
+          useValue: adminQueueStatsServiceMock,
         },
       ],
     }).compile();

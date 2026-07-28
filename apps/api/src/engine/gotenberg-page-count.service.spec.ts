@@ -50,6 +50,51 @@ describe("GotenbergPageCountService", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  // ── Phase 3 regression guard (docs/infra-cost-hardening-plan.md) ──────────
+  // The billing page count comes from a SINGLE Gotenberg render that also
+  // produces the preview/final PDF. This test locks in that reusing one render
+  // for both purposes does not change the authoritative count: countAndRenderPreview
+  // must return the same pageCount that a count-only render would, over the same
+  // rendered bytes. If this ever diverges, the billing number could shift when we
+  // stopped double-rendering — the exact failure the reuse optimization risks.
+  it("countAndRenderPreview yields the same page count as countPages and returns the rendered buffer", async () => {
+    process.env.GOTENBERG_URL = "http://gotenberg.local";
+    const fakePdf = Buffer.from(
+      "%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n2 0 obj\n<< /Type /Page >>\nendobj\n3 0 obj\n<< /Type /Page >>\nendobj\n",
+      "latin1"
+    );
+    const toArrayBuffer = () =>
+      fakePdf.buffer.slice(fakePdf.byteOffset, fakePdf.byteOffset + fakePdf.byteLength);
+
+    const input = {
+      html: "<html><body><p>Chapter one</p></body></html>",
+      pageSize: "A5" as const,
+      fontSize: 12 as const,
+    };
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => toArrayBuffer(),
+    }) as unknown as typeof fetch;
+    const countOnly = await service.countPages(input);
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => toArrayBuffer(),
+    }) as unknown as typeof fetch;
+    const countAndRender = await service.countAndRenderPreview(input);
+
+    // Same authoritative count from one render as from a dedicated count render.
+    expect(countAndRender.pageCount).toBe(countOnly.pageCount);
+    expect(countAndRender.pageCount).toBe(3);
+    // Same bytes hash — the buffer handed to the preview/final path IS what was counted.
+    expect(countAndRender.renderedPdfSha256).toBe(countOnly.renderedPdfSha256);
+    // The buffer itself is returned for upload/promotion.
+    expect(countAndRender.pdfBuffer.toString("latin1", 0, 5)).toBe("%PDF-");
+    // Exactly one Gotenberg render per call — no hidden second render.
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("throws when GOTENBERG_URL is not configured", async () => {
     delete process.env.GOTENBERG_URL;
 

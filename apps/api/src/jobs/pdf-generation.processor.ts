@@ -8,7 +8,7 @@ import { FilesService } from "../files/files.service.js";
 import type { JobStatus, JobType } from "../generated/prisma/enums.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { JOB_NAMES, QUEUE_PDF_GENERATION } from "./jobs.constants.js";
+import { JOB_NAMES, PIPELINE_WORKER_OPTS, QUEUE_PDF_GENERATION } from "./jobs.constants.js";
 
 type SupportedPageSize = "A4" | "A5";
 type SupportedFontSize = 11 | 12 | 14;
@@ -31,11 +31,7 @@ type GeneratePdfResult = {
 };
 
 @Injectable()
-@Processor(QUEUE_PDF_GENERATION, {
-  concurrency: 1,
-  // Reduce idle Redis polling from the BullMQ default (5s) to 60s.
-  drainDelay: 60_000,
-})
+@Processor(QUEUE_PDF_GENERATION, PIPELINE_WORKER_OPTS)
 export class PdfGenerationProcessor extends WorkerHost {
   private readonly logger = new Logger(PdfGenerationProcessor.name);
 
@@ -150,9 +146,15 @@ export class PdfGenerationProcessor extends WorkerHost {
   }
 
   /**
-   * Try to promote the existing PREVIEW_PDF (rendered during page-count)
-   * to FINAL_PDF without calling Gotenberg again. Returns null if no
-   * usable preview exists.
+   * Try to promote the existing PREVIEW_PDF (rendered during page-count) to
+   * FINAL_PDF without re-rendering via Gotenberg. Returns null if no usable
+   * preview exists, in which case the caller falls back to a full render.
+   *
+   * The promotion is a Cloudinary server-to-server copy — the ~40–80MB PDF is
+   * NOT downloaded into this process (see docs/infra-cost-hardening-plan.md,
+   * Phase 5). We only peek at the first stream chunk to confirm the stored
+   * asset is a real PDF, so a corrupt/missing preview still triggers the
+   * render fallback rather than shipping a bad book to print.
    */
   private async tryPromotePreviewPdf(
     payload: GeneratePdfPayload,
@@ -170,39 +172,76 @@ export class PdfGenerationProcessor extends WorkerHost {
 
       if (!previewFile?.url) return null;
 
-      // Fetch the existing PREVIEW_PDF buffer from Cloudinary
-      const response = await fetch(previewFile.url);
-      if (!response.ok) return null;
-      const arrayBuffer = await response.arrayBuffer();
-      const pdfBuffer = Buffer.from(arrayBuffer);
+      // Cheap integrity check without buffering the whole file: confirm the
+      // stored asset is reachable and begins with the %PDF- magic bytes.
+      if (!(await this.previewIsValidPdf(previewFile.url))) return null;
 
-      // Validate it's a real PDF (starts with %PDF)
-      if (pdfBuffer.length < 5 || pdfBuffer.toString("latin1", 0, 5) !== "%PDF-") {
-        return null;
-      }
-
-      // Save as FINAL_PDF
-      const { createHash } = await import("node:crypto");
-      const sha256 = createHash("sha256").update(pdfBuffer).digest("hex");
-
-      const finalFile = await this.filesService.saveGeneratedFile({
+      // Server-side copy: Cloudinary fetches the preview URL itself. No PDF
+      // bytes flow through our heap.
+      const finalFile = await this.filesService.saveGeneratedFileFromUrl({
         bookId: payload.bookId,
         fileType: "FINAL_PDF",
         fileName: `final-${String(job.id ?? payload.jobRecordId)}.pdf`,
         mimeType: "application/pdf",
-        content: pdfBuffer,
+        sourceUrl: previewFile.url,
         publicId: `bookprinta/final-pdfs/${payload.bookId}/${String(job.id ?? payload.jobRecordId)}`,
       });
 
       return {
         finalPdfFileId: finalFile.id,
         finalPdfUrl: finalFile.url,
-        renderedPdfSha256: sha256,
+        // The final PDF is byte-identical to the preview, so the page-count job
+        // already computed this exact hash. Reuse it rather than re-hashing 80MB.
+        // (renderedPdfSha256 is stored as telemetry and never compared, so an
+        // empty string on the rare miss is harmless.)
+        renderedPdfSha256: await this.lookupPreviewSha256(payload.bookId),
         progressStep: "GENERATING_FINAL_PDF",
       };
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Reads only the first chunk of the stored preview to verify the %PDF- header.
+   * Bounded memory regardless of file size — the rest of the stream is cancelled.
+   */
+  private async previewIsValidPdf(url: string): Promise<boolean> {
+    const response = await fetch(url);
+    if (!response.ok || !response.body) return false;
+
+    const reader = response.body.getReader();
+    try {
+      const head: number[] = [];
+      // Accumulate at most a few chunks until we have the 5 magic bytes.
+      while (head.length < 5) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) head.push(...value.subarray(0, 5 - head.length));
+      }
+      if (head.length < 5) return false;
+      return Buffer.from(head).toString("latin1") === "%PDF-";
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+  }
+
+  /**
+   * The preview and final PDFs are the same bytes, so the page-count job already
+   * hashed them. Reuse that hash instead of re-downloading to compute one.
+   */
+  private async lookupPreviewSha256(bookId: string): Promise<string> {
+    const pageCountJob = await this.prisma.job.findFirst({
+      where: { bookId, type: "PAGE_COUNT", status: "COMPLETED" },
+      orderBy: { finishedAt: "desc" },
+      select: { result: true },
+    });
+    const result = pageCountJob?.result;
+    if (result && typeof result === "object" && !Array.isArray(result)) {
+      const sha = (result as Record<string, unknown>).renderedPdfSha256;
+      if (typeof sha === "string") return sha;
+    }
+    return "";
   }
 
   private parsePayload(value: unknown): GeneratePdfPayload {

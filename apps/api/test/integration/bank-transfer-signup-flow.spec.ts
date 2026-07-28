@@ -27,6 +27,10 @@ type UserRecord = {
   tokenExpiry: Date | null;
   refreshToken: string | null;
   refreshTokenExp: Date | null;
+  // Mirrors the schema defaults (isActive @default(true), isDeleted @default(false)).
+  // Account guards read these, so the fake DB must model them.
+  isActive: boolean;
+  isDeleted: boolean;
 };
 
 type PaymentRecord = {
@@ -252,6 +256,8 @@ function createFlowHarness() {
           tokenExpiry: (data.tokenExpiry as Date | null | undefined) ?? null,
           refreshToken: (data.refreshToken as string | null | undefined) ?? null,
           refreshTokenExp: (data.refreshTokenExp as Date | null | undefined) ?? null,
+          isActive: (data.isActive as boolean | undefined) ?? true,
+          isDeleted: (data.isDeleted as boolean | undefined) ?? false,
         };
 
         userCounter += 1;
@@ -269,7 +275,29 @@ function createFlowHarness() {
           return user;
         }
       ),
-      findMany: jest.fn(async () => users),
+      // `assertCheckoutIdentityConflict` looks up the email owner case-insensitively.
+      findFirst: jest.fn(async ({ where }: { where?: Record<string, unknown> }) => {
+        const emailFilter = where?.email as { equals?: unknown } | string | undefined;
+        const wanted =
+          typeof emailFilter === "string"
+            ? emailFilter
+            : typeof emailFilter?.equals === "string"
+              ? emailFilter.equals
+              : null;
+        if (!wanted) return null;
+
+        const match =
+          users.find((user) => user.email.toLowerCase() === wanted.toLowerCase()) ?? null;
+        return match ? { id: match.id, email: match.email, isActive: match.isActive } : null;
+      }),
+      // Must honour `where` — the identity guard uses this for phone-number
+      // conflicts, and returning every user would falsely report a conflict.
+      findMany: jest.fn(async ({ where }: { where?: Record<string, unknown> } = {}) => {
+        if (typeof where?.phoneNumberNormalized === "string") {
+          return users.filter((user) => user.phoneNumberNormalized === where.phoneNumberNormalized);
+        }
+        return users;
+      }),
     },
     order: {
       findUnique: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
