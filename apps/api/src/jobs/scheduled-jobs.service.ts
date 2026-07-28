@@ -1,5 +1,6 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import * as Sentry from "@sentry/node";
 import type { Queue } from "bullmq";
 import { RedisService } from "../redis/redis.service.js";
 import { JOB_NAMES, LEGACY_MAINTENANCE_QUEUES, QUEUE_MAINTENANCE } from "./jobs.constants.js";
@@ -88,10 +89,17 @@ export class ScheduledJobsService implements OnModuleInit {
           );
         }
       } catch (error) {
-        this.logger.warn(
-          `Could not purge legacy queue "${name}": ` +
-            `${error instanceof Error ? error.message : String(error)}`
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Could not purge legacy queue "${name}": ${message}`);
+
+        // If the purge keeps failing, leftover BullMQ keys can keep the old
+        // 10s polling alive and silently forfeit the ~1M commands/month that
+        // Phase 4 was meant to save. Pino logs never reach Sentry, so capture.
+        Sentry.captureMessage(`Failed to purge legacy maintenance queue "${name}"`, {
+          level: "warning",
+          tags: { area: "queue_cleanup", queue: name },
+          extra: { message },
+        });
       }
     }
   }
@@ -130,6 +138,15 @@ export class ScheduledJobsService implements OnModuleInit {
   /** Enqueue an immediate audit-log archive run onto the unified maintenance queue. */
   async triggerAuditLogArchive(source: TriggerSource): Promise<TriggerResult> {
     return this.enqueue(JOB_NAMES.ARCHIVE_AUDIT_LOGS, source, { count: 7 }, { count: 14 });
+  }
+
+  /**
+   * Enqueue payment reconciliation — finalises successful Paystack charges that
+   * never became Orders. Keep more history than the other maintenance jobs: this
+   * one touches money, so its run results are worth being able to inspect.
+   */
+  async triggerPaymentReconciliation(source: TriggerSource): Promise<TriggerResult> {
+    return this.enqueue(JOB_NAMES.RECONCILE_PAYMENTS, source, { count: 48 }, { count: 96 });
   }
 
   private async enqueue(

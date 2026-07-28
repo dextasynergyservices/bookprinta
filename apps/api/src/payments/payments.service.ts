@@ -26,6 +26,7 @@ import {
   Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import * as Sentry from "@sentry/node";
 import { Resend } from "resend";
 import { normalizePhoneNumber } from "../auth/phone-number.util.js";
 import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
@@ -54,7 +55,10 @@ import { AdminPaymentListService } from "./services/admin-payment-list.service.j
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
 import { GatewayService } from "./services/gateway.service.js";
 import { PayPalService } from "./services/paypal.service.js";
-import type { PaystackWebhookPayload } from "./services/paystack.service.js";
+import type {
+  PaystackTransactionListItem,
+  PaystackWebhookPayload,
+} from "./services/paystack.service.js";
 import { PaystackService } from "./services/paystack.service.js";
 import { RefundService } from "./services/refund.service.js";
 import { ReprintPaymentService } from "./services/reprint-payment.service.js";
@@ -83,6 +87,16 @@ const REPRINT_ELIGIBLE_BOOK_STATUSES = new Set<BookStatus>([
   BookStatus.COMPLETED,
 ]);
 const SIGNUP_LINK_DELIVERY_METADATA_KEY = "signupLinkDelivery";
+
+/**
+ * How far back payment reconciliation looks for unfinalised successful charges.
+ * Comfortably wider than the cron interval so a skipped run self-heals, and wide
+ * enough to absorb a multi-hour webhook/redirect outage.
+ */
+const PAYMENT_RECONCILE_LOOKBACK_HOURS = 24;
+
+/** Transactions fetched per Paystack list call during reconciliation. */
+const PAYMENT_RECONCILE_PAGE_SIZE = 100;
 const SIGNUP_LINK_DELIVERY_MAX_ATTEMPTS = 3;
 
 type CheckoutAddonMetadata = {
@@ -1738,6 +1752,198 @@ export class PaymentsService {
    */
   verifyStripeSignature(rawBody: string | Buffer, signature: string) {
     return this.stripeService.verifyWebhookSignature(rawBody, signature);
+  }
+
+  // ────────────────────────────────────────────
+  // Payment reconciliation (safety net for missed webhooks)
+  // ────────────────────────────────────────────
+
+  /**
+   * Finalise successful Paystack charges that never became local Orders.
+   *
+   * WHY THIS EXISTS
+   * Our Paystack integration is shared with another product, and Paystack allows
+   * only one webhook URL per integration — so BookPrinta cannot rely on receiving
+   * webhooks. Without a webhook, finalisation happens when the browser returns to
+   * /payments/verify/:reference. That covers most cases but NOT: the customer
+   * closing the tab on Paystack's success page, losing connectivity mid-redirect,
+   * or switching apps on mobile. In those cases money is taken and no Order,
+   * account, or signup email is ever created — and nothing surfaces it.
+   *
+   * This job asks Paystack directly "what did you charge successfully?" and
+   * finalises anything we missed, which also covers webhook/redirect outages
+   * generally. Run it on a schedule (external cron).
+   *
+   * SAFETY
+   * - Only transactions carrying BookPrinta checkout metadata are touched. The
+   *   shared integration means the list also contains the other product's
+   *   charges; those are skipped (see `looksLikeBookPrintaCheckout`).
+   * - Finalisation delegates to `verify()`, the exact path the redirect uses, so
+   *   there is no duplicated order-creation logic. `verify()` is idempotent (it
+   *   claims `processedAt` atomically), so overlapping runs or a late webhook
+   *   cannot double-create.
+   */
+  async reconcilePaystackPayments(options: { lookbackHours?: number } = {}): Promise<{
+    scanned: number;
+    ours: number;
+    alreadyProcessed: number;
+    finalised: number;
+    failed: number;
+    skippedForeign: number;
+  }> {
+    const lookbackHours = Math.max(1, options.lookbackHours ?? PAYMENT_RECONCILE_LOOKBACK_HOURS);
+    const to = new Date();
+    const from = new Date(to.getTime() - lookbackHours * 60 * 60 * 1000);
+
+    const summary = {
+      scanned: 0,
+      ours: 0,
+      alreadyProcessed: 0,
+      finalised: 0,
+      failed: 0,
+      skippedForeign: 0,
+    };
+
+    if (!this.paystackService.isAvailable) {
+      this.logger.warn("Payment reconciliation skipped — Paystack is not configured");
+      return summary;
+    }
+
+    let transactions: PaystackTransactionListItem[];
+    try {
+      transactions = await this.paystackService.listTransactions({
+        from,
+        to,
+        status: "success",
+        perPage: PAYMENT_RECONCILE_PAGE_SIZE,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Payment reconciliation could not list Paystack transactions: ${error instanceof Error ? error.message : error}`
+      );
+      return summary;
+    }
+
+    summary.scanned = transactions.length;
+
+    for (const transaction of transactions) {
+      const reference = transaction.reference?.trim();
+      if (!reference) continue;
+
+      // Shared integration: ignore the other product's charges entirely.
+      if (!(await this.isBookPrintaCharge(transaction.metadata))) {
+        summary.skippedForeign += 1;
+        continue;
+      }
+      summary.ours += 1;
+
+      // Cheap pre-check so a healthy window costs one indexed lookup per row
+      // instead of a Paystack verify round-trip.
+      const existing = await this.prisma.payment.findUnique({
+        where: { providerRef: reference },
+        select: { processedAt: true, orderId: true },
+      });
+      if (existing?.processedAt && existing.orderId) {
+        summary.alreadyProcessed += 1;
+        continue;
+      }
+
+      try {
+        // Same finalisation path as the browser redirect — idempotent.
+        await this.verify(reference, "PAYSTACK");
+        summary.finalised += 1;
+        this.logger.warn(
+          `Payment reconciliation finalised orphaned Paystack charge ${reference} ` +
+            "(no webhook and the browser never returned)"
+        );
+      } catch (error) {
+        summary.failed += 1;
+        this.logger.error(
+          `Payment reconciliation failed for ${reference}: ${error instanceof Error ? error.message : error}`
+        );
+      }
+    }
+
+    this.logger.log(
+      `Payment reconciliation complete — scanned ${summary.scanned}, ours ${summary.ours}, ` +
+        `already processed ${summary.alreadyProcessed}, finalised ${summary.finalised}, ` +
+        `failed ${summary.failed}, foreign skipped ${summary.skippedForeign}`
+    );
+
+    return summary;
+  }
+
+  /**
+   * Surface a paying customer who cannot complete signup.
+   *
+   * Each of these branches means the same thing: money was taken, the signup link
+   * failed to deliver, and no further automated attempt will be made. Logging
+   * alone is not enough — Pino writes to stdout and never reaches Sentry, so
+   * these would otherwise scroll past unnoticed while a customer sits stranded.
+   *
+   * Deliberately captured as a message (nothing threw) with the payment
+   * reference in the fingerprint-relevant fields so occurrences group by cause
+   * rather than flooding one issue.
+   */
+  private captureStrandedSignup(
+    reference: string,
+    paymentId: string,
+    reason: string,
+    extra: Record<string, unknown> = {}
+  ): void {
+    Sentry.captureMessage(`Signup link undeliverable for paid order (${reason})`, {
+      level: "error",
+      tags: { area: "signup_delivery", reason },
+      extra: { reference, paymentId, ...extra },
+    });
+  }
+
+  /**
+   * True when a Paystack transaction was created by BookPrinta's checkout.
+   *
+   * This is a PRODUCT check, not a user check — it asks "did our checkout create
+   * this charge?", never "does this payer have an account". That distinction
+   * matters because BookPrinta is pay-first-then-signup: at charge time there is
+   * deliberately no user yet.
+   *
+   * IMPORTANT: do NOT use `extractCheckoutMetadata() !== null` as the signal — it
+   * returns a populated object for ANY non-empty metadata (every field is
+   * optional), so it matches the other product's charges too. The authoritative
+   * signal is the one finalisation itself depends on:
+   *   - a `customQuoteId` that exists in our DB (custom-quote flow), or
+   *   - a package identifier that resolves to an active BookPrinta package.
+   * Both are DB-verified, so a foreign charge cannot be mistaken for ours even if
+   * it happens to carry a similarly-named metadata field.
+   *
+   * Paystack may return metadata as a JSON string rather than an object.
+   */
+  private async isBookPrintaCharge(
+    metadata: Record<string, unknown> | string | null | undefined
+  ): Promise<boolean> {
+    const record =
+      typeof metadata === "string" ? this.parseJsonRecord(metadata) : this.asRecord(metadata);
+    if (!record) return false;
+
+    // Custom-quote flow: verify the quote is one of ours.
+    const quoteCheckout = this.extractCustomQuoteCheckoutMetadata(record);
+    const customQuoteId = quoteCheckout
+      ? this.asString(quoteCheckout.customQuoteId)
+      : this.asString(record.customQuoteId);
+    if (customQuoteId) {
+      const quote = await this.prisma.customQuote.findUnique({
+        where: { id: customQuoteId },
+        select: { id: true },
+      });
+      if (quote) return true;
+    }
+
+    // Standard checkout: the package must resolve to an active BookPrinta package.
+    const checkout = this.extractCheckoutMetadata(record);
+    if (!checkout) return false;
+    if (!checkout.packageId && !checkout.packageSlug && !checkout.tier) return false;
+
+    const pkg = await this.resolvePackageFromCheckoutMetadata(checkout);
+    return pkg !== null;
   }
 
   // ────────────────────────────────────────────
@@ -4804,20 +5010,28 @@ export class PaymentsService {
         this.logger.warn(
           `Signup link retry skipped for payment ${reference}: verification token missing`
         );
+        this.captureStrandedSignup(reference, payment.id, "verification_token_missing");
       } else if (userInactive) {
+        // Deliberately NOT captured: the account was deactivated, so having no
+        // signup link is the intended outcome rather than a stranded customer.
         this.logger.warn(`Signup link retry skipped for payment ${reference}: user is inactive`);
       } else if (tokenExpired) {
         this.logger.warn(
           `Signup link retry skipped for payment ${reference}: verification token expired`
         );
+        this.captureStrandedSignup(reference, payment.id, "verification_token_expired");
       } else if (!this.isSignupLinkDeliveryRetryEligible(snapshot)) {
         this.logger.warn(
           `Signup link retry skipped for payment ${reference}: max attempts reached (${snapshot.attemptCount})`
         );
+        this.captureStrandedSignup(reference, payment.id, "max_delivery_attempts_reached", {
+          attemptCount: snapshot.attemptCount,
+        });
       } else if (!payment.user?.email || !payment.order) {
         this.logger.warn(
           `Signup link retry skipped for payment ${reference}: payment follow-up context incomplete`
         );
+        this.captureStrandedSignup(reference, payment.id, "follow_up_context_incomplete");
       } else {
         snapshot = await this.attemptSignupLinkDelivery({
           paymentId: payment.id,

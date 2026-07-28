@@ -2,6 +2,7 @@ import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
 import * as Sentry from "@sentry/node";
 import type { Job } from "bullmq";
+import { PaymentsService } from "../payments/payments.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ProductionDelayMonitorService } from "../production-delay/production-delay-monitor.service.js";
 import {
@@ -41,7 +42,8 @@ export class MaintenanceProcessor extends WorkerHost {
 
   constructor(
     private readonly productionDelayMonitor: ProductionDelayMonitorService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly paymentsService: PaymentsService
   ) {
     super();
   }
@@ -52,6 +54,8 @@ export class MaintenanceProcessor extends WorkerHost {
         return this.runProductionDelayCheck(job);
       case JOB_NAMES.ARCHIVE_AUDIT_LOGS:
         return this.runAuditLogArchive(job);
+      case JOB_NAMES.RECONCILE_PAYMENTS:
+        return this.runPaymentReconciliation(job);
       default:
         throw new Error(`Unsupported maintenance job name "${job.name}"`);
     }
@@ -105,6 +109,44 @@ export class MaintenanceProcessor extends WorkerHost {
     );
 
     return { cutoffDate: cutoff.toISOString(), totalDeleted, batches };
+  }
+
+  /**
+   * Finalises successful Paystack charges that never became Orders — the safety
+   * net for our shared-integration setup, where BookPrinta cannot own the single
+   * Paystack webhook URL. See PaymentsService.reconcilePaystackPayments().
+   */
+  private async runPaymentReconciliation(job: Job) {
+    const result = await this.paymentsService.reconcilePaystackPayments();
+
+    const logLine =
+      `Payment reconciliation job ${String(job.id ?? "unknown")} (source=${this.readSource(job)}) — ` +
+      `scanned=${result.scanned} ours=${result.ours} finalised=${result.finalised} ` +
+      `failed=${result.failed} foreignSkipped=${result.skippedForeign}`;
+
+    // Finalising anything here means a real charge slipped through the redirect
+    // path, which is worth surfacing rather than burying at log level.
+    if (result.finalised > 0 || result.failed > 0) {
+      this.logger.warn(logLine);
+
+      // Pino writes straight to stdout, so warn/error logs never reach Sentry on
+      // their own — capture explicitly. Guarded so healthy runs stay silent:
+      // an event every 30 minutes saying "nothing to do" would train us to
+      // ignore the one run that matters.
+      Sentry.captureMessage(
+        `Payment reconciliation finalised ${result.finalised} orphaned Paystack charge(s)` +
+          (result.failed > 0 ? `, ${result.failed} failed` : ""),
+        {
+          level: result.failed > 0 ? "error" : "warning",
+          tags: { queue: QUEUE_MAINTENANCE, job_name: JOB_NAMES.RECONCILE_PAYMENTS },
+          extra: { ...result, jobId: String(job.id ?? "unknown"), source: this.readSource(job) },
+        }
+      );
+    } else {
+      this.logger.log(logLine);
+    }
+
+    return result;
   }
 
   /**

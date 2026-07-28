@@ -1,5 +1,12 @@
 /// <reference types="jest" />
 import { ServiceUnavailableException } from "@nestjs/common";
+import * as Sentry from "@sentry/node";
+
+// Sentry's module exports are non-configurable, so jest.spyOn cannot patch them.
+jest.mock("@sentry/node", () => ({ captureMessage: jest.fn() }));
+
+const captureMessage = Sentry.captureMessage as unknown as jest.Mock;
+
 import { GotenbergPageCountService } from "./gotenberg-page-count.service.js";
 
 describe("GotenbergPageCountService", () => {
@@ -93,6 +100,66 @@ describe("GotenbergPageCountService", () => {
     expect(countAndRender.pdfBuffer.toString("latin1", 0, 5)).toBe("%PDF-");
     // Exactly one Gotenberg render per call — no hidden second render.
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  // A rejected credential silently downgrades every subsequent render to an
+  // UNAUTHENTICATED call, and rendering keeps working — so without an explicit
+  // capture this security regression looks exactly like normal operation.
+  it("reports to Sentry when Gotenberg rejects basic auth and we fall back to no auth", async () => {
+    process.env.GOTENBERG_URL = "http://gotenberg.local";
+    process.env.GOTENBERG_USERNAME = "admin";
+    process.env.GOTENBERG_PASSWORD = "secret";
+    captureMessage.mockClear();
+
+    const fakePdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n", "latin1");
+    global.fetch = jest.fn().mockImplementation(async (_url, init) => {
+      const hasAuth = Boolean(
+        (init as RequestInit)?.headers &&
+          ((init as RequestInit).headers as Record<string, string>).Authorization
+      );
+      if (hasAuth) {
+        return { ok: false, status: 401, text: async () => "Unauthorized" } as Response;
+      }
+      return {
+        ok: true,
+        arrayBuffer: async () =>
+          fakePdf.buffer.slice(fakePdf.byteOffset, fakePdf.byteOffset + fakePdf.byteLength),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const result = await service.countPages({
+      html: "<html><body><p>Hello</p></body></html>",
+      pageSize: "A5",
+      fontSize: 12,
+    });
+
+    // Render still succeeds via the unauthenticated retry — that is the danger.
+    expect(result.pageCount).toBe(1);
+    expect(captureMessage).toHaveBeenCalledTimes(1);
+    expect(captureMessage.mock.calls[0][0]).toContain("rejected basic auth");
+    expect(captureMessage.mock.calls[0][1]).toMatchObject({ level: "warning" });
+  });
+
+  it("stays SILENT when auth is accepted", async () => {
+    process.env.GOTENBERG_URL = "http://gotenberg.local";
+    process.env.GOTENBERG_USERNAME = "admin";
+    process.env.GOTENBERG_PASSWORD = "secret";
+    captureMessage.mockClear();
+
+    const fakePdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n", "latin1");
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () =>
+        fakePdf.buffer.slice(fakePdf.byteOffset, fakePdf.byteOffset + fakePdf.byteLength),
+    }) as unknown as typeof fetch;
+
+    await service.countPages({
+      html: "<html><body><p>Hello</p></body></html>",
+      pageSize: "A5",
+      fontSize: 12,
+    });
+
+    expect(captureMessage).not.toHaveBeenCalled();
   });
 
   it("throws when GOTENBERG_URL is not configured", async () => {
