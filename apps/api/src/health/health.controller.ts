@@ -1,13 +1,27 @@
-import { Controller, Get, Post } from "@nestjs/common";
-import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { Controller, Get, Headers, Post, Query, UseGuards } from "@nestjs/common";
+import { ApiExcludeEndpoint, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { SkipThrottle } from "@nestjs/throttler";
+import { HealthStatusGuard } from "../common/health-status.guard.js";
+import { BaselineMetricsService } from "./baseline-metrics.service.js";
 import { HealthService } from "./health.service.js";
+
+/**
+ * Extracts a bearer token from an Authorization header, if present.
+ */
+function bearerToken(authorization: string | undefined): string | undefined {
+  if (!authorization) return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(authorization.trim());
+  return match?.[1];
+}
 
 @ApiTags("Health")
 @Controller("health")
 @SkipThrottle({ short: true, long: true })
 export class HealthController {
-  constructor(private readonly healthService: HealthService) {}
+  constructor(
+    private readonly healthService: HealthService,
+    private readonly baselineMetrics: BaselineMetricsService
+  ) {}
 
   /**
    * GET /api/v1/health/ping
@@ -109,15 +123,24 @@ export class HealthController {
 
   /**
    * GET /api/v1/health/status
-   * Detailed status check: DB, Redis connectivity.
-   * Useful for debugging and monitoring dashboards.
+   * Detailed status check: DB, Redis, scanner, queues, and Gotenberg.
+   *
+   * Protected by HealthStatusGuard (HEALTH_STATUS_TOKEN) because the deep
+   * variant runs a real Gotenberg render — an unauthenticated loop here could
+   * exhaust the single Gotenberg instance. Results are cached for 30s.
+   *
+   * Pass ?deep=1 to run the Gotenberg render smoke test; omit it for a cheap
+   * liveness-only check suitable for routine polling.
    */
   @Get("status")
+  @UseGuards(HealthStatusGuard)
   @ApiOperation({
     summary: "Detailed service status",
     description:
       "Pings database (Neon PostgreSQL), Redis (Upstash), Gotenberg (PDF engine), and Scanner (ClamAV/VirusTotal) to verify connectivity. " +
-      "Returns per-service latency and overall health status (ok / degraded).",
+      "Returns per-service latency and overall health status (ok / degraded). " +
+      "Requires HEALTH_STATUS_TOKEN via 'Authorization: Bearer <token>' or 'X-Health-Token'. " +
+      "Pass ?deep=1 to include a Gotenberg render smoke test (heavier).",
   })
   @ApiResponse({
     status: 200,
@@ -323,8 +346,10 @@ export class HealthController {
       },
     },
   })
-  status() {
-    return this.healthService.detailedStatus();
+  status(@Query("deep") deep?: string) {
+    // Any truthy-ish value enables the deep render smoke test: ?deep=1, ?deep=true.
+    const isDeep = deep === "1" || deep?.toLowerCase() === "true";
+    return this.healthService.detailedStatus({ deep: isDeep });
   }
 
   @Post("dev/queues/reset")
@@ -360,5 +385,33 @@ export class HealthController {
   })
   resetDevelopmentQueues() {
     return this.healthService.resetDevelopmentQueues();
+  }
+
+  /**
+   * GET /api/v1/health/baseline
+   *
+   * Phase 0 baseline instrumentation (docs/infra-cost-hardening-plan.md).
+   * Returns per-command Redis attribution and process memory high-water marks.
+   *
+   * TEMPORARY — remove once Phase 1 is verified against the captured baseline.
+   * Requires a BASELINE_METRICS_TOKEN bearer token; disabled entirely when that
+   * env var is unset. Excluded from Swagger so it is not advertised publicly.
+   */
+  @Get("baseline")
+  @ApiExcludeEndpoint()
+  baseline(@Headers("authorization") authorization?: string) {
+    return this.baselineMetrics.getSnapshot(bearerToken(authorization));
+  }
+
+  /**
+   * POST /api/v1/health/baseline/reset
+   *
+   * Clears Redis command counters and memory high-water marks to start a clean
+   * observation window — used to isolate one pipeline run from ambient traffic.
+   */
+  @Post("baseline/reset")
+  @ApiExcludeEndpoint()
+  resetBaseline(@Headers("authorization") authorization?: string) {
+    return this.baselineMetrics.reset(bearerToken(authorization));
   }
 }

@@ -6,9 +6,27 @@ import { ScannerService } from "../scanner/scanner.service.js";
 import { QueueAdminService } from "./queue-admin.service.js";
 import { RuntimeTelemetryService } from "./runtime-telemetry.service.js";
 
+/**
+ * How long a detailed-status result is served from cache.
+ *
+ * Short enough that a monitoring dashboard still sees near-live data, long
+ * enough that repeated polls (or a loop) do not repeatedly hit the database,
+ * scanner and — for deep checks — Gotenberg. The `deep` and shallow variants
+ * are cached separately because they probe different things.
+ */
+const DETAILED_STATUS_CACHE_TTL_MS = 30_000;
+
+type DetailedStatusResult = Awaited<ReturnType<HealthService["computeDetailedStatus"]>>;
+
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
+
+  /** Cached detailed-status payloads, keyed by whether the deep probe ran. */
+  private readonly detailedStatusCache = new Map<
+    "deep" | "shallow",
+    { at: number; payload: DetailedStatusResult }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -55,11 +73,32 @@ export class HealthService {
   }
 
   /**
-   * Detailed status check — pings DB, Redis, and Gotenberg.
-   * All checks have individual timeouts to prevent hanging.
-   * Used for monitoring dashboards and debugging.
+   * Detailed status check — pings DB, Redis, scanner and queues, and (only when
+   * `deep` is set) runs a Gotenberg render smoke test.
+   *
+   * Results are cached in-process for DETAILED_STATUS_CACHE_TTL_MS so repeated
+   * polling — including a hostile loop — cannot repeatedly hammer the backing
+   * services. The deep and shallow variants are cached independently.
    */
-  async detailedStatus() {
+  async detailedStatus(options: { deep?: boolean } = {}) {
+    const deep = options.deep === true;
+    const cacheKey = deep ? "deep" : "shallow";
+
+    const cached = this.detailedStatusCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < DETAILED_STATUS_CACHE_TTL_MS) {
+      return { ...cached.payload, cached: true };
+    }
+
+    const payload = await this.computeDetailedStatus(deep);
+    this.detailedStatusCache.set(cacheKey, { at: Date.now(), payload });
+    return { ...payload, cached: false };
+  }
+
+  /**
+   * Uncached detailed-status computation. Always runs the cheap probes; runs the
+   * expensive Gotenberg render smoke test only when `deep` is true.
+   */
+  private async computeDetailedStatus(deep: boolean) {
     const results: Record<
       string,
       { status: string; latencyMs?: number; error?: string; provider?: string }
@@ -108,7 +147,10 @@ export class HealthService {
     }
 
     // Gotenberg (PDF generation — separate Render service)
-    // Two checks: /health (is the service up?) + render smoke test (can it actually convert HTML?)
+    // Cheap check: /health (is the service up?). Runs on every call.
+    // Expensive check: a real HTML→PDF render smoke test that spins up Chromium.
+    // That only runs with ?deep=1, so routine monitoring does not repeatedly
+    // burn the single free-tier Gotenberg instance (see HealthStatusGuard).
     const gotenbergUrl = (process.env.GOTENBERG_URL ?? "").trim().replace(/\/+$/, "");
     if (gotenbergUrl) {
       const gbStart = Date.now();
@@ -119,46 +161,57 @@ export class HealthService {
         });
         const healthOk = response.ok;
 
-        // Render smoke test: send tiny HTML to the conversion endpoint
-        // This catches auth failures, Chromium crashes, and config issues
-        // that /health alone cannot detect
-        let renderOk = false;
-        let renderError: string | undefined;
-        let renderStatus: number | undefined;
-        try {
-          const smokeHtml = "<!doctype html><html><body><p>health-check</p></body></html>";
-          const form = new FormData();
-          form.append(
-            "files",
-            new Blob([smokeHtml], { type: "text/html;charset=utf-8" }),
-            "index.html"
-          );
-          form.append("paperWidth", "8.27");
-          form.append("paperHeight", "11.69");
+        if (!deep) {
+          // Shallow: liveness only. Reported "ok" so routine monitoring stays
+          // green (a permanent "degraded" would just train operators to ignore
+          // it), but explicitly flagged as unverified — rendering itself is only
+          // confirmed by the deep check.
+          results.gotenberg = {
+            status: healthOk ? "ok" : "error",
+            latencyMs: Date.now() - gbStart,
+            ...(healthOk ? { checked: "liveness — pass ?deep=1 to verify rendering" } : {}),
+          } as typeof results.gotenberg;
+        } else {
+          // Deep: render smoke test — catches auth failures, Chromium crashes,
+          // and config issues that /health alone cannot detect.
+          let renderOk = false;
+          let renderError: string | undefined;
+          let renderStatus: number | undefined;
+          try {
+            const smokeHtml = "<!doctype html><html><body><p>health-check</p></body></html>";
+            const form = new FormData();
+            form.append(
+              "files",
+              new Blob([smokeHtml], { type: "text/html;charset=utf-8" }),
+              "index.html"
+            );
+            form.append("paperWidth", "8.27");
+            form.append("paperHeight", "11.69");
 
-          const renderResponse = await fetch(`${gotenbergUrl}/forms/chromium/convert/html`, {
-            method: "POST",
-            body: form,
-            headers: this.buildGotenbergAuthHeaders(),
-            signal: AbortSignal.timeout(15000),
-          });
-          renderStatus = renderResponse.status;
-          renderOk = renderResponse.ok;
-          if (!renderOk) {
-            renderError = `HTTP ${renderResponse.status}`;
-            const body = await renderResponse.text().catch(() => "");
-            if (body) renderError += `: ${body.slice(0, 200)}`;
+            const renderResponse = await fetch(`${gotenbergUrl}/forms/chromium/convert/html`, {
+              method: "POST",
+              body: form,
+              headers: this.buildGotenbergAuthHeaders(),
+              signal: AbortSignal.timeout(15000),
+            });
+            renderStatus = renderResponse.status;
+            renderOk = renderResponse.ok;
+            if (!renderOk) {
+              renderError = `HTTP ${renderResponse.status}`;
+              const body = await renderResponse.text().catch(() => "");
+              if (body) renderError += `: ${body.slice(0, 200)}`;
+            }
+          } catch (err) {
+            renderError = err instanceof Error ? err.message : "Unknown render error";
           }
-        } catch (err) {
-          renderError = err instanceof Error ? err.message : "Unknown render error";
-        }
 
-        results.gotenberg = {
-          status: healthOk && renderOk ? "ok" : healthOk ? "degraded" : "error",
-          latencyMs: Date.now() - gbStart,
-          ...(renderError ? { renderError } : {}),
-          ...(renderStatus && !renderOk ? { renderStatus: String(renderStatus) } : {}),
-        } as typeof results.gotenberg;
+          results.gotenberg = {
+            status: healthOk && renderOk ? "ok" : healthOk ? "degraded" : "error",
+            latencyMs: Date.now() - gbStart,
+            ...(renderError ? { renderError } : {}),
+            ...(renderStatus && !renderOk ? { renderStatus: String(renderStatus) } : {}),
+          } as typeof results.gotenberg;
+        }
       } catch (error) {
         results.gotenberg = {
           status: "error",

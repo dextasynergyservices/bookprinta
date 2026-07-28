@@ -7,12 +7,20 @@ import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 import { cleanupOpenApiDoc, ZodValidationPipe } from "nestjs-zod";
 import { AppModule } from "./app.module.js";
+import { installRedisCommandMeter } from "./health/redis-command-meter.js";
 import { RuntimeTelemetryService } from "./health/runtime-telemetry.service.js";
 import { SentryExceptionFilter } from "./sentry/sentry-exception.filter.js";
 
 const bootstrapStartedAt = Date.now();
 
 async function bootstrap() {
+  // Phase 0 baseline instrumentation (docs/infra-cost-hardening-plan.md).
+  // MUST run before NestFactory.create() — module initialisation opens Redis
+  // connections and BullMQ starts issuing commands immediately, so a later
+  // install would undercount the very traffic we are trying to attribute.
+  // No-ops unless REDIS_COMMAND_METER=1.
+  installRedisCommandMeter();
+
   // Buffer early logs so nothing is lost before Pino is initialised
   // rawBody: true — preserves the raw request body for Stripe webhook signature verification.
   // NestJS stores it on req.rawBody; only routes using @RawBodyRequest<Request> access it.

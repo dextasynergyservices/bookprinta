@@ -263,10 +263,14 @@ describe("OrdersService", () => {
             bookStatus: "FORMATTING",
             displayStatus: "FORMATTING",
             statusSource: "book",
+            // Real Order column (STANDARD | REPRINT); null when the fixture omits it.
+            orderType: null,
             createdAt: "2026-03-10T09:30:00.000Z",
             totalAmount: 100000,
             currency: "NGN",
             detailUrl: "/admin/orders/cmadminorder1",
+            // Derived from isOrderArchivable(displayStatus).
+            actions: { canArchive: true },
           },
         ],
         nextCursor: "cmadminorder1",

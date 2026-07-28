@@ -22,7 +22,7 @@ import type {
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/redis.service.js";
-import { JOB_NAMES, QUEUE_AI_FORMATTING } from "./jobs.constants.js";
+import { JOB_NAMES, PIPELINE_WORKER_OPTS, QUEUE_AI_FORMATTING } from "./jobs.constants.js";
 
 const CLEANED_HTML_CACHE_TTL_SECONDS = 300; // 5 min — enough for page-count job to run; short enough to limit Redis memory footprint at any scale
 
@@ -77,13 +77,7 @@ const TERMINAL_ORDER_STATUSES: ReadonlySet<OrderStatus> = new Set([
 ]);
 
 @Injectable()
-@Processor(QUEUE_AI_FORMATTING, {
-  concurrency: 1,
-  // Reduce idle Redis polling from the BullMQ default (5s) to 60s.
-  // Workers still pick up new jobs immediately when enqueued via pub/sub — drainDelay
-  // only controls how often a BLOCKED worker re-polls an already-empty queue.
-  drainDelay: 60_000,
-})
+@Processor(QUEUE_AI_FORMATTING, PIPELINE_WORKER_OPTS)
 export class AiFormattingProcessor extends WorkerHost {
   private readonly logger = new Logger(AiFormattingProcessor.name);
 

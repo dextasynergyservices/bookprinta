@@ -1,6 +1,7 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import type { Queue } from "bullmq";
+import { PendingRedisSignal } from "../common/pending-redis-signal.js";
 import type { JobType } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/redis.service.js";
@@ -12,10 +13,19 @@ import {
 } from "./jobs.constants.js";
 
 /**
- * Poll for PENDING_REDIS jobs every 30 seconds once Redis comes back.
- * Keep the batch small (20) so one recovery cycle doesn't block the event loop.
+ * How often the recovery timer ticks. A tick only touches the DB when there is
+ * plausibly work — see shouldSweep(). Keep batches small (20) so one cycle
+ * doesn't block the event loop.
  */
 const RECOVERY_INTERVAL_MS = 30_000;
+
+/**
+ * Safety sweep interval (Phase 6). Even when no park has been signalled in this
+ * process, query the DB this often so jobs parked by a previous process or
+ * another instance are still recovered. 15 min → ~96 queries/day vs the old
+ * ~2,880, while remaining robust to a missed signal or horizontal scaling.
+ */
+const SAFETY_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
 /**
  * Expire jobs that have been PENDING_REDIS for more than 30 minutes.
@@ -55,22 +65,31 @@ function isDuplicateJobError(error: unknown): boolean {
 export class JobRecoveryService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(JobRecoveryService.name);
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
+  private lastSweepAtMs = 0;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly pendingRedisSignal: PendingRedisSignal,
     @InjectQueue(QUEUE_AI_FORMATTING) private readonly aiFormattingQueue: Queue,
     @InjectQueue(QUEUE_PAGE_COUNT) private readonly pageCountQueue: Queue,
     @InjectQueue(QUEUE_PDF_GENERATION) private readonly pdfGenerationQueue: Queue
   ) {}
 
   onModuleInit(): void {
+    // Boot reconciliation: a previous process may have parked jobs before
+    // restart, so prime the signal from the DB exactly once. If any are found,
+    // the timer will recover them on its next tick.
+    void this.reconcileOnBoot();
+
     this.intervalHandle = setInterval(() => {
-      void this.recoverPendingRedisJobs();
+      void this.tick();
     }, RECOVERY_INTERVAL_MS);
 
     this.logger.log(
-      `Job recovery loop started — polling every ${RECOVERY_INTERVAL_MS / 1_000}s for PENDING_REDIS jobs`
+      `Job recovery loop started — idle unless a job is parked; safety sweep every ${
+        SAFETY_SWEEP_INTERVAL_MS / 60_000
+      }min`
     );
   }
 
@@ -82,11 +101,48 @@ export class JobRecoveryService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Main recovery loop. Called every RECOVERY_INTERVAL_MS.
-   * Public so it can be triggered manually in tests.
+   * Timer tick. Skips the DB entirely unless a park was signalled or the safety
+   * sweep is due — this is what turns ~2,880 idle queries/day into ~96 (Phase 6).
+   */
+  private async tick(): Promise<void> {
+    if (!this.shouldSweep()) return;
+    await this.recoverPendingRedisJobs();
+  }
+
+  /**
+   * Query the DB when EITHER a park has been signalled in this process, OR it
+   * has been at least SAFETY_SWEEP_INTERVAL_MS since the last sweep (covers jobs
+   * parked by another process/instance, or a signal we somehow missed).
+   */
+  private shouldSweep(): boolean {
+    if (this.pendingRedisSignal.isPending()) return true;
+    return Date.now() - this.lastSweepAtMs >= SAFETY_SWEEP_INTERVAL_MS;
+  }
+
+  private async reconcileOnBoot(): Promise<void> {
+    try {
+      const parked = await this.prisma.job.count({ where: { status: "PENDING_REDIS" } });
+      if (parked > 0) {
+        this.pendingRedisSignal.markPending();
+        this.logger.log(`Boot reconciliation found ${parked} PENDING_REDIS job(s) to recover`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Boot reconciliation query failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Main recovery loop. Public so it can be triggered manually in tests.
+   * Records the sweep time and clears the signal when no parked jobs remain.
    */
   async recoverPendingRedisJobs(): Promise<void> {
+    // Redis still down — nothing to recover onto. Leave the signal set so we
+    // retry on the next tick; do NOT count this as a completed sweep.
     if (!this.redisService.isAvailable()) return;
+
+    this.lastSweepAtMs = Date.now();
 
     const pending = await this.prisma.job.findMany({
       where: { status: "PENDING_REDIS" },
@@ -95,7 +151,12 @@ export class JobRecoveryService implements OnModuleInit, OnModuleDestroy {
       select: { id: true, type: true, payload: true, createdAt: true },
     });
 
-    if (pending.length === 0) return;
+    if (pending.length === 0) {
+      // Queue drained (or nothing was parked) — go back to sleep until the next
+      // signal or safety sweep.
+      this.pendingRedisSignal.clear();
+      return;
+    }
 
     this.logger.log(`Recovering ${pending.length} PENDING_REDIS job(s) now that Redis is back`);
 

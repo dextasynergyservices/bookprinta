@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { getQueueToken } from "@nestjs/bullmq";
 import { Test, type TestingModule } from "@nestjs/testing";
+import { PendingRedisSignal } from "../common/pending-redis-signal.js";
 import {
   JOB_NAMES,
   QUEUE_AI_FORMATTING,
@@ -59,11 +60,13 @@ const mockPdfGenerationQueue = {
 
 describe("BooksPipelineService", () => {
   let service: BooksPipelineService;
+  let pendingRedisSignal: PendingRedisSignal;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BooksPipelineService,
+        PendingRedisSignal,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: getQueueToken(QUEUE_AI_FORMATTING), useValue: mockAiFormattingQueue },
         { provide: getQueueToken(QUEUE_PAGE_COUNT), useValue: mockPageCountQueue },
@@ -72,6 +75,7 @@ describe("BooksPipelineService", () => {
     }).compile();
 
     service = module.get<BooksPipelineService>(BooksPipelineService);
+    pendingRedisSignal = module.get<PendingRedisSignal>(PendingRedisSignal);
     jest.clearAllMocks();
   });
 
@@ -143,6 +147,50 @@ describe("BooksPipelineService", () => {
         extraAmount: 0,
       },
     });
+  });
+
+  it("parks the job and raises the pending-redis signal when Redis is unreachable at enqueue", async () => {
+    mockPrismaService.book.findUnique.mockResolvedValue({
+      id: "cmbook1",
+      userId: "user_1",
+      orderId: "cmorder1",
+      status: "UPLOADED",
+      pageSize: "A5",
+      fontSize: 12,
+      wordCount: 42_000,
+      estimatedPages: 170,
+      order: { id: "cmorder1", status: "PAID", package: { pageLimit: 150 } },
+    });
+    mockPrismaService.file.findFirst.mockResolvedValue({
+      id: "cmraw1",
+      url: "https://cdn.example.com/raw.docx",
+      fileName: "raw.docx",
+      fileSize: 1024,
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      version: 1,
+    });
+    mockAiFormattingQueue.getJob.mockResolvedValue(null);
+    mockPrismaService.job.findMany.mockResolvedValue([]);
+    mockPrismaService.job.create.mockResolvedValue({ id: "cmjob1" });
+    mockPrismaService.job.update.mockResolvedValue({});
+    txBookUpdate.mockResolvedValue({});
+    txOrderUpdate.mockResolvedValue({});
+    // Redis is down → queue.add throws a connection error → job is parked.
+    mockAiFormattingQueue.add.mockRejectedValue(new Error("Connection is closed."));
+
+    expect(pendingRedisSignal.isPending()).toBe(false);
+
+    const result = await service.enqueueFormatManuscript({
+      bookId: "cmbook1",
+      trigger: "upload",
+    });
+
+    expect(result.reason).toBe("PENDING_REDIS");
+    expect(mockPrismaService.job.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "PENDING_REDIS" } })
+    );
+    // The recovery loop stays idle until this flips — it must be raised here.
+    expect(pendingRedisSignal.isPending()).toBe(true);
   });
 
   it("does not enqueue format job when no manuscript file exists", async () => {

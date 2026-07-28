@@ -1,7 +1,16 @@
 /// <reference types="jest" />
 import { Test, type TestingModule } from "@nestjs/testing";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisService } from "../redis/redis.service.js";
 import { AdminSystemSettingsService } from "./admin-system-settings.service.js";
+import { SystemSettingsCacheService } from "./system-settings-cache.service.js";
+
+// Cache-miss stub so gateway reads use the DB path.
+const mockRedisService = {
+  get: jest.fn().mockResolvedValue(null),
+  set: jest.fn().mockResolvedValue(undefined),
+  del: jest.fn().mockResolvedValue(undefined),
+};
 
 const paymentGatewayFindMany = jest.fn();
 const paymentGatewayFindUnique = jest.fn();
@@ -37,6 +46,9 @@ describe("AdminSystemSettingsService", () => {
       providers: [
         AdminSystemSettingsService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: RedisService, useValue: mockRedisService },
+        // Real cache service against the mocked Prisma (systemSetting.findMany is stubbed).
+        SystemSettingsCacheService,
       ],
     }).compile();
 
@@ -57,8 +69,12 @@ describe("AdminSystemSettingsService", () => {
         priority: 1,
         instructions: null,
         bankDetails: null,
-        publicKey: "pk_test_1234567890",
-        secretKey: "sk_test_1234567890",
+        // Deliberately NOT shaped like real provider keys (no `pk_test_`/`sk_test_`
+        // prefixes): GitHub push protection rejects pushes containing strings that
+        // match a provider's key format. Values only need to be >8 chars so
+        // maskSecret() takes its "first 4 + last 4" branch.
+        publicKey: "public-fixture-not-a-real-key",
+        secretKey: "secret-fixture-not-a-real-key",
         updatedAt: new Date("2026-03-19T10:00:00.000Z"),
       },
     ]);
@@ -74,8 +90,13 @@ describe("AdminSystemSettingsService", () => {
 
     expect(publicCredential?.maskedValue).toContain("*");
     expect(secretCredential?.maskedValue).toContain("*");
-    expect(publicCredential?.maskedValue).not.toContain("pk_test_1234567890");
-    expect(secretCredential?.maskedValue).not.toContain("sk_test_1234567890");
+    expect(publicCredential?.maskedValue).not.toContain("public-fixture-not-a-real-key");
+    expect(secretCredential?.maskedValue).not.toContain("secret-fixture-not-a-real-key");
+    // maskSecret keeps only the first 4 and last 4 characters, so the middle of
+    // the credential must never appear in the response.
+    expect(publicCredential?.maskedValue).not.toContain("fixture");
+    expect(secretCredential?.maskedValue).not.toContain("fixture");
+    expect(secretCredential?.maskedValue).toBe("secr********-key");
   });
 
   it("blocks admin role from updating super-admin-only keys", async () => {
