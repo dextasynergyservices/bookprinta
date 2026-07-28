@@ -203,6 +203,97 @@ export class FilesService {
       overwrite: true,
     });
 
+    return this.persistGeneratedFileRecord({
+      bookId: params.bookId,
+      fileType: params.fileType,
+      fileName: params.fileName,
+      mimeType: params.mimeType,
+      url: upload.secure_url,
+      fileSize: contentBuffer.byteLength,
+      createdBy: params.createdBy ?? null,
+    });
+  }
+
+  /**
+   * Like `saveGeneratedFile`, but copies an existing remote asset instead of
+   * uploading bytes from this process. Cloudinary fetches `sourceUrl`
+   * server-side, so the file never passes through our Node heap — used to
+   * promote the already-stored PREVIEW_PDF to FINAL_PDF at approval without
+   * buffering a 40–80MB PDF in a 512MB container (see
+   * docs/infra-cost-hardening-plan.md, Phase 5).
+   *
+   * `raw` resource types are stored verbatim (no transformation), so the copied
+   * bytes are identical to the source.
+   */
+  async saveGeneratedFileFromUrl(params: {
+    bookId: string;
+    fileType: FileType;
+    fileName: string;
+    mimeType: string;
+    sourceUrl: string;
+    publicId: string;
+    createdBy?: string | null;
+  }) {
+    const existing = await this.prisma.file.findFirst({
+      where: {
+        bookId: params.bookId,
+        fileType: params.fileType,
+        fileName: params.fileName,
+      },
+      select: {
+        id: true,
+        bookId: true,
+        fileType: true,
+        url: true,
+        fileName: true,
+        fileSize: true,
+        mimeType: true,
+        version: true,
+        createdBy: true,
+        createdAt: true,
+      },
+    });
+    if (existing) {
+      return existing;
+    }
+
+    const folder = FILE_TYPE_FOLDERS[params.fileType] ?? "bookprinta/uploads";
+    // Passing a URL string makes CloudinaryService call `uploader.upload(url)`,
+    // which fetches the remote asset server-to-server.
+    const upload = await this.cloudinary.upload(params.sourceUrl, {
+      ...(params.publicId.includes("/") ? {} : { folder }),
+      resource_type: params.mimeType.startsWith("image/") ? "image" : "raw",
+      type: "upload",
+      public_id: params.publicId,
+      overwrite: true,
+    });
+
+    return this.persistGeneratedFileRecord({
+      bookId: params.bookId,
+      fileType: params.fileType,
+      fileName: params.fileName,
+      mimeType: params.mimeType,
+      url: upload.secure_url,
+      // Cloudinary reports the stored byte count for the fetched asset.
+      fileSize: upload.bytes ?? 0,
+      createdBy: params.createdBy ?? null,
+    });
+  }
+
+  /**
+   * Shared tail for generated-file persistence: assigns the next version number,
+   * writes the File row, and syncs the derived Book metadata. Used by both the
+   * buffer-upload and URL-copy paths.
+   */
+  private async persistGeneratedFileRecord(params: {
+    bookId: string;
+    fileType: FileType;
+    fileName: string;
+    mimeType: string;
+    url: string;
+    fileSize: number;
+    createdBy: string | null;
+  }) {
     const latestFile = await this.prisma.file.findFirst({
       where: {
         bookId: params.bookId,
@@ -217,9 +308,9 @@ export class FilesService {
       data: {
         bookId: params.bookId,
         fileType: params.fileType,
-        url: upload.secure_url,
+        url: params.url,
         fileName: params.fileName,
-        fileSize: contentBuffer.byteLength,
+        fileSize: params.fileSize,
         mimeType: params.mimeType,
         version: nextVersion,
         createdBy: params.createdBy ?? "SYSTEM",

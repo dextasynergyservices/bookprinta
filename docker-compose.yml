@@ -53,6 +53,13 @@ services:
       - "gotenberg"
       - "--api-timeout=120s"
       - "--chromium-allow-list=file:///tmp/.*"
+      # Burst protection (Phase 5): the API sends renders one at a time
+      # (BullMQ concurrency: 1), so Gotenberg is not the concurrency bottleneck
+      # for us today. If that ever changes, cap queued Chromium work so a burst
+      # queues instead of OOM-killing the container. VERIFY the exact flag name
+      # against the pinned Gotenberg 8.x before enabling — a wrong flag aborts
+      # boot. As of writing: "--chromium-max-queue-size=N".
+      # - "--chromium-max-queue-size=8"
 
   # ─────────────────────────────────────
   # ClamAV (Malware Scanning)

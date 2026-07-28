@@ -1,11 +1,19 @@
 /// <reference types="jest" />
 import { Test, type TestingModule } from "@nestjs/testing";
+import { ProcessingEventsService } from "../engine/processing-events.service.js";
 import { BooksController } from "./books.controller.js";
 import { BooksService } from "./books.service.js";
 
 const booksServiceMock = {
   findUserBooks: jest.fn(),
   getUserBookReprintConfig: jest.fn(),
+};
+
+// SSE bridge — not exercised by these tests; provide a no-op stub.
+const processingEventsServiceMock = {
+  subscribe: jest.fn(),
+  getSnapshot: jest.fn(),
+  isAvailable: jest.fn().mockReturnValue(false),
 };
 
 describe("BooksController", () => {
@@ -18,6 +26,10 @@ describe("BooksController", () => {
         {
           provide: BooksService,
           useValue: booksServiceMock,
+        },
+        {
+          provide: ProcessingEventsService,
+          useValue: processingEventsServiceMock,
         },
       ],
     }).compile();

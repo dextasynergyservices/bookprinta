@@ -6,21 +6,19 @@ import { FilesModule } from "../files/files.module.js";
 import { NotificationsModule } from "../notifications/notifications.module.js";
 import { ProductionDelayModule } from "../production-delay/production-delay.module.js";
 import { AiFormattingProcessor } from "./ai-formatting.processor.js";
-import { AuditLogArchiverProcessor } from "./audit-log-archiver.processor.js";
-import { AuditLogArchiverScheduler } from "./audit-log-archiver.scheduler.js";
 import { resolveBullMqConnection } from "./bullmq-connection.js";
+import { CronController } from "./cron.controller.js";
 import { JobRecoveryService } from "./job-recovery.service.js";
 import {
   QUEUE_AI_FORMATTING,
-  QUEUE_AUDIT_LOG_ARCHIVER,
+  QUEUE_MAINTENANCE,
   QUEUE_PAGE_COUNT,
   QUEUE_PDF_GENERATION,
-  QUEUE_PRODUCTION_DELAY,
 } from "./jobs.constants.js";
+import { MaintenanceProcessor } from "./maintenance.processor.js";
 import { PageCountProcessor } from "./page-count.processor.js";
 import { PdfGenerationProcessor } from "./pdf-generation.processor.js";
-import { ProductionDelayProcessor } from "./production-delay.processor.js";
-import { ProductionDelayScheduler } from "./production-delay.scheduler.js";
+import { ScheduledJobsService } from "./scheduled-jobs.service.js";
 
 const logger = new Logger("JobsModule");
 
@@ -136,12 +134,16 @@ export class JobsModule {
         }),
 
         // ─────────────────────────────────────────────────────
-        // Queue: production-delay
-        // Scheduled backlog monitor for production delay events
-        // Triggered every 15 minutes by a job scheduler
+        // Queue: bp-maintenance (Phase 4, maintenance-only merge)
+        // One queue for both periodic maintenance jobs, discriminated by name:
+        //   - check-production-delay (backlog monitor, cron every 15 min)
+        //   - archive-audit-logs     (retention purge, cron daily)
+        // Per-job removeOnComplete/removeOnFail are set per enqueue in
+        // ScheduledJobsService, so the queue-level defaults here are just a
+        // sensible floor.
         // ─────────────────────────────────────────────────────
         BullModule.registerQueue({
-          name: QUEUE_PRODUCTION_DELAY,
+          name: QUEUE_MAINTENANCE,
           defaultJobOptions: {
             attempts: 1,
             removeOnComplete: {
@@ -152,23 +154,6 @@ export class JobsModule {
             },
           },
         }),
-        // ─────────────────────────────────────
-        // Queue: audit-log-archiver
-        // Nightly hard-delete of AuditLog rows older than 90 days (Fix 4.2)
-        // Triggered every 24 hours by a job scheduler
-        // ─────────────────────────────────────
-        BullModule.registerQueue({
-          name: QUEUE_AUDIT_LOG_ARCHIVER,
-          defaultJobOptions: {
-            attempts: 1,
-            removeOnComplete: {
-              count: 7,
-            },
-            removeOnFail: {
-              count: 14,
-            },
-          },
-        }),
         // Services used by job processors (Gemini formatting, validation, pipeline chaining)
         EngineModule,
         FilesModule,
@@ -176,17 +161,16 @@ export class JobsModule {
         ProductionDelayModule,
         NotificationsModule,
       ],
+      controllers: [CronController],
       providers: [
         AiFormattingProcessor,
         PageCountProcessor,
         PdfGenerationProcessor,
-        ProductionDelayProcessor,
-        ProductionDelayScheduler,
-        AuditLogArchiverProcessor,
-        AuditLogArchiverScheduler,
+        MaintenanceProcessor,
+        ScheduledJobsService,
         JobRecoveryService,
       ],
-      exports: [BullModule],
+      exports: [BullModule, ScheduledJobsService],
     };
   }
 

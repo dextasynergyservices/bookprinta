@@ -132,22 +132,20 @@ describe("GeminiFormattingService", () => {
     expect(result.model).toBe("gemini-2.5-flash-lite");
   });
 
-  it("does not fall back from flash-lite to flash when transient failures persist", async () => {
+  // `getFallbackModels()` deliberately returns DEFAULT_FALLBACK_MODELS
+  // (flash-lite → pro) when GEMINI_FALLBACK_MODEL is unset, so production always
+  // has fallback coverage even if the env var is missing from a deploy. These two
+  // tests previously asserted the older "no fallback unless configured" contract.
+  it("escalates flash-lite to pro (never to flash) when transient failures persist", async () => {
     process.env.GEMINI_MODEL = "gemini-2.5-flash-lite";
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        text: async () =>
-          '{"error":{"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}',
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        text: async () =>
-          '{"error":{"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}',
-      }) as unknown as typeof fetch;
+    delete process.env.GEMINI_FALLBACK_MODEL;
+    // Always 503 so the whole chain is exhausted.
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () =>
+        '{"error":{"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}',
+    }) as unknown as typeof fetch;
 
     await expect(
       service.formatManuscript({
@@ -158,18 +156,19 @@ describe("GeminiFormattingService", () => {
       })
     ).rejects.toThrow("Gemini request failed (503)");
 
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      1,
+    const calledUrls = (global.fetch as unknown as jest.Mock).mock.calls.map((call) => call[0]);
+
+    // flash-lite is the configured model AND the chain head, so it dedupes to
+    // [flash-lite, pro] — 2 models × MAX_TRANSIENT_RETRIES_PER_MODEL (2) = 4 calls.
+    expect(calledUrls).toEqual([
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
-      expect.any(Object)
-    );
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      2,
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
-      expect.any(Object)
-    );
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-  });
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent",
+    ]);
+    // The original intent still holds: flash-lite must never escalate to flash.
+    expect(calledUrls.some((url: string) => url.includes("gemini-2.5-flash:"))).toBe(false);
+  }, 15_000);
 
   it("promotes chapter-like labels into major headings and decorates major sections", async () => {
     global.fetch = jest.fn().mockResolvedValue({
@@ -206,13 +205,11 @@ describe("GeminiFormattingService", () => {
     expect(result.html).toContain('<h3 class="book-subheading">Reflection</h3>');
   });
 
-  it("does not use fallback model when GEMINI_FALLBACK_MODEL is not set", async () => {
+  it("falls back through the default model chain when GEMINI_FALLBACK_MODEL is not set", async () => {
     process.env.GEMINI_MODEL = "gemini-2.5-flash";
     delete process.env.GEMINI_FALLBACK_MODEL;
-    global.fetch = jest
-      .fn()
-      .mockRejectedValueOnce({ name: "AbortError" })
-      .mockRejectedValueOnce({ name: "AbortError" }) as unknown as typeof fetch;
+    // Always time out so the whole chain is exhausted.
+    global.fetch = jest.fn().mockRejectedValue({ name: "AbortError" }) as unknown as typeof fetch;
 
     await expect(
       service.formatManuscript({
@@ -223,19 +220,21 @@ describe("GeminiFormattingService", () => {
       })
     ).rejects.toThrow("Gemini request timed out after");
 
-    // Only 2 attempts on the primary model, no fallback
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      1,
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-      expect.any(Object)
+    const calledModels = (global.fetch as unknown as jest.Mock).mock.calls.map((call) =>
+      String(call[0]).replace("https://generativelanguage.googleapis.com/v1beta/models/", "")
     );
-    expect(global.fetch).toHaveBeenNthCalledWith(
-      2,
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-      expect.any(Object)
-    );
-  });
+
+    // Chain = [configured, ...DEFAULT_FALLBACK_MODELS] = flash → flash-lite → pro,
+    // each attempted MAX_TRANSIENT_RETRIES_PER_MODEL (2) times.
+    expect(calledModels).toEqual([
+      "gemini-2.5-flash:generateContent",
+      "gemini-2.5-flash:generateContent",
+      "gemini-2.5-flash-lite:generateContent",
+      "gemini-2.5-flash-lite:generateContent",
+      "gemini-2.5-pro:generateContent",
+      "gemini-2.5-pro:generateContent",
+    ]);
+  }, 15_000);
 
   it("handles 429 rate limit by waiting and retrying once without burning retry attempts", async () => {
     process.env.GEMINI_MODEL = "gemini-2.5-flash-lite";

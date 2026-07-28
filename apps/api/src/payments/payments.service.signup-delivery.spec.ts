@@ -86,9 +86,42 @@ function createService() {
   };
 }
 
+/**
+ * Fixtures in this suite use absolute March 2026 timestamps, and the service
+ * compares `user.tokenExpiry` against "now" to decide whether a failed signup
+ * link may be retried. With the real clock those fixtures silently expire once
+ * wall-clock passes them, and the retry test starts failing for reasons that
+ * have nothing to do with the code (it did — the suite rotted in July 2026).
+ *
+ * Pin the wall clock so the fixtures stay meaningful. Timers are deliberately
+ * NOT faked — the service awaits real promises and would otherwise hang.
+ */
+const FIXED_NOW = new Date("2026-03-14T10:30:00.000Z");
+
 describe("PaymentsService signup-link delivery", () => {
+  beforeAll(() => {
+    jest.useFakeTimers({
+      doNotFake: [
+        "nextTick",
+        "setImmediate",
+        "setTimeout",
+        "setInterval",
+        "clearTimeout",
+        "clearInterval",
+        "queueMicrotask",
+        "performance",
+      ],
+      now: FIXED_NOW,
+    });
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.setSystemTime(FIXED_NOW);
   });
 
   it("uses the public sender for customer-facing signup/payment emails and keeps admin alerts on the admin sender", () => {

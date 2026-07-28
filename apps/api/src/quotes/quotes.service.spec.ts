@@ -9,6 +9,7 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { WhatsappService } from "../notifications/whatsapp.service.js";
 import { PaymentsService } from "../payments/payments.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SystemSettingsCacheService } from "../production-delay/system-settings-cache.service.js";
 import { QuotesService } from "./quotes.service.js";
 
 const mockPrismaService = {
@@ -115,6 +116,8 @@ describe("QuotesService", () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: PaymentsService, useValue: mockPaymentsService },
         WhatsappService,
+        // Real cache against mocked Prisma (systemSetting.findMany is stubbed).
+        SystemSettingsCacheService,
       ],
     }).compile();
 
@@ -157,15 +160,15 @@ describe("QuotesService", () => {
         estimatedPriceLow: 0,
         estimatedPriceHigh: 6674,
       });
-      expect(mockPrismaService.systemSetting.findMany).toHaveBeenCalledWith({
-        where: {
-          key: { in: ["quote_cost_per_page", "quote_cover_cost"] },
-        },
-        select: {
-          key: true,
-          value: true,
-        },
-      });
+      // Settings are now read through SystemSettingsCacheService, which bulk-loads
+      // every key once instead of issuing a per-call filtered query. Assert only
+      // that the settings table was read — pinning the exact `where` clause here
+      // would be asserting another service's internals.
+      expect(mockPrismaService.systemSetting.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: { key: true, value: true },
+        })
+      );
     });
 
     it("uses persisted estimator settings when available", async () => {
@@ -424,6 +427,7 @@ describe("QuotesService", () => {
           { provide: PrismaService, useValue: mockPrismaService },
           { provide: PaymentsService, useValue: mockPaymentsService },
           WhatsappService,
+          SystemSettingsCacheService,
         ],
       }).compile();
       const noFrontendService = module.get<QuotesService>(QuotesService);
@@ -467,13 +471,17 @@ describe("QuotesService", () => {
         })
         .mockResolvedValueOnce(null);
 
-      const now = new Date("2026-03-16T12:00:00.000Z");
+      // `displayStatus` is derived from paymentLinkExpiresAt vs. now, so this
+      // fixture must stay in the future. It was previously a hardcoded absolute
+      // date, which silently began reporting EXPIRED once wall-clock passed it.
+      // A freshly generated link expires one validity period from now.
+      const now = new Date();
       mockPrismaService.customQuote.update.mockResolvedValueOnce({
         id: "cmquotepending000000000001",
         status: "PAYMENT_LINK_SENT",
         paymentLinkToken: "test-token",
         paymentLinkUrl: "https://bookprinta.test/pay/test-token",
-        paymentLinkExpiresAt: new Date("2026-03-23T12:00:00.000Z"),
+        paymentLinkExpiresAt: new Date(now.getTime() + QUOTE_PAYMENT_LINK_VALIDITY_MS),
         updatedAt: now,
       });
 

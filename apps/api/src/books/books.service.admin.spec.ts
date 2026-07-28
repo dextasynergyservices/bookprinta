@@ -8,6 +8,7 @@ import { FilesService } from "../files/files.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { WhatsappNotificationsService } from "../notifications/whatsapp-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SystemSettingsCacheService } from "../production-delay/system-settings-cache.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { BooksService } from "./books.service.js";
 import { BooksPipelineService } from "./books-pipeline.service.js";
@@ -32,6 +33,8 @@ const mockPrismaService = {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
+    // findAdminBooks runs a parallel count for totalItems pagination metadata.
+    count: jest.fn().mockResolvedValue(0),
   },
   file: {
     findFirst: jest.fn(),
@@ -137,6 +140,11 @@ describe("BooksService admin workflows", () => {
         { provide: WhatsappNotificationsService, useValue: mockWhatsappNotificationsService },
         { provide: RolloutService, useValue: mockRolloutService },
         { provide: CloudinaryService, useValue: mockCloudinaryService },
+        {
+          provide: SystemSettingsCacheService,
+          // No settings stubbed in this suite → empty map, service uses defaults.
+          useValue: { getMany: jest.fn().mockResolvedValue(new Map()), invalidate: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -161,6 +169,9 @@ describe("BooksService admin workflows", () => {
   });
 
   it("lists admin books with computed display status and cursor pagination", async () => {
+    // Two matching books exist in total; the page below returns limit+1 rows so
+    // the service can compute hasMore/nextCursor.
+    mockPrismaService.book.count.mockResolvedValue(2);
     mockPrismaService.book.findMany.mockResolvedValue([
       {
         id: "cm1111111111111111111111111",
@@ -210,10 +221,15 @@ describe("BooksService admin workflows", () => {
       sortDirection: "desc",
     });
 
-    expect(mockPrismaService.book.findMany).toHaveBeenCalledWith({
-      where: {},
-      select: expect.any(Object),
-    });
+    // Assert intent (unfiltered query with a projection) rather than the exact
+    // argument object — the query also carries cursor-pagination details
+    // (orderBy/take) that are covered by the pagination assertions below.
+    expect(mockPrismaService.book.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {},
+        select: expect.any(Object),
+      })
+    );
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toEqual({
       id: "cm1111111111111111111111111",
@@ -228,6 +244,8 @@ describe("BooksService admin workflows", () => {
         id: "cmorder2222222222222222222222",
         orderNumber: "BP-2026-0002",
         status: "PROCESSING",
+        // STANDARD | REPRINT; null when the fixture omits it.
+        orderType: null,
         detailUrl: "/admin/orders/cmorder2222222222222222222222",
       },
       status: "PAYMENT_RECEIVED",
@@ -313,7 +331,12 @@ describe("BooksService admin workflows", () => {
         orderId: "cm2222222222222222222222222",
         displayStatus: "FORMATTING_REVIEW",
         statusSource: "production",
-        title: "The Lagos Chronicle",
+        // The admin detail title is deliberately derived from the latest
+        // RAW_MANUSCRIPT file name ("lagos-chronicle.docx"), not the stored
+        // book.title, so the admin header always reflects the most recent
+        // upload even when book.title still holds an earlier upload's name.
+        // The derived value is title-cased for display.
+        title: "Lagos Chronicle",
         uploadedAt: "2026-03-10T09:31:00.000Z",
         version: 7,
         author: {
@@ -326,6 +349,8 @@ describe("BooksService admin workflows", () => {
           id: "cm2222222222222222222222222",
           orderNumber: "BP-2026-0001",
           status: "PROCESSING",
+          // STANDARD | REPRINT; null when the fixture omits it.
+          orderType: null,
           detailUrl: "/admin/orders/cm2222222222222222222222222",
         },
       })

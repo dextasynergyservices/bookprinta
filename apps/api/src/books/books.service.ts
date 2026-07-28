@@ -94,6 +94,43 @@ const ADMIN_BOOK_TRACKING_ENTITY_TYPE = "ORDER_TRACKING";
 const ADMIN_BOOK_TRACKING_ACTION = "ORDER_STATUS_REACHED";
 const ADMIN_BOOK_TRACKING_SOURCE = "book";
 const ADMIN_HTML_UPLOAD_FOLDER_ROOT = "bookprinta/admin/books";
+
+/**
+ * Words kept lowercase when title-casing a derived book title, unless they are
+ * the first or last word ("A Tale of Two Cities", not "A Tale Of Two Cities").
+ */
+const TITLE_CASE_MINOR_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "as",
+  "at",
+  "but",
+  "by",
+  "for",
+  "from",
+  "in",
+  "into",
+  "nor",
+  "of",
+  "off",
+  "on",
+  "onto",
+  "or",
+  "over",
+  "per",
+  "so",
+  "than",
+  "the",
+  "to",
+  "up",
+  "v",
+  "via",
+  "vs",
+  "with",
+  "yet",
+]);
+
 const DEFAULT_FROM_EMAIL = "BookPrinta <info@bookprinta.com>";
 const DEFAULT_DASHBOARD_PATH = "/dashboard/books";
 const MANUSCRIPT_REJECTED_TITLE_KEY = "notifications.manuscript_rejected.title";
@@ -3274,6 +3311,20 @@ export class BooksService {
     return value === 11 || value === 12 || value === 14 ? value : null;
   }
 
+  /**
+   * Derives a human-readable book title from an uploaded manuscript file name.
+   *
+   * Feeds every surface that shows a book title — user list/detail, reprint
+   * config, and the admin list/detail — so a book's displayed title always
+   * reflects the most recently uploaded manuscript rather than a stale
+   * `book.title` from an earlier upload.
+   *
+   * Examples:
+   *   "lagos-chronicle.docx"        → "Lagos Chronicle"
+   *   "THE_LAGOS_CHRONICLE.pdf"     → "The Lagos Chronicle"
+   *   "a tale of two cities.docx"   → "A Tale of Two Cities"
+   *   "McDonald's story.docx"       → "McDonald's Story"  (mixed case preserved)
+   */
   private deriveTitleFromFileName(fileName: string | null | undefined): string | null {
     if (typeof fileName !== "string") return null;
     const trimmed = fileName.trim();
@@ -3284,7 +3335,37 @@ export class BooksService {
       .replace(/[_-]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    return normalized.length > 0 ? normalized : null;
+    if (normalized.length === 0) return null;
+
+    return this.toTitleCase(normalized);
+  }
+
+  /**
+   * Title-cases a space-separated phrase.
+   *
+   * - Words already in mixed case (e.g. "McDonald", "iPhone") are left untouched,
+   *   so intentional casing survives.
+   * - Minor words are lowercased unless they are first or last.
+   * - Only the first alphabetic character is capitalized, so "ada's" → "Ada's".
+   */
+  private toTitleCase(value: string): string {
+    const words = value.split(" ").filter((word) => word.length > 0);
+
+    return words
+      .map((word, index) => {
+        const isMixedCase = word !== word.toLowerCase() && word !== word.toUpperCase();
+        if (isMixedCase) return word;
+
+        const lower = word.toLowerCase();
+        const isEdgeWord = index === 0 || index === words.length - 1;
+        if (!isEdgeWord && TITLE_CASE_MINOR_WORDS.has(lower)) {
+          return lower;
+        }
+
+        // Capitalize the first alphabetic character (keeps leading quotes/digits).
+        return lower.replace(/[a-z]/, (char) => char.toUpperCase());
+      })
+      .join(" ");
   }
 
   private resolveProcessingState(params: {

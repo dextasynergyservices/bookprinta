@@ -8,6 +8,7 @@ import { Test, type TestingModule } from "@nestjs/testing";
 import { FilesService } from "../files/files.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { SystemSettingsCacheService } from "../production-delay/system-settings-cache.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { BooksService } from "./books.service.js";
 import { BooksPipelineService } from "./books-pipeline.service.js";
@@ -25,6 +26,9 @@ const mockPrismaService = {
   },
   order: {
     update: jest.fn(),
+    // getUserBookReprintConfig checks for an existing active REPRINT order so a
+    // book cannot be queued twice. Default: none in flight.
+    findFirst: jest.fn().mockResolvedValue(null),
   },
   payment: {
     aggregate: jest.fn(),
@@ -108,6 +112,8 @@ describe("BooksService", () => {
         { provide: ManuscriptAnalysisService, useValue: mockManuscriptAnalysisService },
         { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: RolloutService, useValue: mockRolloutService },
+        // Real cache against mocked Prisma (systemSetting is stubbed here).
+        SystemSettingsCacheService,
       ],
     }).compile();
 
@@ -274,7 +280,7 @@ describe("BooksService", () => {
         where: { id: "cm1111111111111111111111111" },
         data: expect.objectContaining({
           status: "UPLOADED",
-          title: "novel",
+          title: "Novel",
           wordCount: 42_000,
           estimatedPages: 164,
           pageSize: "A5",
@@ -290,7 +296,8 @@ describe("BooksService", () => {
       });
       expect(result.estimatedPages).toBe(164);
       expect(result.wordCount).toBe(42_000);
-      expect(result.title).toBe("novel");
+      // Derived from the uploaded file name and title-cased for display.
+      expect(result.title).toBe("Novel");
     });
 
     it("returns scanner unavailable message when scan provider is down", async () => {
@@ -1231,6 +1238,8 @@ describe("BooksService", () => {
         bookSize: "A5",
         paperColor: "cream",
         lamination: "matt",
+        // No in-flight REPRINT order for this book.
+        hasActiveReprint: false,
       });
     });
 
@@ -1270,6 +1279,7 @@ describe("BooksService", () => {
         bookSize: "A6",
         paperColor: "white",
         lamination: "gloss",
+        hasActiveReprint: false,
       });
     });
 
@@ -1309,6 +1319,7 @@ describe("BooksService", () => {
         bookSize: "A5",
         paperColor: "white",
         lamination: "gloss",
+        hasActiveReprint: false,
       });
     });
   });
@@ -1423,6 +1434,47 @@ describe("BooksService", () => {
       });
 
       expect(mockNotificationsService.createReviewRequestNotification).not.toHaveBeenCalled();
+    });
+  });
+  // Title derivation feeds every title surface (user list/detail, reprint config,
+  // and the admin list/detail), so its casing rules are worth pinning directly.
+  describe("deriveTitleFromFileName", () => {
+    const derive = (fileName: string | null) =>
+      (
+        service as unknown as {
+          deriveTitleFromFileName: (value: string | null) => string | null;
+        }
+      ).deriveTitleFromFileName(fileName);
+
+    it("title-cases hyphenated and underscored file names", () => {
+      expect(derive("lagos-chronicle.docx")).toBe("Lagos Chronicle");
+      expect(derive("my_first_book.pdf")).toBe("My First Book");
+    });
+
+    it("normalises SHOUTING file names", () => {
+      expect(derive("THE_LAGOS_CHRONICLE.pdf")).toBe("The Lagos Chronicle");
+    });
+
+    it("keeps minor words lowercase unless first or last", () => {
+      expect(derive("a-tale-of-two-cities.docx")).toBe("A Tale of Two Cities");
+      // "The" leads, so it stays capitalised; trailing minor word is capitalised too.
+      expect(derive("the-shape-of.docx")).toBe("The Shape Of");
+    });
+
+    it("preserves intentional mixed case", () => {
+      expect(derive("McDonald's story.docx")).toBe("McDonald's Story");
+      expect(derive("iPhone-diaries.docx")).toBe("iPhone Diaries");
+    });
+
+    it("capitalises after a leading apostrophe or digit", () => {
+      expect(derive("'tis-the-season.docx")).toBe("'Tis the Season");
+      expect(derive("1984-revisited.docx")).toBe("1984 Revisited");
+    });
+
+    it("returns null for empty or extension-only names", () => {
+      expect(derive(null)).toBeNull();
+      expect(derive("   ")).toBeNull();
+      expect(derive(".docx")).toBeNull();
     });
   });
 });
