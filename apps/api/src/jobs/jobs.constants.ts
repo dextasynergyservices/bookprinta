@@ -147,4 +147,9 @@ export const JOB_NAMES = {
   CHECK_PRODUCTION_DELAY: "check-production-delay",
   /** Nightly purge of AuditLog rows older than AUDIT_LOG_RETENTION_DAYS */
   ARCHIVE_AUDIT_LOGS: "archive-audit-logs",
+  /**
+   * Finalises successful Paystack charges that never became Orders (missed
+   * webhook / customer never returned from the redirect).
+   */
+  RECONCILE_PAYMENTS: "reconcile-payments",
 } as const;
