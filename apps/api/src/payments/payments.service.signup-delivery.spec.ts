@@ -1,6 +1,16 @@
 /// <reference types="jest" />
+import * as Sentry from "@sentry/node";
 import { PaymentStatus, PaymentType } from "../generated/prisma/enums.js";
 import { PaymentsService } from "./payments.service.js";
+
+// Sentry's module exports are non-configurable, so jest.spyOn cannot patch them.
+jest.mock("@sentry/node", () => ({
+  captureMessage: jest.fn(),
+  captureException: jest.fn(),
+  withScope: jest.fn(),
+}));
+
+const captureMessage = Sentry.captureMessage as unknown as jest.Mock;
 
 type PaymentsServicePrivate = {
   createPaymentFromWebhook: (data: {
@@ -206,9 +216,73 @@ describe("PaymentsService signup-link delivery", () => {
     );
   });
 
+  // A paying customer whose signup link cannot be delivered is stranded: money
+  // taken, no account, and no further automated attempt. Pino logs never reach
+  // Sentry, so these branches capture explicitly.
+  it("reports to Sentry when the signup link cannot be retried (expired token)", async () => {
+    const { service, prisma, signupNotificationsService } = createService();
+    const servicePrivate = getPaymentsServicePrivate(service);
+    captureMessage.mockClear();
+
+    servicePrivate.resolveOrderDetailsForPayment = jest.fn().mockResolvedValue(null);
+    prisma.payment.findUnique
+      .mockResolvedValueOnce({
+        id: "payment_expired",
+        status: PaymentStatus.SUCCESS,
+        processedAt: new Date("2026-03-14T10:30:00.000Z"),
+        amount: 150000,
+        currency: "NGN",
+        payerEmail: "author@example.com",
+      })
+      .mockResolvedValueOnce({
+        id: "payment_expired",
+        type: PaymentType.INITIAL,
+        status: PaymentStatus.SUCCESS,
+        metadata: {
+          signupLinkDelivery: {
+            status: "FAILED",
+            emailDelivered: false,
+            whatsappDelivered: false,
+            attemptCount: 1,
+            lastAttemptAt: "2026-03-14T09:00:00.000Z",
+            lastSuccessfulAt: null,
+            lastAttemptSource: "WEBHOOK",
+          },
+        },
+        user: {
+          email: "author@example.com",
+          firstName: "Ada",
+          phoneNumber: "+2348012345678",
+          verificationToken: "signup_token_expired",
+          // Before FIXED_NOW (2026-03-14T10:30Z) → token expired.
+          tokenExpiry: new Date("2026-03-10T10:30:00.000Z"),
+          preferredLanguage: "en",
+        },
+        order: {
+          orderNumber: "BP-2026-0009",
+          totalAmount: 150000,
+          package: { name: "Legacy" },
+          addons: [],
+        },
+      });
+    prisma.payment.update.mockResolvedValue({});
+
+    await service.verify("ps_ref_expired", "PAYSTACK");
+
+    // No delivery attempted, but the operator must learn about it.
+    expect(signupNotificationsService.sendRegistrationLink).not.toHaveBeenCalled();
+    expect(captureMessage).toHaveBeenCalledTimes(1);
+    expect(captureMessage.mock.calls[0][0]).toContain("Signup link undeliverable");
+    expect(captureMessage.mock.calls[0][1]).toMatchObject({
+      level: "error",
+      tags: { reason: "verification_token_expired" },
+    });
+  });
+
   it("retries a failed signup-link delivery during verify and returns the updated delivery status", async () => {
     const { service, prisma, signupNotificationsService } = createService();
     const servicePrivate = getPaymentsServicePrivate(service);
+    captureMessage.mockClear();
 
     servicePrivate.resolveOrderDetailsForPayment = jest.fn().mockResolvedValue(null);
     prisma.payment.findUnique
@@ -312,5 +386,7 @@ describe("PaymentsService signup-link delivery", () => {
         },
       })
     );
+    // A successful retry must NOT alert — otherwise the signal becomes noise.
+    expect(captureMessage).not.toHaveBeenCalled();
   });
 });

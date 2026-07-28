@@ -1,5 +1,19 @@
 /// <reference types="jest" />
+import * as Sentry from "@sentry/node";
 import type { Job } from "bullmq";
+
+// Sentry's module exports are non-configurable, so jest.spyOn cannot patch them.
+jest.mock("@sentry/node", () => ({
+  captureMessage: jest.fn(),
+  captureException: jest.fn(),
+  withScope: jest.fn((fn: (scope: unknown) => void) =>
+    fn({ setTag: jest.fn(), setContext: jest.fn() })
+  ),
+}));
+
+const captureMessage = Sentry.captureMessage as unknown as jest.Mock;
+
+import { PaymentsService } from "../payments/payments.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ProductionDelayMonitorService } from "../production-delay/production-delay-monitor.service.js";
 import { JOB_NAMES } from "./jobs.constants.js";
@@ -16,10 +30,15 @@ const mockPrisma = {
   },
 };
 
+const mockPayments = {
+  reconcilePaystackPayments: jest.fn(),
+};
+
 function build() {
   return new MaintenanceProcessor(
     mockMonitor as unknown as ProductionDelayMonitorService,
-    mockPrisma as unknown as PrismaService
+    mockPrisma as unknown as PrismaService,
+    mockPayments as unknown as PaymentsService
   );
 }
 
@@ -102,6 +121,88 @@ describe("MaintenanceProcessor", () => {
       expect(result.totalDeleted).toBe(0);
       expect(result.batches).toBe(0);
       expect(mockPrisma.auditLog.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("payment reconciliation", () => {
+    it("delegates to PaymentsService and returns the run summary", async () => {
+      mockPayments.reconcilePaystackPayments.mockResolvedValue({
+        scanned: 12,
+        ours: 4,
+        alreadyProcessed: 3,
+        finalised: 1,
+        failed: 0,
+        skippedForeign: 8,
+      });
+
+      const result = (await build().process(job(JOB_NAMES.RECONCILE_PAYMENTS))) as {
+        finalised: number;
+        skippedForeign: number;
+      };
+
+      expect(mockPayments.reconcilePaystackPayments).toHaveBeenCalledTimes(1);
+      expect(result.finalised).toBe(1);
+      // Charges belonging to the other product on the shared Paystack
+      // integration must be reported as skipped, never finalised.
+      expect(result.skippedForeign).toBe(8);
+    });
+
+    it("reports finalised charges to Sentry (Pino logs never reach it)", async () => {
+      const capture = captureMessage;
+      mockPayments.reconcilePaystackPayments.mockResolvedValue({
+        scanned: 5,
+        ours: 2,
+        alreadyProcessed: 1,
+        finalised: 1,
+        failed: 0,
+        skippedForeign: 3,
+      });
+
+      await build().process(job(JOB_NAMES.RECONCILE_PAYMENTS));
+
+      expect(capture).toHaveBeenCalledTimes(1);
+      expect(capture.mock.calls[0][0]).toContain("orphaned Paystack charge");
+      expect(capture.mock.calls[0][1]).toMatchObject({ level: "warning" });
+    });
+
+    it("stays SILENT on a healthy run so the alert never becomes noise", async () => {
+      const capture = captureMessage;
+      mockPayments.reconcilePaystackPayments.mockResolvedValue({
+        scanned: 5,
+        ours: 2,
+        alreadyProcessed: 2,
+        finalised: 0,
+        failed: 0,
+        skippedForeign: 3,
+      });
+
+      await build().process(job(JOB_NAMES.RECONCILE_PAYMENTS));
+
+      expect(capture).not.toHaveBeenCalled();
+    });
+
+    it("escalates to error level when a finalisation failed", async () => {
+      const capture = captureMessage;
+      mockPayments.reconcilePaystackPayments.mockResolvedValue({
+        scanned: 5,
+        ours: 2,
+        alreadyProcessed: 0,
+        finalised: 1,
+        failed: 1,
+        skippedForeign: 3,
+      });
+
+      await build().process(job(JOB_NAMES.RECONCILE_PAYMENTS));
+
+      expect(capture.mock.calls[0][1]).toMatchObject({ level: "error" });
+    });
+
+    it("propagates failures so the job is marked failed", async () => {
+      mockPayments.reconcilePaystackPayments.mockRejectedValue(new Error("Paystack list failed"));
+
+      await expect(build().process(job(JOB_NAMES.RECONCILE_PAYMENTS))).rejects.toThrow(
+        "Paystack list failed"
+      );
     });
   });
 

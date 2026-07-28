@@ -35,6 +35,17 @@ export interface PaystackWebhookPayload {
   data: PaystackVerifyResponse;
 }
 
+/** Shape of one entry from Paystack's GET /transaction list endpoint. */
+export interface PaystackTransactionListItem {
+  reference: string;
+  status: string;
+  amount: number; // kobo
+  currency: string;
+  paid_at?: string | null;
+  customer?: { email?: string } | null;
+  metadata?: Record<string, unknown> | string | null;
+}
+
 @Injectable()
 export class PaystackService {
   private readonly logger = new Logger(PaystackService.name);
@@ -122,6 +133,44 @@ export class PaystackService {
     );
 
     return response.data.data;
+  }
+
+  /**
+   * List transactions in a time window, newest first.
+   *
+   * Used by payment reconciliation (docs: option 3) to find successful charges
+   * that never became local Orders — e.g. the customer closed the tab before the
+   * browser hit /payments/verify, and no webhook reached us.
+   *
+   * NOTE: our Paystack integration is shared with another product, so this list
+   * contains BOTH products' transactions. Callers MUST filter by BookPrinta's
+   * checkout metadata before acting on a transaction.
+   *
+   * `from`/`to` are ISO timestamps. Paystack caps `perPage`; we page explicitly.
+   */
+  async listTransactions(params: {
+    from: Date;
+    to: Date;
+    status?: "success" | "failed" | "abandoned";
+    page?: number;
+    perPage?: number;
+  }): Promise<PaystackTransactionListItem[]> {
+    const http = this.getHttp();
+
+    const response = await http.get<{
+      status: boolean;
+      data: PaystackTransactionListItem[];
+    }>("/transaction", {
+      params: {
+        from: params.from.toISOString(),
+        to: params.to.toISOString(),
+        ...(params.status ? { status: params.status } : {}),
+        page: params.page ?? 1,
+        perPage: params.perPage ?? 100,
+      },
+    });
+
+    return response.data.data ?? [];
   }
 
   /**

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import * as Sentry from "@sentry/node";
 
 type SupportedPageSize = "A4" | "A5";
 type SupportedFontSize = 11 | 12 | 14;
@@ -261,6 +262,20 @@ export class GotenbergPageCountService {
             errors.push(`[${baseUrl}] ${msg}`);
             this.logger.warn(
               `Gotenberg rejected configured basic auth via ${baseUrl}; retrying without auth headers.`
+            );
+
+            // Security-relevant and otherwise invisible: our credentials were
+            // rejected, so we fall back to UNAUTHENTICATED calls. Rendering keeps
+            // working, which is exactly why this needs to surface — a credential
+            // mismatch would otherwise look like normal operation forever.
+            // Pino logs never reach Sentry, so capture explicitly.
+            Sentry.captureMessage(
+              `Gotenberg rejected basic auth (HTTP ${response.status}) — falling back to unauthenticated requests`,
+              {
+                level: "warning",
+                tags: { service: "gotenberg", reason: "basic_auth_rejected" },
+                extra: { baseUrl, status: response.status },
+              }
             );
             break; // Try next header variant (without auth)
           }

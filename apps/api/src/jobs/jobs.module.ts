@@ -4,6 +4,7 @@ import { BooksModule } from "../books/books.module.js";
 import { EngineModule } from "../engine/engine.module.js";
 import { FilesModule } from "../files/files.module.js";
 import { NotificationsModule } from "../notifications/notifications.module.js";
+import { PaymentsModule } from "../payments/payments.module.js";
 import { ProductionDelayModule } from "../production-delay/production-delay.module.js";
 import { AiFormattingProcessor } from "./ai-formatting.processor.js";
 import { resolveBullMqConnection } from "./bullmq-connection.js";
@@ -160,6 +161,9 @@ export class JobsModule {
         BooksModule,
         ProductionDelayModule,
         NotificationsModule,
+        // PaymentsModule: the maintenance queue runs payment reconciliation.
+        // Safe (no cycle) — PaymentsModule imports only Prisma/Notifications/Rollout.
+        PaymentsModule,
       ],
       controllers: [CronController],
       providers: [

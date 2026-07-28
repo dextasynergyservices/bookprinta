@@ -48,4 +48,20 @@ export class CronController {
   triggerAuditLogArchive() {
     return this.scheduledJobs.triggerAuditLogArchive("cron");
   }
+
+  /**
+   * Finalises successful Paystack charges that never became Orders.
+   *
+   * Our Paystack integration is shared with another product and Paystack permits
+   * only one webhook URL per integration, so BookPrinta cannot rely on webhooks.
+   * Without this, a customer who closes the tab on Paystack's success page pays
+   * and never gets an order, account, or signup email — silently.
+   *
+   * Recommended cadence: every 30 minutes.
+   */
+  @Post("reconcile-payments")
+  @HttpCode(HttpStatus.ACCEPTED)
+  triggerPaymentReconciliation() {
+    return this.scheduledJobs.triggerPaymentReconciliation("cron");
+  }
 }
