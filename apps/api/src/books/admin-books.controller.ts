@@ -28,6 +28,7 @@ import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/
 import { BooksService } from "./books.service.js";
 import {
   AdminBookDetailResponseDto,
+  AdminBookDownloadLinkResponseDto,
   AdminBookDownloadParamsDto,
   AdminBookHtmlUploadBodyDto,
   AdminBookHtmlUploadResponseDto,
@@ -234,6 +235,37 @@ export class AdminBooksController {
     return new StreamableFile(file.buffer);
   }
 
+  @Get(":id/download/:fileType/link")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Get direct signed download link for admin book file",
+    description:
+      "Returns a short-lived direct signed download URL from Cloudinary CDN to bypass Render API egress bandwidth.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Book CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiParam({
+    name: "fileType",
+    description: "Admin download file type",
+    enum: ["raw", "cleaned", "final-pdf"],
+  })
+  @ApiOkResponse({
+    description: "Short-lived signed CDN download URL",
+    type: AdminBookDownloadLinkResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 403, description: "Forbidden — admin role required" })
+  @ApiResponse({ status: 404, description: "Direct download link not available" })
+  async getBookFileDownloadLink(
+    @Param() params: AdminBookDownloadParamsDto
+  ): Promise<AdminBookDownloadLinkResponseDto> {
+    return this.booksService.getAdminBookDownloadLink(params.id, params.fileType);
+  }
+
   @Get(":id/files/:fileId/download")
   @Header("Cache-Control", "private, no-store")
   @Header("Vary", "Cookie")
@@ -253,7 +285,7 @@ export class AdminBooksController {
     example: "cm1234567890abcdef7654321",
   })
   @ApiProduces(
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.docx",
     "application/pdf",
     "text/html",
     "application/octet-stream"
@@ -276,6 +308,37 @@ export class AdminBooksController {
     response.setHeader("Content-Type", file.mimeType);
     response.setHeader("Content-Disposition", `attachment; filename="${file.fileName}"`);
     return new StreamableFile(file.buffer);
+  }
+
+  @Get(":id/files/:fileId/download/link")
+  @Header("Cache-Control", "private, no-store")
+  @Header("Vary", "Cookie")
+  @ApiOperation({
+    summary: "Get direct signed download link for specific admin book file version",
+    description:
+      "Returns a short-lived direct signed download URL from Cloudinary CDN for a specific version.",
+  })
+  @ApiParam({
+    name: "id",
+    description: "Book CUID",
+    example: "cm1234567890abcdef1234567",
+  })
+  @ApiParam({
+    name: "fileId",
+    description: "Book file CUID",
+    example: "cm1234567890abcdef7654321",
+  })
+  @ApiOkResponse({
+    description: "Short-lived signed CDN download URL",
+    type: AdminBookDownloadLinkResponseDto,
+  })
+  @ApiResponse({ status: 401, description: "Unauthorized — missing or invalid JWT" })
+  @ApiResponse({ status: 403, description: "Forbidden — admin role required" })
+  @ApiResponse({ status: 404, description: "Direct download link not available" })
+  async getBookVersionFileDownloadLink(
+    @Param() params: AdminBookVersionFileDownloadParamsDto
+  ): Promise<AdminBookDownloadLinkResponseDto> {
+    return this.booksService.getAdminBookVersionDownloadLink(params.id, params.fileId);
   }
 
   @Post(":id/reset-processing")

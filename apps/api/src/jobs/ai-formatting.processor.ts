@@ -1,5 +1,5 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Injectable, Logger, type OnApplicationBootstrap, Optional } from "@nestjs/common";
 import * as Sentry from "@sentry/node";
 import type { Job } from "bullmq";
 import { BooksPipelineService } from "../books/books-pipeline.service.js";
@@ -22,6 +22,7 @@ import type {
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/redis.service.js";
+import { RedisCircuitBreakerService } from "../redis/redis-circuit-breaker.service.js";
 import { JOB_NAMES, PIPELINE_WORKER_OPTS, QUEUE_AI_FORMATTING } from "./jobs.constants.js";
 
 const CLEANED_HTML_CACHE_TTL_SECONDS = 300; // 5 min — enough for page-count job to run; short enough to limit Redis memory footprint at any scale
@@ -78,7 +79,7 @@ const TERMINAL_ORDER_STATUSES: ReadonlySet<OrderStatus> = new Set([
 
 @Injectable()
 @Processor(QUEUE_AI_FORMATTING, PIPELINE_WORKER_OPTS)
-export class AiFormattingProcessor extends WorkerHost {
+export class AiFormattingProcessor extends WorkerHost implements OnApplicationBootstrap {
   private readonly logger = new Logger(AiFormattingProcessor.name);
 
   constructor(
@@ -91,9 +92,19 @@ export class AiFormattingProcessor extends WorkerHost {
     private readonly gotenbergPageCount: GotenbergPageCountService,
     @Optional() private readonly processingEvents?: ProcessingEventsService,
     @Optional() private readonly redis?: RedisService,
-    @Optional() private readonly notifications?: NotificationsService
+    @Optional() private readonly notifications?: NotificationsService,
+    @Optional() private readonly circuitBreaker?: RedisCircuitBreakerService
   ) {
     super();
+  }
+
+  onApplicationBootstrap(): void {
+    this.circuitBreaker?.registerWorker(QUEUE_AI_FORMATTING, this.worker);
+  }
+
+  @OnWorkerEvent("error")
+  onError(error: Error): void {
+    this.circuitBreaker?.handleError(error);
   }
 
   async process(job: Job): Promise<FormatManuscriptResult> {

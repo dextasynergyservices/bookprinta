@@ -1,6 +1,7 @@
 import {
   ADMIN_BOOK_HTML_UPLOAD_MAX_BYTES,
   AdminBookDetailSchema,
+  AdminBookDownloadLinkResponseSchema,
   AdminBookDownloadParamsSchema,
   AdminBookHtmlFileNameSchema,
   AdminBookHtmlUploadMimeTypeSchema,
@@ -167,6 +168,11 @@ export class BookFilesResponseDto extends createZodDto(BookFilesResponseSchema) 
 
 /** Params for GET /api/v1/admin/books/:id/download/:fileType */
 export class AdminBookDownloadParamsDto extends createZodDto(AdminBookDownloadParamsSchema) {}
+
+/** Response for GET /api/v1/admin/books/:id/download/:fileType/link and files/:fileId/download/link */
+export class AdminBookDownloadLinkResponseDto extends createZodDto(
+  AdminBookDownloadLinkResponseSchema
+) {}
 
 /** Params for GET /api/v1/admin/books/:id/files/:fileId/download */
 export class AdminBookVersionFileDownloadParamsDto extends createZodDto(

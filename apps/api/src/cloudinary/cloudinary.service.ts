@@ -136,6 +136,110 @@ export class CloudinaryService {
   }
 
   // ──────────────────────────────────────────────
+  // Signed Download / Delivery URL Generation
+  // ──────────────────────────────────────────────
+
+  /**
+   * Generates a time-limited signed delivery URL directly from Cloudinary.
+   *
+   * Parses the Cloudinary public_id, resource_type, and delivery type from an
+   * existing stored Cloudinary URL. Validates that the cloud name matches our
+   * configured CLOUDINARY_CLOUD_NAME.
+   *
+   * Returns null if:
+   *  - The URL is null, empty, or not a Cloudinary URL
+   *  - The URL does not belong to our configured cloud name
+   *  - The URL cannot be parsed safely
+   *
+   * Returning null allows the caller to safely fall back to the existing server-proxied
+   * streaming endpoint with zero downtime or breakage.
+   */
+  createSignedDownloadUrl(
+    storedUrl: string | null | undefined,
+    options: {
+      expiresInSeconds?: number;
+      attachment?: boolean;
+    } = {}
+  ): { url: string; expiresAt: string } | null {
+    if (!storedUrl || typeof storedUrl !== "string") {
+      return null;
+    }
+
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    if (!cloudName || !apiSecret) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(storedUrl);
+      if (!parsed.hostname.endsWith("cloudinary.com")) {
+        return null;
+      }
+
+      // Expected path format: /<cloud_name>/<resource_type>/<type>/[v<version>/]<public_id>
+      // Example: /bookprinta-cloud/raw/upload/v12345/bookprinta/preview-pdfs/cm.../job1
+      const pathSegments = parsed.pathname.split("/").filter(Boolean);
+      if (pathSegments.length < 4) {
+        return null;
+      }
+
+      const [urlCloudName, resourceTypeRaw, deliveryTypeRaw, ...rest] = pathSegments;
+      if (urlCloudName !== cloudName) {
+        return null;
+      }
+
+      if (resourceTypeRaw !== "raw" && resourceTypeRaw !== "image" && resourceTypeRaw !== "video") {
+        return null;
+      }
+
+      if (
+        deliveryTypeRaw !== "upload" &&
+        deliveryTypeRaw !== "authenticated" &&
+        deliveryTypeRaw !== "private"
+      ) {
+        return null;
+      }
+
+      // If the first remaining segment starts with 'v' and is numeric (e.g. v1791456770), skip it
+      if (rest.length > 0 && /^v\d+$/.test(rest[0])) {
+        rest.shift();
+      }
+
+      if (rest.length === 0) {
+        return null;
+      }
+
+      const publicIdWithFormat = decodeURIComponent(rest.join("/"));
+
+      const expiresInSeconds = options.expiresInSeconds ?? 600; // 10 minutes default
+      const now = Math.floor(Date.now() / 1000);
+      const expiresAtTimestamp = now + expiresInSeconds;
+
+      // Extract format if present, or pass empty string
+      const dotIndex = publicIdWithFormat.lastIndexOf(".");
+      const hasExtension = dotIndex > 0 && dotIndex < publicIdWithFormat.length - 1;
+      const format = hasExtension ? publicIdWithFormat.slice(dotIndex + 1) : "";
+      const publicId = hasExtension ? publicIdWithFormat.slice(0, dotIndex) : publicIdWithFormat;
+
+      const signedUrl = cloudinary.utils.private_download_url(publicId, format, {
+        resource_type: resourceTypeRaw,
+        type: deliveryTypeRaw,
+        expires_at: expiresAtTimestamp,
+        attachment: Boolean(options.attachment),
+      });
+
+      return {
+        url: signedUrl,
+        expiresAt: new Date(expiresAtTimestamp * 1000).toISOString(),
+      };
+    } catch (err) {
+      this.logger.warn(`Could not parse or sign Cloudinary URL "${storedUrl}": ${err}`);
+      return null;
+    }
+  }
+
+  // ──────────────────────────────────────────────
   // Server-side Upload (for internal use — AI output, admin uploads)
   // ──────────────────────────────────────────────
 

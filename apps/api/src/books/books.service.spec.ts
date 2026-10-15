@@ -1060,6 +1060,8 @@ describe("BooksService", () => {
         bookId: "cm1111111111111111111111111",
         previewPdfUrl:
           "http://localhost:3001/api/v1/books/cm1111111111111111111111111/preview/file",
+        signedPdfUrl: null,
+        signedPdfUrlExpiresAt: null,
         status: "PREVIEW_READY",
         watermarked: true,
       });

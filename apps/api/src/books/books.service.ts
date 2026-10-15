@@ -4,6 +4,7 @@ import { renderManuscriptRejectedEmail } from "@bookprinta/emails/render";
 import type {
   AdminBookDetail,
   AdminBookDownloadFileType,
+  AdminBookDownloadLinkResponse,
   AdminBookHtmlUploadBodyInput,
   AdminBookHtmlUploadResponse,
   AdminBookProductionStatusResponse,
@@ -849,9 +850,25 @@ export class BooksService {
     previewPdfUrl: string
   ): Promise<BookPreviewResponse> {
     const asset = await this.getUserPreviewAsset(userId, bookId);
+    let signedPdfUrl: string | null = null;
+    let signedPdfUrlExpiresAt: string | null = null;
+
+    if (this.cloudinary) {
+      const signed = this.cloudinary.createSignedDownloadUrl(asset.sourceUrl, {
+        attachment: false,
+        expiresInSeconds: 3600,
+      });
+      if (signed) {
+        signedPdfUrl = signed.url;
+        signedPdfUrlExpiresAt = signed.expiresAt;
+      }
+    }
+
     return {
       bookId: asset.bookId,
       previewPdfUrl,
+      signedPdfUrl,
+      signedPdfUrlExpiresAt,
       status: asset.status,
       watermarked: true,
     };
@@ -1806,6 +1823,143 @@ export class BooksService {
       ),
       mimeType: file.mimeType?.trim() || "application/octet-stream",
     };
+  }
+
+  async getAdminBookDownloadLink(
+    bookId: string,
+    fileType: AdminBookDownloadFileType
+  ): Promise<AdminBookDownloadLinkResponse> {
+    const targetFileType =
+      fileType === "raw"
+        ? RAW_DOWNLOAD_FILE_TYPE
+        : fileType === "cleaned"
+          ? CLEANED_DOWNLOAD_FILE_TYPE
+          : FINAL_PDF_DOWNLOAD_FILE_TYPE;
+    const row = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        finalPdfUrl: true,
+        files: {
+          where: {
+            fileType: targetFileType,
+          },
+          orderBy: [{ version: "desc" }, { createdAt: "desc" }],
+          take: 1,
+          select: {
+            url: true,
+            fileName: true,
+            mimeType: true,
+          },
+        },
+      },
+    });
+
+    if (!row) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    const file = row.files[0] ?? null;
+    const downloadUrl = file?.url ?? (fileType === "final-pdf" ? row.finalPdfUrl : null);
+    if (!downloadUrl) {
+      throw new NotFoundException(
+        fileType === "raw"
+          ? "Original manuscript file is not available."
+          : fileType === "cleaned"
+            ? "Cleaned HTML file is not available."
+            : "Final clean PDF is not available yet."
+      );
+    }
+
+    const fileName = this.normalizeDownloadFileName(
+      file?.fileName,
+      this.buildFallbackDownloadFileName({
+        bookId: row.id,
+        fileType,
+        mimeType: file?.mimeType ?? null,
+      })
+    );
+    const mimeType =
+      file?.mimeType?.trim() ||
+      (fileType === "cleaned"
+        ? "text/html; charset=utf-8"
+        : fileType === "final-pdf"
+          ? "application/pdf"
+          : "application/octet-stream");
+
+    if (this.cloudinary) {
+      const signed = this.cloudinary.createSignedDownloadUrl(downloadUrl, {
+        attachment: true,
+        expiresInSeconds: 3600,
+      });
+      if (signed) {
+        return {
+          url: signed.url,
+          fileName,
+          mimeType,
+          expiresAt: signed.expiresAt,
+        };
+      }
+    }
+
+    throw new NotFoundException("Direct signed download link is unavailable");
+  }
+
+  async getAdminBookVersionDownloadLink(
+    bookId: string,
+    fileId: string
+  ): Promise<AdminBookDownloadLinkResponse> {
+    const row = await this.prisma.book.findFirst({
+      where: { id: bookId },
+      select: {
+        id: true,
+        files: {
+          where: { id: fileId },
+          take: 1,
+          select: {
+            url: true,
+            fileName: true,
+            mimeType: true,
+          },
+        },
+      },
+    });
+
+    if (!row) {
+      throw new NotFoundException(`Book "${bookId}" not found`);
+    }
+
+    const file = row.files[0];
+    if (!file) {
+      throw new NotFoundException(`Book file "${fileId}" not found`);
+    }
+
+    const fileName = this.normalizeDownloadFileName(
+      file.fileName,
+      this.buildFallbackVersionDownloadFileName({
+        bookId: row.id,
+        fileId,
+        mimeType: file.mimeType,
+      })
+    );
+    const mimeType = file.mimeType?.trim() || "application/octet-stream";
+
+    if (this.cloudinary) {
+      const signed = this.cloudinary.createSignedDownloadUrl(file.url, {
+        attachment: true,
+        expiresInSeconds: 3600,
+      });
+      if (signed) {
+        return {
+          url: signed.url,
+          fileName,
+          mimeType,
+          expiresAt: signed.expiresAt,
+        };
+      }
+    }
+
+    throw new NotFoundException("Direct signed download link is unavailable");
   }
 
   /**

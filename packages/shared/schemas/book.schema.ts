@@ -236,6 +236,8 @@ export const BookPreviewResponseSchema = z.object({
   previewPdfUrl: z.string().url(),
   status: BookStatusSchema,
   watermarked: z.boolean(),
+  signedPdfUrl: z.string().url().nullable().optional(),
+  signedPdfUrlExpiresAt: z.string().datetime().nullable().optional(),
 });
 export type BookPreviewResponse = z.infer<typeof BookPreviewResponseSchema>;
 
@@ -721,6 +723,14 @@ export const AdminBookVersionFileDownloadParamsSchema = BookParamsSchema.extend(
 export type AdminBookVersionFileDownloadParamsInput = z.infer<
   typeof AdminBookVersionFileDownloadParamsSchema
 >;
+
+export const AdminBookDownloadLinkResponseSchema = z.object({
+  url: z.string().url(),
+  fileName: z.string().min(1),
+  mimeType: z.string().min(1),
+  expiresAt: z.string().datetime(),
+});
+export type AdminBookDownloadLinkResponse = z.infer<typeof AdminBookDownloadLinkResponseSchema>;
 
 /**
  * GET /api/v1/admin/books/:id

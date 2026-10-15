@@ -45,6 +45,7 @@ import {
   toDashboardStatusLabel,
 } from "@/lib/dashboard/dashboard-formatters";
 import { Link, usePathname, useRouter } from "@/lib/i18n/navigation";
+import { openBookPdfPreview } from "@/lib/preview-helper";
 import { cn } from "@/lib/utils";
 import {
   BOOK_PROGRESS_STAGES,
@@ -1310,14 +1311,19 @@ export function BooksView() {
     if (!activeBookId) return;
 
     if (previewQuery.data?.previewPdfUrl) {
-      if (typeof window !== "undefined") {
-        window.open(previewQuery.data.previewPdfUrl, "_blank", "noopener,noreferrer");
-      }
+      await openBookPdfPreview({
+        previewPdfUrl: previewQuery.data.previewPdfUrl,
+        signedPdfUrl: previewQuery.data.signedPdfUrl,
+      });
       return;
     }
 
     setResourceActionError(null);
     setIsOpeningPreview(true);
+    const targetWindow =
+      typeof window !== "undefined"
+        ? window.open("about:blank", "_blank", "noopener,noreferrer")
+        : null;
 
     try {
       const result = await previewQuery.refetch();
@@ -1325,15 +1331,20 @@ export function BooksView() {
         throw result.error;
       }
 
-      const previewUrl = result.data?.previewPdfUrl;
-      if (!previewUrl) {
+      const previewData = result.data;
+      if (!previewData?.previewPdfUrl) {
         throw new Error(tDashboard("book_progress_preview_error"));
       }
 
-      if (typeof window !== "undefined") {
-        window.open(previewUrl, "_blank", "noopener,noreferrer");
-      }
+      await openBookPdfPreview(
+        {
+          previewPdfUrl: previewData.previewPdfUrl,
+          signedPdfUrl: previewData.signedPdfUrl,
+        },
+        targetWindow
+      );
     } catch (previewError) {
+      targetWindow?.close();
       setResourceActionError(
         previewError instanceof Error && previewError.message.trim().length > 0
           ? previewError.message

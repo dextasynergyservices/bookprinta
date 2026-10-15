@@ -1,5 +1,5 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Injectable, Logger, type OnApplicationBootstrap, Optional } from "@nestjs/common";
 import * as Sentry from "@sentry/node";
 import type { Job } from "bullmq";
 import { GotenbergPageCountService } from "../engine/gotenberg-page-count.service.js";
@@ -8,6 +8,7 @@ import { FilesService } from "../files/files.service.js";
 import type { JobStatus, JobType } from "../generated/prisma/enums.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { RedisCircuitBreakerService } from "../redis/redis-circuit-breaker.service.js";
 import { JOB_NAMES, PIPELINE_WORKER_OPTS, QUEUE_PDF_GENERATION } from "./jobs.constants.js";
 
 type SupportedPageSize = "A4" | "A5";
@@ -32,7 +33,7 @@ type GeneratePdfResult = {
 
 @Injectable()
 @Processor(QUEUE_PDF_GENERATION, PIPELINE_WORKER_OPTS)
-export class PdfGenerationProcessor extends WorkerHost {
+export class PdfGenerationProcessor extends WorkerHost implements OnApplicationBootstrap {
   private readonly logger = new Logger(PdfGenerationProcessor.name);
 
   constructor(
@@ -40,9 +41,19 @@ export class PdfGenerationProcessor extends WorkerHost {
     private readonly gotenbergPageCount: GotenbergPageCountService,
     private readonly filesService: FilesService,
     @Optional() private readonly processingEvents?: ProcessingEventsService,
-    @Optional() private readonly notifications?: NotificationsService
+    @Optional() private readonly notifications?: NotificationsService,
+    @Optional() private readonly circuitBreaker?: RedisCircuitBreakerService
   ) {
     super();
+  }
+
+  onApplicationBootstrap(): void {
+    this.circuitBreaker?.registerWorker(QUEUE_PDF_GENERATION, this.worker);
+  }
+
+  @OnWorkerEvent("error")
+  onError(error: Error): void {
+    this.circuitBreaker?.handleError(error);
   }
 
   async process(job: Job): Promise<GeneratePdfResult> {

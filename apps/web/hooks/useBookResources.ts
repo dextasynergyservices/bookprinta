@@ -46,6 +46,8 @@ function resolveBookId(bookId: string | null | undefined): string | null {
 export type BookPreviewSummary = {
   bookId: string;
   previewPdfUrl: string;
+  signedPdfUrl?: string | null;
+  signedPdfUrlExpiresAt?: string | null;
   status: string | null;
   watermarked: boolean;
 };
@@ -83,6 +85,8 @@ function normalizeBookPreviewPayload(
   return {
     bookId: toStringValue(source?.bookId) ?? requestedBookId,
     previewPdfUrl,
+    signedPdfUrl: toStringValue(source?.signedPdfUrl) ?? null,
+    signedPdfUrlExpiresAt: toStringValue(source?.signedPdfUrlExpiresAt) ?? null,
     status: toStringValue(source?.status),
     watermarked: toBooleanValue(source?.watermarked),
   };

@@ -1,5 +1,5 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Injectable, Logger, type OnApplicationBootstrap, Optional } from "@nestjs/common";
 import * as Sentry from "@sentry/node";
 import type { Job } from "bullmq";
 import { GotenbergPageCountService } from "../engine/gotenberg-page-count.service.js";
@@ -9,6 +9,7 @@ import type { JobStatus, JobType } from "../generated/prisma/enums.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/redis.service.js";
+import { RedisCircuitBreakerService } from "../redis/redis-circuit-breaker.service.js";
 import { JOB_NAMES, PIPELINE_WORKER_OPTS, QUEUE_PAGE_COUNT } from "./jobs.constants.js";
 
 type OrchestrationTrigger = "upload" | "settings_change";
@@ -59,7 +60,7 @@ const COST_PER_EXTRA_PAGE = 10;
 
 @Injectable()
 @Processor(QUEUE_PAGE_COUNT, PIPELINE_WORKER_OPTS)
-export class PageCountProcessor extends WorkerHost {
+export class PageCountProcessor extends WorkerHost implements OnApplicationBootstrap {
   private readonly logger = new Logger(PageCountProcessor.name);
 
   constructor(
@@ -68,9 +69,19 @@ export class PageCountProcessor extends WorkerHost {
     private readonly filesService: FilesService,
     @Optional() private readonly processingEvents?: ProcessingEventsService,
     @Optional() private readonly redis?: RedisService,
-    @Optional() private readonly notifications?: NotificationsService
+    @Optional() private readonly notifications?: NotificationsService,
+    @Optional() private readonly circuitBreaker?: RedisCircuitBreakerService
   ) {
     super();
+  }
+
+  onApplicationBootstrap(): void {
+    this.circuitBreaker?.registerWorker(QUEUE_PAGE_COUNT, this.worker);
+  }
+
+  @OnWorkerEvent("error")
+  onError(error: Error): void {
+    this.circuitBreaker?.handleError(error);
   }
 
   async process(job: Job): Promise<CountPagesResult> {

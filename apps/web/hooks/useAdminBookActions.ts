@@ -459,10 +459,51 @@ async function uploadAdminBookHtml({
   return finalizeResponse;
 }
 
+function triggerDirectUrlDownload(url: string, fileName?: string): void {
+  const link = document.createElement("a");
+  link.href = url;
+  if (fileName) {
+    link.download = fileName;
+  }
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 export async function downloadAdminBookFile({
   bookId,
   fileType,
 }: DownloadAdminBookFileVariables): Promise<void> {
+  // 1. Attempt direct Cloudinary CDN download link first (zero Render API egress)
+  try {
+    const linkResponse = await fetchApiV1WithRefresh(
+      `/admin/books/${bookId}/download/${fileType}/link`,
+      {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      }
+    );
+    if (linkResponse.ok) {
+      const payload = (await linkResponse.json()) as {
+        data?: { url?: string; fileName?: string };
+        url?: string;
+        fileName?: string;
+      };
+      const downloadUrl = payload?.data?.url ?? payload?.url;
+      const downloadFileName = payload?.data?.fileName ?? payload?.fileName;
+      if (typeof downloadUrl === "string" && downloadUrl.length > 0) {
+        triggerDirectUrlDownload(downloadUrl, downloadFileName);
+        return;
+      }
+    }
+  } catch {
+    // Non-fatal: fall through to existing streaming endpoint
+  }
+
+  // 2. Fallback to existing server-side streaming proxy endpoint
   let response: Response;
 
   try {
@@ -493,6 +534,34 @@ export async function downloadAdminBookVersionFile({
   bookId,
   fileId,
 }: DownloadAdminBookVersionFileVariables): Promise<void> {
+  // 1. Attempt direct Cloudinary CDN download link first (zero Render API egress)
+  try {
+    const linkResponse = await fetchApiV1WithRefresh(
+      `/admin/books/${bookId}/files/${fileId}/download/link`,
+      {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      }
+    );
+    if (linkResponse.ok) {
+      const payload = (await linkResponse.json()) as {
+        data?: { url?: string; fileName?: string };
+        url?: string;
+        fileName?: string;
+      };
+      const downloadUrl = payload?.data?.url ?? payload?.url;
+      const downloadFileName = payload?.data?.fileName ?? payload?.fileName;
+      if (typeof downloadUrl === "string" && downloadUrl.length > 0) {
+        triggerDirectUrlDownload(downloadUrl, downloadFileName);
+        return;
+      }
+    }
+  } catch {
+    // Non-fatal: fall through to existing streaming endpoint
+  }
+
+  // 2. Fallback to existing server-side streaming proxy endpoint
   let response: Response;
 
   try {
