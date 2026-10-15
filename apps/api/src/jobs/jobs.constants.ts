@@ -89,6 +89,13 @@ const WORKER_DRAIN_DELAY_SECONDS = 300;
 const WORKER_STALLED_INTERVAL_MS = 300_000;
 
 /**
+ * Delay in milliseconds before BullMQ restarts a worker run loop after an unhandled error.
+ * Prevents rapid-fire retry loops (e.g. 10-15 calls/sec) when Redis/Upstash encounters
+ * transient connection or rate-limit issues.
+ */
+const WORKER_RUN_RETRY_DELAY_MS = 30_000;
+
+/**
  * Worker options for the three pipeline queues (AI formatting, page count, PDF
  * generation). All are `concurrency: 1` — the pipeline is strictly sequential.
  */
@@ -96,6 +103,7 @@ export const PIPELINE_WORKER_OPTS = {
   concurrency: 1,
   drainDelay: WORKER_DRAIN_DELAY_SECONDS,
   stalledInterval: WORKER_STALLED_INTERVAL_MS,
+  runRetryDelay: WORKER_RUN_RETRY_DELAY_MS,
 } as const;
 
 /**
@@ -109,6 +117,7 @@ export const MAINTENANCE_WORKER_OPTS = {
   concurrency: 1,
   drainDelay: WORKER_DRAIN_DELAY_SECONDS,
   stalledInterval: WORKER_STALLED_INTERVAL_MS,
+  runRetryDelay: WORKER_RUN_RETRY_DELAY_MS,
 } as const;
 
 /**

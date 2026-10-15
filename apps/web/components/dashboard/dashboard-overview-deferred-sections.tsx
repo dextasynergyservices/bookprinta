@@ -47,6 +47,7 @@ import {
   toDashboardStatusLabel,
 } from "@/lib/dashboard/dashboard-formatters";
 import { Link } from "@/lib/i18n/navigation";
+import { openBookPdfPreview } from "@/lib/preview-helper";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import {
@@ -704,6 +705,15 @@ export function DashboardOverviewDeferredSections({
                         href={previewDocumentHref}
                         target="_blank"
                         rel="noreferrer"
+                        onClick={(e) => {
+                          if (previewQuery.data?.signedPdfUrl) {
+                            e.preventDefault();
+                            void openBookPdfPreview({
+                              previewPdfUrl: previewDocumentHref,
+                              signedPdfUrl: previewQuery.data.signedPdfUrl,
+                            });
+                          }
+                        }}
                         className="font-sans mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-[#2A2A2A] bg-[#000000] px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#151515] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
                       >
                         {tDashboard("overview_documents_open")}

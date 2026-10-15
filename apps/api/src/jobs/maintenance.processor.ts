@@ -1,10 +1,11 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, type OnApplicationBootstrap, Optional } from "@nestjs/common";
 import * as Sentry from "@sentry/node";
 import type { Job } from "bullmq";
 import { PaymentsService } from "../payments/payments.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ProductionDelayMonitorService } from "../production-delay/production-delay-monitor.service.js";
+import { RedisCircuitBreakerService } from "../redis/redis-circuit-breaker.service.js";
 import {
   AUDIT_LOG_RETENTION_DAYS,
   JOB_NAMES,
@@ -37,15 +38,25 @@ type AuditLogArchiveResult = {
  */
 @Injectable()
 @Processor(QUEUE_MAINTENANCE, MAINTENANCE_WORKER_OPTS)
-export class MaintenanceProcessor extends WorkerHost {
+export class MaintenanceProcessor extends WorkerHost implements OnApplicationBootstrap {
   private readonly logger = new Logger(MaintenanceProcessor.name);
 
   constructor(
     private readonly productionDelayMonitor: ProductionDelayMonitorService,
     private readonly prisma: PrismaService,
-    private readonly paymentsService: PaymentsService
+    private readonly paymentsService: PaymentsService,
+    @Optional() private readonly circuitBreaker?: RedisCircuitBreakerService
   ) {
     super();
+  }
+
+  onApplicationBootstrap(): void {
+    this.circuitBreaker?.registerWorker(QUEUE_MAINTENANCE, this.worker);
+  }
+
+  @OnWorkerEvent("error")
+  onError(error: Error): void {
+    this.circuitBreaker?.handleError(error);
   }
 
   async process(job: Job): Promise<unknown> {

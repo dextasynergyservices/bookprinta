@@ -1,8 +1,9 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, type OnModuleInit, Optional } from "@nestjs/common";
 import * as Sentry from "@sentry/node";
 import type { Queue } from "bullmq";
 import { RedisService } from "../redis/redis.service.js";
+import { RedisCircuitBreakerService } from "../redis/redis-circuit-breaker.service.js";
 import { JOB_NAMES, LEGACY_MAINTENANCE_QUEUES, QUEUE_MAINTENANCE } from "./jobs.constants.js";
 
 export type TriggerSource = "cron" | "admin" | "manual";
@@ -54,7 +55,8 @@ export class ScheduledJobsService implements OnModuleInit {
   constructor(
     @InjectQueue(QUEUE_MAINTENANCE)
     private readonly maintenanceQueue: Queue,
-    private readonly redis: RedisService
+    private readonly redis: RedisService,
+    @Optional() private readonly circuitBreaker?: RedisCircuitBreakerService
   ) {}
 
   /**
@@ -73,6 +75,10 @@ export class ScheduledJobsService implements OnModuleInit {
    * Raw SCAN + UNLINK leaves nothing behind. Idempotent and safe on every boot.
    */
   async onModuleInit(): Promise<void> {
+    if (this.circuitBreaker?.isOpen()) {
+      return;
+    }
+
     const client = this.redis.getClient();
     if (!client) {
       // Redis unavailable at boot — non-fatal. Nothing consumes the legacy
@@ -89,6 +95,7 @@ export class ScheduledJobsService implements OnModuleInit {
           );
         }
       } catch (error) {
+        this.circuitBreaker?.handleError(error);
         const message = error instanceof Error ? error.message : String(error);
         this.logger.warn(`Could not purge legacy queue "${name}": ${message}`);
 
@@ -157,33 +164,50 @@ export class ScheduledJobsService implements OnModuleInit {
   ): Promise<TriggerResult> {
     const queue = this.maintenanceQueue;
 
-    // Guard against a double-firing cron or overlapping manual+cron runs: skip if
-    // a run of THIS job is already pending. Two job types now share one queue, so
-    // we must filter by job name — a per-queue count would let a pending
-    // production-delay check wrongly block an audit-archive trigger, and vice versa.
-    const inFlight = await queue.getJobs(["wait", "active", "delayed"]);
-    const alreadyPending = inFlight.some((job) => job.name === jobName);
-
-    if (alreadyPending) {
-      this.logger.log(
-        `Skipping "${jobName}" trigger from ${source} — a run is already pending on "${queue.name}"`
+    if (this.circuitBreaker?.isOpen()) {
+      this.logger.warn(
+        `Skipping "${jobName}" trigger from ${source} — Redis circuit breaker is open: ${this.circuitBreaker.getReason()}`
       );
       return {
         queued: false,
         jobId: null,
         queue: queue.name,
-        reason: "A run is already queued or in progress",
+        reason: "Redis circuit breaker is open",
       };
     }
 
-    const job = await queue.add(
-      jobName,
-      { source },
-      { attempts: 1, removeOnComplete, removeOnFail }
-    );
+    try {
+      // Guard against a double-firing cron or overlapping manual+cron runs: skip if
+      // a run of THIS job is already pending. Two job types now share one queue, so
+      // we must filter by job name — a per-queue count would let a pending
+      // production-delay check wrongly block an audit-archive trigger, and vice versa.
+      const inFlight = await queue.getJobs(["wait", "active", "delayed"]);
+      const alreadyPending = inFlight.some((job) => job.name === jobName);
 
-    this.logger.log(`Queued "${jobName}" (job ${job.id}) on "${queue.name}" from ${source}`);
+      if (alreadyPending) {
+        this.logger.log(
+          `Skipping "${jobName}" trigger from ${source} — a run is already pending on "${queue.name}"`
+        );
+        return {
+          queued: false,
+          jobId: null,
+          queue: queue.name,
+          reason: "A run is already queued or in progress",
+        };
+      }
 
-    return { queued: true, jobId: job.id ?? null, queue: queue.name };
+      const job = await queue.add(
+        jobName,
+        { source },
+        { attempts: 1, removeOnComplete, removeOnFail }
+      );
+
+      this.logger.log(`Queued "${jobName}" (job ${job.id}) on "${queue.name}" from ${source}`);
+
+      return { queued: true, jobId: job.id ?? null, queue: queue.name };
+    } catch (error) {
+      this.circuitBreaker?.handleError(error);
+      throw error;
+    }
   }
 }

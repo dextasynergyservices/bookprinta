@@ -1,11 +1,12 @@
 import { Global, Module } from "@nestjs/common";
 import { RedisProvider } from "./redis.provider.js";
 import { RedisService } from "./redis.service.js";
+import { RedisCircuitBreakerService } from "./redis-circuit-breaker.service.js";
 
 /**
- * Global Redis module — provides RedisService across the app.
+ * Global Redis module — provides RedisService and RedisCircuitBreakerService across the app.
  *
- * Any module can inject RedisService without importing RedisModule.
+ * Any module can inject RedisService or RedisCircuitBreakerService without importing RedisModule.
  * BullMQ queues use the same REDIS_URL connection via RedisService.getClient().
  *
  * Configuration:
@@ -17,7 +18,7 @@ import { RedisService } from "./redis.service.js";
  */
 @Global()
 @Module({
-  providers: [RedisProvider, RedisService],
-  exports: [RedisService, RedisProvider],
+  providers: [RedisProvider, RedisService, RedisCircuitBreakerService],
+  exports: [RedisService, RedisProvider, RedisCircuitBreakerService],
 })
 export class RedisModule {}

@@ -1,6 +1,14 @@
-import { Inject, Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+  Optional,
+} from "@nestjs/common";
 import type { Redis } from "ioredis";
 import { REDIS_CLIENT } from "./redis.constants.js";
+import { RedisCircuitBreakerService } from "./redis-circuit-breaker.service.js";
 
 /**
  * RedisService — Wraps the ioredis connection with convenience methods.
@@ -8,16 +16,31 @@ import { REDIS_CLIENT } from "./redis.constants.js";
  * Provides:
  *  - Direct access to the ioredis client (for BullMQ, custom ops)
  *  - Health check method (for /api/v1/health/status endpoint)
+ *  - Circuit breaker awareness to prevent outbound bandwidth egress on rate limits
  *  - Graceful shutdown on module destroy
  *
  * In production, REDIS_URL points to Upstash Redis (TLS-enabled).
  * In local dev, it points to the Docker Redis container (redis://localhost:6379).
  */
 @Injectable()
-export class RedisService implements OnModuleDestroy {
+export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
 
-  constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis | null) {}
+  constructor(
+    @Inject(REDIS_CLIENT) private readonly redis: Redis | null,
+    @Optional() private readonly circuitBreaker?: RedisCircuitBreakerService
+  ) {}
+
+  onModuleInit() {
+    if (this.redis && this.circuitBreaker) {
+      this.circuitBreaker.setPingProbe(async () => {
+        await this.redis?.ping();
+      });
+      this.redis.on("error", (error: Error) => {
+        this.circuitBreaker?.handleError(error);
+      });
+    }
+  }
 
   /**
    * Returns the raw ioredis client.
@@ -32,6 +55,9 @@ export class RedisService implements OnModuleDestroy {
    * Returns whether Redis is configured and available.
    */
   isAvailable(): boolean {
+    if (this.circuitBreaker?.isOpen()) {
+      return false;
+    }
     return this.redis !== null && this.redis.status === "ready";
   }
 
@@ -40,7 +66,7 @@ export class RedisService implements OnModuleDestroy {
    * Used by the /api/v1/health/status endpoint (CLAUDE.md Section 22).
    */
   async healthCheck(): Promise<{ status: "up" | "down"; latencyMs?: number }> {
-    if (!this.redis) {
+    if (!this.redis || this.circuitBreaker?.isOpen()) {
       return { status: "down" };
     }
 
@@ -49,7 +75,8 @@ export class RedisService implements OnModuleDestroy {
       await this.redis.ping();
       const latencyMs = Date.now() - start;
       return { status: "up", latencyMs };
-    } catch {
+    } catch (err) {
+      this.circuitBreaker?.handleError(err);
       return { status: "down" };
     }
   }
@@ -58,12 +85,13 @@ export class RedisService implements OnModuleDestroy {
    * Get a cached JSON value. Returns null on miss or Redis unavailable.
    */
   async get<T>(key: string): Promise<T | null> {
-    if (!this.redis) return null;
+    if (!this.redis || this.circuitBreaker?.isOpen()) return null;
     try {
       const raw = await this.redis.get(key);
       if (raw === null) return null;
       return JSON.parse(raw) as T;
-    } catch {
+    } catch (err) {
+      this.circuitBreaker?.handleError(err);
       return null;
     }
   }
@@ -73,7 +101,7 @@ export class RedisService implements OnModuleDestroy {
    * Silently no-ops if Redis is unavailable.
    */
   async set(key: string, value: unknown, ttlSeconds?: number): Promise<void> {
-    if (!this.redis) return;
+    if (!this.redis || this.circuitBreaker?.isOpen()) return;
     try {
       const serialized = JSON.stringify(value);
       if (ttlSeconds !== undefined) {
@@ -81,7 +109,8 @@ export class RedisService implements OnModuleDestroy {
       } else {
         await this.redis.set(key, serialized);
       }
-    } catch {
+    } catch (err) {
+      this.circuitBreaker?.handleError(err);
       // Non-fatal: cache miss on next read is acceptable
     }
   }
@@ -91,10 +120,11 @@ export class RedisService implements OnModuleDestroy {
    * Silently no-ops if Redis is unavailable.
    */
   async del(...keys: string[]): Promise<void> {
-    if (!this.redis || keys.length === 0) return;
+    if (!this.redis || this.circuitBreaker?.isOpen() || keys.length === 0) return;
     try {
       await this.redis.del(...keys);
-    } catch {
+    } catch (err) {
+      this.circuitBreaker?.handleError(err);
       // Non-fatal
     }
   }
