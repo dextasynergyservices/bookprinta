@@ -129,6 +129,15 @@ const NOTIFICATION_TRANSLATION_KEYS = {
   },
 } as const;
 
+/**
+ * TTL on the cached unread counter.
+ *
+ * Only a backstop — mutations invalidate the key explicitly, so this bounds how
+ * long a *lost* invalidation can show a wrong badge. Five minutes keeps the
+ * badge honest without re-counting on every poll.
+ */
+const UNREAD_CACHE_TTL_SECONDS = 300;
+
 const DEFAULT_ADMIN_PAYMENTS_HREF = "/admin/payments";
 const DEFAULT_DASHBOARD_HREF = "/dashboard";
 const LEGACY_NOTIFICATION_TITLE_KEY = "notification_fallback_title";
@@ -147,51 +156,71 @@ export class NotificationsService {
   ) {}
 
   // ─── Redis unread counter helpers ──────────────────────────────────────────
-  // Key: `bp:notif:unread:{userId}` — integer counter, no TTL (authoritative).
-  // On cache miss (key absent), falls back to DB COUNT and re-seeds the key.
+  //
+  // Key: `bp:notif:unread:{userId}` — a CACHE of the DB count, never the source
+  // of truth. The DB (`isRead`) is authoritative.
+  //
+  // This was previously maintained by arithmetic (INCR on create, DECRBY on
+  // read) on a key with no expiry, which could drift permanently:
+  //
+  //   mark-as-read -> DB row updated -> Redis DECRBY fails (Upstash
+  //   rate-limited, or the client is unavailable) -> the helper only warns ->
+  //   the key still EXISTS holding the old value -> getUnreadCount() treats a
+  //   present key as a cache hit and never re-reads the DB -> the badge stays
+  //   too high forever.
+  //
+  // The visible symptom is a notification that will not clear: the frontend
+  // optimistically shows count-1, then the next poll returns the stale Redis
+  // value and the badge jumps back up.
+  //
+  // Two changes make that self-correcting:
+  //   1. Mutations INVALIDATE (DEL) the key instead of adjusting it, so the next
+  //      read re-seeds from the DB and is exactly right.
+  //   2. Seeded values carry a TTL, so even a failed invalidation only causes
+  //      staleness bounded by UNREAD_CACHE_TTL_SECONDS rather than forever.
+  //
+  // The cache still absorbs the repeated badge polling that motivated it — it is
+  // only re-seeded after an actual change, or once per TTL window.
 
   private unreadKey(userId: string): string {
     return `bp:notif:unread:${userId}`;
   }
 
-  private async incrUnread(userIds: string[]): Promise<void> {
+  /**
+   * Drop the cached counter so the next read re-derives it from the DB.
+   *
+   * Used for every mutation (create, mark read, mark all read). Correct by
+   * construction: there is no arithmetic to get out of step, and a failure to
+   * invalidate degrades to TTL-bounded staleness instead of permanent drift.
+   */
+  private async invalidateUnread(userIds: string[]): Promise<void> {
     const client = this.redis?.getClient();
     if (!client || userIds.length === 0) return;
     try {
-      const pipeline = client.pipeline();
-      for (const id of userIds) pipeline.incr(this.unreadKey(id));
-      await pipeline.exec();
+      await client.del(...userIds.map((id) => this.unreadKey(id)));
     } catch (err) {
-      this.logger.warn(`Redis unread INCR failed — counter may drift: ${err}`);
+      // Safe to swallow: the TTL on the seeded value bounds how long a stale
+      // count can survive, and the DB remains correct either way.
+      this.logger.warn(
+        `Redis unread invalidation failed — counter may be stale for up to ` +
+          `${UNREAD_CACHE_TTL_SECONDS}s: ${err}`
+      );
     }
   }
 
-  private async decrUnread(userId: string, by = 1): Promise<void> {
-    if (by <= 0) return;
-    const client = this.redis?.getClient();
-    if (!client) return;
-    try {
-      // DECRBY but clamp to 0 — Lua script avoids going negative
-      const key = this.unreadKey(userId);
-      await client.eval(
-        "local v = redis.call('decrby', KEYS[1], ARGV[1]); if v < 0 then redis.call('set', KEYS[1], 0) end; return v",
-        1,
-        key,
-        String(by)
-      );
-    } catch (err) {
-      this.logger.warn(`Redis unread DECR failed — counter may drift: ${err}`);
-    }
+  private async incrUnread(userIds: string[]): Promise<void> {
+    // Creating a notification invalidates rather than increments: an INCR on a
+    // key that failed to be created elsewhere compounds the drift, whereas a
+    // DEL always leaves the cache in a state the DB can correct.
+    await this.invalidateUnread(userIds);
+  }
+
+  private async decrUnread(userId: string): Promise<void> {
+    await this.invalidateUnread([userId]);
   }
 
   private async resetUnread(userId: string): Promise<void> {
-    const client = this.redis?.getClient();
-    if (!client) return;
-    try {
-      await client.set(this.unreadKey(userId), 0);
-    } catch (err) {
-      this.logger.warn(`Redis unread reset failed — counter may drift: ${err}`);
-    }
+    await this.invalidateUnread([userId]);
   }
 
   private async getUnreadFromRedis(userId: string): Promise<number | null> {
@@ -214,7 +243,10 @@ export class NotificationsService {
     const client = this.redis?.getClient();
     if (client) {
       try {
-        await client.set(this.unreadKey(userId), count);
+        // TTL is the backstop: if an invalidation is ever lost (Redis briefly
+        // unavailable or rate-limited at exactly the wrong moment), staleness is
+        // bounded by this window instead of lasting until the key is evicted.
+        await client.set(this.unreadKey(userId), count, "EX", UNREAD_CACHE_TTL_SECONDS);
       } catch {
         // Non-critical — DB count is still returned
       }

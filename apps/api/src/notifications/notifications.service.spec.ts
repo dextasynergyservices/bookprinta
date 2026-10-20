@@ -81,7 +81,9 @@ describe("NotificationsService", () => {
           isRead: false,
         },
       });
-      expect(mockRedisClient.set).toHaveBeenCalledWith("bp:notif:unread:user_1", 3);
+      // Seeded WITH a TTL: the backstop that bounds staleness if an
+      // invalidation is ever lost (see UNREAD_CACHE_TTL_SECONDS).
+      expect(mockRedisClient.set).toHaveBeenCalledWith("bp:notif:unread:user_1", 3, "EX", 300);
     });
 
     it("falls back to DB when Redis is unavailable", async () => {
@@ -331,11 +333,15 @@ describe("NotificationsService", () => {
           createdAt: true,
         },
       });
-      // Redis counter should be decremented for the unread→read transition
-      expect(mockRedisClient.eval).toHaveBeenCalled();
+      // The cached counter is INVALIDATED, not adjusted. Arithmetic on a
+      // no-TTL key drifted permanently when a DECRBY failed: the key still
+      // existed, so getUnreadCount treated it as a hit and never re-read the
+      // DB, leaving the badge too high forever.
+      expect(mockRedisClient.del).toHaveBeenCalledWith("bp:notif:unread:user_1");
+      expect(mockRedisClient.eval).not.toHaveBeenCalled();
     });
 
-    it("does not call Redis decr when notification was already read", async () => {
+    it("does not touch the cached counter when the notification was already read", async () => {
       mockPrismaService.notification.findFirst.mockResolvedValue({
         id: "cm_already_read",
         isRead: true,
@@ -349,7 +355,43 @@ describe("NotificationsService", () => {
 
       await service.markNotificationRead("user_1", "cm_already_read");
       expect(mockPrismaService.notification.update).not.toHaveBeenCalled();
+      // No write happened, so there is nothing to invalidate — re-seeding here
+      // would cost a DB count for a no-op.
+      expect(mockRedisClient.del).not.toHaveBeenCalled();
       expect(mockRedisClient.eval).not.toHaveBeenCalled();
+    });
+
+    it("still marks read in the DB when cache invalidation fails", async () => {
+      // The DB is authoritative; Redis is only a cache. A Redis outage or an
+      // Upstash rate-limit must never fail the user's action — and because the
+      // seeded value carries a TTL, the lost invalidation self-corrects rather
+      // than pinning the badge too high forever (the original bug).
+      mockPrismaService.notification.findFirst.mockResolvedValue({
+        id: "cm_unread",
+        isRead: false,
+        userId: "user_1",
+        title: "T",
+        message: "M",
+        type: null,
+        data: null,
+        createdAt: new Date(),
+      });
+      mockPrismaService.notification.update.mockResolvedValue({
+        id: "cm_unread",
+        isRead: true,
+        userId: "user_1",
+        title: "T",
+        message: "M",
+        type: null,
+        data: null,
+        createdAt: new Date(),
+      });
+      mockRedisClient.del.mockRejectedValue(new Error("ERR max requests limit exceeded"));
+
+      await expect(service.markNotificationRead("user_1", "cm_unread")).resolves.toMatchObject({
+        notification: expect.objectContaining({ isRead: true }),
+      });
+      expect(mockPrismaService.notification.update).toHaveBeenCalled();
     });
 
     it("throws NotFoundException when notification does not belong to user", async () => {
@@ -377,8 +419,9 @@ describe("NotificationsService", () => {
           isRead: true,
         },
       });
-      // Redis counter should be reset to 0
-      expect(mockRedisClient.set).toHaveBeenCalledWith("bp:notif:unread:user_1", 0);
+      // Invalidated rather than set to 0 — the next read re-derives the count
+      // from the DB, which is correct even if rows changed concurrently.
+      expect(mockRedisClient.del).toHaveBeenCalledWith("bp:notif:unread:user_1");
     });
   });
 
