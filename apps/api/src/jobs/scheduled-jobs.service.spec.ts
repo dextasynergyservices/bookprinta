@@ -129,5 +129,81 @@ describe("ScheduledJobsService", () => {
         expect.objectContaining({ attempts: 1 })
       );
     });
+
+    it("passes an operator-supplied lookback through to the reconciliation job", async () => {
+      // Lets a wider recovery sweep run without a code change or deploy.
+      const result = await build(queue, mockRedis(null)).triggerPaymentReconciliation("cron", {
+        lookbackHours: 168,
+      });
+
+      expect(result.queued).toBe(true);
+      expect(queue.add).toHaveBeenCalledWith(
+        JOB_NAMES.RECONCILE_PAYMENTS,
+        { source: "cron", lookbackHours: 168 },
+        expect.objectContaining({ attempts: 1 })
+      );
+    });
+
+    it("omits lookbackHours on a routine tick so the default window applies", async () => {
+      await build(queue, mockRedis(null)).triggerPaymentReconciliation("cron");
+
+      expect(queue.add).toHaveBeenCalledWith(
+        JOB_NAMES.RECONCILE_PAYMENTS,
+        { source: "cron" },
+        expect.objectContaining({ attempts: 1 })
+      );
+    });
+  });
+
+  describe("degradation instead of 500", () => {
+    /**
+     * An external cron provider disables a job after enough consecutive
+     * failures. That is how this project lost its payment-reconciliation
+     * schedule: while Upstash was rate-limiting, every trigger threw, the
+     * endpoint returned 500, and cron-job.org switched the job off — so the
+     * safety net stayed dead long after Redis recovered.
+     *
+     * A missed tick is harmless (idempotent, re-triggered next tick). A disabled
+     * schedule is silent and indefinite. So enqueue failures must not throw.
+     */
+    it("reports a failed enqueue without throwing, so the cron is not auto-disabled", async () => {
+      queue.add.mockRejectedValue(new Error("ERR max requests limit exceeded"));
+
+      const result = await build(queue, mockRedis(null)).triggerPaymentReconciliation("cron");
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toContain("max requests limit exceeded");
+    });
+
+    it("does not throw when the queue cannot even be inspected", async () => {
+      queue.getJobs.mockRejectedValue(new Error("Connection is closed"));
+
+      const result = await build(queue, mockRedis(null)).triggerProductionDelayCheck("cron");
+
+      expect(result.queued).toBe(false);
+      expect(result.reason).toContain("Connection is closed");
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it("skips and explains itself when the Redis circuit breaker is open", async () => {
+      const breaker = {
+        isOpen: () => true,
+        getReason: () => "Upstash daily request limit reached",
+        handleError: jest.fn(),
+      };
+      const service = new ScheduledJobsService(
+        queue as unknown as Queue,
+        mockRedis(null),
+        breaker as never
+      );
+
+      const result = await service.triggerPaymentReconciliation("cron");
+
+      expect(result.queued).toBe(false);
+      // The reason must name the cause: this path returns 2xx while doing no
+      // work, so the response body is the only signal the operator gets.
+      expect(result.reason).toContain("Upstash daily request limit reached");
+      expect(queue.add).not.toHaveBeenCalled();
+    });
   });
 });

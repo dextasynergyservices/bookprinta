@@ -379,3 +379,40 @@ export const AdminPendingBankTransfersResponseSchema = z.object({
 export type AdminPendingBankTransfersResponse = z.infer<
   typeof AdminPendingBankTransfersResponseSchema
 >;
+
+/**
+ * A charge we accepted money for that never became an Order.
+ *
+ * `status: SUCCESS` + `processedAt` set + `orderId` null means the payment was
+ * claimed but entity creation did not complete — a missed webhook finalisation,
+ * or a deterministic business-rule conflict the webhook acknowledged rather
+ * than retried. Either way a customer has paid and has no book, so this is the
+ * one payment state that must never go unnoticed.
+ */
+export const AdminOrphanedPaymentItemSchema = z.object({
+  id: z.string(),
+  providerRef: z.string().nullable(),
+  provider: z.string(),
+  type: z.string(),
+  amount: z.number(),
+  currency: z.string(),
+  payerEmail: z.string().nullable(),
+  payerPhone: z.string().nullable(),
+  processedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  /** Minutes since the charge was recorded — drives urgency in the admin UI. */
+  ageMinutes: z.number().int().min(0),
+});
+export type AdminOrphanedPaymentItem = z.infer<typeof AdminOrphanedPaymentItemSchema>;
+
+/**
+ * GET /api/v1/admin/payments/orphaned
+ */
+export const AdminOrphanedPaymentsResponseSchema = z.object({
+  items: z.array(AdminOrphanedPaymentItemSchema),
+  totalItems: z.number().int().min(0),
+  /** Age of the oldest orphan, or null when there are none. */
+  oldestAgeMinutes: z.number().int().min(0).nullable(),
+  refreshedAt: z.string().datetime(),
+});
+export type AdminOrphanedPaymentsResponse = z.infer<typeof AdminOrphanedPaymentsResponseSchema>;

@@ -1,4 +1,5 @@
 import {
+  AdminOrphanedPaymentsResponseSchema,
   AdminPaymentsListQuerySchema,
   AdminPaymentsListResponseSchema,
   AdminPendingBankTransfersResponseSchema,
@@ -16,6 +17,11 @@ export class AdminPaymentsListResponseDto extends createZodDto(AdminPaymentsList
 /** Response for GET /api/v1/payments/bank-transfer/pending */
 export class AdminPendingBankTransfersResponseDto extends createZodDto(
   AdminPendingBankTransfersResponseSchema
+) {}
+
+/** Response for GET /api/v1/admin/payments/orphaned */
+export class AdminOrphanedPaymentsResponseDto extends createZodDto(
+  AdminOrphanedPaymentsResponseSchema
 ) {}
 
 /** POST /api/v1/admin/payments/:id/refund */

@@ -154,23 +154,61 @@ export class PaystackService {
     status?: "success" | "failed" | "abandoned";
     page?: number;
     perPage?: number;
+    /**
+     * Stop after this many pages. Guards against an unbounded loop if Paystack
+     * ever returns a full page indefinitely. Ignored when `page` is given.
+     */
+    maxPages?: number;
   }): Promise<PaystackTransactionListItem[]> {
     const http = this.getHttp();
+    const perPage = params.perPage ?? 100;
 
-    const response = await http.get<{
-      status: boolean;
-      data: PaystackTransactionListItem[];
-    }>("/transaction", {
-      params: {
-        from: params.from.toISOString(),
-        to: params.to.toISOString(),
-        ...(params.status ? { status: params.status } : {}),
-        page: params.page ?? 1,
-        perPage: params.perPage ?? 100,
-      },
-    });
+    const fetchPage = async (page: number) => {
+      const response = await http.get<{
+        status: boolean;
+        data: PaystackTransactionListItem[];
+      }>("/transaction", {
+        params: {
+          from: params.from.toISOString(),
+          to: params.to.toISOString(),
+          ...(params.status ? { status: params.status } : {}),
+          page,
+          perPage,
+        },
+      });
+      return response.data.data ?? [];
+    };
 
-    return response.data.data ?? [];
+    // An explicit page means the caller wants exactly that page.
+    if (params.page !== undefined) {
+      return fetchPage(params.page);
+    }
+
+    // Otherwise walk every page in the window.
+    //
+    // This used to fetch page 1 only, which put a silent ceiling of `perPage`
+    // transactions on payment reconciliation: anything beyond the first 100 in
+    // the window was never examined, and the only clue was a `scanned` count
+    // that happened to equal the page size. A reconciliation pass that quietly
+    // ignores charges is worse than one that is slow.
+    const maxPages = Math.max(1, params.maxPages ?? 20);
+    const all: PaystackTransactionListItem[] = [];
+
+    for (let page = 1; page <= maxPages; page++) {
+      const batch = await fetchPage(page);
+      all.push(...batch);
+
+      // A short page is the last page.
+      if (batch.length < perPage) {
+        return all;
+      }
+    }
+
+    this.logger.warn(
+      `listTransactions hit the ${maxPages}-page cap (${all.length} transactions); ` +
+        "some transactions in the window were not examined. Narrow the window or raise maxPages."
+    );
+    return all;
   }
 
   /**

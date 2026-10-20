@@ -5,4 +5,5 @@ export {
   ALLOWED_MIME_TYPES,
   CloudinaryService,
   MAX_FILE_SIZE_BYTES,
+  MULTER_FILE_SIZE_LIMIT_BYTES,
 } from "./cloudinary.service.js";
