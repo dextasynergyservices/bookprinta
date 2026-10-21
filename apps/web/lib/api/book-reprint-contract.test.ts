@@ -4,6 +4,11 @@ const reprintConfig = {
   bookId: "cm1111111111111111111111111",
   canReprintSame: true,
   disableReason: null,
+  // Required by BookReprintConfigResponseSchema. The API has returned this
+  // since reprint orders gained an in-flight guard; this fixture was the only
+  // place that never caught up, so both normalization cases failed on a
+  // missing field rather than a real contract problem.
+  hasActiveReprint: false,
   finalPdfUrlPresent: true,
   pageCount: 128,
   costPerCopy: 128 * 15 + 300,

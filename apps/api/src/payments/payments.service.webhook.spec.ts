@@ -125,7 +125,7 @@ describe("handlePaystackWebhook", () => {
   });
 
   describe("foreign charges", () => {
-    it("acknowledges and ignores a charge that resolves no BookPrinta package", async () => {
+    it("acknowledges and ignores a charge carrying no BookPrinta checkout metadata", async () => {
       const { service, prisma } = createService();
       prisma.payment.findUnique.mockResolvedValue(null);
       // No package resolves, and there is no customQuoteId to fall back on.
@@ -139,6 +139,27 @@ describe("handlePaystackWebhook", () => {
       // ...and crucially no Payment row is written, so it cannot masquerade as
       // one of our own stranded customers.
       expect(create).not.toHaveBeenCalled();
+    });
+
+    it("records a charge of OURS that cannot be resolved, rather than ignoring it", async () => {
+      // resolvePackageFromCheckoutMetadata requires isActive on the package AND
+      // its category, so deactivating either mid-checkout stops a real
+      // customer's charge from resolving. A plain boolean "is this ours" check
+      // makes that indistinguishable from another product's charge — and
+      // ignoring it would leave no Payment row, so nothing would surface in the
+      // orphaned-payments list. Money taken, no record, no alert.
+      const { service, prisma } = createService();
+      prisma.payment.findUnique.mockResolvedValue(null);
+      prisma.package.findFirst.mockResolvedValue(null); // deactivated
+      const create = stubCreatePath(service, async () => {});
+
+      // The event still carries our checkout shape (packageId present).
+      const result = await service.handlePaystackWebhook(ourChargeEvent("ref_deactivated"));
+
+      expect(result).toEqual({ status: "ok" });
+      // Must still record it, so the orphan check can report it.
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(create.mock.calls[0][0]).toMatchObject({ providerRef: "ref_deactivated" });
     });
 
     it("processes a charge that does resolve to an active package", async () => {

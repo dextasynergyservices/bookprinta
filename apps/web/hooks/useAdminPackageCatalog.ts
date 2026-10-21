@@ -15,6 +15,7 @@ import type {
   AdminUpdatePackageInput,
 } from "@bookprinta/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { revalidatePublicContent } from "@/app/actions/revalidate-public-content";
 import { PACKAGE_CATEGORIES_QUERY_KEY, PACKAGES_QUERY_KEY } from "@/lib/api/packages";
 import { throwApiError } from "@/lib/api-error";
 import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
@@ -394,6 +395,11 @@ async function invalidateCatalogQueries(queryClient: ReturnType<typeof useQueryC
     queryClient.invalidateQueries({ queryKey: PACKAGES_QUERY_KEY }),
     queryClient.invalidateQueries({ queryKey: PUBLIC_ADDONS_QUERY_KEY }),
   ]);
+  // Rebuild the affected public pages too. Invalidating the TanStack cache only
+  // refreshes THIS admin's browser; the statically generated marketing pages
+  // every visitor sees are a separate cache, and without this they would serve
+  // the previous content until their ISR window elapsed.
+  await revalidatePublicContent("pricing");
 }
 
 async function cancelCatalogQueries(queryClient: ReturnType<typeof useQueryClient>) {

@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { render, screen, waitFor } from "@/test-utils";
 import { PayByTokenView } from "./PayByTokenView";
 
 const useSearchParamsMock = jest.fn();

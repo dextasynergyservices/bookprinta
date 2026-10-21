@@ -2031,6 +2031,54 @@ export class PaymentsService {
     return pkg !== null;
   }
 
+  /**
+   * Classify a charge, distinguishing "not ours" from "ours but unresolvable".
+   *
+   * `isBookPrintaCharge` collapses these two into `false`, which is wrong for
+   * the second case. `resolvePackageFromCheckoutMetadata` requires
+   * `isActive: true` on both the package AND its category, so if an admin
+   * deactivates a package (or category) while a customer is mid-checkout, that
+   * customer's charge stops resolving — and a plain boolean makes it
+   * indistinguishable from another product's charge.
+   *
+   * Treating that as "foreign" would mean silently ignoring a charge we took
+   * money for, leaving no Payment row and therefore nothing for
+   * listOrphanedPayments() to surface. The money is gone and we have no record.
+   *
+   * So:
+   *   - "foreign"      → no BookPrinta checkout shape at all. Safe to ignore.
+   *   - "unresolvable" → carries our checkout shape (packageId/slug/tier, or a
+   *                      customQuoteId) but nothing resolves. Record it and let
+   *                      it surface for a human.
+   *   - "ours"         → resolves normally.
+   */
+  private async classifyCharge(
+    metadata: Record<string, unknown> | string | null | undefined
+  ): Promise<"ours" | "unresolvable" | "foreign"> {
+    if (await this.isBookPrintaCharge(metadata)) {
+      return "ours";
+    }
+
+    const record =
+      typeof metadata === "string" ? this.parseJsonRecord(metadata) : this.asRecord(metadata);
+    if (!record) return "foreign";
+
+    // A customQuoteId that does not resolve is still a claim to be one of ours.
+    const quoteCheckout = this.extractCustomQuoteCheckoutMetadata(record);
+    const customQuoteId = quoteCheckout
+      ? this.asString(quoteCheckout.customQuoteId)
+      : this.asString(record.customQuoteId);
+    if (customQuoteId) return "unresolvable";
+
+    const checkout = this.extractCheckoutMetadata(record);
+    if (!checkout) return "foreign";
+    if (checkout.packageId || checkout.packageSlug || checkout.tier) {
+      return "unresolvable";
+    }
+
+    return "foreign";
+  }
+
   // ────────────────────────────────────────────
   // Webhook handlers
   // ────────────────────────────────────────────
@@ -2057,18 +2105,31 @@ export class PaymentsService {
     if (payload.event === "charge.success" && payload.data.status === "success") {
       const metadata = (payload.data.metadata as Record<string, unknown>) ?? null;
 
-      // Ignore charges that are not ours. Reconciliation already filters this
-      // way (see reconcilePaystackPayments), and the webhook must agree: the
-      // Paystack integration can be shared with another product, and a charge
-      // we cannot resolve to a BookPrinta package would otherwise be recorded
-      // as a SUCCESS Payment with no Order — indistinguishable from one of our
-      // own customers being stranded, which is the exact signal the
-      // orphaned-payment check relies on.
-      if (!(await this.isBookPrintaCharge(metadata))) {
+      // Ignore charges that are not ours, but do NOT conflate that with a
+      // charge of ours we merely cannot resolve. See classifyCharge: a package
+      // deactivated mid-checkout stops resolving, and silently dropping such a
+      // charge would leave no Payment row and nothing for
+      // listOrphanedPayments() to surface — money taken, no record.
+      const classification = await this.classifyCharge(metadata);
+
+      if (classification === "foreign") {
         this.logger.log(
           `Paystack webhook ${reference} is not a BookPrinta charge — acknowledged and ignored`
         );
         return { status: "ok", message: "Not a BookPrinta charge" };
+      }
+
+      if (classification === "unresolvable") {
+        // Proceed deliberately: createPaymentFromWebhook records the Payment,
+        // logs that the package could not be resolved, and skips order
+        // creation. That leaves exactly the claimed-without-an-order state the
+        // orphaned-payment check reports, so it reaches a human instead of
+        // vanishing.
+        this.logger.error(
+          `Paystack webhook ${reference} carries BookPrinta checkout metadata that does not ` +
+            "resolve (deactivated package/category, or a missing custom quote). Recording the " +
+            "payment without an order so it surfaces for manual review."
+        );
       }
 
       try {

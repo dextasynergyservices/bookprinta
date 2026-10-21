@@ -157,7 +157,7 @@ describe("AuthService signup link lifecycle", () => {
   beforeEach(() => {
     process.env = {
       ...originalEnv,
-      JWT_SECRET: "test-secret",
+      JWT_SECRET: "signup-link-spec-signing-secret-0123456789abcdef",
       NODE_ENV: "test",
       FRONTEND_URL: "http://localhost:3000",
       CONTACT_FROM_EMAIL: "BookPrinta <info@bookprinta.com>",

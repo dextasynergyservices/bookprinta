@@ -72,7 +72,10 @@ describe("AuthService login instrumentation", () => {
   beforeEach(() => {
     process.env = {
       ...originalEnv,
-      JWT_SECRET: "test-secret",
+      // Must satisfy the boot-time validation in jwt-secret.util.ts: this
+      // suite simulates NODE_ENV=production, where a short or placeholder
+      // secret is refused outright.
+      JWT_SECRET: "auth-service-spec-signing-secret-0123456789abcdef",
       NODE_ENV: "production",
       FRONTEND_URL: "http://localhost:3000",
       RECAPTCHA_SECRET_KEY: "recaptcha-secret",

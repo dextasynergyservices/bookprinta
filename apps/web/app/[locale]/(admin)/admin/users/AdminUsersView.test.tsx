@@ -1,6 +1,5 @@
-import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@/test-utils";
 import { AdminUsersView } from "./AdminUsersView";
 
 const useAdminUsersMock = jest.fn();
@@ -119,21 +118,29 @@ jest.mock("sonner", () => ({
   },
 }));
 
-jest.mock("@/lib/i18n/navigation", () => ({
-  Link: ({
-    children,
-    href,
-    ...props
-  }: {
-    children: ReactNode;
-    href: string;
-    [key: string]: unknown;
-  }) => (
-    <a href={href} {...props}>
-      {children}
-    </a>
-  ),
-}));
+jest.mock("@/lib/i18n/navigation", () => {
+  const React = require("react") as typeof import("react");
+  return {
+    // MUST forward refs. The row action menu renders
+    // `<DropdownMenuItem asChild><Link/></DropdownMenuItem>`, and Radix's Slot
+    // attaches a ref to the child for focus management when the menu opens.
+    // A plain function component silently swallows that ref, Radix cannot focus
+    // its first item, and the menu content never mounts — which surfaced as
+    // "unable to find role=menuitem", as though the items did not exist.
+    // Typed off the real anchor props so the index signature does not widen
+    // href/children to `unknown`.
+    Link: React.forwardRef<
+      HTMLAnchorElement,
+      React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }
+    >(function MockLink({ children, href, ...props }, ref) {
+      return (
+        <a href={href} ref={ref} {...props}>
+          {children}
+        </a>
+      );
+    }),
+  };
+});
 
 function setViewportWidth(width: number) {
   Object.defineProperty(window, "innerWidth", {
@@ -289,7 +296,6 @@ describe("AdminUsersView", () => {
   });
 
   it("wires reactivation from the action menu for inactive users", async () => {
-    const user = userEvent.setup();
     const reactivateMutateAsync = jest.fn().mockResolvedValue({
       audit: {
         action: "ADMIN_USER_REACTIVATED",
@@ -304,12 +310,31 @@ describe("AdminUsersView", () => {
 
     render(<AdminUsersView />);
 
-    await user.click(screen.getAllByRole("button", { name: "User actions menu" })[0]);
-    await user.click(screen.getByRole("menuitem", { name: "Reactivate User" }));
-
-    expect(reactivateMutateAsync).toHaveBeenCalledWith({
-      userId: "cm1111111111111111111111111",
+    // Radix opens a DropdownMenuTrigger from `pointerdown`, guarded on
+    // `button === 0 && !ctrlKey`. jsdom's synthetic pointer sequence from
+    // userEvent does not satisfy that guard, so the menu silently stays closed
+    // and the test reads as "no menuitem" rather than "menu never opened".
+    // Dispatching the event Radix actually listens for is both reliable and
+    // closer to what the component contracts on.
+    fireEvent.pointerDown(screen.getAllByRole("button", { name: "User actions menu" })[0], {
+      button: 0,
+      ctrlKey: false,
+      pointerType: "mouse",
     });
+
+    // Content mounts into a portal asynchronously.
+    const reactivateItem = await screen.findByRole("menuitem", { name: "Reactivate User" });
+    // Same reason as the trigger: userEvent's synthetic pointer sequence does
+    // not drive Radix's item selection under jsdom.
+    fireEvent.click(reactivateItem);
+
+    // The handler is async (runListAction -> mutateAsync), so the call lands on
+    // a later tick than the click.
+    await waitFor(() =>
+      expect(reactivateMutateAsync).toHaveBeenCalledWith({
+        userId: "cm1111111111111111111111111",
+      })
+    );
   });
 
   it("exposes aria-sort on the sortable table headers", () => {

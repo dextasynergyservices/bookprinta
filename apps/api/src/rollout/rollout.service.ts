@@ -1,6 +1,12 @@
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
+import {
+  type AppEnvironment,
+  isLocalEnvironment,
+  resolveAppEnvironment,
+} from "../common/app-environment.js";
 
-export type RolloutEnvironment = "development" | "test" | "staging" | "production" | "unknown";
+/** Alias of the shared AppEnvironment — kept for existing import sites. */
+export type RolloutEnvironment = AppEnvironment;
 
 export type RolloutAccess = "enabled" | "grandfathered" | "disabled";
 
@@ -78,7 +84,14 @@ export class RolloutService {
 
   getRuntimeFlags(): RuntimeFlags {
     const environment = this.getEnvironment();
-    const defaultEnabled = environment !== "production";
+    // Requires a POSITIVELY identified local environment.
+    //
+    // This was `environment !== "production"`, which treats an unresolved
+    // environment as non-production and hands it development defaults — so a
+    // deployment with NODE_ENV/APP_ENV missing would silently enable every
+    // rollout feature. Same fail-open shape as the old JWT_SECRET fallback.
+    // An unknown environment now gets production-grade defaults instead.
+    const defaultEnabled = isLocalEnvironment(environment);
 
     return {
       bookWorkspace: this.readBooleanFlag("FEATURE_BOOK_WORKSPACE", defaultEnabled),
@@ -90,24 +103,10 @@ export class RolloutService {
   }
 
   getEnvironment(): RolloutEnvironment {
-    const rawValue =
-      process.env.APP_ENV ??
-      process.env.VERCEL_ENV ??
-      process.env.RENDER_ENV ??
-      process.env.NODE_ENV ??
-      "";
-    const normalized = rawValue.trim().toLowerCase();
-
-    if (normalized === "production" || normalized === "prod") return "production";
-    if (normalized === "staging" || normalized === "stage" || normalized === "preview") {
-      return "staging";
-    }
-    if (normalized === "test") return "test";
-    if (normalized === "development" || normalized === "dev" || normalized === "local") {
-      return "development";
-    }
-
-    return "unknown";
+    // Delegates to the shared resolver so security-critical code (JWT secret
+    // validation) and feature flags cannot disagree about what "production"
+    // means. See common/app-environment.ts.
+    return resolveAppEnvironment();
   }
 
   getMonitoringSnapshot(): RolloutMonitoringSnapshot {

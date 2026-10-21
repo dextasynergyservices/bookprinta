@@ -19,7 +19,10 @@ type QueryOptionsShape = {
   staleTime: number;
   gcTime: number;
   retry: number;
-  refetchInterval: number;
+  // Status-aware: TanStack Query calls this per refetch so the dashboard can
+  // drop to a heartbeat rate when SSE is live or the book is in a
+  // slow-changing state, instead of polling every 30s regardless.
+  refetchInterval: (query: { state: { data: unknown } }) => number;
   refetchOnWindowFocus: boolean;
 };
 
@@ -45,7 +48,13 @@ describe("useDashboardOverview query options", () => {
     expect(options.staleTime).toBe(DASHBOARD_STATUS_STALE_TIME_MS);
     expect(options.gcTime).toBe(DASHBOARD_QUERY_GC_TIME_MS);
     expect(options.retry).toBe(DASHBOARD_QUERY_RETRY_COUNT);
-    expect(options.refetchInterval).toBe(DASHBOARD_POLL_INTERVAL_MS);
+    // Asserts the resolved interval rather than identity: refetchInterval
+    // became a function when status-aware polling was introduced, so a
+    // `toBe(number)` check compared a function to a number and failed. With
+    // no data loaded yet it must fall back to the standard poll interval.
+    expect(options.refetchInterval({ state: { data: undefined } })).toBe(
+      DASHBOARD_POLL_INTERVAL_MS
+    );
     expect(options.refetchOnWindowFocus).toBe(true);
   });
 });

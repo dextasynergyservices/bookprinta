@@ -1343,7 +1343,16 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
                   </Button>
 
                   {uploadProgress !== null ? (
-                    <div className="mt-4 space-y-2" aria-live="polite" aria-atomic="true">
+                    // <output> carries an implicit "status" role, so upload
+                    // progress is announced as a live region. This was a bare
+                    // aria-live div, which does NOT expose a status role —
+                    // assistive technology had no landmark for the progress.
+                    //
+                    // Using the semantic element rather than role="status" on a
+                    // div also keeps aria-live/atomic implicit. `block` is
+                    // needed because <output> is inline by default and the
+                    // space-y utility requires block children.
+                    <output className="mt-4 block space-y-2">
                       <div className="flex items-center justify-between gap-3">
                         <span className="font-sans text-xs text-[#BDBDBD]">
                           {uploadFileName || tAdmin("books_detail_upload_progress_label")}
@@ -1355,7 +1364,7 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
                         aria-label={tAdmin("books_detail_upload_progress_label")}
                         className="h-2 rounded-full bg-[#1B1B1B] [&_[data-slot='progress-indicator']]:bg-[#007eff]"
                       />
-                    </div>
+                    </output>
                   ) : null}
                 </div>
 
