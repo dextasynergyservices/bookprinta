@@ -1,7 +1,10 @@
 "use client";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { normalizeUserBooksListPayload } from "@/lib/api/books-contract";
+import {
+  createEmptyUserBooksListResponse,
+  normalizeUserBooksListPayload,
+} from "@/lib/api/books-contract";
 import { throwApiError } from "@/lib/api-error";
 import { dashboardStatusPollingQueryOptions } from "@/lib/dashboard/query-defaults";
 import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
@@ -102,7 +105,9 @@ export function useUserBooks({ page, pageSize, enabled = true }: UseUserBooksPar
     enabled,
   });
 
-  const data = query.data ?? normalizeUserBooksListPayload(null);
+  // Explicit empty placeholder, NOT a normalised null: the normaliser now
+  // throws on an unparseable payload, and "no data yet" is not a parse failure.
+  const data = query.data ?? createEmptyUserBooksListResponse();
   const isInitialLoading = query.isPending && !query.data;
   const isPageTransitioning = query.isFetching && query.isPlaceholderData;
 

@@ -329,6 +329,16 @@ describe("useAdminBookActions", () => {
       value: revokeObjectUrlMock,
     });
 
+    // downloadAdminBookFile now tries `/download/:fileType/link` first, to get a
+    // direct Cloudinary URL and spend zero Render egress. These tests cover the
+    // STREAMING FALLBACK, so the link attempt is primed as a miss — otherwise it
+    // consumes the queued response below and the fallback receives undefined.
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: jest.fn().mockResolvedValue({}),
+      headers: { get: jest.fn().mockReturnValue(null) },
+    } as unknown as Response);
     fetchMock.mockResolvedValueOnce({
       ok: true,
       blob: jest.fn().mockResolvedValue(new Blob(["<p>Hello</p>"], { type: "text/html" })),
@@ -373,6 +383,16 @@ describe("useAdminBookActions", () => {
       value: revokeObjectUrlMock,
     });
 
+    // downloadAdminBookFile now tries `/download/:fileType/link` first, to get a
+    // direct Cloudinary URL and spend zero Render egress. These tests cover the
+    // STREAMING FALLBACK, so the link attempt is primed as a miss — otherwise it
+    // consumes the queued response below and the fallback receives undefined.
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: jest.fn().mockResolvedValue({}),
+      headers: { get: jest.fn().mockReturnValue(null) },
+    } as unknown as Response);
     fetchMock.mockResolvedValueOnce({
       ok: true,
       blob: jest.fn().mockResolvedValue(new Blob(["pdf"], { type: "application/pdf" })),
@@ -417,6 +437,16 @@ describe("useAdminBookActions", () => {
       value: revokeObjectUrlMock,
     });
 
+    // downloadAdminBookFile now tries `/download/:fileType/link` first, to get a
+    // direct Cloudinary URL and spend zero Render egress. These tests cover the
+    // STREAMING FALLBACK, so the link attempt is primed as a miss — otherwise it
+    // consumes the queued response below and the fallback receives undefined.
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: jest.fn().mockResolvedValue({}),
+      headers: { get: jest.fn().mockReturnValue(null) },
+    } as unknown as Response);
     fetchMock.mockResolvedValueOnce({
       ok: true,
       blob: jest.fn().mockResolvedValue(

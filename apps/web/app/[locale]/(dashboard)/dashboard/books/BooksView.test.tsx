@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { render, screen, waitFor } from "@/test-utils";
 import { BooksView } from "./BooksView";
 
 const approveBookForProductionMock = jest.fn();
@@ -1610,8 +1610,10 @@ describe("BooksView route integration", () => {
 
     await user.click(screen.getByRole("button", { name: "Reprint" }));
 
+    // The workspace keeps the user on the list route and identifies the book by
+    // query param, rather than navigating into a per-book path segment.
     expect(routerReplaceMock).toHaveBeenCalledWith(
-      `/dashboard/books/${currentBookId}?reprint=same`
+      `/dashboard/books?bookId=${currentBookId}&reprint=same`
     );
   });
 

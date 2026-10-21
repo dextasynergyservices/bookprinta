@@ -152,27 +152,52 @@ export class ScheduledJobsService implements OnModuleInit {
    * never became Orders. Keep more history than the other maintenance jobs: this
    * one touches money, so its run results are worth being able to inspect.
    */
-  async triggerPaymentReconciliation(source: TriggerSource): Promise<TriggerResult> {
-    return this.enqueue(JOB_NAMES.RECONCILE_PAYMENTS, source, { count: 48 }, { count: 96 });
+  async triggerPaymentReconciliation(
+    source: TriggerSource,
+    options: { lookbackHours?: number } = {}
+  ): Promise<TriggerResult> {
+    return this.enqueue(
+      JOB_NAMES.RECONCILE_PAYMENTS,
+      source,
+      { count: 48 },
+      { count: 96 },
+      options.lookbackHours ? { lookbackHours: options.lookbackHours } : undefined
+    );
   }
 
   private async enqueue(
     jobName: string,
     source: TriggerSource,
     removeOnComplete: { count: number },
-    removeOnFail: { count: number }
+    removeOnFail: { count: number },
+    /** Extra job payload merged alongside `source`. */
+    payload?: Record<string, unknown>
   ): Promise<TriggerResult> {
     const queue = this.maintenanceQueue;
 
     if (this.circuitBreaker?.isOpen()) {
-      this.logger.warn(
-        `Skipping "${jobName}" trigger from ${source} — Redis circuit breaker is open: ${this.circuitBreaker.getReason()}`
+      const breakerReason = this.circuitBreaker.getReason();
+
+      // This path returns a 2xx while doing no work, so the external cron shows
+      // a green tick for a run that never happened. That silence is the failure
+      // mode most likely to fool us twice, so it is logged at error level and
+      // reported to Sentry rather than left as a warn in the log stream.
+      this.logger.error(
+        `Skipped "${jobName}" trigger from ${source} — Redis circuit breaker is open: ` +
+          `${breakerReason}. The cron will record this attempt as successful even though ` +
+          "nothing ran; the next tick will retry."
       );
+      Sentry.captureMessage(`Scheduled job "${jobName}" skipped — Redis circuit breaker open`, {
+        level: "error",
+        tags: { job: jobName, queue: queue.name, source },
+        extra: { breakerReason },
+      });
+
       return {
         queued: false,
         jobId: null,
         queue: queue.name,
-        reason: "Redis circuit breaker is open",
+        reason: `Redis circuit breaker is open: ${breakerReason}`,
       };
     }
 
@@ -198,7 +223,7 @@ export class ScheduledJobsService implements OnModuleInit {
 
       const job = await queue.add(
         jobName,
-        { source },
+        { source, ...(payload ?? {}) },
         { attempts: 1, removeOnComplete, removeOnFail }
       );
 
@@ -207,7 +232,39 @@ export class ScheduledJobsService implements OnModuleInit {
       return { queued: true, jobId: job.id ?? null, queue: queue.name };
     } catch (error) {
       this.circuitBreaker?.handleError(error);
-      throw error;
+
+      // Degrade instead of rethrowing.
+      //
+      // Rethrowing surfaces as a 500 to the external cron. Cron providers
+      // disable a job after enough consecutive failures, and that is exactly how
+      // this project lost its payment-reconciliation schedule: while Upstash was
+      // rate-limiting, every trigger 500'd, and cron-job.org switched the job off
+      // — so the safety net stayed dead long after Redis recovered.
+      //
+      // A missed tick is harmless (every one of these jobs is idempotent and
+      // re-triggered on the next tick), whereas a disabled schedule is silent and
+      // indefinite. So we report the failure in the response body and keep the
+      // HTTP status successful, which keeps the schedule alive.
+      //
+      // The trade-off is that the cron dashboard can no longer be used as a
+      // health signal — `queued: false` in the response and the error log are the
+      // signals instead. That is why the reason is explicit here.
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to queue "${jobName}" from ${source} on "${queue.name}": ${message}. ` +
+          "Reporting success to the caller so an external cron schedule is not auto-disabled; " +
+          "the next tick will retry."
+      );
+      Sentry.captureException(error, {
+        tags: { job: jobName, queue: queue.name, source },
+      });
+
+      return {
+        queued: false,
+        jobId: null,
+        queue: queue.name,
+        reason: `Enqueue failed: ${message}`,
+      };
     }
   }
 }

@@ -13,6 +13,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
 import {
+  AdminOrphanedPaymentsResponseDto,
   AdminPaymentsListQueryDto,
   AdminPaymentsListResponseDto,
   AdminPendingBankTransfersResponseDto,
@@ -61,6 +62,26 @@ export class AdminPaymentsController {
   })
   async listPendingBankTransfers(): Promise<AdminPendingBankTransfersResponseDto> {
     return this.paymentsService.listAdminPendingBankTransfers();
+  }
+
+  @Get("orphaned")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "List payments that never became orders",
+    description:
+      "Returns SUCCESS payments that were claimed (processedAt set) but have no Order — a customer " +
+      "charged with no book, account, or email. Caused either by finalisation never running (the " +
+      "browser never returned and no webhook arrived, which payment reconciliation repairs " +
+      "automatically) or by a deterministic business-rule conflict the webhook acknowledged instead " +
+      "of retrying, which needs manual action. Sorted oldest first — age is the urgency signal.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Orphaned payment feed",
+    type: AdminOrphanedPaymentsResponseDto,
+  })
+  async listOrphanedPayments(): Promise<AdminOrphanedPaymentsResponseDto> {
+    return this.paymentsService.listOrphanedPayments();
   }
 
   @Post(":paymentId/approve-transfer")

@@ -1,4 +1,4 @@
-import { Controller, HttpCode, HttpStatus, Post, UseGuards } from "@nestjs/common";
+import { Controller, HttpCode, HttpStatus, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiExcludeController } from "@nestjs/swagger";
 import { SkipThrottle } from "@nestjs/throttler";
 import { CronTokenGuard } from "../common/cron-token.guard.js";
@@ -61,7 +61,15 @@ export class CronController {
    */
   @Post("reconcile-payments")
   @HttpCode(HttpStatus.ACCEPTED)
-  triggerPaymentReconciliation() {
-    return this.scheduledJobs.triggerPaymentReconciliation("cron");
+  triggerPaymentReconciliation(@Query("lookbackHours") lookbackHours?: string) {
+    // Routine ticks omit the parameter and use the 24h default. An operator can
+    // pass a wider window (capped at 30 days in the processor) to sweep up
+    // charges stranded while the schedule was disabled — recovering those needs
+    // no code change or deploy.
+    const parsed = lookbackHours ? Number.parseInt(lookbackHours, 10) : Number.NaN;
+    return this.scheduledJobs.triggerPaymentReconciliation(
+      "cron",
+      Number.isFinite(parsed) && parsed > 0 ? { lookbackHours: parsed } : {}
+    );
   }
 }

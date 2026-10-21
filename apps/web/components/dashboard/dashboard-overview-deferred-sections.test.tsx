@@ -1,7 +1,7 @@
 import type { OrdersListItem, UserBookListItem } from "@bookprinta/shared";
-import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { render, screen } from "@/test-utils";
 import { DashboardOverviewDeferredSections } from "./dashboard-overview-deferred-sections";
 
 const useNotificationsListMock = jest.fn();
@@ -45,6 +45,13 @@ jest.mock("@/hooks/useBookResources", () => ({
 }));
 
 jest.mock("@/hooks/use-book-reprint-config", () => ({
+  // ReprintReadyCarousel builds useQueries keys from this export. Omitting it
+  // left it undefined, so `bookReprintConfigQueryKeys.detail(bookId)` threw
+  // during render.
+  bookReprintConfigQueryKeys: {
+    all: ["books", "reprint-config"],
+    detail: (bookId: string) => ["books", "reprint-config", bookId],
+  },
   useBookReprintConfig: () => ({
     data: null,
     config: null,

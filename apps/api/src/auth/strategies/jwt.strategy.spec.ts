@@ -7,7 +7,7 @@ describe("JwtStrategy", () => {
   beforeEach(() => {
     process.env = {
       ...originalEnv,
-      JWT_SECRET: "jwt-secret",
+      JWT_SECRET: "jwt-strategy-spec-secret-0123456789abcdefghijklmn",
     };
   });
 

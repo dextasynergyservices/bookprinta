@@ -29,7 +29,10 @@ import {
 } from "@nestjs/swagger";
 import type { Request, Response } from "express";
 import { CurrentUser, JwtAuthGuard } from "../auth/index.js";
-import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
+import {
+  MAX_FILE_SIZE_BYTES,
+  MULTER_FILE_SIZE_LIMIT_BYTES,
+} from "../cloudinary/cloudinary.service.js";
 import {
   type ProcessingEvent,
   ProcessingEventsService,
@@ -127,7 +130,7 @@ export class BooksController {
   @UseInterceptors(
     FileInterceptor("file", {
       limits: {
-        fileSize: MAX_FILE_SIZE_BYTES,
+        fileSize: MULTER_FILE_SIZE_LIMIT_BYTES,
       },
     })
   )

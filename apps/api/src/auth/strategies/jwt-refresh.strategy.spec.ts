@@ -9,7 +9,7 @@ describe("JwtRefreshStrategy", () => {
   beforeEach(() => {
     process.env = {
       ...originalEnv,
-      JWT_SECRET: "jwt-secret",
+      JWT_SECRET: "jwt-refresh-strategy-spec-secret-0123456789abcdef",
       REFRESH_TOKEN_HMAC_SECRET: "refresh-hmac-secret",
     };
   });

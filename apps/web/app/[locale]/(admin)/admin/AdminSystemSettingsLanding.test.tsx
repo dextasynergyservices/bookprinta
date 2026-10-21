@@ -240,6 +240,27 @@ jest.mock("@/hooks/useAdminSettings", () => {
   const PRODUCTION_STATUS = { manualOverrideState: "auto", backlogCount: 7, affectedUserCount: 3 };
 
   return {
+    // AdminQueueHealthPanel renders inside this landing page and calls
+    // useAdminQueueStats(). The mock omitted it, so the hook resolved to
+    // undefined and the whole page threw before any assertion ran.
+    // Queue drill-down fetches jobs for the selected queue/state. Not exercised
+    // by these tests, but the panel calls it unconditionally.
+    useAdminQueueJobs: () => ({
+      jobs: [],
+      isInitialLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    }),
+    useAdminQueueStats: () => ({
+      stats: null,
+      isInitialLoading: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: jest.fn(),
+    }),
     normalizeAdminSettingsError: (error: unknown) => ({
       title: "Save failed",
       description: error instanceof Error ? error.message : "Error",

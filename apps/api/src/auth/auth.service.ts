@@ -30,6 +30,7 @@ import type {
   VerifyEmailLinkDto,
 } from "./dto/index.js";
 import type { JwtPayload, TokenPair } from "./interfaces/index.js";
+import { resolveJwtSecret } from "./jwt-secret.util.js";
 import { normalizePhoneNumber } from "./phone-number.util.js";
 import { hashRefreshToken } from "./refresh-token.util.js";
 
@@ -73,7 +74,7 @@ export class AuthService {
   ) {
     this.pinoLogger.setContext(AuthService.name);
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-    this.JWT_SECRET = process.env.JWT_SECRET || "fallback-dev-secret-change-me";
+    this.JWT_SECRET = resolveJwtSecret();
     this.ACCESS_TOKEN_EXPIRY = process.env.JWT_ACCESS_EXPIRY || "15m";
     this.REFRESH_TOKEN_EXPIRY_USER = process.env.JWT_REFRESH_EXPIRY_USER || "7d";
     this.REFRESH_TOKEN_EXPIRY_ADMIN = process.env.JWT_REFRESH_EXPIRY_ADMIN || "1h";

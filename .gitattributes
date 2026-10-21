@@ -1,0 +1,48 @@
+# Line endings
+#
+# Store text as LF in the repository AND check out LF in the working tree, on
+# every platform.
+#
+# Why this is pinned rather than left to each machine's git config:
+# `core.autocrlf=true` (the common Windows default, and what this repo's
+# contributors have set) rewrites files to CRLF on checkout. Biome's formatter
+# defaults to LF, so a CRLF working tree fails `bun run check` even though the
+# committed content is fine — and because the pre-commit hook runs Biome via
+# lint-staged, it then "fixes" files by rewriting their line endings, producing
+# large diffs that have nothing to do with the change being made.
+#
+# Any git operation that rewrites working-tree files can trigger it: stash,
+# checkout, branch switch, merge, reset. It is easy to mistake the result for a
+# pre-existing formatting problem.
+#
+# Pinning eol=lf makes Windows behave like Linux and CI, so Biome, the hooks,
+# and the repository all agree. It also matters for `.husky/` hooks, which are
+# shell scripts that must be LF to execute correctly.
+#
+# `text=auto` keeps git's binary detection, so the explicit binary rules below
+# are belt-and-braces for files git might otherwise sniff as text.
+* text=auto eol=lf
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.avif binary
+
+# Fonts
+*.otf binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+
+# Documents and archives (manuscript fixtures, proposals)
+*.pdf binary
+*.docx binary
+*.zip binary
+
+# Bun's binary lockfile, if this repo ever switches back to it from bun.lock
+bun.lockb binary

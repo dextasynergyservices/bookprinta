@@ -21,6 +21,27 @@ export const ALLOWED_MIME_TYPES = [
 export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 /**
+ * File-size limit to hand Multer, which is NOT the same number as the limit we
+ * actually enforce.
+ *
+ * Multer (busboy) treats `limits.fileSize` as the first *disallowed* size: it
+ * aborts with LIMIT_FILE_SIZE once a file reaches that many bytes. Everywhere
+ * else in the codebase the bound is inclusive — `isWithinSizeLimit()` uses
+ * `<= MAX_FILE_SIZE_BYTES`, the controllers reject on
+ * `file.size > MAX_FILE_SIZE_BYTES`, and the frontend validates with `>` too.
+ *
+ * Passing MAX_FILE_SIZE_BYTES straight to Multer therefore rejected a file of
+ * exactly 10,485,760 bytes with "File too large", even though every other layer
+ * (and the user-facing "max 10MB" copy) says 10MB is allowed. Verified by
+ * probing the boundary: 10,485,759 passed, 10,485,760 returned 413.
+ *
+ * So Multer gets limit + 1, which makes exactly 10MB pass and 10MB + 1 byte the
+ * first rejected size. The explicit `> MAX_FILE_SIZE_BYTES` checks stay as
+ * defence-in-depth — they simply never fire now, since Multer caps first.
+ */
+export const MULTER_FILE_SIZE_LIMIT_BYTES = MAX_FILE_SIZE_BYTES + 1;
+
+/**
  * Maps MIME types to Cloudinary resource_type values.
  * PDFs and DOCX are stored as "raw"; images as "image".
  */

@@ -16,6 +16,13 @@ import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
 
 const txBookUpdate = jest.fn();
 const txOrderUpdate = jest.fn();
+/**
+ * Status transitions that guard against concurrent writers use
+ * `updateMany({ where: { id, version, status } })` and treat `count: 0` as a
+ * conflict, so the mock must report a successful claim by default.
+ */
+const txBookUpdateMany = jest.fn();
+const txBookFindUnique = jest.fn();
 
 const mockPrismaService = {
   book: {
@@ -41,7 +48,11 @@ const mockPrismaService = {
   },
   $transaction: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
     callback({
-      book: { update: txBookUpdate },
+      book: {
+        update: txBookUpdate,
+        updateMany: txBookUpdateMany,
+        findUnique: txBookFindUnique,
+      },
       order: { update: txOrderUpdate },
     })
   ),
@@ -121,6 +132,11 @@ describe("BooksService", () => {
     jest.clearAllMocks();
     txBookUpdate.mockReset();
     txOrderUpdate.mockReset();
+    // Default: the compare-and-swap claims the row. Tests that exercise a
+    // concurrent-writer conflict override this with `{ count: 0 }`.
+    txBookUpdateMany.mockReset();
+    txBookUpdateMany.mockResolvedValue({ count: 1 });
+    txBookFindUnique.mockReset();
     mockNotificationsService.createReviewRequestNotification.mockReset();
     mockRolloutService.resolveBookRolloutState.mockReturnValue(defaultRolloutState);
     mockRolloutService.assertBookWorkspaceAccess.mockImplementation(() => undefined);
@@ -137,10 +153,11 @@ describe("BooksService", () => {
         id: "cm1111111111111111111111111",
         wordCount: 58_000,
         status: "PAYMENT_RECEIVED",
+        version: 1,
         title: null,
       });
       mockManuscriptAnalysisService.estimatePages.mockReturnValue(224);
-      mockPrismaService.book.update.mockResolvedValue({
+      txBookFindUnique.mockResolvedValue({
         id: "cm1111111111111111111111111",
         title: "The Lagos Chronicle",
         pageSize: "A4",
@@ -820,6 +837,7 @@ describe("BooksService", () => {
         id: "cm1111111111111111111111111",
         orderId: "cm2222222222222222222222222",
         status: "PREVIEW_READY",
+        version: 1,
         pageCount: 170,
         currentHtmlUrl: "https://cdn.example.com/books/current.html",
         order: {
@@ -841,10 +859,15 @@ describe("BooksService", () => {
 
       const result = await service.approveUserBook("user_1", "cm1111111111111111111111111", {});
 
-      expect(txBookUpdate).toHaveBeenCalledWith({
-        where: { id: "cm1111111111111111111111111" },
+      expect(txBookUpdateMany).toHaveBeenCalledWith({
+        where: {
+          id: "cm1111111111111111111111111",
+          version: 1,
+          status: "PREVIEW_READY",
+        },
         data: {
           status: "APPROVED",
+          version: { increment: 1 },
         },
       });
       expect(txOrderUpdate).toHaveBeenCalledWith({
@@ -897,6 +920,7 @@ describe("BooksService", () => {
         id: "cm1111111111111111111111111",
         orderId: "cm2222222222222222222222222",
         status: "REVIEW",
+        version: 1,
         pageCount: 128,
         currentHtmlUrl: null,
         finalPdfUrl: "https://cdn.example.com/books/1/final.pdf",
@@ -912,12 +936,17 @@ describe("BooksService", () => {
 
       const result = await service.approveUserBook("user_1", "cm1111111111111111111111111", {});
 
-      expect(txBookUpdate).toHaveBeenCalledWith({
-        where: { id: "cm1111111111111111111111111" },
+      expect(txBookUpdateMany).toHaveBeenCalledWith({
+        where: {
+          id: "cm1111111111111111111111111",
+          version: 1,
+          status: "REVIEW",
+        },
         data: {
           status: "IN_PRODUCTION",
           productionStatus: "IN_PRODUCTION",
           productionStatusUpdatedAt: expect.any(Date),
+          version: { increment: 1 },
         },
       });
       expect(txOrderUpdate).toHaveBeenCalledWith({

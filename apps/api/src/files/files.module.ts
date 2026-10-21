@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { MulterModule } from "@nestjs/platform-express";
+import { MULTER_FILE_SIZE_LIMIT_BYTES } from "../cloudinary/cloudinary.service.js";
 import { FilesController } from "./files.controller.js";
 import { FilesService } from "./files.service.js";
 
@@ -28,7 +29,9 @@ import { FilesService } from "./files.service.js";
     // Files are held in memory briefly for scanning, then forwarded to Cloudinary
     MulterModule.register({
       limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB — matches CLAUDE.md constraint #5
+        // MAX_FILE_SIZE_BYTES + 1 — Multer's limit is the first *rejected*
+        // size, so this makes exactly 10MB pass. See the constant's docs.
+        fileSize: MULTER_FILE_SIZE_LIMIT_BYTES,
       },
     }),
   ],

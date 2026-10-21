@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { render, screen, within } from "@/test-utils";
 import { AdminCouponsView } from "./AdminCouponsView";
 
 const useAdminCouponsMock = jest.fn();
@@ -107,6 +107,18 @@ jest.mock("@/hooks/useAdminCoupons", () => ({
   useUpdateAdminCouponMutation: () => useUpdateAdminCouponMutationMock(),
   useToggleAdminCouponActiveMutation: () => useToggleAdminCouponActiveMutationMock(),
   useDeleteAdminCouponMutation: () => useDeleteAdminCouponMutationMock(),
+  // The view renders per-coupon redemption analytics. The mock omitted this
+  // hook, so it resolved to undefined and the view threw before rendering.
+  // Shape mirrors the real hook: an array plus the usual query flags.
+  useAdminCouponAnalytics: () => ({
+    data: [],
+    items: [],
+    isInitialLoading: false,
+    isFetching: false,
+    isError: false,
+    error: null,
+    refetch: jest.fn(),
+  }),
 }));
 
 jest.mock("sonner", () => ({
@@ -133,6 +145,14 @@ function createCoupon(id: string, overrides: Record<string, unknown> = {}) {
     currentUses: 2,
     expiresAt: null,
     isActive: true,
+    // Package/category targeting. All three are REQUIRED by
+    // AdminCouponListItemSchema and always returned by the API, and the view
+    // reads `.length` on both arrays unguarded. The fixture predates the
+    // feature, so every card threw on render — masked until now by the
+    // missing useAdminCouponAnalytics mock failing first.
+    appliesToAll: true,
+    eligiblePackageIds: [],
+    eligibleCategoryIds: [],
     createdAt: "2026-03-10T09:30:00.000Z",
     updatedAt: "2026-03-10T09:30:00.000Z",
     ...overrides,

@@ -27,7 +27,7 @@ import {
 import { SkipThrottle, Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard, UserRole } from "../auth/index.js";
-import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
+import { MULTER_FILE_SIZE_LIMIT_BYTES } from "../cloudinary/cloudinary.service.js";
 import { AdminPendingBankTransfersResponseDto } from "./dto/admin-payments.dto.js";
 import {
   ExtraPagesPaymentDto,
@@ -152,7 +152,7 @@ export class PaymentsController {
   @Throttle(PAYMENT_WRITE_THROTTLE)
   @UseInterceptors(
     FileInterceptor("receipt", {
-      limits: { fileSize: MAX_FILE_SIZE_BYTES },
+      limits: { fileSize: MULTER_FILE_SIZE_LIMIT_BYTES },
     })
   )
   @ApiConsumes("multipart/form-data", "application/json")
@@ -377,7 +377,9 @@ export class PaymentsController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth("access-token")
-  @UseInterceptors(FileInterceptor("receiptFile", { limits: { fileSize: MAX_FILE_SIZE_BYTES } }))
+  @UseInterceptors(
+    FileInterceptor("receiptFile", { limits: { fileSize: MULTER_FILE_SIZE_LIMIT_BYTES } })
+  )
   @ApiConsumes("multipart/form-data")
   @ApiOperation({
     summary: "Upload reprint bank transfer receipt",
@@ -439,15 +441,32 @@ export class PaymentsController {
   @ApiResponse({ status: 400, description: "Invalid or missing signature" })
   async handlePaystackWebhook(
     @Body() body: Record<string, unknown>,
-    @Headers("x-paystack-signature") signature: string
+    @Headers("x-paystack-signature") signature: string,
+    @Req() req: RawBodyRequest<Request>
   ) {
     // 1. Validate signature presence
     if (!signature) {
       throw new BadRequestException("Missing x-paystack-signature header");
     }
 
-    // 2. Get the raw body for signature verification
-    const rawBody = JSON.stringify(body);
+    // 2. Verify against the RAW request bytes, never a re-serialised body.
+    //
+    // Paystack computes the HMAC over the exact bytes it sent. `JSON.stringify`
+    // of the parsed body is not guaranteed to reproduce them: if Paystack
+    // escapes a non-ASCII character (`José`), stringify emits the literal
+    // `é` instead, and the digests differ. The webhook then 400s, Paystack
+    // retries, every retry fails identically, and the customer's order is never
+    // created — for nothing worse than an accent in their name. We serve
+    // Nigerian customers with fr/es locales, so this is a question of when.
+    //
+    // `rawBody: true` is set in main.ts (the Stripe route already relies on it).
+    // If it is somehow absent we fail closed rather than silently falling back
+    // to the broken comparison — an unverifiable payload on a payments path must
+    // not be processed.
+    const rawBody = req.rawBody;
+    if (!rawBody) {
+      throw new BadRequestException("Raw request body unavailable for signature verification");
+    }
 
     // 3. Verify signature
     const isValid = this.paymentsService.verifyPaystackSignature(rawBody, signature);

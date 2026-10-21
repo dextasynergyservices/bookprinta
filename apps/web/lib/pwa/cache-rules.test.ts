@@ -134,32 +134,47 @@ function describeResolvedEntry(entry: (typeof pwaRuntimeCaching)[number] | null)
 describe("PWA cache rules", () => {
   describe("critical runtime policy config", () => {
     it("pins the documented cache windows and strategy names for core routes", () => {
+      // Documents and RSC are NetworkFirst, NOT StaleWhileRevalidate.
+      //
+      // These carry admin-managed content (pricing, showcase, resources) that is
+      // rendered server-side. SWR serves the cached copy first by definition, so
+      // an admin edit only reached visitors on their SECOND visit — and no TTL
+      // fixes that, because the policy itself is stale-first.
+      //
+      // The 3s network timeout is deliberate: on a poor mobile connection the
+      // cached copy appears quickly, while a healthy connection always gets the
+      // current content. maxAge is long because under NetworkFirst the cache
+      // exists only as an offline fallback.
       expect(PWA_RUNTIME_POLICY_CONFIG).toMatchObject({
         paymentDocuments: { strategy: "NetworkOnly" },
         protectedApi: { strategy: "NetworkOnly" },
         marketingDocuments: {
-          strategy: "StaleWhileRevalidate",
+          strategy: "NetworkFirst",
           cacheName: "marketing-pages",
           maxEntries: 64,
-          maxAgeSeconds: 60 * 60,
+          maxAgeSeconds: 4 * 60 * 60,
+          networkTimeoutSeconds: 3,
         },
         marketingRsc: {
-          strategy: "StaleWhileRevalidate",
+          strategy: "NetworkFirst",
           cacheName: "marketing-rsc",
           maxEntries: 64,
-          maxAgeSeconds: 60 * 60,
+          maxAgeSeconds: 4 * 60 * 60,
+          networkTimeoutSeconds: 3,
         },
         dashboardDocuments: {
-          strategy: "StaleWhileRevalidate",
+          strategy: "NetworkFirst",
           cacheName: "dashboard-shell-pages",
           maxEntries: 64,
-          maxAgeSeconds: 30 * 60,
+          maxAgeSeconds: 4 * 60 * 60,
+          networkTimeoutSeconds: 3,
         },
         dashboardRsc: {
-          strategy: "StaleWhileRevalidate",
+          strategy: "NetworkFirst",
           cacheName: "dashboard-shell-rsc",
           maxEntries: 64,
-          maxAgeSeconds: 30 * 60,
+          maxAgeSeconds: 4 * 60 * 60,
+          networkTimeoutSeconds: 3,
         },
         readonlyApi: {
           strategy: "NetworkFirst",
@@ -264,12 +279,12 @@ describe("PWA cache rules", () => {
       });
     });
 
-    it("resolves marketing documents and RSC payloads to the one-hour stale-while-revalidate caches", () => {
+    it("resolves marketing documents and RSC payloads to the network-first caches", () => {
       expect(describeResolvedEntry(resolveRuntimeCachingEntry("/fr/about"))).toEqual({
         method: null,
-        handler: "StaleWhileRevalidate",
+        handler: "NetworkFirst",
         cacheName: "marketing-pages",
-        networkTimeoutSeconds: null,
+        networkTimeoutSeconds: 3,
       });
 
       expect(
@@ -281,18 +296,18 @@ describe("PWA cache rules", () => {
         )
       ).toEqual({
         method: null,
-        handler: "StaleWhileRevalidate",
+        handler: "NetworkFirst",
         cacheName: "marketing-rsc",
-        networkTimeoutSeconds: null,
+        networkTimeoutSeconds: 3,
       });
     });
 
     it("resolves dashboard documents and RSC payloads to the dashboard shell cache", () => {
       expect(describeResolvedEntry(resolveRuntimeCachingEntry("/dashboard/books"))).toEqual({
         method: null,
-        handler: "StaleWhileRevalidate",
+        handler: "NetworkFirst",
         cacheName: "dashboard-shell-pages",
-        networkTimeoutSeconds: null,
+        networkTimeoutSeconds: 3,
       });
 
       expect(
@@ -304,9 +319,9 @@ describe("PWA cache rules", () => {
         )
       ).toEqual({
         method: null,
-        handler: "StaleWhileRevalidate",
+        handler: "NetworkFirst",
         cacheName: "dashboard-shell-rsc",
-        networkTimeoutSeconds: null,
+        networkTimeoutSeconds: 3,
       });
     });
 

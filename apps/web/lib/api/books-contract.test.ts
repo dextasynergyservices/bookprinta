@@ -11,6 +11,13 @@ describe("normalizeUserBooksListPayload", () => {
           status: "PREVIEW_READY",
           productionStatus: "REVIEW",
           orderStatus: "PREVIEW_READY",
+          // Both required by UserBooksListResponseSchema and both returned by
+          // the API. They were added to the schema without updating this
+          // fixture, so the parse failed — and because the normalizer falls
+          // back to an EMPTY list rather than throwing, the test saw "no books"
+          // instead of a validation error.
+          orderType: "STANDARD",
+          documentPageCount: 180,
           currentStage: "REVIEW",
           coverImageUrl: null,
           latestProcessingError: null,
@@ -60,7 +67,7 @@ describe("normalizeUserBooksListPayload", () => {
     expect(normalizeUserBooksListPayload(payload)).toEqual(payload);
   });
 
-  it("supports nested payloads and falls back to an empty response when invalid", () => {
+  it("supports nested payloads", () => {
     const normalized = normalizeUserBooksListPayload(
       {
         data: {
@@ -81,22 +88,37 @@ describe("normalizeUserBooksListPayload", () => {
     expect(normalized.pagination.page).toBe(2);
     expect(normalized.pagination.pageSize).toBe(5);
     expect(normalized.items).toEqual([]);
+  });
 
-    expect(
+  it("throws rather than reporting an empty list when the payload does not match", () => {
+    // This previously returned an EMPTY list, so a server response that drifted
+    // from the schema rendered as "you have no books" — on the very thing the
+    // customer paid for. A silent empty state reads as a legitimate answer, so
+    // nobody investigates. Throwing puts the query into its error state, which
+    // shows a retry and reaches Sentry.
+    expect(() =>
       normalizeUserBooksListPayload(
         { data: { unexpected: true } },
         { requestedPage: 3, requestedPageSize: 15 }
       )
-    ).toEqual({
+    ).toThrow("Unable to load your books right now");
+  });
+
+  it("still accepts a genuinely empty list", () => {
+    // The distinction that makes failing loudly safe: `items: []` satisfies the
+    // schema, so a user with no books is never mistaken for a contract break.
+    const empty = {
       items: [],
       pagination: {
-        page: 3,
-        pageSize: 15,
+        page: 1,
+        pageSize: 10,
         totalItems: 0,
         totalPages: 0,
-        hasPreviousPage: true,
+        hasPreviousPage: false,
         hasNextPage: false,
       },
-    });
+    };
+
+    expect(normalizeUserBooksListPayload(empty)).toEqual(empty);
   });
 });

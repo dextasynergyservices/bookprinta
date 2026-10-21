@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { resolveJwtSecret } from "./jwt-secret.util.js";
 
 const DIGEST_PREFIX = "rt1:";
 
@@ -6,7 +7,9 @@ function resolveRefreshTokenSecret(): string {
   const configured = process.env.REFRESH_TOKEN_HMAC_SECRET?.trim();
   if (configured) return configured;
 
-  return process.env.JWT_SECRET || "fallback-dev-secret-change-me";
+  // Falls back to the signing secret, which is itself validated and will
+  // throw rather than yield a placeholder in a deployed environment.
+  return resolveJwtSecret();
 }
 
 export function hashRefreshToken(token: string): string {
