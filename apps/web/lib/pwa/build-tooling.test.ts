@@ -11,7 +11,10 @@ describe("PWA build tooling", () => {
       path.resolve(process.cwd(), "package.json")
     );
 
-    expect(packageJson.scripts?.build).toBe("next build --webpack");
+    // Asserts the webpack flag is present rather than matching the whole
+    // script: the build legitimately gained a `bun run prebuild &&` prefix, and
+    // this test only cares that Serwist can still emit the worker.
+    expect(packageJson.scripts?.build).toContain("next build --webpack");
   });
 
   it("ignores generated worker artifacts in the app workspace", () => {

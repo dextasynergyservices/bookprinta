@@ -9,25 +9,28 @@ jest.mock("@/lib/api-error", () => ({
   throwApiError: (...args: unknown[]) => throwApiErrorMock(...args),
 }));
 
+/**
+ * Shape of BookReprintConfigResponseSchema as it stands today.
+ *
+ * The previous fixture described a configurable reprint — minCopies,
+ * allowedBookSizes, costPerPageBySize, enabledPaymentProviders — none of which
+ * exist any more. Reprint was deliberately simplified to "the exact same
+ * document, same size, same page count" (CLAUDE.md constraint #29), so the
+ * server now returns the ORIGINAL print settings as read-only facts plus a
+ * single precomputed costPerCopy.
+ */
 const reprintConfig = {
   bookId: "cm1111111111111111111111111",
   canReprintSame: true,
   disableReason: null,
+  hasActiveReprint: false,
   finalPdfUrlPresent: true,
   pageCount: 128,
-  minCopies: 25,
-  defaultBookSize: "A5",
-  defaultPaperColor: "white",
-  defaultLamination: "gloss",
-  allowedBookSizes: ["A4", "A5", "A6"],
-  allowedPaperColors: ["white", "cream"],
-  allowedLaminations: ["matt", "gloss"],
-  costPerPageBySize: {
-    A4: 20,
-    A5: 10,
-    A6: 5,
-  },
-  enabledPaymentProviders: ["PAYSTACK", "STRIPE"],
+  costPerCopy: 128 * 15 + 300,
+  bookTitle: "My Book",
+  bookSize: "A5",
+  paperColor: "white",
+  lamination: "gloss",
 } as const;
 
 function createWrapper(client: QueryClient) {

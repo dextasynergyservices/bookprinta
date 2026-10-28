@@ -61,3 +61,68 @@ describe("PaystackService.verifyWebhookSignature", () => {
     expect(unconfigured.verifyWebhookSignature(payload, sign(payload))).toBe(false);
   });
 });
+
+describe("PaystackService.listTransactions", () => {
+  const config: PaystackConfig = {
+    secretKey: SECRET,
+    baseUrl: "https://api.paystack.co",
+    currency: "NGN",
+  };
+
+  const from = new Date("2026-10-01T00:00:00.000Z");
+  const to = new Date("2026-10-02T00:00:00.000Z");
+
+  /** Installs a fake axios instance and records the pages requested. */
+  function withPages(pages: unknown[][]) {
+    const service = new PaystackService(config);
+    const requested: number[] = [];
+    const get = jest.fn(async (_url: string, opts: { params: { page: number } }) => {
+      requested.push(opts.params.page);
+      return { data: { status: true, data: pages[opts.params.page - 1] ?? [] } };
+    });
+    (service as unknown as { http: unknown }).http = { get };
+    return { service, requested, get };
+  }
+
+  const fullPage = (n: number) => Array.from({ length: n }, (_, i) => ({ reference: `r${i}` }));
+
+  it("walks every page until a short page ends the window", async () => {
+    // Fetching only page 1 put a silent ceiling on reconciliation: anything
+    // beyond the first page was never examined, and the only clue was a
+    // `scanned` count that happened to equal the page size.
+    const { service, requested } = withPages([fullPage(3), fullPage(3), fullPage(1)]);
+
+    const result = await service.listTransactions({ from, to, perPage: 3 });
+
+    expect(requested).toEqual([1, 2, 3]);
+    expect(result).toHaveLength(7);
+  });
+
+  it("stops after a single short page", async () => {
+    const { service, requested } = withPages([fullPage(2)]);
+
+    const result = await service.listTransactions({ from, to, perPage: 3 });
+
+    expect(requested).toEqual([1]);
+    expect(result).toHaveLength(2);
+  });
+
+  it("honours an explicit page without paginating", async () => {
+    const { service, requested } = withPages([fullPage(3), fullPage(3)]);
+
+    const result = await service.listTransactions({ from, to, perPage: 3, page: 2 });
+
+    expect(requested).toEqual([2]);
+    expect(result).toHaveLength(3);
+  });
+
+  it("stops at maxPages rather than looping forever on full pages", async () => {
+    // Guards against an unbounded loop if the API keeps returning full pages.
+    const { service, requested } = withPages([fullPage(2), fullPage(2), fullPage(2), fullPage(2)]);
+
+    const result = await service.listTransactions({ from, to, perPage: 2, maxPages: 2 });
+
+    expect(requested).toEqual([1, 2]);
+    expect(result).toHaveLength(4);
+  });
+});

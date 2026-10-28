@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { render, screen } from "@/test-utils";
 import { AdminOrdersView } from "./AdminOrdersView";
 
 const useAdminOrdersMock = jest.fn();
@@ -159,6 +159,12 @@ function createLoadedOrdersState() {
         totalAmount: 100000,
         currency: "NGN",
         detailUrl: "/admin/orders/ord_1",
+        // Required by AdminOrdersListItemSchema and always returned by the API.
+        // The view reads `order.actions.canArchive` unguarded, so a fixture
+        // without it threw while rendering the row.
+        actions: {
+          canArchive: true,
+        },
       },
     ],
     nextCursor: "cursor_2",

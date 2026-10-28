@@ -27,9 +27,23 @@ const logger = new Logger("JobsModule");
  * JobsModule — Registers BullMQ queues backed by Redis.
  *
  * Queues registered (CLAUDE.md Section 18.2 & 18.4):
- *  - ai-formatting:   Gemini AI manuscript → semantic HTML (concurrency 1, 5/min)
- *  - pdf-generation:  Gotenberg HTML → print-ready PDF   (concurrency 1, 3/min)
- *  - page-count:      Gotenberg HTML → page count         (concurrency 1, 3/min)
+ *  - ai-formatting:   Gemini AI manuscript → semantic HTML (concurrency 1)
+ *  - pdf-generation:  Gotenberg HTML → print-ready PDF   (concurrency 1)
+ *  - page-count:      Gotenberg HTML → page count         (concurrency 1)
+ *
+ * NOTE ON RATE LIMITING. CLAUDE.md Section 18.4 describes BullMQ `limiter`
+ * options (5 AI jobs/min, 3 PDF jobs/min). Those were never configured — see
+ * PIPELINE_WORKER_OPTS in jobs.constants.ts, which sets concurrency, drainDelay,
+ * stalledInterval and runRetryDelay but no limiter. The comments here used to
+ * claim the limits existed, which is worse than not having them: it invites a
+ * reader to assume Gemini call rate is already bounded.
+ *
+ * In practice `concurrency: 1` bounds parallelism, and GeminiFormattingService
+ * handles provider rate limits where they actually surface — Retry-After
+ * parsing, escalating backoff capped at 120s, 3 retries that do not consume a
+ * BullMQ attempt, plus a multi-model fallback chain with independent quotas.
+ * Adding a queue-level limiter on top would delay work without preventing a 429.
+ * Documented rather than "fixed" deliberately.
  *  - production-delay: scheduled backlog monitor          (every 15 minutes)
  *  - audit-log-archiver: nightly hard-delete of old AuditLog rows (every 24 hours)
  *
@@ -66,7 +80,7 @@ export class JobsModule {
         // ─────────────────────────────────────────────────────
         // Queue: ai-formatting
         // Gemini AI manuscript formatting (CLAUDE.md Section 18.4)
-        // Concurrency: 1, Rate limit: 5 jobs/min
+        // Concurrency: 1 (no BullMQ limiter — see note below)
         // Retries: 2 with exponential backoff starting at 5s
         // (Reduced from 3: chunk checkpointing + 429 backoff make retries cheaper,
         //  but 3 attempts wasted too much Gemini quota on free tier)
@@ -91,7 +105,7 @@ export class JobsModule {
         // ─────────────────────────────────────────────────────
         // Queue: pdf-generation
         // Gotenberg HTML → print-ready PDF (CLAUDE.md Section 18.4)
-        // Concurrency: 1, Rate limit: 3 jobs/min
+        // Concurrency: 1 (no BullMQ limiter — see note below)
         // Retries: 3 with exponential backoff starting at 5s
         // ─────────────────────────────────────────────────────
         BullModule.registerQueue({

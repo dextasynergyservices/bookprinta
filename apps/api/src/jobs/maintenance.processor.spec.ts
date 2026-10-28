@@ -147,6 +147,77 @@ describe("MaintenanceProcessor", () => {
       expect(result.skippedForeign).toBe(8);
     });
 
+    it("uses the default window when no lookback is supplied", async () => {
+      mockPayments.reconcilePaystackPayments.mockResolvedValue({
+        scanned: 0,
+        ours: 0,
+        alreadyProcessed: 0,
+        finalised: 0,
+        failed: 0,
+        skippedForeign: 0,
+      });
+
+      await build().process(job(JOB_NAMES.RECONCILE_PAYMENTS));
+
+      // Empty options → PaymentsService applies its own 24h default.
+      expect(mockPayments.reconcilePaystackPayments).toHaveBeenCalledWith({});
+    });
+
+    it("honours an operator-supplied lookback for a wider recovery sweep", async () => {
+      mockPayments.reconcilePaystackPayments.mockResolvedValue({
+        scanned: 0,
+        ours: 0,
+        alreadyProcessed: 0,
+        finalised: 0,
+        failed: 0,
+        skippedForeign: 0,
+      });
+
+      await build().process(
+        job(JOB_NAMES.RECONCILE_PAYMENTS, { source: "cron", lookbackHours: 168 })
+      );
+
+      expect(mockPayments.reconcilePaystackPayments).toHaveBeenCalledWith({ lookbackHours: 168 });
+    });
+
+    it("caps an excessive lookback at 30 days", async () => {
+      mockPayments.reconcilePaystackPayments.mockResolvedValue({
+        scanned: 0,
+        ours: 0,
+        alreadyProcessed: 0,
+        finalised: 0,
+        failed: 0,
+        skippedForeign: 0,
+      });
+
+      // A wider sweep costs one Paystack request per 100 transactions, so an
+      // unbounded value could run long and burn API quota.
+      await build().process(
+        job(JOB_NAMES.RECONCILE_PAYMENTS, { source: "manual", lookbackHours: 100_000 })
+      );
+
+      expect(mockPayments.reconcilePaystackPayments).toHaveBeenCalledWith({
+        lookbackHours: 24 * 30,
+      });
+    });
+
+    it("ignores a malformed lookback and falls back to the default", async () => {
+      mockPayments.reconcilePaystackPayments.mockResolvedValue({
+        scanned: 0,
+        ours: 0,
+        alreadyProcessed: 0,
+        finalised: 0,
+        failed: 0,
+        skippedForeign: 0,
+      });
+
+      await build().process(
+        job(JOB_NAMES.RECONCILE_PAYMENTS, { source: "cron", lookbackHours: "not-a-number" })
+      );
+
+      expect(mockPayments.reconcilePaystackPayments).toHaveBeenCalledWith({});
+    });
+
     it("reports finalised charges to Sentry (Pino logs never reach it)", async () => {
       const capture = captureMessage;
       mockPayments.reconcilePaystackPayments.mockResolvedValue({

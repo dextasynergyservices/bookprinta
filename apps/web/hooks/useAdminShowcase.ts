@@ -9,6 +9,7 @@ import type {
   AdminUpdateShowcaseEntryInput,
 } from "@bookprinta/shared";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { revalidatePublicContent } from "@/app/actions/revalidate-public-content";
 import {
   createAdminShowcaseCategory,
   createAdminShowcaseEntry,
@@ -84,6 +85,11 @@ async function invalidateAdminShowcaseQueries(queryClient: ReturnType<typeof use
     queryClient.invalidateQueries({ queryKey: ["showcase"] }),
     queryClient.invalidateQueries({ queryKey: ["showcase-categories"] }),
   ]);
+  // Rebuild the affected public pages too. Invalidating the TanStack cache only
+  // refreshes THIS admin's browser; the statically generated marketing pages
+  // every visitor sees are a separate cache, and without this they would serve
+  // the previous content until their ISR window elapsed.
+  await revalidatePublicContent("showcase");
 }
 
 export function useAdminShowcaseCategories() {

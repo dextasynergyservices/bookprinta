@@ -1,5 +1,5 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { act, render, screen, waitFor } from "@/test-utils";
 import { ManuscriptPreviewPanel } from "./manuscript-preview-panel";
 
 const updateBookSettingsMock = jest.fn();

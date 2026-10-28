@@ -9,6 +9,7 @@ import {
   renderNewBookOrderUserEmail,
 } from "@bookprinta/emails/render";
 import type {
+  AdminOrphanedPaymentsResponse,
   AdminPaymentsListQuery,
   AdminPaymentsListResponse,
   AdminPendingBankTransfersResponse,
@@ -93,6 +94,16 @@ const SIGNUP_LINK_DELIVERY_METADATA_KEY = "signupLinkDelivery";
  * Comfortably wider than the cron interval so a skipped run self-heals, and wide
  * enough to absorb a multi-hour webhook/redirect outage.
  */
+/**
+ * Hard cap on a single post-commit notification (email / WhatsApp).
+ *
+ * Bounds how long one slow provider can hold a webhook handler that has already
+ * committed the order. Well under Paystack's 10s delivery timeout, though note
+ * several notifications run in sequence so this alone does not guarantee the
+ * whole handler fits that budget.
+ */
+const POST_COMMIT_NOTIFICATION_TIMEOUT_MS = 5_000;
+
 const PAYMENT_RECONCILE_LOOKBACK_HOURS = 24;
 
 /** Transactions fetched per Paystack list call during reconciliation. */
@@ -1050,6 +1061,80 @@ export class PaymentsService {
     return this.listAdminPendingBankTransfers();
   }
 
+  /**
+   * Charges we took money for that never became Orders.
+   *
+   * `status: SUCCESS` + `processedAt` set + `orderId` null is the one payment
+   * state that costs a customer money and gives them nothing — no order, no
+   * book, no account, no email. It arises two ways:
+   *
+   *   - finalisation never ran (the browser never returned AND no webhook
+   *     arrived) — reconcilePaystackPayments() repairs these automatically;
+   *   - finalisation ran and hit a deterministic business-rule conflict, which
+   *     handlePaystackWebhook acknowledges rather than retrying into the void.
+   *     These need a human.
+   *
+   * Reconciliation can fix the first kind but nothing detects either kind, so
+   * before this existed the failure was completely silent. Oldest first — age
+   * is the urgency signal, exactly as with the bank-transfer SLA feed.
+   */
+  async listOrphanedPayments(limit = 50): Promise<AdminOrphanedPaymentsResponse> {
+    const rows = await this.prisma.payment.findMany({
+      where: {
+        status: PaymentStatus.SUCCESS,
+        processedAt: { not: null },
+        orderId: null,
+      },
+      orderBy: { createdAt: "asc" },
+      take: Math.max(1, Math.min(limit, 200)),
+      select: {
+        id: true,
+        providerRef: true,
+        provider: true,
+        type: true,
+        amount: true,
+        currency: true,
+        payerEmail: true,
+        payerPhone: true,
+        processedAt: true,
+        createdAt: true,
+      },
+    });
+
+    const totalItems = await this.prisma.payment.count({
+      where: {
+        status: PaymentStatus.SUCCESS,
+        processedAt: { not: null },
+        orderId: null,
+      },
+    });
+
+    const now = Date.now();
+    const ageMinutes = (at: Date) => Math.max(0, Math.floor((now - at.getTime()) / 60_000));
+
+    const items = rows.map((row) => ({
+      id: row.id,
+      providerRef: row.providerRef,
+      provider: row.provider,
+      type: row.type,
+      amount: Number(row.amount),
+      currency: row.currency,
+      payerEmail: row.payerEmail,
+      payerPhone: row.payerPhone,
+      processedAt: row.processedAt ? row.processedAt.toISOString() : null,
+      createdAt: row.createdAt.toISOString(),
+      ageMinutes: ageMinutes(row.createdAt),
+    }));
+
+    return {
+      items,
+      totalItems,
+      // Rows are ascending by createdAt, so the first is the oldest.
+      oldestAgeMinutes: items.length > 0 ? items[0].ageMinutes : null,
+      refreshedAt: new Date().toISOString(),
+    };
+  }
+
   async approveBankTransfer(params: { paymentId: string; adminId: string; adminNote?: string }) {
     const payment = await this.prisma.payment.findUnique({
       where: { id: params.paymentId },
@@ -1946,6 +2031,54 @@ export class PaymentsService {
     return pkg !== null;
   }
 
+  /**
+   * Classify a charge, distinguishing "not ours" from "ours but unresolvable".
+   *
+   * `isBookPrintaCharge` collapses these two into `false`, which is wrong for
+   * the second case. `resolvePackageFromCheckoutMetadata` requires
+   * `isActive: true` on both the package AND its category, so if an admin
+   * deactivates a package (or category) while a customer is mid-checkout, that
+   * customer's charge stops resolving — and a plain boolean makes it
+   * indistinguishable from another product's charge.
+   *
+   * Treating that as "foreign" would mean silently ignoring a charge we took
+   * money for, leaving no Payment row and therefore nothing for
+   * listOrphanedPayments() to surface. The money is gone and we have no record.
+   *
+   * So:
+   *   - "foreign"      → no BookPrinta checkout shape at all. Safe to ignore.
+   *   - "unresolvable" → carries our checkout shape (packageId/slug/tier, or a
+   *                      customQuoteId) but nothing resolves. Record it and let
+   *                      it surface for a human.
+   *   - "ours"         → resolves normally.
+   */
+  private async classifyCharge(
+    metadata: Record<string, unknown> | string | null | undefined
+  ): Promise<"ours" | "unresolvable" | "foreign"> {
+    if (await this.isBookPrintaCharge(metadata)) {
+      return "ours";
+    }
+
+    const record =
+      typeof metadata === "string" ? this.parseJsonRecord(metadata) : this.asRecord(metadata);
+    if (!record) return "foreign";
+
+    // A customQuoteId that does not resolve is still a claim to be one of ours.
+    const quoteCheckout = this.extractCustomQuoteCheckoutMetadata(record);
+    const customQuoteId = quoteCheckout
+      ? this.asString(quoteCheckout.customQuoteId)
+      : this.asString(record.customQuoteId);
+    if (customQuoteId) return "unresolvable";
+
+    const checkout = this.extractCheckoutMetadata(record);
+    if (!checkout) return "foreign";
+    if (checkout.packageId || checkout.packageSlug || checkout.tier) {
+      return "unresolvable";
+    }
+
+    return "foreign";
+  }
+
   // ────────────────────────────────────────────
   // Webhook handlers
   // ────────────────────────────────────────────
@@ -1970,16 +2103,69 @@ export class PaymentsService {
 
     // 2. Process based on event
     if (payload.event === "charge.success" && payload.data.status === "success") {
-      await this.createPaymentFromWebhook({
-        provider: PaymentProvider.PAYSTACK,
-        providerRef: reference,
-        amount: payload.data.amount / 100, // Paystack sends kobo
-        currency: payload.data.currency ?? DEFAULT_CURRENCY,
-        payerEmail: payload.data.customer?.email ?? null,
-        gatewayResponse: payload.data as unknown as Record<string, unknown>,
-        metadata: (payload.data.metadata as Record<string, unknown>) ?? null,
-      });
-      this.logger.log(`Paystack payment succeeded: ${reference}`);
+      const metadata = (payload.data.metadata as Record<string, unknown>) ?? null;
+
+      // Ignore charges that are not ours, but do NOT conflate that with a
+      // charge of ours we merely cannot resolve. See classifyCharge: a package
+      // deactivated mid-checkout stops resolving, and silently dropping such a
+      // charge would leave no Payment row and nothing for
+      // listOrphanedPayments() to surface — money taken, no record.
+      const classification = await this.classifyCharge(metadata);
+
+      if (classification === "foreign") {
+        this.logger.log(
+          `Paystack webhook ${reference} is not a BookPrinta charge — acknowledged and ignored`
+        );
+        return { status: "ok", message: "Not a BookPrinta charge" };
+      }
+
+      if (classification === "unresolvable") {
+        // Proceed deliberately: createPaymentFromWebhook records the Payment,
+        // logs that the package could not be resolved, and skips order
+        // creation. That leaves exactly the claimed-without-an-order state the
+        // orphaned-payment check reports, so it reaches a human instead of
+        // vanishing.
+        this.logger.error(
+          `Paystack webhook ${reference} carries BookPrinta checkout metadata that does not ` +
+            "resolve (deactivated package/category, or a missing custom quote). Recording the " +
+            "payment without an order so it surfaces for manual review."
+        );
+      }
+
+      try {
+        await this.createPaymentFromWebhook({
+          provider: PaymentProvider.PAYSTACK,
+          providerRef: reference,
+          amount: payload.data.amount / 100, // Paystack sends kobo
+          currency: payload.data.currency ?? DEFAULT_CURRENCY,
+          payerEmail: payload.data.customer?.email ?? null,
+          gatewayResponse: payload.data as unknown as Record<string, unknown>,
+          metadata,
+        });
+        this.logger.log(`Paystack payment succeeded: ${reference}`);
+      } catch (error) {
+        // A ConflictException here is a DETERMINISTIC business-rule failure —
+        // the phone belongs to another account, the account is deactivated, the
+        // metadata disagrees with the source order. Retrying cannot change the
+        // outcome, so returning non-2xx would make Paystack retry on a schedule
+        // until it gives up, and repeated failures can get a webhook endpoint
+        // disabled outright (which is how this project's reconcile cron died).
+        //
+        // So we ACK and leave the payment claimed-without-an-order. That is the
+        // exact state countOrphanedPayments() reports, so the charge surfaces
+        // for admin action instead of being retried into the void.
+        //
+        // Everything else — DB unavailable, Redis down, provider timeout — is
+        // transient and MUST propagate so Paystack retries it.
+        if (error instanceof ConflictException) {
+          this.logger.error(
+            `Paystack webhook ${reference} hit a business-rule conflict and cannot be retried: ` +
+              `${error.message}. Payment is recorded without an Order and needs admin action.`
+          );
+          return { status: "ok", message: "Acknowledged — manual review required" };
+        }
+        throw error;
+      }
     } else {
       this.logger.warn(
         `Paystack webhook event not handled: ${payload.event} — status: ${payload.data.status}`
@@ -4337,19 +4523,25 @@ export class PaymentsService {
     dashboardUrl?: string | null;
   }): Promise<void> {
     if (!this.whatsappNotificationsService) return;
-    await this.whatsappNotificationsService.sendPaymentConfirmation({
-      recipient: {
-        userName: params.userName,
-        phoneNumber: params.phoneNumber,
-        preferredLanguage: params.preferredLanguage,
-        whatsAppNotificationsEnabled: params.whatsAppNotificationsEnabled,
-      },
-      orderNumber: params.orderNumber,
-      amountLabel: params.amountPaid,
-      packageName: params.packageName,
-      addons: params.addons,
-      dashboardUrl: params.dashboardUrl,
-      variant: params.variant,
+    // CLAUDE.md Section 22: WhatsApp is supplementary and must fail silently —
+    // email and in-app notifications still work. The low-level sender guards
+    // itself, but asserting the policy here means a future change to that layer
+    // cannot start failing committed orders.
+    await this.runPostCommitNotification("payment confirmation WhatsApp", async () => {
+      await this.whatsappNotificationsService?.sendPaymentConfirmation({
+        recipient: {
+          userName: params.userName,
+          phoneNumber: params.phoneNumber,
+          preferredLanguage: params.preferredLanguage,
+          whatsAppNotificationsEnabled: params.whatsAppNotificationsEnabled,
+        },
+        orderNumber: params.orderNumber,
+        amountLabel: params.amountPaid,
+        packageName: params.packageName,
+        addons: params.addons,
+        dashboardUrl: params.dashboardUrl,
+        variant: params.variant,
+      });
     });
   }
 
@@ -4564,17 +4756,64 @@ export class PaymentsService {
       </div>
     `;
 
-    const sendResult = await this.resend.emails.send({
-      from: this.adminNotificationsFromEmail,
-      to: this.adminEmailRecipients,
-      subject,
-      html,
-    });
+    await this.runPostCommitNotification("online payment admin email", async () => {
+      const sendResult = await this.resend?.emails.send({
+        from: this.adminNotificationsFromEmail,
+        to: this.adminEmailRecipients,
+        subject,
+        html,
+      });
 
-    if (sendResult.error) {
+      if (sendResult?.error) {
+        this.logger.error(
+          `Failed to send online payment admin email: ${sendResult.error.name} — ${sendResult.error.message}`
+        );
+      }
+    });
+  }
+
+  /**
+   * Runs a notification that happens AFTER the order is already committed.
+   *
+   * Resend reports API-level problems via `sendResult.error`, but a transport
+   * failure — DNS, TLS, timeout — makes the call *reject*. Unguarded, that
+   * rejection propagates out of the webhook handler, which produces this chain:
+   *
+   *   order committed -> notification rejects -> webhook returns 5xx ->
+   *   Paystack retries -> the idempotency guard reports "already processed" ->
+   *   the remaining notifications are never sent.
+   *
+   * The customer ends up with an order they were never told about. Since the
+   * money is taken and the entities exist, abandoning a notification is strictly
+   * better than failing the request: admins can re-send, and the signup link in
+   * particular is independently tracked and re-sendable.
+   *
+   * The timeout also bounds how long one slow provider can hold the handler.
+   * Note it does NOT by itself guarantee the whole webhook fits Paystack's 10s
+   * budget — several notifications run in sequence. That needs finalisation
+   * moved off the request path entirely; see the launch checklist.
+   */
+  private async runPostCommitNotification(label: string, task: () => Promise<void>): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        task(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`timed out after ${POST_COMMIT_NOTIFICATION_TIMEOUT_MS}ms`)),
+            POST_COMMIT_NOTIFICATION_TIMEOUT_MS
+          );
+        }),
+      ]);
+    } catch (error) {
+      // Deliberately swallowed — see the method docs. Logged at error level so it
+      // is still visible in Sentry/Pino.
       this.logger.error(
-        `Failed to send online payment admin email: ${sendResult.error.name} — ${sendResult.error.message}`
+        `Post-commit notification "${label}" failed and was not retried inline: ` +
+          `${error instanceof Error ? error.message : error}`
       );
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 

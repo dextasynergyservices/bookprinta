@@ -16,6 +16,15 @@ import {
 /** How many AuditLog rows to delete per batch — avoids long-running transactions. */
 const DELETE_BATCH_SIZE = 1_000;
 
+/**
+ * Ceiling on an operator-supplied reconciliation lookback (30 days).
+ *
+ * A wider sweep costs one Paystack page request per 100 transactions, so an
+ * unbounded value could run for a long time and burn API quota. 30 days covers
+ * recovering from a schedule that was disabled without noticing.
+ */
+const MAX_RECONCILE_LOOKBACK_HOURS = 24 * 30;
+
 type AuditLogArchiveResult = {
   cutoffDate: string;
   totalDeleted: number;
@@ -128,7 +137,22 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
    * Paystack webhook URL. See PaymentsService.reconcilePaystackPayments().
    */
   private async runPaymentReconciliation(job: Job) {
-    const result = await this.paymentsService.reconcilePaystackPayments();
+    // An optional lookback on the job payload lets an operator run a wider sweep
+    // (e.g. after a schedule has been disabled for days) without a code change.
+    // Routine cron ticks omit it and get the 24h default.
+    const requested = (job.data as { lookbackHours?: unknown } | undefined)?.lookbackHours;
+    const lookbackHours =
+      typeof requested === "number" && Number.isFinite(requested) && requested > 0
+        ? Math.min(Math.floor(requested), MAX_RECONCILE_LOOKBACK_HOURS)
+        : undefined;
+
+    if (lookbackHours) {
+      this.logger.log(`Payment reconciliation running with a ${lookbackHours}h lookback window`);
+    }
+
+    const result = await this.paymentsService.reconcilePaystackPayments(
+      lookbackHours ? { lookbackHours } : {}
+    );
 
     const logLine =
       `Payment reconciliation job ${String(job.id ?? "unknown")} (source=${this.readSource(job)}) — ` +

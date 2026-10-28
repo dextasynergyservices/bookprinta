@@ -4,6 +4,7 @@ import type { Request } from "express";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import type { JwtPayload } from "../interfaces/index.js";
+import { resolveJwtSecret } from "../jwt-secret.util.js";
 
 /**
  * JWT Access Token Strategy
@@ -27,7 +28,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, "jwt") {
         ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || "fallback-dev-secret-change-me",
+      secretOrKey: resolveJwtSecret(),
     });
   }
 

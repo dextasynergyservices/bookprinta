@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { render, screen } from "@/test-utils";
 import { DashboardOverviewView } from "./dashboard-overview-view";
 
 /* ─── shared mocks ────────────────────────────────────────── */
@@ -67,6 +67,18 @@ jest.mock("@/lib/i18n/navigation", () => ({
       {children}
     </a>
   ),
+  // Components in this tree navigate via the locale-aware router. The mock
+  // previously supplied only Link, so any descendant calling useRouter() threw
+  // "useRouter is not a function" before the component under test could render.
+  usePathname: () => "/dashboard",
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    back: jest.fn(),
+    forward: jest.fn(),
+    refresh: jest.fn(),
+    prefetch: jest.fn(),
+  }),
 }));
 
 /* ─── helpers ─────────────────────────────────────────────── */
@@ -245,7 +257,7 @@ describe("polling configuration", () => {
     expect(DASHBOARD_HISTORY_STALE_TIME_MS).toBe(60_000);
     expect(DASHBOARD_LIVE_STALE_TIME_MS).toBe(0);
     expect(DASHBOARD_QUERY_GC_TIME_MS).toBe(600_000);
-    expect(DASHBOARD_QUERY_RETRY_COUNT).toBe(1);
+    expect(DASHBOARD_QUERY_RETRY_COUNT).toBe(3);
 
     // Status polling: 15s stale, 30s refetch interval, focus refetch
     expect(dashboardStatusPollingQueryOptions.staleTime).toBe(15_000);

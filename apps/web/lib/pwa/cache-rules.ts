@@ -32,29 +32,53 @@ export const PWA_RUNTIME_POLICY_CONFIG = {
   protectedApi: {
     strategy: "NetworkOnly",
   },
+  // ─── Documents and RSC payloads: NetworkFirst, not StaleWhileRevalidate ───
+  //
+  // These carry admin-managed content (pricing, showcase entries, resources),
+  // which is rendered server-side. StaleWhileRevalidate serves the cached copy
+  // FIRST by definition and refreshes behind it, so an admin edit only appeared
+  // on a visitor's SECOND visit. Shortening maxAge did not help — the policy is
+  // stale-first at any TTL.
+  //
+  // NetworkFirst inverts it: always try the network, fall back to cache only
+  // when the network fails. Admin changes are therefore visible immediately,
+  // and offline still works (CLAUDE.md Section 23.5).
+  //
+  // The timeout is deliberately short. Our audience is largely on Nigerian
+  // mobile networks, where a 10s wait before falling back to cache would feel
+  // broken; 3s keeps a poor connection responsive while a healthy one always
+  // gets fresh content.
+  //
+  // maxAge is LONGER than before, not shorter: under NetworkFirst the cache is
+  // purely an offline fallback, so a wider window makes offline more useful
+  // rather than serving staler content.
   marketingDocuments: {
-    strategy: "StaleWhileRevalidate",
+    strategy: "NetworkFirst",
     cacheName: "marketing-pages",
     maxEntries: 64,
-    maxAgeSeconds: FIVE_MINUTES_IN_SECONDS,
+    maxAgeSeconds: FOUR_HOURS_IN_SECONDS,
+    networkTimeoutSeconds: 3,
   },
   marketingRsc: {
-    strategy: "StaleWhileRevalidate",
+    strategy: "NetworkFirst",
     cacheName: "marketing-rsc",
     maxEntries: 64,
-    maxAgeSeconds: FIVE_MINUTES_IN_SECONDS,
+    maxAgeSeconds: FOUR_HOURS_IN_SECONDS,
+    networkTimeoutSeconds: 3,
   },
   dashboardDocuments: {
-    strategy: "StaleWhileRevalidate",
+    strategy: "NetworkFirst",
     cacheName: "dashboard-shell-pages",
     maxEntries: 64,
-    maxAgeSeconds: FIVE_MINUTES_IN_SECONDS,
+    maxAgeSeconds: FOUR_HOURS_IN_SECONDS,
+    networkTimeoutSeconds: 3,
   },
   dashboardRsc: {
-    strategy: "StaleWhileRevalidate",
+    strategy: "NetworkFirst",
     cacheName: "dashboard-shell-rsc",
     maxEntries: 64,
-    maxAgeSeconds: FIVE_MINUTES_IN_SECONDS,
+    maxAgeSeconds: FOUR_HOURS_IN_SECONDS,
+    networkTimeoutSeconds: 3,
   },
   readonlyApi: {
     strategy: "NetworkFirst",
@@ -107,8 +131,9 @@ export const pwaRuntimeCaching: RuntimeCaching[] = [
   {
     matcher: ({ sameOrigin, request, url }) =>
       sameOrigin && request.destination === "document" && isMarketingCachePath(url.pathname),
-    handler: new StaleWhileRevalidate({
+    handler: new NetworkFirst({
       cacheName: PWA_RUNTIME_POLICY_CONFIG.marketingDocuments.cacheName,
+      networkTimeoutSeconds: PWA_RUNTIME_POLICY_CONFIG.marketingDocuments.networkTimeoutSeconds,
       plugins: [
         createCacheableResponsePlugin(),
         createExpirationPlugin(
@@ -121,8 +146,9 @@ export const pwaRuntimeCaching: RuntimeCaching[] = [
   {
     matcher: ({ sameOrigin, request, url }) =>
       sameOrigin && request.headers.get("RSC") === "1" && isMarketingCachePath(url.pathname),
-    handler: new StaleWhileRevalidate({
+    handler: new NetworkFirst({
       cacheName: PWA_RUNTIME_POLICY_CONFIG.marketingRsc.cacheName,
+      networkTimeoutSeconds: PWA_RUNTIME_POLICY_CONFIG.marketingRsc.networkTimeoutSeconds,
       plugins: [
         createCacheableResponsePlugin(),
         createExpirationPlugin(
@@ -135,8 +161,9 @@ export const pwaRuntimeCaching: RuntimeCaching[] = [
   {
     matcher: ({ sameOrigin, request, url }) =>
       sameOrigin && request.destination === "document" && isDashboardShellPath(url.pathname),
-    handler: new StaleWhileRevalidate({
+    handler: new NetworkFirst({
       cacheName: PWA_RUNTIME_POLICY_CONFIG.dashboardDocuments.cacheName,
+      networkTimeoutSeconds: PWA_RUNTIME_POLICY_CONFIG.dashboardDocuments.networkTimeoutSeconds,
       plugins: [
         createCacheableResponsePlugin(),
         createExpirationPlugin(
@@ -149,8 +176,9 @@ export const pwaRuntimeCaching: RuntimeCaching[] = [
   {
     matcher: ({ sameOrigin, request, url }) =>
       sameOrigin && request.headers.get("RSC") === "1" && isDashboardShellPath(url.pathname),
-    handler: new StaleWhileRevalidate({
+    handler: new NetworkFirst({
       cacheName: PWA_RUNTIME_POLICY_CONFIG.dashboardRsc.cacheName,
+      networkTimeoutSeconds: PWA_RUNTIME_POLICY_CONFIG.dashboardRsc.networkTimeoutSeconds,
       plugins: [
         createCacheableResponsePlugin(),
         createExpirationPlugin(

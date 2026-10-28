@@ -53,7 +53,11 @@ describe("use-admin-notifications", () => {
     expect(options.queryKey).toEqual(ADMIN_UNREAD_COUNT_QUERY_KEY);
     expect(options.enabled).toBe(true);
     expect(options.refetchInterval).toBe(ADMIN_NOTIFICATIONS_POLL_INTERVAL_MS);
-    expect(options.refetchIntervalInBackground).toBe(true);
+    // Deliberately NOT background-polling. Each poll costs Redis commands,
+    // and an unfocused admin tab polling every 30s was pure waste against
+    // the Upstash quota (see docs/infra-cost-hardening-plan.md). Polling
+    // resumes on focus via refetchOnWindowFocus below.
+    expect(options.refetchIntervalInBackground).toBe(false);
     expect(options.refetchOnWindowFocus).toBe(true);
     expect(options.refetchOnMount).toBe("always");
   });

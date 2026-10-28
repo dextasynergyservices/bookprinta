@@ -470,6 +470,7 @@ export class BooksService {
         id: true,
         wordCount: true,
         status: true,
+        version: true,
         pageSize: true,
         fontSize: true,
         title: true,
@@ -495,23 +496,48 @@ export class BooksService {
           })
         : null;
 
-    const updated = await this.prisma.book.update({
-      where: { id: bookId },
-      data: {
-        ...(input.title !== undefined ? { title: input.title } : {}),
-        pageSize: input.pageSize,
-        fontSize: input.fontSize,
-        estimatedPages,
-      },
-      select: {
-        id: true,
-        title: true,
-        pageSize: true,
-        fontSize: true,
-        wordCount: true,
-        estimatedPages: true,
-        updatedAt: true,
-      },
+    // Compare-and-swap on version. The status check above read a snapshot, so
+    // without this an approval that commits in between would be silently undone:
+    // this write would land on an APPROVED book and the reformat enqueued below
+    // would reset it to AI_PROCESSING (APPROVED is not in TERMINAL_BOOK_STATUSES)
+    // while its PDF job was already in flight. approveUserBook increments
+    // version, so that interleave now fails here instead.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.book.updateMany({
+        where: { id: bookId, version: book.version },
+        data: {
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          pageSize: input.pageSize,
+          fontSize: input.fontSize,
+          estimatedPages,
+          version: { increment: 1 },
+        },
+      });
+
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          "This book changed while you were updating it. Refresh and try again."
+        );
+      }
+
+      const row = await tx.book.findUnique({
+        where: { id: bookId },
+        select: {
+          id: true,
+          title: true,
+          pageSize: true,
+          fontSize: true,
+          wordCount: true,
+          estimatedPages: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!row) {
+        throw new NotFoundException(`Book "${bookId}" not found`);
+      }
+
+      return row;
     });
 
     const pageSize = this.resolvePageSize(updated.pageSize);
@@ -2201,6 +2227,7 @@ export class BooksService {
         id: true,
         orderId: true,
         status: true,
+        version: true,
         pageCount: true,
         currentHtmlUrl: true,
         finalPdfUrl: true,
@@ -2234,14 +2261,26 @@ export class BooksService {
       }
 
       await this.prisma.$transaction(async (tx) => {
-        await tx.book.update({
-          where: { id: book.id },
+        // Compare-and-swap on (version, status): this method decided to approve
+        // from a snapshot read outside the transaction, so a concurrent writer
+        // may have moved the book on since. Guarding on the snapshot's version
+        // AND status makes the stale write fail instead of silently winning.
+        // Must run before the order update so a conflict rolls both back.
+        const claimed = await tx.book.updateMany({
+          where: { id: book.id, version: book.version, status: "REVIEW" },
           data: {
             status: "IN_PRODUCTION",
             productionStatus: "IN_PRODUCTION",
             productionStatusUpdatedAt: new Date(),
+            version: { increment: 1 },
           },
         });
+
+        if (claimed.count === 0) {
+          throw new ConflictException(
+            "This book changed while you were approving it. Refresh and try again."
+          );
+        }
 
         await tx.order.update({
           where: { id: book.orderId },
@@ -2302,12 +2341,31 @@ export class BooksService {
     this.rollout.assertFinalPdfAccess(book);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.book.update({
-        where: { id: book.id },
+      // Compare-and-swap on (version, status) — see the reprint path above.
+      //
+      // This is the billing-critical case. `requiredExtraAmount` was derived
+      // from the pageCount read in the snapshot above. If a settings change
+      // landed in between, the pipeline's markFormattingQueued() has already
+      // moved the book to AI_PROCESSING and nulled pageCount, so committing
+      // here would both resurrect a stale status and bill overage against a
+      // page count that no longer applies. The status predicate catches that
+      // (the pipeline changes status without touching version); the version
+      // predicate catches any other concurrent writer.
+      //
+      // Ordered before the order update so a conflict rolls both back.
+      const claimed = await tx.book.updateMany({
+        where: { id: book.id, version: book.version, status: "PREVIEW_READY" },
         data: {
           status: "APPROVED",
+          version: { increment: 1 },
         },
       });
+
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          "This book changed while you were approving it. Refresh and try again."
+        );
+      }
 
       await tx.order.update({
         where: { id: book.orderId },

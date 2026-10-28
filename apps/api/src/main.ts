@@ -7,6 +7,7 @@ import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 import { cleanupOpenApiDoc, ZodValidationPipe } from "nestjs-zod";
 import { AppModule } from "./app.module.js";
+import { assertJwtSecretConfigured } from "./auth/jwt-secret.util.js";
 import { installRedisCommandMeter } from "./health/redis-command-meter.js";
 import { RuntimeTelemetryService } from "./health/runtime-telemetry.service.js";
 import { SentryExceptionFilter } from "./sentry/sentry-exception.filter.js";
@@ -14,6 +15,16 @@ import { SentryExceptionFilter } from "./sentry/sentry-exception.filter.js";
 const bootstrapStartedAt = Date.now();
 
 async function bootstrap() {
+  // Fail fast on an untrustworthy signing secret, BEFORE anything else starts.
+  //
+  // Previously four call sites fell back to a hardcoded "fallback-dev-secret"
+  // when JWT_SECRET was unset, with no validation anywhere. A deployment missing
+  // that one variable would have signed and verified tokens with a string that
+  // is public in this repository — i.e. anyone could forge a SUPER_ADMIN
+  // session, silently. Refusing to boot is the only safe response; a running
+  // server with a known secret is worse than no server.
+  assertJwtSecretConfigured();
+
   // Phase 0 baseline instrumentation (docs/infra-cost-hardening-plan.md).
   // MUST run before NestFactory.create() — module initialisation opens Redis
   // connections and BullMQ starts issuing commands immediately, so a later

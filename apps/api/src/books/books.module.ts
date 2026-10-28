@@ -1,7 +1,7 @@
 import { BullModule } from "@nestjs/bullmq";
 import { Module } from "@nestjs/common";
 import { MulterModule } from "@nestjs/platform-express";
-import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
+import { MULTER_FILE_SIZE_LIMIT_BYTES } from "../cloudinary/cloudinary.service.js";
 import { EngineModule } from "../engine/engine.module.js";
 import { FilesModule } from "../files/files.module.js";
 import {
@@ -22,7 +22,7 @@ import { ManuscriptAnalysisService } from "./manuscript-analysis.service.js";
   imports: [
     MulterModule.register({
       limits: {
-        fileSize: MAX_FILE_SIZE_BYTES,
+        fileSize: MULTER_FILE_SIZE_LIMIT_BYTES,
       },
     }),
     BullModule.registerQueue(

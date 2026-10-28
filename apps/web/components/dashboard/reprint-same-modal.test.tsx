@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps, ReactNode } from "react";
+import { fireEvent, render, screen, waitFor } from "@/test-utils";
 import { ReprintSameModal } from "./reprint-same-modal";
 
 function setViewportWidth(width: number) {
@@ -59,6 +59,11 @@ const DASHBOARD_TRANSLATIONS: Record<string, string> = {
   reprint_same_page_count_unavailable: "Final page count unavailable",
   copies: "Number of Copies",
   reprint_same_decrease_copies: "Decrease copies",
+  // Provider buttons read these keys, not the reprint_same_* namespace.
+  reprint_pay_cta: "Pay & Reprint",
+  reprint_pay_with_paystack: "Pay with Paystack",
+  reprint_pay_with_stripe: "Pay with Stripe",
+  reprint_pay_bank_transfer: "Pay by bank transfer",
   reprint_same_increase_copies: "Increase copies",
   reprint_same_min_copies: "Minimum {count} copies",
   reprint_same_live_price_label: "Live Reprint Price",
@@ -147,6 +152,12 @@ jest.mock("@/hooks/use-auth-session", () => ({
 jest.mock("@/hooks/usePayments", () => ({
   usePaymentGateways: (...args: unknown[]) => usePaymentGatewaysMock(...args),
   payReprint: (...args: unknown[]) => payReprintMock(...args),
+  // The modal calls this to tell a bank-transfer response apart from an online
+  // one. Omitting it made the call throw inside handleOnlinePayment's try, so
+  // the flow landed on the error step and never reached the redirect — which
+  // looked like a redirect bug rather than a missing mock.
+  isReprintBankTransferResponse: (response: Record<string, unknown>) =>
+    "bankTransfer" in response && response.bankTransfer === true,
 }));
 
 jest.mock("@/lib/browser-navigation", () => ({
@@ -167,6 +178,18 @@ jest.mock("@/lib/i18n/navigation", () => ({
       {children}
     </a>
   ),
+  // Components in this tree navigate via the locale-aware router. The mock
+  // previously supplied only Link, so any descendant calling useRouter() threw
+  // "useRouter is not a function" before the component under test could render.
+  usePathname: () => "/dashboard",
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    back: jest.fn(),
+    forward: jest.fn(),
+    refresh: jest.fn(),
+    prefetch: jest.fn(),
+  }),
 }));
 
 jest.mock("framer-motion", () => {
@@ -308,7 +331,7 @@ describe("ReprintSameModal", () => {
     );
   });
 
-  it("enforces the minimum copies and updates the live price as settings change", async () => {
+  it("enforces the minimum copies and updates the live price as the copy count changes", async () => {
     const user = userEvent.setup();
 
     render(
@@ -322,23 +345,29 @@ describe("ReprintSameModal", () => {
       />
     );
 
-    expect(screen.getByText(/32,000/)).toBeInTheDocument();
+    // Copies are the ONLY variable. Reprint reproduces the exact same document
+    // at its original size, so there is no size/paper/lamination picker any
+    // more (CLAUDE.md constraint #29) — those are shown as read-only facts.
+    // Total is simply costPerCopy x copies: 2,220 x 25 = 55,500.
+    expect(screen.getByText(/55,500/)).toBeInTheDocument();
 
+    // The original print settings are displayed, not selectable.
+    expect(screen.queryByRole("radio", { name: "A4" })).not.toBeInTheDocument();
+    expect(screen.getByText(/A5/)).toBeInTheDocument();
+
+    // 25 is the floor, so decreasing from it is a no-op.
     await user.click(screen.getByRole("button", { name: "Decrease copies" }));
 
     expect(screen.getByRole("textbox", { name: "Number of Copies" })).toHaveDisplayValue("25");
-    expect(screen.getByText(/32,000/)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("radio", { name: "A4" }));
-
-    expect(screen.getByText(/64,000/)).toBeInTheDocument();
+    expect(screen.getByText(/55,500/)).toBeInTheDocument();
 
     const copiesInput = screen.getByRole("textbox", { name: "Number of Copies" });
     fireEvent.change(copiesInput, { target: { value: "30" } });
     fireEvent.blur(copiesInput);
 
     await waitFor(() => expect(copiesInput).toHaveDisplayValue("30"));
-    expect(screen.getByText(/76,800/)).toBeInTheDocument();
+    // 2,220 x 30 = 66,600.
+    expect(screen.getByText(/66,600/)).toBeInTheDocument();
   });
 
   it("shows the unavailable support state when same-file reprint cannot start", () => {
@@ -399,7 +428,7 @@ describe("ReprintSameModal", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("starts an authenticated inline reprint payment with the selected settings", async () => {
+  it("starts an authenticated inline reprint payment for the chosen copy count", async () => {
     const user = userEvent.setup();
 
     render(
@@ -413,26 +442,32 @@ describe("ReprintSameModal", () => {
       />
     );
 
-    await user.click(screen.getByRole("radio", { name: "A4" }));
-
     const copiesInput = screen.getByRole("textbox", { name: "Number of Copies" });
     fireEvent.change(copiesInput, { target: { value: "30" } });
     fireEvent.blur(copiesInput);
 
-    await user.click(screen.getByRole("button", { name: "Pay with Paystack" }));
+    // The modal opens on the details step. Provider buttons only exist after
+    // advancing to payment_method, so the CTA comes first.
+    await user.click(screen.getByRole("button", { name: "Pay & Reprint" }));
+    await user.click(await screen.findByRole("button", { name: "Pay with Paystack" }));
 
+    // The request carries only what the user can actually choose. Size, paper
+    // and lamination are inherited from the original book server-side, so
+    // sending them would invite a client/server disagreement about what is
+    // being reprinted.
     await waitFor(() =>
       expect(payReprintMock).toHaveBeenCalledWith({
         sourceBookId: "cm1111111111111111111111111",
         copies: 30,
-        bookSize: "A4",
-        paperColor: "white",
-        lamination: "gloss",
         provider: "PAYSTACK",
         callbackUrl: window.location.href,
       })
     );
-    expect(redirectToUrlMock).toHaveBeenCalledWith("https://checkout.example.com/reprint");
+    // The redirect happens after payReprint resolves, so it needs its own wait
+    // rather than being asserted synchronously off the previous one.
+    await waitFor(() =>
+      expect(redirectToUrlMock).toHaveBeenCalledWith("https://checkout.example.com/reprint")
+    );
   });
 
   it("disables reprint payment actions offline", async () => {
@@ -450,15 +485,20 @@ describe("ReprintSameModal", () => {
       />
     );
 
-    const paystackButton = screen.getByRole("button", { name: "Pay with Paystack" });
+    // Offline is gated at the details-step CTA, which is where the user is when
+    // the connection drops — they never reach provider selection. This matches
+    // CLAUDE.md Section 23.5: disable the action, do not queue it offline.
+    const payCta = screen.getByRole("button", { name: "Pay & Reprint" });
 
-    expect(paystackButton).toBeDisabled();
+    expect(payCta).toBeDisabled();
     expect(
       screen.getByText("You're offline — some features require an internet connection")
     ).toBeInTheDocument();
 
-    await user.click(paystackButton);
+    await user.click(payCta);
 
+    // Still on details: no provider selection, and nothing dispatched.
+    expect(screen.queryByRole("button", { name: "Pay with Paystack" })).not.toBeInTheDocument();
     expect(payReprintMock).not.toHaveBeenCalled();
     expect(redirectToUrlMock).not.toHaveBeenCalled();
   });
