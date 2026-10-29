@@ -6,7 +6,6 @@ import {
   Injectable,
   Logger,
   Optional,
-  ServiceUnavailableException,
 } from "@nestjs/common";
 import { normalizePhoneNumber } from "../../auth/phone-number.util.js";
 import type { Prisma } from "../../generated/prisma/client.js";
@@ -21,6 +20,7 @@ import { NotificationsService } from "../../notifications/notifications.service.
 import { WhatsappNotificationsService } from "../../notifications/whatsapp-notifications.service.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { resolvePackageFromCheckoutMetadata } from "../checkout-package.js";
+import { generateOrderNumber } from "../order-number.js";
 import {
   asNumber,
   asRecord,
@@ -1010,19 +1010,9 @@ export class CheckoutFulfillmentService {
     return resolvePackageFromCheckoutMetadata(this.prisma, checkout);
   }
 
+  /** Kept as a method so specs can make order numbers deterministic. */
   private async generateOrderNumber(tx: Prisma.TransactionClient): Promise<string> {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
-      const candidate = `BP-${new Date().getFullYear()}-${randomPart}`;
-
-      const existing = await tx.order.findUnique({
-        where: { orderNumber: candidate },
-        select: { id: true },
-      });
-      if (!existing) return candidate;
-    }
-
-    throw new ServiceUnavailableException("Unable to generate a unique order number");
+    return generateOrderNumber(tx);
   }
 
   private async createCustomQuoteEntitiesFromMetadata(params: {

@@ -11,7 +11,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from "@nestjs/common";
 import { Resend } from "resend";
 import type { Prisma } from "../../generated/prisma/client.js";
@@ -25,6 +24,7 @@ import {
 } from "../../generated/prisma/enums.js";
 import { NotificationsService } from "../../notifications/notifications.service.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
+import { generateOrderNumber } from "../order-number.js";
 import {
   resolveAdminEmailRecipients,
   resolveAdminNotificationsFromEmail,
@@ -353,7 +353,7 @@ export class ReprintPaymentService {
       const paperColor = sourceBook.order.paperColor ?? reprint.paperColor ?? "white";
       const lamination = sourceBook.order.lamination ?? reprint.lamination ?? "gloss";
 
-      const orderNumber = await this.generateOrderNumber(tx);
+      const orderNumber = await generateOrderNumber(tx);
       const amount = toCurrency(params.amount);
       const now = new Date();
 
@@ -616,21 +616,6 @@ export class ReprintPaymentService {
       costPerPage > 0 ? costPerPage : DEFAULT_REPRINT_COST_PER_PAGE,
       coverCost > 0 ? coverCost : DEFAULT_REPRINT_COVER_COST,
     ];
-  }
-
-  private async generateOrderNumber(tx: Prisma.TransactionClient): Promise<string> {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
-      const candidate = `BP-${new Date().getFullYear()}-${randomPart}`;
-
-      const existing = await tx.order.findUnique({
-        where: { orderNumber: candidate },
-        select: { id: true },
-      });
-      if (!existing) return candidate;
-    }
-
-    throw new ServiceUnavailableException("Unable to generate a unique order number");
   }
 
   private buildLocalizedDashboardUrl(locale: Locale): string {
