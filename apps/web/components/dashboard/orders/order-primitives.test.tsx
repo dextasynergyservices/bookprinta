@@ -9,7 +9,8 @@ describe("OrderStatusBadge", () => {
 
     const badge = screen.getByText("Processing");
     expect(badge).toHaveAttribute("data-tone", "active");
-    expect(badge.className).toContain("text-[#007eff]");
+    // Blue text on a blue tint uses the lighter brand tint (WCAG AA contrast).
+    expect(badge.className).toContain("text-[#4da3ff]");
   });
 
   it("renders delivered tone from book status", () => {

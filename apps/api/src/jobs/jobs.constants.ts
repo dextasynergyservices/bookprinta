@@ -96,6 +96,20 @@ const WORKER_STALLED_INTERVAL_MS = 300_000;
 const WORKER_RUN_RETRY_DELAY_MS = 30_000;
 
 /**
+ * Milliseconds a pipeline worker holds a job lock between renewals.
+ *
+ * BullMQ renews the lock every lockDuration/2 on a timer. The default (30s)
+ * means a 15s event-loop stall loses the lock. On Render's free tier (0.1 CPU)
+ * a pipeline job can block that long — parsing an 80 MB rendered PDF to count
+ * pages, or mammoth expanding a large DOCX — and with `maxStalledCount: 1` a
+ * lost lock fails the job or runs it twice. 5 minutes tolerates a 2.5-minute
+ * stall. The trade-off is that a job orphaned by a hard crash is reclaimed up
+ * to lockDuration + stalledInterval (~10 min) later, which is acceptable for a
+ * queue that processes a handful of books per day.
+ */
+const PIPELINE_LOCK_DURATION_MS = 300_000;
+
+/**
  * Worker options for the three pipeline queues (AI formatting, page count, PDF
  * generation). All are `concurrency: 1` — the pipeline is strictly sequential.
  */
@@ -103,6 +117,7 @@ export const PIPELINE_WORKER_OPTS = {
   concurrency: 1,
   drainDelay: WORKER_DRAIN_DELAY_SECONDS,
   stalledInterval: WORKER_STALLED_INTERVAL_MS,
+  lockDuration: PIPELINE_LOCK_DURATION_MS,
   runRetryDelay: WORKER_RUN_RETRY_DELAY_MS,
 } as const;
 

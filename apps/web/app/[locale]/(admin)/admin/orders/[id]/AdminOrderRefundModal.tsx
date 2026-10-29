@@ -519,7 +519,7 @@ export function AdminOrderRefundModal({
                     type="button"
                     onClick={() => setStep("confirm")}
                     disabled={Boolean(validationMessage) || isPending}
-                    className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                    className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
                   >
                     {tAdmin("orders_refund_next")}
                     <ArrowRight className="size-4" aria-hidden="true" />
@@ -606,7 +606,7 @@ export function AdminOrderRefundModal({
                     type="button"
                     onClick={handleConfirmRefund}
                     disabled={isPending}
-                    className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                    className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
                   >
                     {isPending ? (
                       <>
@@ -704,7 +704,7 @@ export function AdminOrderRefundModal({
                   <Button
                     type="button"
                     onClick={() => onOpenChange(false)}
-                    className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                    className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
                   >
                     {tAdmin("orders_refund_success_close")}
                   </Button>

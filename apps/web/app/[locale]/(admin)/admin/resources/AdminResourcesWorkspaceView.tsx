@@ -1638,7 +1638,7 @@ export function AdminResourcesWorkspaceView() {
             </Button>
             <Button
               type="button"
-              className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white hover:bg-[#0f8aff]"
+              className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white hover:bg-accent-strong-hover"
               onClick={() => {
                 void handleSaveCategoryEdit();
               }}
@@ -1961,7 +1961,7 @@ export function AdminResourcesWorkspaceView() {
             </Button>
             <Button
               type="button"
-              className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white hover:bg-[#0f8aff]"
+              className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white hover:bg-accent-strong-hover"
               onClick={() => {
                 void handleSaveArticleEdit();
               }}

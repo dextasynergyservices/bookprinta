@@ -141,7 +141,7 @@ function ConfirmationContent() {
         </p>
         <Link
           href="/dashboard"
-          className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-[#007eff] px-6 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110"
+          className="mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-accent-strong px-6 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110"
         >
           {t("new_book_confirm_back_dashboard")}
         </Link>
@@ -175,7 +175,7 @@ function ConfirmationContent() {
       <div className="mt-4 flex flex-col gap-3 sm:flex-row">
         <Link
           href="/dashboard/orders"
-          className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#007eff] px-6 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110"
+          className="inline-flex min-h-11 items-center justify-center rounded-full bg-accent-strong px-6 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110"
         >
           {t("new_book_confirm_view_orders")}
         </Link>
@@ -188,7 +188,7 @@ function ConfirmationContent() {
       </div>
 
       {isBankTransfer ? (
-        <p className="mt-2 font-sans text-xs text-white/40">{t("new_book_confirm_bank_note")}</p>
+        <p className="mt-2 font-sans text-xs text-white/50">{t("new_book_confirm_bank_note")}</p>
       ) : null}
     </motion.div>
   );

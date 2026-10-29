@@ -38,10 +38,12 @@ const mockPrismaService = {
     findFirst: jest.fn().mockResolvedValue(null),
   },
   payment: {
-    aggregate: jest.fn(),
+    findMany: jest.fn(),
   },
   systemSetting: {
     findMany: jest.fn(),
+    // No extra_page_price row → the ₦10 default applies.
+    findUnique: jest.fn().mockResolvedValue(null),
   },
   paymentGateway: {
     findMany: jest.fn(),
@@ -67,6 +69,7 @@ const mockManuscriptAnalysisService = {
   detectMimeType: jest.fn(),
   validateFileIntegrity: jest.fn(),
   extractWordCount: jest.fn(),
+  analyzeManuscript: jest.fn(),
   estimatePages: jest.fn(),
   extractDocumentPageCount: jest.fn(),
 };
@@ -177,6 +180,7 @@ describe("BooksService", () => {
         wordCount: 58_000,
         pageSize: "A4",
         fontSize: 12,
+        reference: null,
       });
       expect(mockBooksPipelineService.enqueueFormatManuscript).toHaveBeenCalledWith({
         bookId: "cm1111111111111111111111111",
@@ -269,7 +273,10 @@ describe("BooksService", () => {
       mockManuscriptAnalysisService.detectMimeType.mockReturnValue(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       );
-      mockManuscriptAnalysisService.extractWordCount.mockResolvedValue(42_000);
+      mockManuscriptAnalysisService.analyzeManuscript.mockResolvedValue({
+        wordCount: 42_000,
+        layout: { paragraphLengths: [420], sectionBreaks: 12 },
+      });
       mockManuscriptAnalysisService.estimatePages.mockReturnValue(164);
       mockFilesService.uploadFile.mockResolvedValue({
         id: "file_123",
@@ -326,7 +333,10 @@ describe("BooksService", () => {
         fontSize: 12,
       });
       mockManuscriptAnalysisService.detectMimeType.mockReturnValue("application/pdf");
-      mockManuscriptAnalysisService.extractWordCount.mockResolvedValue(30_000);
+      mockManuscriptAnalysisService.analyzeManuscript.mockResolvedValue({
+        wordCount: 30_000,
+        layout: null,
+      });
       mockManuscriptAnalysisService.estimatePages.mockReturnValue(128);
       mockFilesService.uploadFile.mockRejectedValue(
         new ServiceUnavailableException("scanner offline")
@@ -819,9 +829,10 @@ describe("BooksService", () => {
           package: { pageLimit: 150 },
         },
       });
-      mockPrismaService.payment.aggregate.mockResolvedValue({
-        _sum: { amount: { toNumber: () => 100 } },
-      });
+      // 25 overage pages at ₦10 = ₦250 due; only ₦100 paid.
+      mockPrismaService.payment.findMany.mockResolvedValue([
+        { amount: { toNumber: () => 100 }, metadata: { extraPages: 10 } },
+      ]);
 
       await expect(
         service.approveUserBook("user_1", "cm1111111111111111111111111", {})
@@ -845,9 +856,9 @@ describe("BooksService", () => {
           package: { pageLimit: 150 },
         },
       });
-      mockPrismaService.payment.aggregate.mockResolvedValue({
-        _sum: { amount: { toNumber: () => 200 } },
-      });
+      mockPrismaService.payment.findMany.mockResolvedValue([
+        { amount: { toNumber: () => 200 }, metadata: { extraPages: 20 } },
+      ]);
       txBookUpdate.mockResolvedValue({});
       txOrderUpdate.mockResolvedValue({});
       mockBooksPipelineService.enqueueGeneratePdf.mockResolvedValue({

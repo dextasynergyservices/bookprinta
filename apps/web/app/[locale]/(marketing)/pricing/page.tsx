@@ -14,7 +14,12 @@ import {
   type PackageCategory,
 } from "@/lib/api/packages";
 
-export async function generateMetadata({ params: { locale } }: { params: { locale: string } }) {
+type PricingPageProps = {
+  params: Promise<{ locale: string }>;
+};
+
+export async function generateMetadata({ params }: PricingPageProps) {
+  const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "pricing" });
   return {
     title: `${t("title")} — BookPrinta`,
@@ -22,7 +27,8 @@ export async function generateMetadata({ params: { locale } }: { params: { local
   };
 }
 
-export default async function PricingPage({ params: { locale } }: { params: { locale: string } }) {
+export default async function PricingPage({ params }: PricingPageProps) {
+  const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "pricing" });
   const queryClient = new QueryClient();
 

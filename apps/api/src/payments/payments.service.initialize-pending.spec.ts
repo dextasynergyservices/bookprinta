@@ -18,6 +18,9 @@ function createService() {
     package: {
       findFirst: jest.fn(),
     },
+    customQuote: {
+      findUnique: jest.fn(),
+    },
   };
 
   const paystackService = {
@@ -173,6 +176,7 @@ describe("PaymentsService initialize pending payments", () => {
     prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
     prisma.user.findFirst.mockResolvedValue(null);
     prisma.user.findMany.mockResolvedValue([]);
+    prisma.customQuote.findUnique.mockResolvedValue({ finalPrice: 50000 });
     paystackService.initialize.mockResolvedValue({
       authorization_url: "https://paystack.test/custom-quote",
       reference: "pay_ref_quote_1",

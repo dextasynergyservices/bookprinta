@@ -107,7 +107,9 @@ const packageTemplates: PackageTemplateSeed[] = [
 
 const packageCategories: PackageCategorySeed[] = [
   {
-    name: "Author Lunch",
+    name: "Author Launch",
+    // Slug keeps the historical typo: seeding upserts by slug, so renaming it
+    // would create a duplicate category in existing databases.
     slug: "author-lunch",
     description: "For author-focused publishing bundles with fixed default copies.",
     copies: 25,
@@ -117,7 +119,7 @@ const packageCategories: PackageCategorySeed[] = [
     packageSlugPrefix: "author-launch",
   },
   {
-    name: "Dexta Lunch",
+    name: "Dexta Launch",
     slug: "dexta-lunch",
     description: "For Dexta-focused publishing bundles with fixed default copies.",
     copies: 35,

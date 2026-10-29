@@ -286,7 +286,7 @@ export function PaymentReceiptLightbox({
                         <Button
                           type="button"
                           asChild
-                          className="min-h-11 rounded-full bg-[#007eff] px-4 font-sans text-sm font-bold text-white hover:bg-[#0069d9]"
+                          className="min-h-11 rounded-full bg-accent-strong px-4 font-sans text-sm font-bold text-white hover:bg-accent-strong-hover"
                         >
                           <a href={preview.receiptUrl} target="_blank" rel="noreferrer">
                             <ExternalLink className="size-4" aria-hidden="true" />

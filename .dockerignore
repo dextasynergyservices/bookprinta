@@ -1,11 +1,26 @@
-node_modules
+# Dependencies are installed inside the image. `**/` matters: a bare
+# `node_modules` only excludes the ROOT one, so the host's apps/*/node_modules
+# (Windows/macOS native binaries, absolute symlinks) were being copied over the
+# Linux install.
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+**/*.tsbuildinfo
+**/test-results
+**/playwright-report
+
 .git
-.env*
-*.md
-playwright-report
-e2e
-docs
 .github
-.turbo
-dist
-coverage
+.husky
+.tmp-phase9
+.env*
+**/.env*
+*.md
+docs
+e2e
+
+# The API image needs only the web app's manifest (for the frozen lockfile).
+apps/web/*
+!apps/web/package.json

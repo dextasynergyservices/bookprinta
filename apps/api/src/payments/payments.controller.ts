@@ -117,7 +117,7 @@ export class PaymentsController {
   @ApiResponse({ status: 429, description: "Too many payment initialization attempts" })
   @ApiResponse({ status: 503, description: "Payment provider unavailable (API keys missing)" })
   async initialize(@Body() dto: InitializePaymentDto) {
-    return this.paymentsService.initialize(dto);
+    return this.paymentsService.initializePublic(dto);
   }
 
   /**

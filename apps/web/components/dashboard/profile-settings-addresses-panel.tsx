@@ -106,7 +106,7 @@ export function ProfileSettingsAddressesPanel() {
             <Button
               type="button"
               onClick={openCreatePanel}
-              className="font-sans min-h-12 w-full rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0a72df] sm:w-auto"
+              className="font-sans min-h-12 w-full rounded-full bg-accent-strong px-6 text-sm font-semibold text-white hover:bg-accent-strong-hover sm:w-auto"
             >
               <Plus className="mr-2 size-4" aria-hidden="true" />
               {tDashboard("addresses_add")}
@@ -146,7 +146,7 @@ export function ProfileSettingsAddressesPanel() {
             <Button
               type="button"
               onClick={openCreatePanel}
-              className="font-sans mt-6 min-h-12 w-full rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0a72df] sm:w-auto"
+              className="font-sans mt-6 min-h-12 w-full rounded-full bg-accent-strong px-6 text-sm font-semibold text-white hover:bg-accent-strong-hover sm:w-auto"
             >
               {tDashboard("addresses_add_first")}
             </Button>

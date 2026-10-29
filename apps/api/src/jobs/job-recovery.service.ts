@@ -22,10 +22,12 @@ const RECOVERY_INTERVAL_MS = 30_000;
 /**
  * Safety sweep interval (Phase 6). Even when no park has been signalled in this
  * process, query the DB this often so jobs parked by a previous process or
- * another instance are still recovered. 15 min → ~96 queries/day vs the old
- * ~2,880, while remaining robust to a missed signal or horizontal scaling.
+ * another instance are still recovered. Hourly: each sweep wakes a suspended
+ * Neon compute for at least 5 minutes, and the Free plan's 100 CU-hours cannot
+ * afford a 15-minute cadence. Parks in this process are still recovered within
+ * 30 s via the signal, and a restart is covered by boot reconciliation.
  */
-const SAFETY_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+const SAFETY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
  * Expire jobs that have been PENDING_REDIS for more than 30 minutes.

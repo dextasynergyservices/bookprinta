@@ -92,6 +92,7 @@ const mockBooksPipelineService = {
 const mockManuscriptAnalysisService = {
   detectMimeType: jest.fn(),
   extractWordCount: jest.fn(),
+  analyzeManuscript: jest.fn(),
   estimatePages: jest.fn(),
 };
 

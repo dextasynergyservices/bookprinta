@@ -384,7 +384,25 @@ function createFlowHarness() {
     },
   };
 
+  // Minimal in-memory AuthSession store: completing signup logs the user in,
+  // which now creates one session row per device.
+  const authSessions: Array<Record<string, unknown>> = [];
+  const authSession = {
+    create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      authSessions.push({ ...data, lastUsedAt: new Date() });
+      return data;
+    }),
+    deleteMany: jest.fn(async () => ({ count: 0 })),
+    findMany: jest.fn(async () => []),
+    findFirst: jest.fn(
+      async ({ where }: { where: Record<string, unknown> }) =>
+        authSessions.find((row) => row.id === where.id && row.userId === where.userId) ?? null
+    ),
+    updateMany: jest.fn(async () => ({ count: 1 })),
+  };
+
   const prisma = {
+    authSession,
     paymentGateway: {
       findUnique: jest.fn(async () => ({ isEnabled: true })),
     },

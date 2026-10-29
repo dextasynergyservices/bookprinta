@@ -411,7 +411,7 @@ function PendingTransferCard({
             type="button"
             onClick={() => onApprove(item)}
             disabled={approveLoading || rejectLoading}
-            className="min-h-12 rounded-full bg-[#007eff] font-sans text-sm font-bold text-white hover:bg-[#0069d9]"
+            className="min-h-12 rounded-full bg-accent-strong font-sans text-sm font-bold text-white hover:bg-accent-strong-hover"
           >
             <ShieldCheck className="size-4" aria-hidden="true" />
             <span>
@@ -575,7 +575,7 @@ function PendingTransferDesktopTable({
                       type="button"
                       onClick={() => onApprove(item)}
                       disabled={isApproveLoading || isRejectLoading}
-                      className="min-h-11 rounded-full bg-[#007eff] px-4 font-sans text-sm font-bold text-white hover:bg-[#0069d9]"
+                      className="min-h-11 rounded-full bg-accent-strong px-4 font-sans text-sm font-bold text-white hover:bg-accent-strong-hover"
                     >
                       {isApproveLoading
                         ? tAdmin("payments_pending_approve_loading")
@@ -785,7 +785,7 @@ export function AdminPaymentsView() {
                     <Button
                       type="button"
                       onClick={() => void pendingTransfers.refetch()}
-                      className="mt-4 min-h-11 rounded-full bg-[#007eff] px-4 font-sans text-sm font-bold text-white hover:bg-[#0069d9]"
+                      className="mt-4 min-h-11 rounded-full bg-accent-strong px-4 font-sans text-sm font-bold text-white hover:bg-accent-strong-hover"
                     >
                       {tAdmin("payments_pending_retry")}
                     </Button>

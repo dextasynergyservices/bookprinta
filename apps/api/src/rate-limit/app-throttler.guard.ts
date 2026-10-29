@@ -1,11 +1,20 @@
 import { type ExecutionContext, HttpException, HttpStatus, Injectable } from "@nestjs/common";
 import { ThrottlerGuard, type ThrottlerLimitDetail } from "@nestjs/throttler";
 import type { Response } from "express";
+import { resolveRequestTracker } from "./tracker.utils.js";
 
 const RATE_LIMIT_MESSAGE = "Too many attempts. Please wait before trying again.";
 
 @Injectable()
 export class AppThrottlerGuard extends ThrottlerGuard {
+  /**
+   * Default identity for every throttler without its own `getTracker`:
+   * the signed-in user, else the proxy-resolved client IP. See tracker.utils.ts.
+   */
+  protected async getTracker(req: Record<string, unknown>): Promise<string> {
+    return resolveRequestTracker(req);
+  }
+
   protected async throwThrottlingException(
     context: ExecutionContext,
     throttlerLimitDetail: ThrottlerLimitDetail

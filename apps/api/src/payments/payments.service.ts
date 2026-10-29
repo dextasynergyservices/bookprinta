@@ -32,6 +32,7 @@ import { Resend } from "resend";
 import { normalizePhoneNumber } from "../auth/phone-number.util.js";
 import { MAX_FILE_SIZE_BYTES } from "../cloudinary/cloudinary.service.js";
 import { CloudinaryService } from "../cloudinary/index.js";
+import { verifyRecaptchaToken } from "../common/recaptcha.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import {
   BookStatus,
@@ -51,8 +52,15 @@ import { WhatsappNotificationsService } from "../notifications/whatsapp-notifica
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { ScannerService } from "../scanner/scanner.service.js";
+import { PAYSTACK_PRODUCT_TAG, PAYSTACK_PRODUCT_TAG_KEY } from "./constants.js";
 import type { InitializePaymentDto } from "./dto/payment-request.dto.js";
 import { AdminPaymentListService } from "./services/admin-payment-list.service.js";
+import {
+  CHECKOUT_PRICING_SIGNATURE_KEY,
+  CHECKOUT_PRICING_VERSION,
+  CHECKOUT_PRICING_VERSION_KEY,
+  CheckoutPricingService,
+} from "./services/checkout-pricing.service.js";
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
 import { GatewayService } from "./services/gateway.service.js";
 import { PayPalService } from "./services/paypal.service.js";
@@ -67,7 +75,6 @@ import { StripeService } from "./services/stripe.service.js";
 
 const MAX_SIGNUP_TOKEN_HOURS = 24;
 const BANK_TRANSFER_ADMIN_WHATSAPP_FALLBACK = "+2348103208297";
-const EXTRA_PAGE_PRICE_NGN = 10;
 const DEFAULT_DASHBOARD_PATH = "/dashboard";
 const BANK_TRANSFER_REJECTED_TITLE_KEY = "notifications.bank_transfer_rejected.title";
 const BANK_TRANSFER_REJECTED_MESSAGE_KEY = "notifications.bank_transfer_rejected.message";
@@ -108,6 +115,12 @@ const PAYMENT_RECONCILE_LOOKBACK_HOURS = 24;
 
 /** Transactions fetched per Paystack list call during reconciliation. */
 const PAYMENT_RECONCILE_PAGE_SIZE = 100;
+
+/**
+ * How long reconciliation remembers a reference it has already settled (ours and
+ * processed, or the other product's). Longer than the widest manual lookback.
+ */
+const PAYMENT_RECONCILE_MEMO_TTL_MS = 31 * 24 * 60 * 60 * 1000;
 const SIGNUP_LINK_DELIVERY_MAX_ATTEMPTS = 3;
 
 type CheckoutAddonMetadata = {
@@ -115,6 +128,7 @@ type CheckoutAddonMetadata = {
   slug?: string;
   name?: string;
   price?: number;
+  wordCount?: number | null;
 };
 
 type CheckoutMetadata = {
@@ -147,6 +161,8 @@ type CheckoutMetadata = {
   source?: string;
   /** User ID when order placed from dashboard (set server-side by DashboardService) */
   dashboardUserId?: string;
+  /** HMAC over the server-computed pricing — see CheckoutPricingService. */
+  pricingSignature?: string;
 };
 
 type CustomQuoteCheckoutMetadata = {
@@ -245,6 +261,16 @@ type DashboardOrderEmailDeliverySnapshot = {
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
+  /**
+   * References reconciliation has already settled, so a 10-minute tick with no
+   * new charges makes no database query and Neon can scale to zero. Outcomes are
+   * final (an order exists, or the charge is not ours); a restart only costs one
+   * query per reference. Values: classification and expiry (ms epoch).
+   */
+  private readonly reconciledReferences = new Map<
+    string,
+    { kind: "processed" | "foreign"; expiresAt: number }
+  >();
   private _resend: Resend | null = null;
   private get resend(): Resend | null {
     return this._resend;
@@ -266,6 +292,7 @@ export class PaymentsService {
   private refundService!: RefundService;
   private reprintPaymentService!: ReprintPaymentService;
   private extraPagesService!: ExtraPagesPaymentService;
+  private checkoutPricing!: CheckoutPricingService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -276,14 +303,15 @@ export class PaymentsService {
     private readonly cloudinary: CloudinaryService,
     private readonly signupNotificationsService: SignupNotificationsService,
     private readonly notificationsService: NotificationsService,
-    private readonly rollout: RolloutService,
+    rollout: RolloutService,
     @Optional() private readonly whatsappService: WhatsappService | null,
     @Optional() private readonly whatsappNotificationsService: WhatsappNotificationsService | null,
     @Optional() gatewayServiceInject?: GatewayService,
     @Optional() adminPaymentListServiceInject?: AdminPaymentListService,
     @Optional() refundServiceInject?: RefundService,
     @Optional() reprintPaymentServiceInject?: ReprintPaymentService,
-    @Optional() extraPagesServiceInject?: ExtraPagesPaymentService
+    @Optional() extraPagesServiceInject?: ExtraPagesPaymentService,
+    @Optional() checkoutPricingServiceInject?: CheckoutPricingService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     this.frontendBaseUrl = this.resolveFrontendBaseUrl();
@@ -311,6 +339,7 @@ export class PaymentsService {
       new ReprintPaymentService(prisma, this.gatewayService, notificationsService);
     this.extraPagesService =
       extraPagesServiceInject ?? new ExtraPagesPaymentService(prisma, this.gatewayService, rollout);
+    this.checkoutPricing = checkoutPricingServiceInject ?? new CheckoutPricingService(prisma);
   }
 
   // ────────────────────────────────────────────
@@ -337,10 +366,20 @@ export class PaymentsService {
    * PENDING payment after the provider session is created so we persist the
    * full checkout metadata before any webhook/provider truncation can happen.
    */
-  async initialize(dto: InitializePaymentDto) {
-    const provider = dto.provider.toUpperCase() as PaymentProvider;
-    const normalizedMetadata = this.asRecord(dto.metadata);
-    const checkoutMetadata = this.extractCheckoutMetadata(normalizedMetadata);
+  /**
+   * Public entry point for `POST /payments/initialize`. Dashboard identity and
+   * signed pricing are server-only fields, so they are dropped from the body
+   * before the shared initialize path runs.
+   */
+  async initializePublic(input: InitializePaymentDto) {
+    return this.initialize({
+      ...input,
+      metadata: this.stripClientTrustedMetadata(this.asRecord(input.metadata)) ?? undefined,
+    });
+  }
+
+  async initialize(input: InitializePaymentDto) {
+    const provider = input.provider.toUpperCase() as PaymentProvider;
 
     // 1. Check gateway is enabled
     await this.ensureGatewayEnabled(provider);
@@ -348,13 +387,30 @@ export class PaymentsService {
     // 2. Ensure the provider SDK is available
     this.ensureProviderAvailable(provider);
 
+    // Identity first: "this phone belongs to another account" is more useful
+    // to the customer than any pricing error.
     await this.assertCheckoutIdentityConflict({
-      email: dto.email,
-      phone: checkoutMetadata?.phone ?? null,
+      email: input.email,
+      phone: this.extractCheckoutMetadata(this.asRecord(input.metadata))?.phone ?? null,
     });
-    await this.assertInitialCheckoutMetadataReady(normalizedMetadata);
 
-    // 3. Generate a unique reference
+    // 3. Re-price on the server. The browser's amount is only compared, never
+    //    charged — see CheckoutPricingService for the full rationale.
+    const priced = await this.priceCheckoutMetadata({
+      metadata: this.asRecord(input.metadata),
+      clientAmount: input.amount,
+      currency: input.currency,
+    });
+    const normalizedMetadata = priced.metadata;
+    const checkoutMetadata = this.extractCheckoutMetadata(normalizedMetadata);
+    const dto = {
+      ...input,
+      amount: priced.amount,
+      currency: DEFAULT_CURRENCY,
+      metadata: normalizedMetadata,
+    };
+
+    // 4. Generate a unique reference
     const reference = this.generateReference();
 
     this.logger.log(
@@ -747,8 +803,14 @@ export class PaymentsService {
     await this.ensureGatewayEnabled(PaymentProvider.BANK_TRANSFER);
 
     const reference = this.generateReference("bt");
+    const priced = await this.priceCheckoutMetadata({
+      metadata: { ...params.metadata, dashboardUserId: params.userId, source: "dashboard" },
+      clientAmount: params.amount,
+      currency: params.currency,
+    });
+    const expectedAmount = priced.amount;
     const metadata: Record<string, unknown> = {
-      ...params.metadata,
+      ...priced.metadata,
       fullName: params.payerName,
       phone: params.payerPhone,
       payerEmail: params.payerEmail,
@@ -759,8 +821,8 @@ export class PaymentsService {
       data: {
         provider: PaymentProvider.BANK_TRANSFER,
         type: PaymentType.INITIAL,
-        amount: params.amount,
-        currency: params.currency || DEFAULT_CURRENCY,
+        amount: expectedAmount,
+        currency: DEFAULT_CURRENCY,
         status: PaymentStatus.AWAITING_APPROVAL,
         providerRef: reference,
         receiptUrl: params.receiptUrl ?? null,
@@ -773,7 +835,7 @@ export class PaymentsService {
     });
 
     this.logger.log(
-      `Dashboard bank transfer submitted — ${params.payerName} — ₦${params.amount} — ref: ${reference}`
+      `Dashboard bank transfer submitted — ${params.payerName} — ₦${expectedAmount} — ref: ${reference}`
     );
 
     const orderSummary = await this.resolveBankTransferOrderSummary({
@@ -792,7 +854,7 @@ export class PaymentsService {
       payerName: params.payerName,
       payerEmail: params.payerEmail,
       payerPhone: params.payerPhone,
-      amount: params.amount,
+      amount: expectedAmount,
       receiptUrl: params.receiptUrl ?? "",
       locale,
     });
@@ -832,14 +894,22 @@ export class PaymentsService {
     });
 
     const reference = this.generateReference("bt");
-    const checkoutMetadata = (dto.metadata as Record<string, unknown>) ?? {};
-    await this.assertInitialCheckoutMetadataReady(checkoutMetadata);
-    const customQuoteCheckout = this.extractCustomQuoteCheckoutMetadata(checkoutMetadata);
-    if (customQuoteCheckout && !receiptFile) {
+    // Public endpoint: the client cannot assert a dashboard identity, and the
+    // amount the admin approves against must be the server's price, not one the
+    // browser typed in.
+    const clientMetadata = this.stripClientTrustedMetadata(this.asRecord(dto.metadata));
+    if (this.extractCustomQuoteCheckoutMetadata(clientMetadata) && !receiptFile) {
       throw new BadRequestException(
         "Receipt file upload is required for custom quote bank transfers."
       );
     }
+    const priced = await this.priceCheckoutMetadata({
+      metadata: clientMetadata,
+      clientAmount: dto.amount,
+      currency: dto.currency,
+    });
+    const checkoutMetadata = priced.metadata;
+    const expectedAmount = priced.amount;
     const metadata: Record<string, unknown> = {
       ...checkoutMetadata,
       fullName: dto.payerName,
@@ -859,8 +929,8 @@ export class PaymentsService {
       data: {
         provider: PaymentProvider.BANK_TRANSFER,
         type: PaymentType.INITIAL,
-        amount: dto.amount,
-        currency: dto.currency ?? DEFAULT_CURRENCY,
+        amount: expectedAmount,
+        currency: DEFAULT_CURRENCY,
         status: PaymentStatus.AWAITING_APPROVAL,
         providerRef: reference,
         receiptUrl: resolvedReceiptUrl,
@@ -874,7 +944,7 @@ export class PaymentsService {
     });
 
     this.logger.log(
-      `Bank transfer submitted — ${dto.payerName} — ₦${dto.amount} — ref: ${reference}`
+      `Bank transfer submitted — ${dto.payerName} — ₦${expectedAmount} — ref: ${reference}`
     );
 
     const orderSummary = await this.resolveBankTransferOrderSummary({
@@ -891,7 +961,7 @@ export class PaymentsService {
       payerName: dto.payerName,
       payerEmail: dto.payerEmail,
       payerPhone: dto.payerPhone,
-      amount: dto.amount,
+      amount: expectedAmount,
       receiptUrl: resolvedReceiptUrl,
       locale,
     });
@@ -1567,104 +1637,9 @@ export class PaymentsService {
     callbackUrl?: string;
     userId: string;
   }) {
-    const provider = params.provider.toUpperCase() as PaymentProvider;
-    await this.ensureGatewayEnabled(provider);
-    this.ensureProviderAvailable(provider);
-
-    // Use authoritative gate values from Book.pageCount + Package.pageLimit.
-    const book = await this.prisma.book.findUnique({
-      where: { id: params.bookId },
-      select: {
-        id: true,
-        userId: true,
-        orderId: true,
-        pageCount: true,
-        order: {
-          select: {
-            id: true,
-            package: {
-              select: {
-                pageLimit: true,
-              },
-            },
-          },
-        },
-        user: {
-          select: { email: true },
-        },
-      },
-    });
-
-    if (!book) {
-      throw new NotFoundException(`Book "${params.bookId}" not found`);
-    }
-
-    if (book.userId !== params.userId) {
-      throw new BadRequestException("You can only pay for your own books");
-    }
-
-    this.rollout.assertBillingGateAccess(book);
-
-    if (typeof book.pageCount !== "number") {
-      throw new BadRequestException(
-        "Authoritative page count is not ready yet. Please try again shortly."
-      );
-    }
-
-    const overagePages = Math.max(0, book.pageCount - book.order.package.pageLimit);
-    if (overagePages <= 0) {
-      throw new BadRequestException("No extra pages payment is required for this manuscript.");
-    }
-
-    if (params.extraPages !== overagePages) {
-      throw new BadRequestException(
-        `Extra pages mismatch. Current overage is ${overagePages}. Please refresh and try again.`
-      );
-    }
-
-    const amount = overagePages * EXTRA_PAGE_PRICE_NGN;
-
-    await this.prisma.order.update({
-      where: { id: book.orderId },
-      data: {
-        status: OrderStatus.PENDING_EXTRA_PAYMENT,
-        extraAmount: amount,
-      },
-    });
-
-    const reference = this.generateReference("ep");
-
-    // Create payment record
-    const payment = await this.prisma.payment.create({
-      data: {
-        provider,
-        type: PaymentType.EXTRA_PAGES,
-        amount,
-        currency: DEFAULT_CURRENCY,
-        status: PaymentStatus.PENDING,
-        providerRef: reference,
-        orderId: book.orderId,
-        userId: params.userId,
-        metadata: {
-          bookId: params.bookId,
-          extraPages: overagePages,
-          costPerPage: EXTRA_PAGE_PRICE_NGN,
-          pageCount: book.pageCount,
-          pageLimit: book.order.package.pageLimit,
-          requiredAmount: amount,
-        },
-      } as Prisma.PaymentUncheckedCreateInput,
-    });
-
-    // Delegate to provider
-    return this.delegateInitialize(provider, {
-      email: book.user.email,
-      amount,
-      reference,
-      callbackUrl: params.callbackUrl,
-      paymentId: payment.id,
-      orderId: book.orderId,
-    });
+    // Single implementation lives in ExtraPagesPaymentService (price comes from
+    // the admin `extra_page_price` setting; only unpaid pages are charged).
+    return this.extraPagesService.payExtraPages(params);
   }
 
   /**
@@ -1911,25 +1886,55 @@ export class PaymentsService {
 
     summary.scanned = transactions.length;
 
+    const now = Date.now();
+    for (const [reference, memo] of this.reconciledReferences) {
+      if (memo.expiresAt <= now) this.reconciledReferences.delete(reference);
+    }
+    const remember = (reference: string, kind: "processed" | "foreign") => {
+      this.reconciledReferences.set(reference, {
+        kind,
+        expiresAt: now + PAYMENT_RECONCILE_MEMO_TTL_MS,
+      });
+    };
+
     for (const transaction of transactions) {
       const reference = transaction.reference?.trim();
       if (!reference) continue;
 
-      // Shared integration: ignore the other product's charges entirely.
-      if (!(await this.isBookPrintaCharge(transaction.metadata))) {
-        summary.skippedForeign += 1;
+      const memo = this.reconciledReferences.get(reference);
+      if (memo) {
+        if (memo.kind === "foreign") {
+          summary.skippedForeign += 1;
+        } else {
+          summary.ours += 1;
+          summary.alreadyProcessed += 1;
+        }
         continue;
       }
-      summary.ours += 1;
 
-      // Cheap pre-check so a healthy window costs one indexed lookup per row
-      // instead of a Paystack verify round-trip.
+      // One indexed lookup per row. A Payment row with this reference means we
+      // created the charge (extra pages and reprints are pre-created PENDING),
+      // so it is ours regardless of what its metadata looks like.
       const existing = await this.prisma.payment.findUnique({
         where: { providerRef: reference },
         select: { processedAt: true, orderId: true },
       });
+
+      // Shared integration: ignore the other product's charges entirely.
+      const ours =
+        existing !== null ||
+        this.hasBookPrintaProductTag(transaction.metadata) ||
+        (await this.isBookPrintaCharge(transaction.metadata));
+      if (!ours) {
+        summary.skippedForeign += 1;
+        remember(reference, "foreign");
+        continue;
+      }
+      summary.ours += 1;
+
       if (existing?.processedAt && existing.orderId) {
         summary.alreadyProcessed += 1;
+        remember(reference, "processed");
         continue;
       }
 
@@ -1937,6 +1942,7 @@ export class PaymentsService {
         // Same finalisation path as the browser redirect — idempotent.
         await this.verify(reference, "PAYSTACK");
         summary.finalised += 1;
+        remember(reference, "processed");
         this.logger.warn(
           `Payment reconciliation finalised orphaned Paystack charge ${reference} ` +
             "(no webhook and the browser never returned)"
@@ -2002,6 +2008,15 @@ export class PaymentsService {
    *
    * Paystack may return metadata as a JSON string rather than an object.
    */
+  /** True when Paystack metadata carries BookPrinta's product tag (constants.ts). */
+  private hasBookPrintaProductTag(
+    metadata: Record<string, unknown> | string | null | undefined
+  ): boolean {
+    const record =
+      typeof metadata === "string" ? this.parseJsonRecord(metadata) : this.asRecord(metadata);
+    return record?.[PAYSTACK_PRODUCT_TAG_KEY] === PAYSTACK_PRODUCT_TAG;
+  }
+
   private async isBookPrintaCharge(
     metadata: Record<string, unknown> | string | null | undefined
   ): Promise<boolean> {
@@ -2055,7 +2070,10 @@ export class PaymentsService {
   private async classifyCharge(
     metadata: Record<string, unknown> | string | null | undefined
   ): Promise<"ours" | "unresolvable" | "foreign"> {
-    if (await this.isBookPrintaCharge(metadata)) {
+    // Tagged at creation (constants.ts) — covers extra-page and reprint
+    // charges, whose metadata has no checkout shape. Whether they resolve is
+    // decided downstream (an unresolvable one is recorded as an orphan).
+    if (this.hasBookPrintaProductTag(metadata) || (await this.isBookPrintaCharge(metadata))) {
       return "ours";
     }
 
@@ -2451,7 +2469,9 @@ export class PaymentsService {
         metadata: mergedMetadata,
         amount: data.amount,
         currency: data.currency,
-        existingUserId: this.asString(mergedMetadata?.dashboardUserId) || undefined,
+        // Only the DB-recorded owner (set server-side at initialize) is trusted
+        // here; a metadata dashboardUserId is honoured only when signed.
+        existingUserId: existingPayment.userId ?? undefined,
       });
 
       const isDashboardOrder = this.asString(mergedMetadata?.source) === "dashboard";
@@ -2556,7 +2576,6 @@ export class PaymentsService {
       metadata,
       amount: data.amount,
       currency: data.currency,
-      existingUserId: this.asString(metadata?.dashboardUserId) || undefined,
     });
 
     const isDashboardNewPayment = this.asString(metadata?.source) === "dashboard";
@@ -2811,16 +2830,28 @@ export class PaymentsService {
       });
     }
 
-    const checkout = this.extractCheckoutMetadata(params.metadata);
-    if (!checkout) return null;
+    const rawCheckout = this.extractCheckoutMetadata(params.metadata);
+    if (!rawCheckout) return null;
 
-    const pkg = await this.resolvePackageFromCheckoutMetadata(checkout);
+    const pkg = await this.resolvePackageFromCheckoutMetadata(rawCheckout);
     if (!pkg) {
       this.logger.warn(
         `Webhook payment ${params.paymentId}: package could not be resolved from metadata, skipping order creation`
       );
       return null;
     }
+
+    // Never build an Order from pricing the server did not compute, and never
+    // for less than that price. Throws ConflictException on underpayment, which
+    // the webhook ACKs and leaves as an orphaned payment for admin review.
+    const trusted = await this.resolveTrustedCheckout({
+      paymentId: params.paymentId,
+      checkout: rawCheckout,
+      paidAmount: params.amount,
+      currency: params.currency,
+    });
+    const checkout = trusted.checkout;
+    const existingUserId = params.existingUserId ?? trusted.dashboardUserId;
 
     const locale = this.resolveLocale(checkout.locale);
     const normalizedPhone = checkout.phone?.trim() || null;
@@ -2829,9 +2860,9 @@ export class PaymentsService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        let user = params.existingUserId
+        let user = existingUserId
           ? await tx.user.findUnique({
-              where: { id: params.existingUserId },
+              where: { id: existingUserId },
             })
           : null;
 
@@ -2915,7 +2946,9 @@ export class PaymentsService {
         const orderNumber = await this.generateOrderNumber(tx);
         const totalAmount = this.toCurrency(checkout.totalPrice ?? params.amount);
         const initialAmount = this.toCurrency(params.amount);
-        const appliedCoupon = await this.resolveAppliedCouponForOrder(tx, checkout, initialAmount);
+        const appliedCoupon = await this.resolveAppliedCouponForOrder(tx, checkout, initialAmount, {
+          honorDiscount: trusted.signed ? (checkout.discountAmount ?? 0) : 0,
+        });
         const discountAmount = appliedCoupon?.discountAmount ?? 0;
 
         const order = await tx.order.create({
@@ -3434,26 +3467,236 @@ export class PaymentsService {
     return addons.map((a) => a.name).filter(Boolean);
   }
 
-  private async assertInitialCheckoutMetadataReady(
+  /**
+   * Metadata keys only the server may set. Stripped from every public request
+   * body so a guest cannot attach a payment to another user's account or
+   * smuggle in pre-signed pricing.
+   */
+  private stripClientTrustedMetadata(
     metadata: Record<string, unknown> | null
-  ): Promise<void> {
-    const checkout = this.extractCheckoutMetadata(metadata);
+  ): Record<string, unknown> | null {
+    if (!metadata) return null;
+    const {
+      dashboardUserId: _dashboardUserId,
+      source: _source,
+      checkout_state: _checkoutState,
+      [CHECKOUT_PRICING_SIGNATURE_KEY]: _signature,
+      [CHECKOUT_PRICING_VERSION_KEY]: _version,
+      ...rest
+    } = metadata;
+    return rest;
+  }
+
+  /**
+   * Price a checkout on the server and return the amount to charge together
+   * with metadata whose pricing fields are the server's (and signed).
+   *
+   * Callers pass `metadata.dashboardUserId` only when it is server-derived
+   * (DashboardService, QuotesService, an authenticated session); public request
+   * bodies go through `stripClientTrustedMetadata` first.
+   */
+  private async priceCheckoutMetadata(params: {
+    metadata: Record<string, unknown> | null;
+    clientAmount: number;
+    currency?: string | null;
+  }): Promise<{ amount: number; metadata: Record<string, unknown> }> {
+    this.checkoutPricing.assertCurrency(params.currency);
+
+    const {
+      checkout_state: _checkoutState,
+      [CHECKOUT_PRICING_SIGNATURE_KEY]: _signature,
+      [CHECKOUT_PRICING_VERSION_KEY]: _version,
+      ...base
+    } = params.metadata ?? {};
+
+    const checkout = this.extractCheckoutMetadata(base);
     if (!checkout) {
       throw new BadRequestException(
         "Checkout metadata is missing. Return to pricing and try again."
       );
     }
 
-    if (this.extractCustomQuoteCheckoutMetadata(metadata)) {
+    const customQuote = this.extractCustomQuoteCheckoutMetadata(base);
+    if (customQuote) {
+      const quote = await this.prisma.customQuote.findUnique({
+        where: { id: customQuote.customQuoteId },
+        select: { finalPrice: true },
+      });
+      const finalPrice = this.toCurrency(Number(quote?.finalPrice ?? 0));
+      if (!quote || finalPrice <= 0) {
+        throw new BadRequestException(
+          "This quote is not ready for payment yet. Please use the payment link from your email."
+        );
+      }
+      this.checkoutPricing.assertClientAmountMatches(params.clientAmount, finalPrice);
+      return { amount: finalPrice, metadata: { ...base, quoteFinalPrice: finalPrice } };
+    }
+
+    const quote = await this.checkoutPricing.quote({
+      packageId: checkout.packageId,
+      packageSlug: checkout.packageSlug ?? checkout.tier,
+      addons: (checkout.addons ?? []).map((addon) => ({
+        id: addon.id,
+        slug: addon.slug,
+        wordCount: addon.wordCount,
+      })),
+      formattingWordCount: checkout.formattingWordCount,
+      couponCode: checkout.couponCode,
+    });
+    this.checkoutPricing.assertClientAmountMatches(params.clientAmount, quote.totalPrice);
+
+    const dashboardUserId = checkout.dashboardUserId ?? null;
+    const signature = this.checkoutPricing.sign(
+      this.checkoutPricing.toSignedPricing(quote, dashboardUserId)
+    );
+
+    return {
+      amount: quote.totalPrice,
+      metadata: {
+        ...base,
+        packageId: quote.packageId,
+        packageSlug: quote.packageSlug,
+        packageName: quote.packageName,
+        tier: quote.packageSlug,
+        basePrice: quote.basePrice,
+        addonTotal: quote.addonTotal,
+        discountAmount: quote.discountAmount,
+        totalPrice: quote.totalPrice,
+        couponCode: quote.couponCode,
+        formattingWordCount: quote.formattingWordCount ?? 0,
+        addons: quote.lines.map((line) => ({
+          id: line.id,
+          slug: line.slug,
+          name: line.name,
+          price: line.price,
+          wordCount: line.wordCount,
+        })),
+        addonBreakdown: quote.lines.map((line) => ({ name: line.name, price: line.price })),
+        ...(dashboardUserId ? { dashboardUserId } : {}),
+        [CHECKOUT_PRICING_VERSION_KEY]: CHECKOUT_PRICING_VERSION,
+        [CHECKOUT_PRICING_SIGNATURE_KEY]: signature,
+      },
+    };
+  }
+
+  /**
+   * Decide which pricing to trust for a paid checkout and enforce that the
+   * payment covers it.
+   *
+   * - Signed metadata (written by `priceCheckoutMetadata`) is trusted as-is,
+   *   including its discount and dashboard owner.
+   * - Unsigned metadata — legacy in-flight payments, or a charge created
+   *   outside our initialize flow — is re-priced from the database, and its
+   *   claimed dashboard owner is ignored.
+   */
+  private async resolveTrustedCheckout(params: {
+    paymentId: string;
+    checkout: CheckoutMetadata;
+    paidAmount: number;
+    currency: string;
+  }): Promise<{ checkout: CheckoutMetadata; dashboardUserId: string | null; signed: boolean }> {
+    const { checkout } = params;
+    const signedCandidate = this.checkoutPricing.fromCheckoutFields(checkout);
+
+    if (this.checkoutPricing.verify(signedCandidate, checkout.pricingSignature)) {
+      this.assertPaidAmountCovers({
+        paymentId: params.paymentId,
+        paidAmount: params.paidAmount,
+        expectedAmount: signedCandidate.totalPrice,
+        currency: params.currency,
+      });
+      return { checkout, dashboardUserId: signedCandidate.dashboardUserId, signed: true };
+    }
+
+    this.logger.warn(
+      `Payment ${params.paymentId}: checkout pricing is unsigned or does not verify — re-pricing from the database`
+    );
+
+    const quoteInput = {
+      packageId: checkout.packageId,
+      packageSlug: checkout.packageSlug ?? checkout.tier,
+      addons: (checkout.addons ?? []).map((addon) => ({
+        id: addon.id,
+        slug: addon.slug,
+        wordCount: addon.wordCount,
+      })),
+      formattingWordCount: checkout.formattingWordCount,
+      couponCode: checkout.couponCode,
+    };
+    let quote: Awaited<ReturnType<CheckoutPricingService["quote"]>>;
+    try {
+      quote = await this.checkoutPricing.quote(quoteInput);
+    } catch (error) {
+      if (!(error instanceof BadRequestException) || !checkout.couponCode) {
+        throw new ConflictException(
+          `Checkout for payment ${params.paymentId} cannot be priced: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      // An unsigned coupon that no longer validates simply does not apply.
+      quote = await this.checkoutPricing.quote({ ...quoteInput, couponCode: null });
+    }
+
+    this.assertPaidAmountCovers({
+      paymentId: params.paymentId,
+      paidAmount: params.paidAmount,
+      expectedAmount: quote.totalPrice,
+      currency: params.currency,
+    });
+
+    return {
+      checkout: {
+        ...checkout,
+        packageId: quote.packageId,
+        packageSlug: quote.packageSlug,
+        basePrice: quote.basePrice,
+        addonTotal: quote.addonTotal,
+        discountAmount: quote.discountAmount,
+        totalPrice: quote.totalPrice,
+        couponCode: quote.couponCode ?? undefined,
+        formattingWordCount: quote.formattingWordCount ?? undefined,
+        addons: quote.lines.map((line) => ({
+          id: line.id,
+          slug: line.slug,
+          name: line.name,
+          price: line.price,
+          wordCount: line.wordCount,
+        })),
+        dashboardUserId: undefined,
+      },
+      dashboardUserId: null,
+      signed: false,
+    };
+  }
+
+  /**
+   * Refuse to fulfil a payment that does not cover the expected price.
+   * ConflictException is the deterministic business-rule failure the webhook
+   * ACKs, leaving the payment recorded without an order for admin review.
+   */
+  private assertPaidAmountCovers(params: {
+    paymentId: string;
+    paidAmount: number;
+    expectedAmount: number;
+    currency: string;
+  }): void {
+    const currency = (params.currency || DEFAULT_CURRENCY).toUpperCase();
+    if (
+      currency === DEFAULT_CURRENCY &&
+      this.checkoutPricing.covers(params.paidAmount, params.expectedAmount)
+    ) {
       return;
     }
 
-    const pkg = await this.resolvePackageFromCheckoutMetadata(checkout);
-    if (!pkg) {
-      throw new BadRequestException(
-        "Checkout package is missing or invalid. Return to pricing and select a package again."
-      );
-    }
+    const message =
+      `Payment ${params.paymentId} paid ${currency} ${params.paidAmount} but the order costs ` +
+      `${DEFAULT_CURRENCY} ${params.expectedAmount}. No order was created.`;
+    this.logger.error(message);
+    Sentry.captureMessage("Underpaid checkout blocked", {
+      level: "error",
+      tags: { area: "payments", reason: "underpaid_checkout" },
+      extra: { ...params, currency },
+    });
+    throw new ConflictException({ message, errorCode: "CHECKOUT_UNDERPAID" });
   }
 
   private async resolvePackageFromCheckoutMetadata(checkout: CheckoutMetadata) {
@@ -3520,6 +3763,7 @@ export class PaymentsService {
         slug: this.asString(addon.slug),
         name: this.asString(addon.name),
         price: this.asNumber(addon.price),
+        wordCount: this.asInteger(addon.wordCount) ?? null,
       }));
 
     return {
@@ -3550,6 +3794,7 @@ export class PaymentsService {
       addons,
       source: this.asString(merged.source),
       dashboardUserId: this.asString(merged.dashboardUserId),
+      pricingSignature: this.asString(merged[CHECKOUT_PRICING_SIGNATURE_KEY]),
     };
   }
 
@@ -3639,6 +3884,7 @@ export class PaymentsService {
         where: { id: params.customQuote.customQuoteId },
         select: {
           id: true,
+          finalPrice: true,
           order: {
             select: {
               id: true,
@@ -3659,6 +3905,18 @@ export class PaymentsService {
         );
         return null;
       }
+
+      // The quote's price lives in our DB, set by an admin. Metadata's
+      // quoteFinalPrice is only a copy and is never the basis for acceptance.
+      const agreedPrice = this.toCurrency(Number(quote.finalPrice ?? 0));
+      this.assertPaidAmountCovers({
+        paymentId: params.paymentId,
+        paidAmount: params.amount,
+        expectedAmount: agreedPrice > 0 ? agreedPrice : params.customQuote.quoteFinalPrice,
+        currency: params.currency,
+      });
+      params.customQuote.quoteFinalPrice =
+        agreedPrice > 0 ? agreedPrice : params.customQuote.quoteFinalPrice;
 
       if (quote.order) {
         const existingUser = await tx.user.findUnique({
@@ -3897,13 +4155,36 @@ export class PaymentsService {
     });
   }
 
+  /**
+   * Resolve and claim the coupon for a paid checkout.
+   *
+   * `honorDiscount` is the discount from server-signed pricing: the customer
+   * already paid on that basis, so if the coupon expired or ran out between
+   * checkout and the webhook we still record that discount rather than book an
+   * order whose total disagrees with what was charged.
+   */
   private async resolveAppliedCouponForOrder(
     tx: Prisma.TransactionClient,
     checkout: CheckoutMetadata,
-    amountPaid: number
+    amountPaid: number,
+    options: { honorDiscount?: number } = {}
   ): Promise<{ id: string; discountAmount: number } | null> {
     const rawCode = this.asString(checkout.couponCode);
     if (!rawCode) return null;
+
+    const honorDiscount = this.toCurrency(options.honorDiscount ?? 0);
+    const honored = async (reason: string) => {
+      if (honorDiscount <= 0) return null;
+      const existing = await tx.coupon.findUnique({
+        where: { code: rawCode.trim().toUpperCase() },
+        select: { id: true },
+      });
+      if (!existing) return null;
+      this.logger.warn(
+        `Coupon "${rawCode}" ${reason} after checkout — honouring the signed discount of ₦${honorDiscount}.`
+      );
+      return { id: existing.id, discountAmount: honorDiscount };
+    };
 
     const code = rawCode.trim().toUpperCase();
     const coupon = await tx.coupon.findUnique({
@@ -3938,15 +4219,15 @@ export class PaymentsService {
     const now = new Date();
     if (!coupon.isActive) {
       this.logger.warn(`Coupon "${code}" is inactive. Skipping coupon application.`);
-      return null;
+      return honored("became inactive");
     }
     if (coupon.expiresAt && coupon.expiresAt.getTime() <= now.getTime()) {
       this.logger.warn(`Coupon "${code}" is expired. Skipping coupon application.`);
-      return null;
+      return honored("expired");
     }
     if (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit) {
       this.logger.warn(`Coupon "${code}" reached usage limit. Skipping coupon application.`);
-      return null;
+      return honored("reached its usage limit");
     }
 
     const packageContext = await this.resolveCheckoutPackageContext(tx, checkout);
@@ -3986,12 +4267,12 @@ export class PaymentsService {
 
     if (claimed.count === 0) {
       this.logger.warn(`Coupon "${code}" could not be claimed. Skipping coupon application.`);
-      return null;
+      return honored("could not be claimed");
     }
 
     return {
       id: coupon.id,
-      discountAmount,
+      discountAmount: honorDiscount > 0 ? honorDiscount : discountAmount,
     };
   }
 
@@ -5372,36 +5653,9 @@ export class PaymentsService {
     return this.gatewayService.isGatewayAvailableForCheckout(provider);
   }
 
-  /**
-   * Validate reCAPTCHA token with Google's API.
-   * Skips verification in development or when secret key is missing.
-   */
-  private async verifyRecaptcha(token: string): Promise<boolean> {
-    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-    if (!secretKey) {
-      this.logger.warn("RECAPTCHA_SECRET_KEY not set — skipping verification");
-      return true;
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      this.logger.warn("Development mode — skipping reCAPTCHA verification");
-      return true;
-    }
-
-    try {
-      const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ secret: secretKey, response: token }),
-        signal: AbortSignal.timeout(5000),
-      });
-
-      const data = (await response.json()) as { success?: boolean; score?: number };
-      return data.success === true && (data.score === undefined || data.score >= 0.5);
-    } catch (error) {
-      this.logger.error("reCAPTCHA verification failed", error);
-      return false;
-    }
+  /** reCAPTCHA check — fails closed in production (see common/recaptcha.ts). */
+  private verifyRecaptcha(token: string): Promise<boolean> {
+    return verifyRecaptchaToken(token, this.logger);
   }
 
   /**

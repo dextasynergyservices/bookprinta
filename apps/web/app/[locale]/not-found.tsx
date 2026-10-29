@@ -188,7 +188,7 @@ export default function NotFoundPage() {
           <Button
             asChild
             size="lg"
-            className="rounded-full bg-accent px-8 font-display text-sm font-semibold text-accent-foreground shadow-md transition-all hover:bg-accent/90 hover:shadow-lg"
+            className="rounded-full bg-accent-strong px-8 font-display text-sm font-semibold text-accent-foreground shadow-md transition-all hover:bg-accent-strong-hover hover:shadow-lg"
           >
             <Link href="/">
               <ArrowLeft className="mr-2 size-4" />

@@ -159,7 +159,7 @@ function formatAgeMinutesLabel(ageMinutes: number): string {
 function getFilterControlClass(isActive: boolean): string {
   return cn(
     "min-h-11 rounded-full border bg-[#080808] px-4 font-sans text-sm text-white transition-colors duration-150 outline-none",
-    "placeholder:text-[#6f6f6f] focus-visible:border-[#007eff] focus-visible:ring-2 focus-visible:ring-[#007eff]/25",
+    "placeholder:text-[#8f8f8f] focus-visible:border-[#007eff] focus-visible:ring-2 focus-visible:ring-[#007eff]/25",
     isActive
       ? "border-[#007eff]/65 shadow-[0_0_0_1px_rgba(0,126,255,0.25)]"
       : "border-[#2A2A2A] hover:border-[#3A3A3A]"
@@ -367,7 +367,7 @@ function AdminPaymentsDateRangePicker({
                 : "border-[#2A2A2A] hover:border-[#3A3A3A]"
             )}
           >
-            <span className={cn(hasValue ? "text-white" : "text-[#6f6f6f]")}>
+            <span className={cn(hasValue ? "text-white" : "text-[#8f8f8f]")}>
               {formatDateRangeLabel({
                 dateFrom,
                 dateTo,
@@ -485,7 +485,7 @@ function AllPaymentsFilterBar({
             className={cn(
               "inline-flex min-h-9 items-center rounded-full border px-3 font-sans text-xs font-medium",
               hasActiveFilters
-                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]"
+                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]"
                 : "border-[#2A2A2A] bg-[#101010] text-[#b4b4b4]"
             )}
           >
@@ -791,7 +791,7 @@ function AllPaymentsRowActions({
         className={cn(
           "min-h-10 rounded-full px-3 font-sans text-xs font-bold text-white",
           canRefund
-            ? "bg-[#007eff] hover:bg-[#0069d9]"
+            ? "bg-accent-strong hover:bg-accent-strong-hover"
             : "cursor-not-allowed bg-[#1A1A1A] text-[#777777]"
         )}
         title={

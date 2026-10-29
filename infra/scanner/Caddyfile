@@ -1,0 +1,8 @@
+# Automatic HTTPS (Let's Encrypt) for the scan gateway. clamd itself is never
+# reachable from outside — only this reverse proxy is.
+{$SCANNER_DOMAIN} {
+	request_body {
+		max_size 16MB
+	}
+	reverse_proxy gateway:8080
+}

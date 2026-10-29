@@ -455,7 +455,10 @@ function CouponForm({
                 }))
               }
             >
-              <SelectTrigger className="min-h-11 rounded-full border-[#2A2A2A] bg-[#080808] text-white">
+              <SelectTrigger
+                aria-label={tAdmin("coupons_form_type")}
+                className="min-h-11 rounded-full border-[#2A2A2A] bg-[#080808] text-white"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="border-[#2A2A2A] bg-[#090909] text-white">
@@ -474,6 +477,7 @@ function CouponForm({
           </FieldLabel>
           <FieldContent>
             <Input
+              aria-label={tAdmin("coupons_form_value")}
               type="number"
               min={0}
               step={state.discountType === "percentage" ? "1" : "100"}
@@ -543,6 +547,7 @@ function CouponForm({
             </div>
             {state.hasMaxUses ? (
               <Input
+                aria-label={tAdmin("coupons_form_set_max_uses")}
                 type="number"
                 min={1}
                 step="1"
@@ -1112,7 +1117,7 @@ export function AdminCouponsView() {
               type="button"
               onClick={onCreateCoupon}
               disabled={createCouponMutation.isPending}
-              className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white hover:bg-[#0f8aff]"
+              className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white hover:bg-accent-strong-hover"
             >
               {createCouponMutation.isPending
                 ? tAdmin("coupons_action_creating")
@@ -1476,7 +1481,7 @@ export function AdminCouponsView() {
               type="button"
               onClick={onSaveEditCoupon}
               disabled={updateCouponMutation.isPending}
-              className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white hover:bg-[#0f8aff]"
+              className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white hover:bg-accent-strong-hover"
             >
               {updateCouponMutation.isPending
                 ? tAdmin("coupons_action_saving")

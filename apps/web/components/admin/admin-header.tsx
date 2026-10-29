@@ -134,7 +134,7 @@ export function AdminHeader({
               }
               data-bounce-seq={badgeAnimationKey}
               aria-hidden="true"
-              className="font-sans absolute -top-1 -right-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[#007eff] px-1 text-[10px] font-semibold leading-none text-white"
+              className="font-sans absolute -top-1 -right-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent-strong px-1 text-[10px] font-semibold leading-none text-white"
             >
               {badgeLabel}
             </motion.span>

@@ -3,6 +3,7 @@ const DEFAULT_RETRY_AFTER_SECONDS = 60;
 type ErrorPayload = {
   message?: unknown;
   retryAfter?: unknown;
+  errorCode?: unknown;
 };
 
 function normalizeRetryAfter(value: unknown): number | null {
@@ -55,6 +56,22 @@ export class RateLimitError extends Error {
   }
 }
 
+/**
+ * An API failure that carries the server's machine-readable `errorCode`, so a
+ * caller can show a translated message instead of the server's English text.
+ */
+export class ApiRequestError extends Error {
+  status: number;
+  errorCode: string | null;
+
+  constructor(message: string, status: number, errorCode: string | null) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.errorCode = errorCode;
+  }
+}
+
 export function toRetryAfterMinutes(retryAfterSeconds: number): number {
   return Math.max(1, Math.ceil(retryAfterSeconds / 60));
 }
@@ -70,5 +87,6 @@ export async function throwApiError(
     throw new RateLimitError(message, extractRetryAfterSeconds(response, payload));
   }
 
-  throw new Error(message);
+  const errorCode = typeof payload?.errorCode === "string" ? payload.errorCode : null;
+  throw new ApiRequestError(message, response.status, errorCode);
 }

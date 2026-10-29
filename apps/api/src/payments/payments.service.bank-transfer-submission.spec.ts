@@ -27,6 +27,9 @@ function createService() {
     package: {
       findFirst: jest.fn(),
     },
+    addon: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     payment: {
       create: jest.fn(),
     },
@@ -68,11 +71,33 @@ describe("PaymentsService bank transfer submission", () => {
     const servicePrivate = getPaymentsServicePrivate(service);
 
     prisma.paymentGateway.findUnique.mockResolvedValue({ isEnabled: true });
+    // 110,000 package + 10,000 ISBN + 5,000 express formatting = 125,000
     prisma.package.findFirst.mockResolvedValue({
       id: "pkg_legacy",
+      slug: "legacy",
       name: "Legacy",
-      basePrice: 125000,
+      basePrice: 110000,
+      includesISBN: false,
+      categoryId: "cat_1",
     });
+    prisma.addon.findMany.mockResolvedValue([
+      {
+        id: "addon_isbn",
+        slug: "isbn-registration",
+        name: "ISBN Registration",
+        price: 10000,
+        pricingType: "fixed",
+        pricePerWord: null,
+      },
+      {
+        id: "addon_express",
+        slug: "express-formatting",
+        name: "Express Formatting",
+        price: 5000,
+        pricingType: "fixed",
+        pricePerWord: null,
+      },
+    ]);
     prisma.payment.create.mockResolvedValue({
       id: "payment_1",
       status: PaymentStatus.AWAITING_APPROVAL,
@@ -100,7 +125,15 @@ describe("PaymentsService bank transfer submission", () => {
         locale: "fr",
         packageSlug: "legacy",
         packageName: "Legacy",
-        addons: [{ name: "ISBN Registration" }, { name: "Express Formatting" }],
+        addons: [
+          { id: "addon_isbn", slug: "isbn-registration", name: "ISBN Registration", price: 10000 },
+          {
+            id: "addon_express",
+            slug: "express-formatting",
+            name: "Express Formatting",
+            price: 5000,
+          },
+        ],
       },
     } as never);
 

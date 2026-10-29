@@ -86,7 +86,7 @@ export function Footer() {
           <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
             {/* Pages column */}
             <div>
-              <h3 className="font-display mb-4 text-xs font-semibold uppercase tracking-wider text-primary-foreground/40">
+              <h3 className="font-display mb-4 text-xs font-semibold uppercase tracking-wider text-primary-foreground/50">
                 {t("pages_heading")}
               </h3>
               <ul className="space-y-1">
@@ -99,7 +99,7 @@ export function Footer() {
                   <li key={href}>
                     <Link
                       href={href}
-                      className="text-sm text-primary-foreground/60 transition-colors hover:text-primary-foreground"
+                      className="inline-flex min-h-11 items-center text-sm text-primary-foreground/60 transition-colors hover:text-primary-foreground md:min-h-0"
                     >
                       {t(labelKey)}
                     </Link>
@@ -110,7 +110,7 @@ export function Footer() {
 
             {/* Resources column */}
             <div>
-              <h3 className="font-display mb-4 text-xs font-semibold uppercase tracking-wider text-primary-foreground/40">
+              <h3 className="font-display mb-4 text-xs font-semibold uppercase tracking-wider text-primary-foreground/50">
                 {t("resources_heading")}
               </h3>
               <ul className="space-y-1">
@@ -122,7 +122,7 @@ export function Footer() {
                   <li key={href}>
                     <Link
                       href={href}
-                      className="text-sm text-primary-foreground/60 transition-colors hover:text-primary-foreground"
+                      className="inline-flex min-h-11 items-center text-sm text-primary-foreground/60 transition-colors hover:text-primary-foreground md:min-h-0"
                     >
                       {t(labelKey)}
                     </Link>
@@ -133,7 +133,7 @@ export function Footer() {
 
             {/* Contact column */}
             <div>
-              <h3 className="font-display mb-4 text-xs font-semibold uppercase tracking-wider text-primary-foreground/40">
+              <h3 className="font-display mb-4 text-xs font-semibold uppercase tracking-wider text-primary-foreground/50">
                 {t("say_hello_label")}
               </h3>
               <address className="space-y-1 not-italic">
@@ -159,7 +159,7 @@ export function Footer() {
 
             {/* Social column */}
             <div>
-              <h3 className="font-display mb-4 text-xs font-semibold uppercase tracking-wider text-primary-foreground/40">
+              <h3 className="font-display mb-4 text-xs font-semibold uppercase tracking-wider text-primary-foreground/50">
                 {t("follow_heading")}
               </h3>
               <MarketingSocialLinkList
@@ -181,13 +181,13 @@ export function Footer() {
               <Link
                 key={href}
                 href={href}
-                className="text-xs text-primary-foreground/40 transition-colors hover:text-primary-foreground"
+                className="text-xs text-primary-foreground/50 transition-colors hover:text-primary-foreground"
               >
                 {t(labelKey)}
               </Link>
             ))}
           </div>
-          <p className="text-xs text-primary-foreground/30">{t("company_number")}</p>
+          <p className="text-xs text-primary-foreground/50">{t("company_number")}</p>
         </div>
       </div>
     </footer>

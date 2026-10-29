@@ -157,7 +157,7 @@ function resolveRoleTone(role: UserRoleValue): string {
     case "SUPER_ADMIN":
       return "border-[#22c55e]/45 bg-[#22c55e]/15 text-[#22c55e]";
     case "ADMIN":
-      return "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]";
+      return "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]";
     case "MANAGER":
       return "border-[#06b6d4]/45 bg-[#06b6d4]/15 text-[#67e8f9]";
     case "EDITOR":
@@ -626,7 +626,7 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                 <Button
                   type="button"
                   onClick={() => detailQuery.refetch()}
-                  className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                  className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
                 >
                   <RefreshCcw className="size-4" aria-hidden="true" />
                   {tAdmin("users_detail_refetch")}
@@ -1118,7 +1118,7 @@ export function AdminUserDetailView({ userId }: AdminUserDetailViewProps) {
                   type="button"
                   onClick={handleSaveManagement}
                   disabled={!hasManagementChanges || isSavePending || isUserDeleted}
-                  className="min-h-11 w-full rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8] disabled:bg-[#1C1C1C] disabled:text-[#7D7D7D]"
+                  className="min-h-11 w-full rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover disabled:bg-[#1C1C1C] disabled:text-[#7D7D7D]"
                 >
                   {isSavePending ? (
                     <>

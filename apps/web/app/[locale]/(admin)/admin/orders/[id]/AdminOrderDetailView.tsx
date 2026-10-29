@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { humanizeAdminOrderStatus } from "@/hooks/use-admin-orders-filters";
+import { useAuthSession } from "@/hooks/use-auth-session";
 import {
   isAdminOrderConflictError,
   useAdminOrderStatusMutation,
@@ -209,6 +210,9 @@ export function AdminOrderDetailView({ orderId }: AdminOrderDetailViewProps) {
   });
   const statusMutation = useAdminOrderStatusMutation(orderId);
   const refundMutation = useAdminRefundMutation(orderId);
+  // Refunds are SUPER_ADMIN-only on the API; don't offer a button that 403s.
+  const { user: sessionUser } = useAuthSession();
+  const canRefund = sessionUser?.role === "SUPER_ADMIN";
   const nextStatusId = useId();
   const statusReasonId = useId();
   const statusNoteId = useId();
@@ -327,7 +331,7 @@ export function AdminOrderDetailView({ orderId }: AdminOrderDetailViewProps) {
                 <Button
                   type="button"
                   onClick={() => detailQuery.refetch()}
-                  className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                  className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
                 >
                   <RotateCcw className="size-4" aria-hidden="true" />
                   {tAdmin("orders_detail_refetch")}
@@ -490,16 +494,22 @@ export function AdminOrderDetailView({ orderId }: AdminOrderDetailViewProps) {
                               </a>
                             </Button>
                           ) : null}
-                          <Button
-                            type="button"
-                            onClick={() => setRefundTarget(payment)}
-                            disabled={!payment.isRefundable || refundMutation.isPending}
-                            className="min-h-10 rounded-full bg-[#007eff] px-4 font-sans text-xs font-medium text-white hover:bg-[#0068d8] disabled:bg-[#1C1C1C] disabled:text-[#7D7D7D]"
-                          >
-                            {payment.isRefundable
-                              ? tAdmin("orders_detail_payment_refund_action")
-                              : tAdmin("orders_detail_payment_not_refundable")}
-                          </Button>
+                          {canRefund ? (
+                            <Button
+                              type="button"
+                              onClick={() => setRefundTarget(payment)}
+                              disabled={!payment.isRefundable || refundMutation.isPending}
+                              className="min-h-10 rounded-full bg-accent-strong px-4 font-sans text-xs font-medium text-white hover:bg-accent-strong-hover disabled:bg-[#1C1C1C] disabled:text-[#7D7D7D]"
+                            >
+                              {payment.isRefundable
+                                ? tAdmin("orders_detail_payment_refund_action")
+                                : tAdmin("orders_detail_payment_not_refundable")}
+                            </Button>
+                          ) : payment.isRefundable ? (
+                            <p className="font-sans text-xs text-[#7D7D7D]">
+                              {tAdmin("orders_detail_payment_refund_super_admin_only")}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
 
@@ -661,7 +671,7 @@ export function AdminOrderDetailView({ orderId }: AdminOrderDetailViewProps) {
                   <Button
                     type="submit"
                     disabled={!selectedNextStatus || statusMutation.isPending}
-                    className="min-h-11 w-full rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                    className="min-h-11 w-full rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
                   >
                     {statusMutation.isPending ? (
                       <>

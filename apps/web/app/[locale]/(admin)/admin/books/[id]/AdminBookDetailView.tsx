@@ -317,7 +317,7 @@ function AdminBookStatusBadge({
         ? "border-[#22c55e]/45 bg-[#22c55e]/15 text-[#22c55e]"
         : tone === "pending"
           ? "border-[#facc15]/45 bg-[#facc15]/15 text-[#facc15]"
-          : "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]";
+          : "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]";
 
   return (
     <span
@@ -678,7 +678,7 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
                 <Button
                   type="button"
                   onClick={() => detailQuery.refetch()}
-                  className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                  className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
                 >
                   <RefreshCcw className="size-4" aria-hidden="true" />
                   {tAdmin("books_detail_refetch")}
@@ -786,7 +786,7 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
                   setConflictMessage(null);
                   detailQuery.refetch();
                 }}
-                className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
               >
                 <RefreshCcw className="size-4" aria-hidden="true" />
                 {tAdmin("books_detail_conflict_refresh")}
@@ -1205,7 +1205,7 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
                       <Button
                         type="submit"
                         disabled={!selectedNextStatus || statusMutation.isPending}
-                        className="min-h-11 w-full rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                        className="min-h-11 w-full rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
                       >
                         {statusMutation.isPending ? (
                           <>
@@ -1327,7 +1327,7 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
                       !book.statusControl.canUploadHtmlFallback || htmlUploadMutation.isPending
                     }
                     onClick={() => uploadInputRef.current?.click()}
-                    className="mt-4 min-h-11 w-full rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8] disabled:bg-[#1C1C1C] disabled:text-[#7D7D7D]"
+                    className="mt-4 min-h-11 w-full rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover disabled:bg-[#1C1C1C] disabled:text-[#7D7D7D]"
                   >
                     {htmlUploadMutation.isPending ? (
                       <>
@@ -1362,7 +1362,7 @@ export function AdminBookDetailView({ bookId }: AdminBookDetailViewProps) {
                       <Progress
                         value={uploadProgress}
                         aria-label={tAdmin("books_detail_upload_progress_label")}
-                        className="h-2 rounded-full bg-[#1B1B1B] [&_[data-slot='progress-indicator']]:bg-[#007eff]"
+                        className="h-2 rounded-full bg-[#1B1B1B] [&_[data-slot='progress-indicator']]:bg-accent-strong"
                       />
                     </output>
                   ) : null}

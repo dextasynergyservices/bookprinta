@@ -497,7 +497,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
           <button
             type="button"
             onClick={() => router.push(pricingHref)}
-            className="mt-5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-opacity hover:opacity-95"
+            className="mt-5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-opacity hover:opacity-95"
           >
             {t("addons_back_to_pricing")}
           </button>
@@ -514,7 +514,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
           <button
             type="button"
             onClick={() => router.push(pricingHref)}
-            className="mt-5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-opacity hover:opacity-95"
+            className="mt-5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-opacity hover:opacity-95"
           >
             {t("addons_back_to_pricing")}
           </button>
@@ -542,7 +542,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
           <button
             type="button"
             onClick={() => refetch()}
-            className="mt-5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-opacity hover:opacity-95"
+            className="mt-5 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-opacity hover:opacity-95"
           >
             {t("addons_retry")}
           </button>
@@ -635,17 +635,17 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
 
             <aside className="hidden lg:block">
               <div className="sticky top-24 rounded-3xl border border-[#2A2A2A] bg-[#090909] p-5">
-                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/50 uppercase">
                   {t("configuration_package", { packageName: selectedPackage.name })}
                 </p>
-                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/50 uppercase">
                   {t("package_base_total")}
                 </p>
                 <p className="mt-2 font-sans text-lg font-semibold text-white">
                   {formatPrice(packageBasePrice)}
                 </p>
 
-                <p className="mt-4 font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                <p className="mt-4 font-sans text-xs font-medium tracking-[0.08em] text-white/50 uppercase">
                   {t("addon_total")}
                 </p>
                 <div className="mt-2">
@@ -654,7 +654,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
 
                 {discountAmount > 0 ? (
                   <>
-                    <p className="mt-4 font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                    <p className="mt-4 font-sans text-xs font-medium tracking-[0.08em] text-white/50 uppercase">
                       {t("coupon_discount_label")}
                     </p>
                     <p className="mt-2 font-sans text-lg font-semibold text-[#007eff]">
@@ -663,7 +663,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
                   </>
                 ) : null}
 
-                <p className="mt-4 font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                <p className="mt-4 font-sans text-xs font-medium tracking-[0.08em] text-white/50 uppercase">
                   {t("order_total")}
                 </p>
                 <p className="mt-2 font-sans text-2xl font-semibold text-white">
@@ -671,7 +671,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
                 </p>
 
                 <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-black px-4 py-3">
-                  <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                  <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/50 uppercase">
                     {t("coupon_label")}
                   </p>
 
@@ -707,7 +707,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
                       type="button"
                       onClick={handleApplyCoupon}
                       disabled={couponApplyDisabled}
-                      className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-[#007eff] px-4 font-sans text-xs font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                      className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-accent-strong px-4 font-sans text-xs font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                     >
                       {couponApplyLabel}
                     </button>
@@ -749,7 +749,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
                   type="button"
                   onClick={openPaymentModal}
                   disabled={isCouponBlockingCheckout || !isOnline}
-                  className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                  className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 >
                   <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
                   {t("addons_continue")}
@@ -774,10 +774,10 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
               </p>
 
               <div className="mt-5 rounded-2xl border border-[#2A2A2A] bg-black p-4 md:p-5">
-                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/50 uppercase">
                   {t("configuration_package", { packageName: selectedPackage.name })}
                 </p>
-                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/50 uppercase">
                   {t("order_total")}
                 </p>
                 <p className="mt-2 font-sans text-3xl font-semibold text-white">
@@ -812,7 +812,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-[#0a0a0a] px-4 py-3">
-                  <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/45 uppercase">
+                  <p className="font-sans text-xs font-medium tracking-[0.08em] text-white/50 uppercase">
                     {t("coupon_label")}
                   </p>
 
@@ -848,7 +848,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
                       type="button"
                       onClick={handleApplyCoupon}
                       disabled={couponApplyDisabled}
-                      className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-[#007eff] px-4 font-sans text-xs font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                      className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl bg-accent-strong px-4 font-sans text-xs font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                     >
                       {couponApplyLabel}
                     </button>
@@ -891,7 +891,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
                 type="button"
                 onClick={openPaymentModal}
                 disabled={isCouponBlockingCheckout || !isOnline}
-                className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                className="mt-5 inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
               >
                 <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
                 {t("addons_continue")}
@@ -903,7 +903,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
                 className="mt-4"
               />
 
-              <p className="mt-4 font-sans text-xs leading-relaxed text-white/45">
+              <p className="mt-4 font-sans text-xs leading-relaxed text-white/50">
                 {t("payment_verified")}
               </p>
             </div>
@@ -924,7 +924,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
             type="button"
             onClick={openPaymentModal}
             disabled={isCouponBlockingCheckout || !isOnline}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
             {t("addons_continue")}
           </button>

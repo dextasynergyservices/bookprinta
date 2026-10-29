@@ -20,7 +20,7 @@ export class AddonsController {
    * List all active addons sorted by display order.
    */
   @Get()
-  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600, s-maxage=300")
   @ApiOperation({
     summary: "List active addons",
     description:
@@ -45,7 +45,7 @@ export class AddonsController {
    * Get a single addon by ID.
    */
   @Get(":id")
-  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600, s-maxage=300")
   @ApiOperation({
     summary: "Get addon by ID",
     description:

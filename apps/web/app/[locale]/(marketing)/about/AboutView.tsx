@@ -336,7 +336,7 @@ export function AboutView() {
             >
               <Link
                 href="/pricing"
-                className="inline-flex min-h-[48px] min-w-[220px] items-center justify-center gap-2 rounded-full bg-[#007eff] px-8 py-3 font-sans text-sm font-bold uppercase tracking-[0.08em] text-white transition-all duration-300 hover:bg-[#007eff]/90 hover:shadow-[0_0_24px_rgba(0,126,255,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#111111]"
+                className="inline-flex min-h-[48px] min-w-[220px] items-center justify-center gap-2 rounded-full bg-accent-strong px-8 py-3 font-sans text-sm font-bold uppercase tracking-[0.08em] text-white transition-all duration-300 hover:bg-[#007eff]/90 hover:shadow-[0_0_24px_rgba(0,126,255,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#111111]"
               >
                 {t("cta_primary")}
                 <ArrowRight className="size-4" aria-hidden="true" />

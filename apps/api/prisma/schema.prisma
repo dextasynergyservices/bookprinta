@@ -175,7 +175,10 @@ model User {
 
   // Auth: Refresh Token Rotation
   // Short-lived access token (15min) + long-lived refresh token (7d)
-  // On refresh: old refresh token is invalidated, new pair issued
+  // On refresh: old refresh token is invalidated, new pair issued.
+  // LEGACY single-session slot — superseded by AuthSession (one row per
+  // device). Still read for refresh tokens issued before AuthSession existed;
+  // safe to drop once every such token has expired (7 days after deploy).
   refreshToken      String?        @unique
   refreshTokenExp   DateTime?
 
@@ -209,6 +212,7 @@ model User {
   blogPosts         BlogPost[]
   showcases         AuthorShowcase[]
   productionDelayRecipients ProductionDelayEventRecipient[]
+  authSessions      AuthSession[]
 
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
@@ -965,4 +969,27 @@ model ContactSubmission {
   @@index([isRead])
   @@index([isArchived, createdAt])
   @@index([createdAt])
+}
+
+/// One signed-in device. Lets a user stay logged in on phone and laptop at the
+/// same time (the old User.refreshToken slot allowed only one). Each refresh
+/// rotates `tokenDigest`; `expiresAt` is the absolute session cap and does not
+/// slide. Logout deletes the row; password change / deactivation delete all.
+model AuthSession {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenDigest String   @unique
+  /// The digest replaced by the last rotation, accepted for a short grace
+  /// window so two browser tabs refreshing at once don't log each other out.
+  previousDigest String?
+  rotatedAt   DateTime?
+  expiresAt   DateTime
+  userAgent   String?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }

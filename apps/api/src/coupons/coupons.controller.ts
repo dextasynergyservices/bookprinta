@@ -9,9 +9,15 @@ import {
   ValidateCouponResponseDto,
 } from "./dto/coupon.dto.js";
 
+/**
+ * Coupon brute-force protection. Checkout re-validates an applied code whenever
+ * the subtotal changes (toggling an addon), so a real customer can easily make
+ * several calls; 3/hour locked honest users out. 10 per 10 minutes and 20 per
+ * hour per client still makes guessing codes impractical.
+ */
 const COUPON_VALIDATE_THROTTLE = {
-  short: { limit: 3, ttl: 3_600_000, getTracker: getIpTracker },
-  long: { limit: 3, ttl: 3_600_000, getTracker: getIpTracker },
+  short: { limit: 10, ttl: 600_000, getTracker: getIpTracker },
+  long: { limit: 20, ttl: 3_600_000, getTracker: getIpTracker },
 };
 
 @ApiTags("Coupons")

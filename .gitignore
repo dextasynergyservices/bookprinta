@@ -56,3 +56,8 @@ howToUseLenis.md
 docs/
 
 .claude/
+
+# Local scratch output (logs, typecheck dumps) — never commit
+.tmp-*/
+.tmp-*
+.typecheck-result.txt

@@ -192,7 +192,7 @@ function ShowcaseViewInner() {
 
           <motion.p
             style={{ opacity: heroOpacity, y: heroTranslateY }}
-            className="mt-6 max-w-xl font-serif text-xl leading-relaxed text-primary-foreground/45 sm:mt-6 sm:text-base md:mt-10 md:text-lg lg:text-xl"
+            className="mt-6 max-w-xl font-serif text-xl leading-relaxed text-primary-foreground/50 sm:mt-6 sm:text-base md:mt-10 md:text-lg lg:text-xl"
           >
             {t("subtitle")}
           </motion.p>
