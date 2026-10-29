@@ -16,7 +16,8 @@ type PaymentsServicePrivate = {
     basePrice: number;
   }>;
   generateOrderNumber: () => Promise<string>;
-  resolveAppliedCouponForOrder: (...args: never[]) => Promise<null>;
+  // Coupon resolution lives in CheckoutMetadataPricingService.
+  metadataPricing: { resolveAppliedCouponForOrder: (...args: never[]) => Promise<null> };
   createOrderAddonsFromMetadata: (...args: never[]) => Promise<void>;
   resolveAddonNamesFromMetadata: (...args: never[]) => Promise<string[]>;
 };
@@ -315,7 +316,7 @@ describe("PaymentsService bank transfer approval", () => {
       basePrice: 125000,
     });
     servicePrivate.generateOrderNumber = jest.fn().mockResolvedValue("BP-2026-0002");
-    servicePrivate.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
+    servicePrivate.metadataPricing.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
     servicePrivate.createOrderAddonsFromMetadata = jest.fn().mockResolvedValue(undefined);
     servicePrivate.resolveAddonNamesFromMetadata = jest
       .fn()
@@ -497,7 +498,7 @@ describe("PaymentsService bank transfer approval", () => {
       basePrice: 98000,
     });
     servicePrivate.generateOrderNumber = jest.fn().mockResolvedValue("BP-2026-0003");
-    servicePrivate.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
+    servicePrivate.metadataPricing.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
     servicePrivate.createOrderAddonsFromMetadata = jest.fn().mockResolvedValue(undefined);
     servicePrivate.resolveAddonNamesFromMetadata = jest.fn().mockResolvedValue([]);
 
