@@ -16,6 +16,7 @@ import { PayPalService } from "./services/paypal.service.js";
 import { PaystackService } from "./services/paystack.service.js";
 import { RefundService } from "./services/refund.service.js";
 import { ReprintPaymentService } from "./services/reprint-payment.service.js";
+import { SignupLinkDeliveryService } from "./services/signup-link-delivery.service.js";
 import { StripeService } from "./services/stripe.service.js";
 
 /**
@@ -57,6 +58,7 @@ import { StripeService } from "./services/stripe.service.js";
     ReprintPaymentService,
     ExtraPagesPaymentService,
     PaymentNotificationsService,
+    SignupLinkDeliveryService,
 
     // Orchestrator (facade — delegates to sub-services above)
     PaymentsService,

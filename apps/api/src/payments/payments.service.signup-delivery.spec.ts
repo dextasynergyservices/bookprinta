@@ -137,12 +137,15 @@ describe("PaymentsService signup-link delivery", () => {
   it("uses the public sender for customer-facing signup/payment emails and keeps admin alerts on the admin sender", () => {
     const { service } = createService();
     const serviceState = service as unknown as {
-      customerPaymentsFromEmail: string;
+      signupLinkDelivery: { customerPaymentsFromEmail: string };
       paymentNotifications: { adminNotificationsFromEmail: string };
     };
 
-    expect(serviceState.customerPaymentsFromEmail).toBe("BookPrinta <info@bookprinta.com>");
-    // Admin alerts are sent by PaymentNotificationsService.
+    // Signup links are sent by SignupLinkDeliveryService, admin alerts by
+    // PaymentNotificationsService.
+    expect(serviceState.signupLinkDelivery.customerPaymentsFromEmail).toBe(
+      "BookPrinta <info@bookprinta.com>"
+    );
     expect(serviceState.paymentNotifications.adminNotificationsFromEmail).toBe(
       "BookPrinta <admin@bookprinta.com>"
     );
