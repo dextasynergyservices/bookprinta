@@ -39,6 +39,11 @@ import {
   splitFullName,
   toCurrency,
 } from "../payment-metadata.js";
+import {
+  CheckoutIdentityService,
+  DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE,
+  PHONE_ALREADY_IN_USE_MESSAGE,
+} from "./checkout-identity.service.js";
 import { CheckoutMetadataPricingService } from "./checkout-metadata-pricing.service.js";
 import { ExtraPagesPaymentService } from "./extra-pages-payment.service.js";
 import { PaymentNotificationsService } from "./payment-notifications.service.js";
@@ -46,15 +51,6 @@ import { ReprintPaymentService } from "./reprint-payment.service.js";
 import { SignupLinkDeliveryService } from "./signup-link-delivery.service.js";
 
 export const MAX_SIGNUP_TOKEN_HOURS = 24;
-
-export const PHONE_ALREADY_IN_USE_MESSAGE =
-  "This phone number is already linked to another account. Use another phone number or sign in to your existing account.";
-
-export const EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE =
-  "This email and phone number belong to different accounts. Sign in to the correct account or use a different phone number.";
-
-export const DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE =
-  "This account has been deactivated. Reactivate your account first using the recovery flow, or contact support or an administrator before continuing with payment or account setup.";
 
 export type CheckoutFinalizationInfo = {
   userId: string;
@@ -94,6 +90,7 @@ export class CheckoutFulfillmentService {
     private readonly paymentNotifications: PaymentNotificationsService,
     private readonly signupLinkDelivery: SignupLinkDeliveryService,
     private readonly metadataPricing: CheckoutMetadataPricingService,
+    private readonly checkoutIdentity: CheckoutIdentityService,
     private readonly extraPagesService: ExtraPagesPaymentService,
     private readonly reprintPaymentService: ReprintPaymentService,
     @Optional() private readonly whatsappNotificationsService: WhatsappNotificationsService | null
@@ -721,7 +718,7 @@ export class CheckoutFulfillmentService {
           user?.email?.trim().toLowerCase() || params.payerEmail?.trim().toLowerCase();
         if (!normalizedEmail) return null;
 
-        await this.assertCheckoutIdentityConflict({
+        await this.checkoutIdentity.assertCheckoutIdentityConflict({
           email: normalizedEmail,
           phone: normalizedPhone,
           tx,
@@ -916,68 +913,6 @@ export class CheckoutFulfillmentService {
 
       throw error;
     }
-  }
-
-  async assertCheckoutIdentityConflict(params: {
-    email: string;
-    phone: string | null;
-    tx?: Prisma.TransactionClient | PrismaService;
-    allowUserId?: string | null;
-  }): Promise<void> {
-    const normalizedEmail = params.email.trim().toLowerCase();
-    const normalizedPhone = normalizePhoneNumber(params.phone);
-    if (!normalizedEmail) return;
-
-    const db = params.tx ?? this.prisma;
-    const emailUser = await db.user.findFirst({
-      where: {
-        email: {
-          equals: normalizedEmail,
-          mode: "insensitive",
-        },
-      },
-      select: {
-        id: true,
-        email: true,
-        isActive: true,
-      },
-    });
-
-    if (emailUser && emailUser.id !== params.allowUserId && !emailUser.isActive) {
-      throw new ConflictException(DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE);
-    }
-
-    if (!normalizedPhone) {
-      return;
-    }
-
-    const phoneUsers = await db.user.findMany({
-      where: {
-        phoneNumberNormalized: normalizedPhone,
-      },
-      select: {
-        id: true,
-        email: true,
-      },
-      take: 3,
-    });
-
-    const emailOwnerId = emailUser && emailUser.id !== params.allowUserId ? emailUser.id : null;
-    const conflictingPhoneUsers = phoneUsers.filter((user) => user.id !== params.allowUserId);
-
-    if (conflictingPhoneUsers.length === 0) {
-      return;
-    }
-
-    if (emailOwnerId && conflictingPhoneUsers.every((user) => user.id === emailOwnerId)) {
-      return;
-    }
-
-    if (emailOwnerId) {
-      throw new ConflictException(EMAIL_PHONE_IDENTITY_CONFLICT_MESSAGE);
-    }
-
-    throw new ConflictException(PHONE_ALREADY_IN_USE_MESSAGE);
   }
 
   private async createOrderAddonsFromMetadata(
@@ -1223,7 +1158,7 @@ export class CheckoutFulfillmentService {
         ? await tx.user.findUnique({ where: { id: params.existingUserId } })
         : null;
 
-      await this.assertCheckoutIdentityConflict({
+      await this.checkoutIdentity.assertCheckoutIdentityConflict({
         email: normalizedEmail,
         phone: params.customQuote.phone,
         tx,

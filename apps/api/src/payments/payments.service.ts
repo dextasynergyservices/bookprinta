@@ -48,6 +48,7 @@ import {
 import { AdminPaymentListService } from "./services/admin-payment-list.service.js";
 import { BankTransferService } from "./services/bank-transfer.service.js";
 import { CheckoutFulfillmentService } from "./services/checkout-fulfillment.service.js";
+import { CheckoutIdentityService } from "./services/checkout-identity.service.js";
 import { CheckoutMetadataPricingService } from "./services/checkout-metadata-pricing.service.js";
 import { CheckoutPricingService } from "./services/checkout-pricing.service.js";
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
@@ -109,6 +110,7 @@ export class PaymentsService {
   private signupLinkDelivery!: SignupLinkDeliveryService;
   private paymentReconciliation!: PaymentReconciliationService;
   private metadataPricing!: CheckoutMetadataPricingService;
+  private checkoutIdentity!: CheckoutIdentityService;
   private checkoutFulfillment!: CheckoutFulfillmentService;
   private bankTransfers!: BankTransferService;
 
@@ -135,7 +137,8 @@ export class PaymentsService {
     @Optional() paymentReconciliationInject?: PaymentReconciliationService,
     @Optional() metadataPricingInject?: CheckoutMetadataPricingService,
     @Optional() checkoutFulfillmentInject?: CheckoutFulfillmentService,
-    @Optional() bankTransfersInject?: BankTransferService
+    @Optional() bankTransfersInject?: BankTransferService,
+    @Optional() checkoutIdentityInject?: CheckoutIdentityService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     // Sub-service initialization: NestJS provides instances in production;
@@ -174,6 +177,7 @@ export class PaymentsService {
       paymentReconciliationInject ?? new PaymentReconciliationService(prisma, paystackService);
     this.metadataPricing =
       metadataPricingInject ?? new CheckoutMetadataPricingService(prisma, checkoutPricing);
+    this.checkoutIdentity = checkoutIdentityInject ?? new CheckoutIdentityService(prisma);
     // Built from this service's own collaborators, so a spec that stubs one of
     // them (e.g. paymentNotifications) stubs what fulfilment uses.
     this.checkoutFulfillment =
@@ -184,6 +188,7 @@ export class PaymentsService {
         this.paymentNotifications,
         this.signupLinkDelivery,
         this.metadataPricing,
+        this.checkoutIdentity,
         this.extraPagesService,
         this.reprintPaymentService,
         whatsappNotificationsService
@@ -200,6 +205,7 @@ export class PaymentsService {
         this.signupLinkDelivery,
         this.metadataPricing,
         this.checkoutFulfillment,
+        this.checkoutIdentity,
         this.reprintPaymentService
       );
   }
@@ -251,7 +257,7 @@ export class PaymentsService {
 
     // Identity first: "this phone belongs to another account" is more useful
     // to the customer than any pricing error.
-    await this.checkoutFulfillment.assertCheckoutIdentityConflict({
+    await this.checkoutIdentity.assertCheckoutIdentityConflict({
       email: input.email,
       phone: extractCheckoutMetadata(asRecord(input.metadata))?.phone ?? null,
     });

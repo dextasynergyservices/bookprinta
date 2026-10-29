@@ -31,6 +31,7 @@ import {
   stripClientTrustedMetadata,
 } from "../payment-metadata.js";
 import { CheckoutFulfillmentService } from "./checkout-fulfillment.service.js";
+import { CheckoutIdentityService } from "./checkout-identity.service.js";
 import { CheckoutMetadataPricingService } from "./checkout-metadata-pricing.service.js";
 import { GatewayService } from "./gateway.service.js";
 import { PaymentNotificationsService } from "./payment-notifications.service.js";
@@ -78,6 +79,7 @@ export class BankTransferService {
     private readonly signupLinkDelivery: SignupLinkDeliveryService,
     private readonly metadataPricing: CheckoutMetadataPricingService,
     private readonly checkoutFulfillment: CheckoutFulfillmentService,
+    private readonly checkoutIdentity: CheckoutIdentityService,
     private readonly reprintPaymentService: ReprintPaymentService
   ) {}
 
@@ -184,7 +186,7 @@ export class BankTransferService {
     // Check bank transfer gateway is enabled
     await this.ensureGatewayEnabled(PaymentProvider.BANK_TRANSFER);
 
-    await this.checkoutFulfillment.assertCheckoutIdentityConflict({
+    await this.checkoutIdentity.assertCheckoutIdentityConflict({
       email: dto.payerEmail,
       phone: dto.payerPhone,
     });
