@@ -1,5 +1,3 @@
-/// <reference types="multer" />
-import { randomBytes } from "node:crypto";
 import type { Locale } from "@bookprinta/emails";
 import {
   renderBankTransferAdminEmail,
@@ -52,8 +50,38 @@ import { WhatsappNotificationsService } from "../notifications/whatsapp-notifica
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { ScannerService } from "../scanner/scanner.service.js";
-import { PAYSTACK_PRODUCT_TAG, PAYSTACK_PRODUCT_TAG_KEY } from "./constants.js";
 import type { InitializePaymentDto } from "./dto/payment-request.dto.js";
+import {
+  asBoolean,
+  asInteger,
+  asNumber,
+  asRecord,
+  asString,
+  type CheckoutMetadata,
+  type CustomQuoteCheckoutMetadata,
+  deriveTitleFromFileName,
+  extractCheckoutMetadata,
+  extractCustomQuoteCheckoutMetadata,
+  extractDashboardOrderEmailDelivery,
+  extractReprintMetadata,
+  formatNaira,
+  generateSecureToken,
+  hasBookPrintaProductTag,
+  isPrismaUniqueViolation,
+  isPrismaUniqueViolationForField,
+  mimeToExtension,
+  normalizeWebhookMetadata,
+  parseDataUrl,
+  parseJsonRecord,
+  parseProviderHint,
+  pickDisplayName,
+  REPRINT_MIN_COPIES,
+  resolveLocale,
+  splitFullName,
+  stripClientTrustedMetadata,
+  toCurrency,
+  withDashboardOrderEmailDelivery,
+} from "./payment-metadata.js";
 import { AdminPaymentListService } from "./services/admin-payment-list.service.js";
 import {
   CHECKOUT_PRICING_SIGNATURE_KEY,
@@ -79,7 +107,6 @@ const DEFAULT_DASHBOARD_PATH = "/dashboard";
 const BANK_TRANSFER_REJECTED_TITLE_KEY = "notifications.bank_transfer_rejected.title";
 const BANK_TRANSFER_REJECTED_MESSAGE_KEY = "notifications.bank_transfer_rejected.message";
 const BANK_TRANSFER_REJECTED_FALLBACK_TITLE = "Bank transfer not approved";
-const REPRINT_MIN_COPIES = 1;
 const DEFAULT_REPRINT_COST_PER_PAGE = 15;
 const DEFAULT_REPRINT_COVER_COST = 300;
 const REPRINT_COST_PER_PAGE_SETTING_KEY = "reprint_cost_per_page";
@@ -122,70 +149,6 @@ const PAYMENT_RECONCILE_PAGE_SIZE = 100;
  */
 const PAYMENT_RECONCILE_MEMO_TTL_MS = 31 * 24 * 60 * 60 * 1000;
 const SIGNUP_LINK_DELIVERY_MAX_ATTEMPTS = 3;
-
-type CheckoutAddonMetadata = {
-  id?: string | null;
-  slug?: string;
-  name?: string;
-  price?: number;
-  wordCount?: number | null;
-};
-
-type CheckoutMetadata = {
-  locale?: Locale;
-  fullName?: string;
-  phone?: string;
-  couponCode?: string;
-  packageId?: string;
-  packageSlug?: string;
-  packageName?: string;
-  tier?: string;
-  hasCover?: boolean;
-  hasFormatting?: boolean;
-  bookSize?: string;
-  paperColor?: string;
-  lamination?: string;
-  formattingWordCount?: number;
-  basePrice?: number;
-  addonTotal?: number;
-  discountAmount?: number;
-  totalPrice?: number;
-  addons?: CheckoutAddonMetadata[];
-  paymentFlow?: string;
-  customQuoteId?: string;
-  quoteTitle?: string;
-  quoteQuantity?: number;
-  quotePrintSize?: string;
-  quoteFinalPrice?: number;
-  /** "dashboard" when order placed by authenticated user from dashboard */
-  source?: string;
-  /** User ID when order placed from dashboard (set server-side by DashboardService) */
-  dashboardUserId?: string;
-  /** HMAC over the server-computed pricing — see CheckoutPricingService. */
-  pricingSignature?: string;
-};
-
-type CustomQuoteCheckoutMetadata = {
-  customQuoteId: string;
-  quoteTitle: string;
-  quotePrintSize: string;
-  quoteQuantity: number;
-  quoteFinalPrice: number;
-  fullName: string | null;
-  phone: string | null;
-  locale: Locale;
-};
-
-type ReprintMetadata = {
-  sourceBookId: string;
-  sourceOrderId: string | null;
-  copies: number;
-  bookSize: string | null;
-  paperColor: string | null;
-  lamination: string | null;
-  pageCount: number | null;
-  finalPdfUrl: string | null;
-};
 
 type NormalizedBankTransferInput = {
   payerName: string;
@@ -237,12 +200,6 @@ type PublicSignupLinkDeliveryStatus = {
   attemptCount: number;
   lastAttemptAt: string | null;
   retryEligible: boolean;
-};
-
-type DashboardOrderEmailDeliverySnapshot = {
-  userSentAt?: string | null;
-  adminSentAt?: string | null;
-  lastAttemptAt?: string | null;
 };
 
 // ──────────────────────────────────────────────
@@ -374,7 +331,7 @@ export class PaymentsService {
   async initializePublic(input: InitializePaymentDto) {
     return this.initialize({
       ...input,
-      metadata: this.stripClientTrustedMetadata(this.asRecord(input.metadata)) ?? undefined,
+      metadata: stripClientTrustedMetadata(asRecord(input.metadata)) ?? undefined,
     });
   }
 
@@ -391,18 +348,18 @@ export class PaymentsService {
     // to the customer than any pricing error.
     await this.assertCheckoutIdentityConflict({
       email: input.email,
-      phone: this.extractCheckoutMetadata(this.asRecord(input.metadata))?.phone ?? null,
+      phone: extractCheckoutMetadata(asRecord(input.metadata))?.phone ?? null,
     });
 
     // 3. Re-price on the server. The browser's amount is only compared, never
     //    charged — see CheckoutPricingService for the full rationale.
     const priced = await this.priceCheckoutMetadata({
-      metadata: this.asRecord(input.metadata),
+      metadata: asRecord(input.metadata),
       clientAmount: input.amount,
       currency: input.currency,
     });
     const normalizedMetadata = priced.metadata;
-    const checkoutMetadata = this.extractCheckoutMetadata(normalizedMetadata);
+    const checkoutMetadata = extractCheckoutMetadata(normalizedMetadata);
     const dto = {
       ...input,
       amount: priced.amount,
@@ -489,7 +446,7 @@ export class PaymentsService {
     // in the DB so the webhook/verify flow doesn't rely solely on the payment
     // provider's metadata field, which can be truncated or lost.
     // For public checkout this is skipped — the record is created on webhook/verify.
-    const dashboardUserId = this.asString(checkoutMetadata?.dashboardUserId);
+    const dashboardUserId = asString(checkoutMetadata?.dashboardUserId);
     const isDashboardCheckoutInitialization =
       (checkoutMetadata?.source ?? "").toLowerCase() === "dashboard" &&
       (checkoutMetadata?.paymentFlow ?? "").toUpperCase() === "CHECKOUT" &&
@@ -557,7 +514,7 @@ export class PaymentsService {
             paymentId: existing.id,
             userId: existing.userId,
             payerEmail: existing.payerEmail,
-            metadata: this.asRecord(existing.metadata),
+            metadata: asRecord(existing.metadata),
             amount: Number(existing.amount),
             currency: existing.currency,
           });
@@ -585,8 +542,8 @@ export class PaymentsService {
         this.logger.warn(`Failed to resolve order details for payment ${existing.id}: ${err}`);
       }
 
-      const existingMetadata = this.asRecord(existing.metadata);
-      const isDashboardOrder = this.asString(existingMetadata?.source) === "dashboard";
+      const existingMetadata = asRecord(existing.metadata);
+      const isDashboardOrder = asString(existingMetadata?.source) === "dashboard";
       if (
         isDashboardOrder &&
         existing.status === PaymentStatus.SUCCESS &&
@@ -596,9 +553,9 @@ export class PaymentsService {
         await this.sendNewBookOrderEmails({
           paymentId: existing.id,
           baseMetadata: existingMetadata,
-          locale: this.resolveLocale(this.asString(existingMetadata?.locale)),
-          userName: this.pickDisplayName(
-            this.asString(existingMetadata?.fullName) || undefined,
+          locale: resolveLocale(asString(existingMetadata?.locale)),
+          userName: pickDisplayName(
+            asString(existingMetadata?.fullName) || undefined,
             existing.payerEmail
           ),
           userEmail: existing.payerEmail,
@@ -632,7 +589,7 @@ export class PaymentsService {
     let verified = false;
     let amount: number | null = null;
     let currency: string | null = null;
-    const providerHint = this.parseProviderHint(providerHintRaw);
+    const providerHint = parseProviderHint(providerHintRaw);
     const providerToVerify = existing?.provider ?? providerHint;
 
     const verifyByProvider = async (provider: PaymentProvider) => {
@@ -654,7 +611,7 @@ export class PaymentsService {
               gatewayResponse: resp as unknown as Record<string, unknown>,
               metadata:
                 (resp.metadata as Record<string, unknown> | null) ??
-                this.asRecord(existing?.metadata) ??
+                asRecord(existing?.metadata) ??
                 null,
             });
           }
@@ -677,7 +634,7 @@ export class PaymentsService {
               gatewayResponse: resp as unknown as Record<string, unknown>,
               metadata:
                 (resp.metadata as Record<string, unknown> | null) ??
-                this.asRecord(existing?.metadata) ??
+                asRecord(existing?.metadata) ??
                 null,
             });
           }
@@ -698,7 +655,7 @@ export class PaymentsService {
               currency: currency ?? DEFAULT_CURRENCY,
               payerEmail: resp.payerEmail ?? existing.payerEmail ?? null,
               gatewayResponse: resp as unknown as Record<string, unknown>,
-              metadata: this.asRecord(existing.metadata) ?? null,
+              metadata: asRecord(existing.metadata) ?? null,
             });
           }
           return true;
@@ -843,7 +800,7 @@ export class PaymentsService {
       metadata,
     });
 
-    const locale = this.resolveLocale(this.extractCheckoutMetadata(metadata)?.locale);
+    const locale = resolveLocale(extractCheckoutMetadata(metadata)?.locale);
 
     await this.triggerBankTransferNotifications({
       paymentId: payment.id,
@@ -897,8 +854,8 @@ export class PaymentsService {
     // Public endpoint: the client cannot assert a dashboard identity, and the
     // amount the admin approves against must be the server's price, not one the
     // browser typed in.
-    const clientMetadata = this.stripClientTrustedMetadata(this.asRecord(dto.metadata));
-    if (this.extractCustomQuoteCheckoutMetadata(clientMetadata) && !receiptFile) {
+    const clientMetadata = stripClientTrustedMetadata(asRecord(dto.metadata));
+    if (extractCustomQuoteCheckoutMetadata(clientMetadata) && !receiptFile) {
       throw new BadRequestException(
         "Receipt file upload is required for custom quote bank transfers."
       );
@@ -917,7 +874,7 @@ export class PaymentsService {
       payerEmail: dto.payerEmail,
       email: dto.payerEmail,
     };
-    const locale = this.resolveLocale(this.extractCheckoutMetadata(metadata)?.locale);
+    const locale = resolveLocale(extractCheckoutMetadata(metadata)?.locale);
     const resolvedReceiptUrl = await this.resolveBankTransferReceiptUrl({
       receiptFile,
       receiptUrl: dto.receiptUrl,
@@ -1084,14 +1041,14 @@ export class PaymentsService {
       addons: [] as string[],
     };
 
-    const checkout = this.extractCheckoutMetadata(params.metadata);
+    const checkout = extractCheckoutMetadata(params.metadata);
     if (!checkout) return fallback;
 
     let packageName =
-      this.asString(checkout.packageName) || this.asString(checkout.tier) || fallback.packageName;
+      asString(checkout.packageName) || asString(checkout.tier) || fallback.packageName;
 
     const namedAddons = (checkout.addons ?? [])
-      .map((addon) => this.asString(addon.name))
+      .map((addon) => asString(addon.name))
       .filter((name): name is string => Boolean(name));
 
     if (namedAddons.length > 0 && packageName !== fallback.packageName) {
@@ -1244,7 +1201,7 @@ export class PaymentsService {
       payerName: payment.payerName,
       amount: Number(payment.amount),
       currency: payment.currency,
-      metadata: this.asRecord(payment.metadata),
+      metadata: asRecord(payment.metadata),
       userId: payment.userId,
       orderId: payment.orderId,
     });
@@ -1289,8 +1246,8 @@ export class PaymentsService {
       });
     });
 
-    const paymentMetadata = this.asRecord(payment.metadata);
-    const isDashboardOrder = this.asString(paymentMetadata?.source) === "dashboard";
+    const paymentMetadata = asRecord(payment.metadata);
+    const isDashboardOrder = asString(paymentMetadata?.source) === "dashboard";
 
     if (isDashboardOrder) {
       // Dashboard order: user already has an account — send new-book confirmation emails
@@ -1366,7 +1323,7 @@ export class PaymentsService {
     adminNote?: string
   ) {
     const normalizedAdminNote = adminNote?.trim() || null;
-    const metadata = this.asRecord(payment.metadata);
+    const metadata = asRecord(payment.metadata);
     const now = new Date();
 
     // Mark payment as SUCCESS
@@ -1516,7 +1473,7 @@ export class PaymentsService {
 
     const recordedAt = new Date();
     const processedAt = payment.processedAt ?? recordedAt;
-    const checkout = this.extractCheckoutMetadata(this.asRecord(payment.metadata));
+    const checkout = extractCheckoutMetadata(asRecord(payment.metadata));
     const orderNumber =
       payment.order?.orderNumber?.trim() || payment.providerRef?.trim() || payment.id;
     const reference = payment.providerRef?.trim() || payment.id;
@@ -1526,12 +1483,12 @@ export class PaymentsService {
       ? `${payment.user.firstName} ${payment.user.lastName ?? ""}`.trim()
       : "";
     const userName = recipientEmail
-      ? this.pickDisplayName(
+      ? pickDisplayName(
           payment.payerName?.trim() || checkout?.fullName?.trim() || linkedUserName || undefined,
           recipientEmail
         )
       : payment.payerName?.trim() || checkout?.fullName?.trim() || linkedUserName || "Author";
-    const locale = this.resolveLocale(checkout?.locale ?? payment.user?.preferredLanguage);
+    const locale = resolveLocale(checkout?.locale ?? payment.user?.preferredLanguage);
     const actionHref = payment.orderId
       ? `/dashboard/orders/${payment.orderId}`
       : DEFAULT_DASHBOARD_PATH;
@@ -1733,7 +1690,7 @@ export class PaymentsService {
 
     const [costPerPage, coverCost] = await this.resolveReprintCostSettings();
     const costPerCopy = sourceBook.pageCount * costPerPage + coverCost;
-    const amount = this.toCurrency(costPerCopy * params.copies);
+    const amount = toCurrency(costPerCopy * params.copies);
     const reference = this.generateReference("rp");
 
     const bookSize = sourceBook.order.bookSize ?? "A5";
@@ -1923,7 +1880,7 @@ export class PaymentsService {
       // Shared integration: ignore the other product's charges entirely.
       const ours =
         existing !== null ||
-        this.hasBookPrintaProductTag(transaction.metadata) ||
+        hasBookPrintaProductTag(transaction.metadata) ||
         (await this.isBookPrintaCharge(transaction.metadata));
       if (!ours) {
         summary.skippedForeign += 1;
@@ -2008,27 +1965,17 @@ export class PaymentsService {
    *
    * Paystack may return metadata as a JSON string rather than an object.
    */
-  /** True when Paystack metadata carries BookPrinta's product tag (constants.ts). */
-  private hasBookPrintaProductTag(
-    metadata: Record<string, unknown> | string | null | undefined
-  ): boolean {
-    const record =
-      typeof metadata === "string" ? this.parseJsonRecord(metadata) : this.asRecord(metadata);
-    return record?.[PAYSTACK_PRODUCT_TAG_KEY] === PAYSTACK_PRODUCT_TAG;
-  }
-
   private async isBookPrintaCharge(
     metadata: Record<string, unknown> | string | null | undefined
   ): Promise<boolean> {
-    const record =
-      typeof metadata === "string" ? this.parseJsonRecord(metadata) : this.asRecord(metadata);
+    const record = typeof metadata === "string" ? parseJsonRecord(metadata) : asRecord(metadata);
     if (!record) return false;
 
     // Custom-quote flow: verify the quote is one of ours.
-    const quoteCheckout = this.extractCustomQuoteCheckoutMetadata(record);
+    const quoteCheckout = extractCustomQuoteCheckoutMetadata(record);
     const customQuoteId = quoteCheckout
-      ? this.asString(quoteCheckout.customQuoteId)
-      : this.asString(record.customQuoteId);
+      ? asString(quoteCheckout.customQuoteId)
+      : asString(record.customQuoteId);
     if (customQuoteId) {
       const quote = await this.prisma.customQuote.findUnique({
         where: { id: customQuoteId },
@@ -2038,7 +1985,7 @@ export class PaymentsService {
     }
 
     // Standard checkout: the package must resolve to an active BookPrinta package.
-    const checkout = this.extractCheckoutMetadata(record);
+    const checkout = extractCheckoutMetadata(record);
     if (!checkout) return false;
     if (!checkout.packageId && !checkout.packageSlug && !checkout.tier) return false;
 
@@ -2073,22 +2020,21 @@ export class PaymentsService {
     // Tagged at creation (constants.ts) — covers extra-page and reprint
     // charges, whose metadata has no checkout shape. Whether they resolve is
     // decided downstream (an unresolvable one is recorded as an orphan).
-    if (this.hasBookPrintaProductTag(metadata) || (await this.isBookPrintaCharge(metadata))) {
+    if (hasBookPrintaProductTag(metadata) || (await this.isBookPrintaCharge(metadata))) {
       return "ours";
     }
 
-    const record =
-      typeof metadata === "string" ? this.parseJsonRecord(metadata) : this.asRecord(metadata);
+    const record = typeof metadata === "string" ? parseJsonRecord(metadata) : asRecord(metadata);
     if (!record) return "foreign";
 
     // A customQuoteId that does not resolve is still a claim to be one of ours.
-    const quoteCheckout = this.extractCustomQuoteCheckoutMetadata(record);
+    const quoteCheckout = extractCustomQuoteCheckoutMetadata(record);
     const customQuoteId = quoteCheckout
-      ? this.asString(quoteCheckout.customQuoteId)
-      : this.asString(record.customQuoteId);
+      ? asString(quoteCheckout.customQuoteId)
+      : asString(record.customQuoteId);
     if (customQuoteId) return "unresolvable";
 
-    const checkout = this.extractCheckoutMetadata(record);
+    const checkout = extractCheckoutMetadata(record);
     if (!checkout) return "foreign";
     if (checkout.packageId || checkout.packageSlug || checkout.tier) {
       return "unresolvable";
@@ -2266,7 +2212,7 @@ export class PaymentsService {
     gatewayResponse: Record<string, unknown>;
     metadata: Record<string, unknown> | null;
   }) {
-    const metadata = this.normalizeWebhookMetadata(data.metadata);
+    const metadata = normalizeWebhookMetadata(data.metadata);
 
     const existingPayment = await this.prisma.payment.findUnique({
       where: { providerRef: data.providerRef },
@@ -2287,7 +2233,7 @@ export class PaymentsService {
         return;
       }
 
-      const persistedMetadata = this.asRecord(existingPayment.metadata);
+      const persistedMetadata = asRecord(existingPayment.metadata);
       const mergedMetadata =
         persistedMetadata || metadata
           ? {
@@ -2474,7 +2420,7 @@ export class PaymentsService {
         existingUserId: existingPayment.userId ?? undefined,
       });
 
-      const isDashboardOrder = this.asString(mergedMetadata?.source) === "dashboard";
+      const isDashboardOrder = asString(mergedMetadata?.source) === "dashboard";
 
       if (checkoutResult && isDashboardOrder) {
         // Dashboard order: user already has an account — send new-book confirmation emails
@@ -2561,7 +2507,7 @@ export class PaymentsService {
     } catch (error) {
       // Prisma unique constraint violation (P2002) means another process
       // already created this payment — safe to skip.
-      if (this.isPrismaUniqueViolation(error)) {
+      if (isPrismaUniqueViolation(error)) {
         this.logger.log(
           `Payment ${data.providerRef} already created by another process — skipping`
         );
@@ -2578,7 +2524,7 @@ export class PaymentsService {
       currency: data.currency,
     });
 
-    const isDashboardNewPayment = this.asString(metadata?.source) === "dashboard";
+    const isDashboardNewPayment = asString(metadata?.source) === "dashboard";
 
     if (checkoutResult && isDashboardNewPayment) {
       await this.sendNewBookOrderEmails({
@@ -2638,13 +2584,6 @@ export class PaymentsService {
         dashboardUrl: this.buildLocalizedDashboardUrl(checkoutResult.locale),
       });
     }
-  }
-
-  private normalizeWebhookMetadata(
-    metadata: Record<string, unknown> | null
-  ): Record<string, unknown> | null {
-    if (!metadata || typeof metadata !== "object") return null;
-    return metadata;
   }
 
   private async ensureBankTransferApprovalSignupInfo(params: {
@@ -2708,7 +2647,7 @@ export class PaymentsService {
     payerName: string | null;
     metadata: Record<string, unknown> | null;
   }): Promise<CheckoutFinalizationInfo | null> {
-    const checkout = this.extractCheckoutMetadata(params.metadata);
+    const checkout = extractCheckoutMetadata(params.metadata);
     const signupTokenExpiry = new Date(Date.now() + MAX_SIGNUP_TOKEN_HOURS * 60 * 60 * 1000);
 
     return this.prisma.$transaction(async (tx) => {
@@ -2752,20 +2691,20 @@ export class PaymentsService {
         throw new ConflictException("Payment is linked to a mismatched checkout owner.");
       }
 
-      const locale = this.resolveLocale(checkout?.locale ?? user.preferredLanguage);
+      const locale = resolveLocale(checkout?.locale ?? user.preferredLanguage);
       const displayEmail = params.payerEmail?.trim().toLowerCase() || user.email;
-      const fullName = this.pickDisplayName(
+      const fullName = pickDisplayName(
         checkout?.fullName || params.payerName || `${user.firstName} ${user.lastName ?? ""}`.trim(),
         displayEmail
       );
-      const splitName = this.splitFullName(fullName);
+      const splitName = splitFullName(fullName);
       const normalizedPhone = checkout?.phone?.trim() || user.phoneNumber || null;
       const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
       const needsSignupToken = !user.password || !user.isVerified;
       let signupToken: string | null = null;
 
       if (needsSignupToken) {
-        signupToken = this.generateSecureToken();
+        signupToken = generateSecureToken();
       }
 
       user = await tx.user.update({
@@ -2798,13 +2737,13 @@ export class PaymentsService {
         orderId: order.id,
         email: user.email,
         name: user.firstName,
-        locale: this.resolveLocale(user.preferredLanguage),
+        locale: resolveLocale(user.preferredLanguage),
         signupToken,
         phone: user.phoneNumber ?? null,
         whatsAppNotificationsEnabled: user.whatsAppNotificationsEnabled,
         orderNumber: order.orderNumber,
         packageName: order.package.name,
-        amountPaid: this.formatNaira(Number(order.totalAmount)),
+        amountPaid: formatNaira(Number(order.totalAmount)),
         addons: order.addons
           .map((entry) => entry.addon.name)
           .filter((value): value is string => value.trim().length > 0),
@@ -2822,7 +2761,7 @@ export class PaymentsService {
   }): Promise<CheckoutFinalizationInfo | null> {
     if (!params.payerEmail && !params.existingUserId) return null;
 
-    const customQuoteCheckout = this.extractCustomQuoteCheckoutMetadata(params.metadata);
+    const customQuoteCheckout = extractCustomQuoteCheckoutMetadata(params.metadata);
     if (customQuoteCheckout) {
       return this.createCustomQuoteEntitiesFromMetadata({
         ...params,
@@ -2830,7 +2769,7 @@ export class PaymentsService {
       });
     }
 
-    const rawCheckout = this.extractCheckoutMetadata(params.metadata);
+    const rawCheckout = extractCheckoutMetadata(params.metadata);
     if (!rawCheckout) return null;
 
     const pkg = await this.resolvePackageFromCheckoutMetadata(rawCheckout);
@@ -2853,7 +2792,7 @@ export class PaymentsService {
     const checkout = trusted.checkout;
     const existingUserId = params.existingUserId ?? trusted.dashboardUserId;
 
-    const locale = this.resolveLocale(checkout.locale);
+    const locale = resolveLocale(checkout.locale);
     const normalizedPhone = checkout.phone?.trim() || null;
     const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
     const signupTokenExpiry = new Date(Date.now() + MAX_SIGNUP_TOKEN_HOURS * 60 * 60 * 1000);
@@ -2891,7 +2830,7 @@ export class PaymentsService {
           throw new ConflictException(DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE);
         }
 
-        const fullName = this.pickDisplayName(
+        const fullName = pickDisplayName(
           checkout.fullName ||
             [user?.firstName, user?.lastName]
               .filter((value): value is string => Boolean(value))
@@ -2899,12 +2838,12 @@ export class PaymentsService {
             undefined,
           normalizedEmail
         );
-        const splitName = this.splitFullName(fullName);
+        const splitName = splitFullName(fullName);
 
         let signupToken: string | null = null;
 
         if (!user) {
-          signupToken = this.generateSecureToken();
+          signupToken = generateSecureToken();
           user = await tx.user.create({
             data: {
               email: normalizedEmail,
@@ -2922,7 +2861,7 @@ export class PaymentsService {
         } else {
           const needsSignupToken = !user.password || !user.isVerified;
           if (needsSignupToken) {
-            signupToken = this.generateSecureToken();
+            signupToken = generateSecureToken();
           }
 
           user = await tx.user.update({
@@ -2944,8 +2883,8 @@ export class PaymentsService {
         }
 
         const orderNumber = await this.generateOrderNumber(tx);
-        const totalAmount = this.toCurrency(checkout.totalPrice ?? params.amount);
-        const initialAmount = this.toCurrency(params.amount);
+        const totalAmount = toCurrency(checkout.totalPrice ?? params.amount);
+        const initialAmount = toCurrency(params.amount);
         const appliedCoupon = await this.resolveAppliedCouponForOrder(tx, checkout, initialAmount, {
           honorDiscount: trusted.signed ? (checkout.discountAmount ?? 0) : 0,
         });
@@ -3043,18 +2982,18 @@ export class PaymentsService {
           orderId: order.id,
           email: user.email,
           name: user.firstName,
-          locale: this.resolveLocale(user.preferredLanguage),
+          locale: resolveLocale(user.preferredLanguage),
           signupToken,
           phone: user.phoneNumber ?? null,
           whatsAppNotificationsEnabled: user.whatsAppNotificationsEnabled,
           orderNumber,
           packageName: pkg.name,
-          amountPaid: this.formatNaira(params.amount),
+          amountPaid: formatNaira(params.amount),
           addons: addonNames,
         };
       });
     } catch (error) {
-      if (this.isPrismaUniqueViolationForField(error, "phoneNumberNormalized")) {
+      if (isPrismaUniqueViolationForField(error, "phoneNumberNormalized")) {
         throw new ConflictException(PHONE_ALREADY_IN_USE_MESSAGE);
       }
 
@@ -3152,7 +3091,7 @@ export class PaymentsService {
       throw new ConflictException("Authenticated reprint payments require a linked user.");
     }
 
-    const reprint = this.extractReprintMetadata(params.metadata);
+    const reprint = extractReprintMetadata(params.metadata);
     if (!reprint) {
       this.logger.warn(
         `Webhook payment ${params.paymentId}: reprint metadata is incomplete, skipping order creation`
@@ -3239,7 +3178,7 @@ export class PaymentsService {
       const lamination = sourceBook.order.lamination ?? reprint.lamination ?? "gloss";
 
       const orderNumber = await this.generateOrderNumber(tx);
-      const amount = this.toCurrency(params.amount);
+      const amount = toCurrency(params.amount);
       const now = new Date();
 
       const order = await tx.order.create({
@@ -3357,19 +3296,17 @@ export class PaymentsService {
       return {
         email: params.payerEmail ?? sourceBook.user.email,
         name: sourceBook.user.firstName,
-        locale: this.resolveLocale(sourceBook.user.preferredLanguage),
+        locale: resolveLocale(sourceBook.user.preferredLanguage),
         phone: sourceBook.user.phoneNumber ?? null,
         whatsAppNotificationsEnabled: sourceBook.user.whatsAppNotificationsEnabled,
         orderNumber,
         packageName: sourceBook.order.package.name,
-        amountPaid: this.formatNaira(params.amount),
+        amountPaid: formatNaira(params.amount),
         addons: [],
         bookTitle:
-          this.deriveTitleFromFileName(sourceManuscript?.fileName) ??
-          sourceBook.title ??
-          "Untitled",
+          deriveTitleFromFileName(sourceManuscript?.fileName) ?? sourceBook.title ?? "Untitled",
         copies: reprint.copies,
-        costPerCopy: this.formatNaira(pageCount > 0 ? params.amount / reprint.copies : 0),
+        costPerCopy: formatNaira(pageCount > 0 ? params.amount / reprint.copies : 0),
         bookSize,
         paperColor,
         lamination,
@@ -3386,10 +3323,10 @@ export class PaymentsService {
     if (addonInputs.length === 0) return;
 
     const addonIds = addonInputs
-      .map((addon) => this.asString(addon.id))
+      .map((addon) => asString(addon.id))
       .filter((value): value is string => Boolean(value));
     const addonSlugs = addonInputs
-      .map((addon) => this.asString(addon.slug))
+      .map((addon) => asString(addon.slug))
       .filter((value): value is string => Boolean(value));
 
     if (addonIds.length === 0 && addonSlugs.length === 0) return;
@@ -3410,15 +3347,15 @@ export class PaymentsService {
 
     const rows: Prisma.OrderAddonCreateManyInput[] = [];
     for (const addonInput of addonInputs) {
-      const addonId = this.asString(addonInput.id);
-      const addonSlug = this.asString(addonInput.slug);
+      const addonId = asString(addonInput.id);
+      const addonSlug = asString(addonInput.slug);
       const resolvedAddon =
         (addonId ? addonById.get(addonId) : undefined) ||
         (addonSlug ? addonBySlug.get(addonSlug) : undefined);
 
       if (!resolvedAddon) continue;
 
-      const price = this.toCurrency(this.asNumber(addonInput.price) ?? 0);
+      const price = toCurrency(asNumber(addonInput.price) ?? 0);
       if (price <= 0) continue;
 
       rows.push({
@@ -3449,10 +3386,10 @@ export class PaymentsService {
     if (addonInputs.length === 0) return [];
 
     const addonIds = addonInputs
-      .map((addon) => this.asString(addon.id))
+      .map((addon) => asString(addon.id))
       .filter((value): value is string => Boolean(value));
     const addonSlugs = addonInputs
-      .map((addon) => this.asString(addon.slug))
+      .map((addon) => asString(addon.slug))
       .filter((value): value is string => Boolean(value));
 
     if (addonIds.length === 0 && addonSlugs.length === 0) return [];
@@ -3465,26 +3402,6 @@ export class PaymentsService {
     });
 
     return addons.map((a) => a.name).filter(Boolean);
-  }
-
-  /**
-   * Metadata keys only the server may set. Stripped from every public request
-   * body so a guest cannot attach a payment to another user's account or
-   * smuggle in pre-signed pricing.
-   */
-  private stripClientTrustedMetadata(
-    metadata: Record<string, unknown> | null
-  ): Record<string, unknown> | null {
-    if (!metadata) return null;
-    const {
-      dashboardUserId: _dashboardUserId,
-      source: _source,
-      checkout_state: _checkoutState,
-      [CHECKOUT_PRICING_SIGNATURE_KEY]: _signature,
-      [CHECKOUT_PRICING_VERSION_KEY]: _version,
-      ...rest
-    } = metadata;
-    return rest;
   }
 
   /**
@@ -3509,20 +3426,20 @@ export class PaymentsService {
       ...base
     } = params.metadata ?? {};
 
-    const checkout = this.extractCheckoutMetadata(base);
+    const checkout = extractCheckoutMetadata(base);
     if (!checkout) {
       throw new BadRequestException(
         "Checkout metadata is missing. Return to pricing and try again."
       );
     }
 
-    const customQuote = this.extractCustomQuoteCheckoutMetadata(base);
+    const customQuote = extractCustomQuoteCheckoutMetadata(base);
     if (customQuote) {
       const quote = await this.prisma.customQuote.findUnique({
         where: { id: customQuote.customQuoteId },
         select: { finalPrice: true },
       });
-      const finalPrice = this.toCurrency(Number(quote?.finalPrice ?? 0));
+      const finalPrice = toCurrency(Number(quote?.finalPrice ?? 0));
       if (!quote || finalPrice <= 0) {
         throw new BadRequestException(
           "This quote is not ready for payment yet. Please use the payment link from your email."
@@ -3700,7 +3617,7 @@ export class PaymentsService {
   }
 
   private async resolvePackageFromCheckoutMetadata(checkout: CheckoutMetadata) {
-    const packageId = this.asString(checkout.packageId);
+    const packageId = asString(checkout.packageId);
     if (packageId) {
       const byId = await this.prisma.package.findFirst({
         where: {
@@ -3712,7 +3629,7 @@ export class PaymentsService {
       if (byId) return byId;
     }
 
-    const packageSlug = this.asString(checkout.packageSlug) || this.asString(checkout.tier);
+    const packageSlug = asString(checkout.packageSlug) || asString(checkout.tier);
     if (!packageSlug) return null;
 
     return this.prisma.package.findFirst({
@@ -3737,132 +3654,6 @@ export class PaymentsService {
     }
 
     throw new ServiceUnavailableException("Unable to generate a unique order number");
-  }
-
-  private extractCheckoutMetadata(
-    metadata: Record<string, unknown> | null
-  ): CheckoutMetadata | null {
-    if (!metadata || typeof metadata !== "object") return null;
-
-    const merged: Record<string, unknown> = { ...metadata };
-    const checkoutState = this.asString(metadata.checkout_state);
-    if (checkoutState) {
-      const parsed = this.parseJsonRecord(checkoutState);
-      if (parsed) Object.assign(merged, parsed);
-    }
-
-    const addonsRaw = Array.isArray(merged.addons)
-      ? merged.addons
-      : this.parseJsonArray(this.asString(merged.addons));
-
-    const addons = (addonsRaw ?? [])
-      .map((value) => this.asRecord(value))
-      .filter((value): value is Record<string, unknown> => Boolean(value))
-      .map((addon) => ({
-        id: this.asString(addon.id),
-        slug: this.asString(addon.slug),
-        name: this.asString(addon.name),
-        price: this.asNumber(addon.price),
-        wordCount: this.asInteger(addon.wordCount) ?? null,
-      }));
-
-    return {
-      locale: this.resolveLocale(this.asString(merged.locale)),
-      fullName: this.asString(merged.fullName),
-      phone: this.asString(merged.phone),
-      paymentFlow: this.asString(merged.paymentFlow),
-      customQuoteId: this.asString(merged.customQuoteId),
-      quoteTitle: this.asString(merged.quoteTitle),
-      quoteQuantity: this.asInteger(merged.quoteQuantity),
-      quotePrintSize: this.asString(merged.quotePrintSize),
-      quoteFinalPrice: this.asNumber(merged.quoteFinalPrice),
-      couponCode: this.asString(merged.couponCode),
-      packageId: this.asString(merged.packageId),
-      packageSlug: this.asString(merged.packageSlug),
-      packageName: this.asString(merged.packageName),
-      tier: this.asString(merged.tier),
-      hasCover: this.asBoolean(merged.hasCover),
-      hasFormatting: this.asBoolean(merged.hasFormatting),
-      bookSize: this.asString(merged.bookSize),
-      paperColor: this.asString(merged.paperColor),
-      lamination: this.asString(merged.lamination),
-      formattingWordCount: this.asInteger(merged.formattingWordCount),
-      basePrice: this.asNumber(merged.basePrice),
-      addonTotal: this.asNumber(merged.addonTotal),
-      discountAmount: this.asNumber(merged.discountAmount),
-      totalPrice: this.asNumber(merged.totalPrice),
-      addons,
-      source: this.asString(merged.source),
-      dashboardUserId: this.asString(merged.dashboardUserId),
-      pricingSignature: this.asString(merged[CHECKOUT_PRICING_SIGNATURE_KEY]),
-    };
-  }
-
-  private deriveTitleFromFileName(fileName: string | null | undefined): string | null {
-    if (typeof fileName !== "string") return null;
-    const trimmed = fileName.trim();
-    if (!trimmed) return null;
-
-    const normalized = trimmed
-      .replace(/\.[^.]+$/, "")
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    return normalized.length > 0 ? normalized : null;
-  }
-
-  private extractReprintMetadata(metadata: Record<string, unknown> | null): ReprintMetadata | null {
-    if (!metadata || typeof metadata !== "object") return null;
-
-    const sourceBookId = this.asString(metadata.sourceBookId);
-    const copies = this.asInteger(metadata.copies);
-
-    if (!sourceBookId || typeof copies !== "number" || copies < REPRINT_MIN_COPIES) {
-      return null;
-    }
-
-    return {
-      sourceBookId,
-      sourceOrderId: this.asString(metadata.sourceOrderId) ?? null,
-      copies,
-      bookSize: this.asString(metadata.bookSize) ?? null,
-      paperColor: this.asString(metadata.paperColor) ?? null,
-      lamination: this.asString(metadata.lamination) ?? null,
-      pageCount: this.asInteger(metadata.pageCount) ?? null,
-      finalPdfUrl: this.asString(metadata.finalPdfUrl) ?? null,
-    };
-  }
-
-  private extractCustomQuoteCheckoutMetadata(
-    metadata: Record<string, unknown> | null
-  ): CustomQuoteCheckoutMetadata | null {
-    const checkout = this.extractCheckoutMetadata(metadata);
-    if (!checkout) return null;
-
-    if ((checkout.paymentFlow || "").toUpperCase() !== "CUSTOM_QUOTE") {
-      return null;
-    }
-
-    const customQuoteId = this.asString(checkout.customQuoteId);
-    const quoteTitle = this.asString(checkout.quoteTitle);
-    const quotePrintSize = this.asString(checkout.quotePrintSize) || "A5";
-    const quoteQuantity = this.asInteger(checkout.quoteQuantity);
-    const quoteFinalPrice = this.asNumber(checkout.quoteFinalPrice);
-
-    if (!customQuoteId || !quoteTitle || !quoteQuantity || !quoteFinalPrice) {
-      return null;
-    }
-
-    return {
-      customQuoteId,
-      quoteTitle,
-      quotePrintSize,
-      quoteQuantity,
-      quoteFinalPrice,
-      fullName: this.asString(checkout.fullName) ?? null,
-      phone: this.asString(checkout.phone) ?? null,
-      locale: this.resolveLocale(this.asString(checkout.locale)),
-    };
   }
 
   private async createCustomQuoteEntitiesFromMetadata(params: {
@@ -3908,7 +3699,7 @@ export class PaymentsService {
 
       // The quote's price lives in our DB, set by an admin. Metadata's
       // quoteFinalPrice is only a copy and is never the basis for acceptance.
-      const agreedPrice = this.toCurrency(Number(quote.finalPrice ?? 0));
+      const agreedPrice = toCurrency(Number(quote.finalPrice ?? 0));
       this.assertPaidAmountCovers({
         paymentId: params.paymentId,
         paidAmount: params.amount,
@@ -3953,7 +3744,7 @@ export class PaymentsService {
             where: { id: quote.order.id },
             data: {
               status: OrderStatus.PAID,
-              totalAmount: this.toCurrency(params.customQuote.quoteFinalPrice || params.amount),
+              totalAmount: toCurrency(params.customQuote.quoteFinalPrice || params.amount),
               currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
             },
           });
@@ -3983,13 +3774,13 @@ export class PaymentsService {
           orderId: quote.order.id,
           email: existingUser.email,
           name: existingUser.firstName,
-          locale: this.resolveLocale(existingUser.preferredLanguage),
+          locale: resolveLocale(existingUser.preferredLanguage),
           signupToken: existingUser.verificationToken ?? null,
           phone: existingUser.phoneNumber ?? null,
           whatsAppNotificationsEnabled: existingUser.whatsAppNotificationsEnabled,
           orderNumber: quote.order.orderNumber,
           packageName: quote.order.package.name,
-          amountPaid: this.formatNaira(Number(quote.order.totalAmount)),
+          amountPaid: formatNaira(Number(quote.order.totalAmount)),
           addons: [],
         };
       }
@@ -4019,17 +3810,14 @@ export class PaymentsService {
         throw new ConflictException(DEACTIVATED_CHECKOUT_ACCOUNT_MESSAGE);
       }
 
-      const fullName = this.pickDisplayName(
-        params.customQuote.fullName ?? undefined,
-        normalizedEmail
-      );
-      const splitName = this.splitFullName(fullName);
+      const fullName = pickDisplayName(params.customQuote.fullName ?? undefined, normalizedEmail);
+      const splitName = splitFullName(fullName);
       const normalizedPhone = params.customQuote.phone?.trim() || user?.phoneNumber || null;
       const normalizedPhoneLookup = normalizePhoneNumber(normalizedPhone);
       let signupToken: string | null = null;
 
       if (!user) {
-        signupToken = this.generateSecureToken();
+        signupToken = generateSecureToken();
         user = await tx.user.create({
           data: {
             email: normalizedEmail,
@@ -4047,7 +3835,7 @@ export class PaymentsService {
       } else {
         const needsSignupToken = !user.password || !user.isVerified;
         if (needsSignupToken) {
-          signupToken = this.generateSecureToken();
+          signupToken = generateSecureToken();
         }
 
         user = await tx.user.update({
@@ -4085,7 +3873,7 @@ export class PaymentsService {
       }
 
       const orderNumber = await this.generateOrderNumber(tx);
-      const paidAmount = this.toCurrency(params.customQuote.quoteFinalPrice || params.amount);
+      const paidAmount = toCurrency(params.customQuote.quoteFinalPrice || params.amount);
 
       const order = await tx.order.create({
         data: {
@@ -4143,13 +3931,13 @@ export class PaymentsService {
         orderId: order.id,
         email: user.email,
         name: user.firstName,
-        locale: this.resolveLocale(user.preferredLanguage),
+        locale: resolveLocale(user.preferredLanguage),
         signupToken,
         phone: user.phoneNumber ?? null,
         whatsAppNotificationsEnabled: user.whatsAppNotificationsEnabled,
         orderNumber: order.orderNumber,
         packageName: fallbackPackage.name,
-        amountPaid: this.formatNaira(paidAmount),
+        amountPaid: formatNaira(paidAmount),
         addons: [],
       };
     });
@@ -4169,10 +3957,10 @@ export class PaymentsService {
     amountPaid: number,
     options: { honorDiscount?: number } = {}
   ): Promise<{ id: string; discountAmount: number } | null> {
-    const rawCode = this.asString(checkout.couponCode);
+    const rawCode = asString(checkout.couponCode);
     if (!rawCode) return null;
 
-    const honorDiscount = this.toCurrency(options.honorDiscount ?? 0);
+    const honorDiscount = toCurrency(options.honorDiscount ?? 0);
     const honored = async (reason: string) => {
       if (honorDiscount <= 0) return null;
       const existing = await tx.coupon.findUnique({
@@ -4239,10 +4027,10 @@ export class PaymentsService {
     }
 
     const subtotal = this.resolveCouponSubtotal(checkout, amountPaid);
-    const discountValue = this.toCurrency(coupon.value);
+    const discountValue = toCurrency(coupon.value);
     const rawDiscount =
       coupon.type === DiscountType.PERCENTAGE ? subtotal * (discountValue / 100) : discountValue;
-    const discountAmount = this.toCurrency(Math.min(subtotal, Math.max(0, rawDiscount)));
+    const discountAmount = toCurrency(Math.min(subtotal, Math.max(0, rawDiscount)));
 
     if (discountAmount <= 0) {
       return null;
@@ -4277,22 +4065,22 @@ export class PaymentsService {
   }
 
   private resolveCouponSubtotal(checkout: CheckoutMetadata, amountPaid: number): number {
-    const basePlusAddons = this.toCurrency((checkout.basePrice ?? 0) + (checkout.addonTotal ?? 0));
+    const basePlusAddons = toCurrency((checkout.basePrice ?? 0) + (checkout.addonTotal ?? 0));
     if (basePlusAddons > 0) return basePlusAddons;
 
-    const totalPlusDiscount = this.toCurrency(
+    const totalPlusDiscount = toCurrency(
       (checkout.totalPrice ?? 0) + (checkout.discountAmount ?? 0)
     );
     if (totalPlusDiscount > 0) return totalPlusDiscount;
 
-    return this.toCurrency(amountPaid);
+    return toCurrency(amountPaid);
   }
 
   private async resolveCheckoutPackageContext(
     tx: Prisma.TransactionClient,
     checkout: CheckoutMetadata
   ): Promise<{ id: string; categoryId: string } | null> {
-    const packageId = this.asString(checkout.packageId);
+    const packageId = asString(checkout.packageId);
     if (packageId) {
       const pkg = await tx.package.findUnique({
         where: { id: packageId },
@@ -4307,7 +4095,7 @@ export class PaymentsService {
       }
     }
 
-    const packageSlug = this.asString(checkout.packageSlug) ?? this.asString(checkout.tier);
+    const packageSlug = asString(checkout.packageSlug) ?? asString(checkout.tier);
     if (!packageSlug) {
       return null;
     }
@@ -4375,7 +4163,7 @@ export class PaymentsService {
       return receiptUrl;
     }
 
-    const parsedDataUrl = this.parseDataUrl(receiptUrl);
+    const parsedDataUrl = parseDataUrl(receiptUrl);
     if (!parsedDataUrl) {
       throw new BadRequestException("Invalid receipt format. Upload a PDF/JPG/PNG receipt.");
     }
@@ -4386,48 +4174,6 @@ export class PaymentsService {
       fileName: `${params.reference}.${parsedDataUrl.extension}`,
       reference: params.reference,
     });
-  }
-
-  private parseDataUrl(
-    dataUrl: string
-  ): { buffer: Buffer; mimeType: string; extension: string } | null {
-    const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/i);
-    if (!match) return null;
-
-    const mimeType = match[1].trim().toLowerCase();
-    const base64Data = match[2].trim();
-    if (!base64Data) return null;
-
-    const buffer = Buffer.from(base64Data, "base64");
-    if (buffer.length === 0) return null;
-
-    const extension =
-      mimeType === "application/pdf"
-        ? "pdf"
-        : mimeType === "image/png"
-          ? "png"
-          : mimeType === "image/jpeg"
-            ? "jpg"
-            : "bin";
-
-    return { buffer, mimeType, extension };
-  }
-
-  private mimeToExtension(mimeType: string): string {
-    switch (mimeType.toLowerCase()) {
-      case "application/pdf":
-        return "pdf";
-      case "image/png":
-        return "png";
-      case "image/jpeg":
-        return "jpg";
-      case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        return "docx";
-      case "application/msword":
-        return "doc";
-      default:
-        return "bin";
-    }
   }
 
   private async scanAndUploadReceipt(params: {
@@ -4459,7 +4205,7 @@ export class PaymentsService {
       folder: "bookprinta/payments/receipts",
       resource_type: params.mimeType.startsWith("image/") ? "image" : "raw",
       type: "upload",
-      public_id: `receipt_${params.reference}_${Date.now()}.${this.mimeToExtension(params.mimeType)}`,
+      public_id: `receipt_${params.reference}_${Date.now()}.${mimeToExtension(params.mimeType)}`,
     });
 
     return upload.secure_url;
@@ -4483,7 +4229,7 @@ export class PaymentsService {
         reference: params.reference,
         orderNumber: params.orderNumber,
         payerName: params.payerName,
-        amountLabel: this.formatNaira(params.amount),
+        amountLabel: formatNaira(params.amount),
       }),
       this.sendBankTransferAdminWhatsApp(params),
       this.sendBankTransferUserWhatsApp(params),
@@ -4514,7 +4260,7 @@ export class PaymentsService {
     }
 
     const adminPanelUrl = `${this.frontendBaseUrl}/admin/payments`;
-    const amountLabel = this.formatNaira(params.amount);
+    const amountLabel = formatNaira(params.amount);
 
     await Promise.allSettled(
       recipients.map(async (to) => {
@@ -4597,7 +4343,7 @@ export class PaymentsService {
         preferredLanguage: params.locale,
       },
       orderNumber: params.orderNumber,
-      amountLabel: this.formatNaira(params.amount),
+      amountLabel: formatNaira(params.amount),
       expectedWaitTime: "Less than 30 minutes",
       packageName: params.packageName,
       addons: params.addons,
@@ -4686,7 +4432,7 @@ export class PaymentsService {
       orderNumber: params.orderNumber,
       packageName: params.packageName,
       addons: params.addons,
-      amount: this.formatNaira(params.amount),
+      amount: formatNaira(params.amount),
     });
 
     const sendResult = await this.resend.emails.send({
@@ -4723,7 +4469,7 @@ export class PaymentsService {
       payerName: params.payerName,
       payerEmail: params.payerEmail,
       payerPhone: params.payerPhone,
-      amount: this.formatNaira(params.amount),
+      amount: formatNaira(params.amount),
       orderNumber: params.orderNumber,
       receiptUrl: params.receiptUrl,
       adminPanelUrl,
@@ -4866,8 +4612,8 @@ export class PaymentsService {
       return;
     }
 
-    const metadata = this.asRecord(params.baseMetadata);
-    const delivery = this.extractDashboardOrderEmailDelivery(metadata);
+    const metadata = asRecord(params.baseMetadata);
+    const delivery = extractDashboardOrderEmailDelivery(metadata);
     if (delivery.userSentAt && delivery.adminSentAt) {
       return;
     }
@@ -4964,7 +4710,7 @@ export class PaymentsService {
       await this.prisma.payment.update({
         where: { id: params.paymentId },
         data: {
-          metadata: this.withDashboardOrderEmailDelivery(metadata, {
+          metadata: withDashboardOrderEmailDelivery(metadata, {
             userSentAt,
             adminSentAt,
             lastAttemptAt: attemptedAt,
@@ -4977,30 +4723,6 @@ export class PaymentsService {
         error instanceof Error ? error.stack : undefined
       );
     }
-  }
-
-  private extractDashboardOrderEmailDelivery(
-    metadata: Record<string, unknown> | null
-  ): DashboardOrderEmailDeliverySnapshot {
-    const snapshot = this.asRecord(metadata?.dashboardOrderEmailDelivery);
-    return {
-      userSentAt: this.asString(snapshot?.userSentAt),
-      adminSentAt: this.asString(snapshot?.adminSentAt),
-      lastAttemptAt: this.asString(snapshot?.lastAttemptAt),
-    };
-  }
-
-  private withDashboardOrderEmailDelivery(
-    metadata: Record<string, unknown>,
-    delivery: DashboardOrderEmailDeliverySnapshot
-  ): Record<string, unknown> {
-    return {
-      ...metadata,
-      dashboardOrderEmailDelivery: {
-        ...this.asRecord(metadata.dashboardOrderEmailDelivery),
-        ...delivery,
-      },
-    };
   }
 
   private async sendOnlinePaymentAdminEmail(params: {
@@ -5098,149 +4820,8 @@ export class PaymentsService {
     }
   }
 
-  private pickDisplayName(fullName: string | undefined, email: string): string {
-    if (fullName?.trim()) return fullName.trim();
-    return email.split("@")[0] || "Author";
-  }
-
-  private splitFullName(name: string): { firstName: string; lastName: string | null } {
-    const normalized = name.trim().replace(/\s+/g, " ");
-    const [first, ...rest] = normalized.split(" ");
-    return {
-      firstName: first || "Author",
-      lastName: rest.length > 0 ? rest.join(" ") : null,
-    };
-  }
-
-  private generateSecureToken(): string {
-    return randomBytes(32).toString("hex");
-  }
-
-  private formatNaira(amount: number): string {
-    return new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency: DEFAULT_CURRENCY,
-      maximumFractionDigits: 0,
-    }).format(this.toCurrency(amount));
-  }
-
-  private resolveLocale(value: unknown): Locale {
-    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-    if (normalized === "fr" || normalized === "es") return normalized;
-    return "en";
-  }
-
   private buildLocalizedDashboardUrl(locale: Locale): string {
     return `${this.frontendBaseUrl}/${locale}${DEFAULT_DASHBOARD_PATH}`;
-  }
-
-  private toCurrency(value: unknown): number {
-    const amount = this.asNumber(value) ?? 0;
-    if (!Number.isFinite(amount)) return 0;
-    return Number(Math.max(0, amount).toFixed(2));
-  }
-
-  private asRecord(value: unknown): Record<string, unknown> | null {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-    return value as Record<string, unknown>;
-  }
-
-  private isPrismaUniqueViolation(error: unknown): boolean {
-    if (error && typeof error === "object" && "code" in error) {
-      return (error as { code: string }).code === "P2002";
-    }
-    return false;
-  }
-
-  private isPrismaUniqueViolationForField(error: unknown, field: string): boolean {
-    if (!this.isPrismaUniqueViolation(error)) {
-      return false;
-    }
-
-    if (
-      !error ||
-      typeof error !== "object" ||
-      !("meta" in error) ||
-      !(error as { meta?: { target?: unknown } }).meta
-    ) {
-      return false;
-    }
-
-    const target = (error as { meta?: { target?: unknown } }).meta?.target;
-    if (Array.isArray(target)) {
-      return target.some((value) => value === field);
-    }
-
-    return typeof target === "string" && target.includes(field);
-  }
-
-  private asString(value: unknown): string | undefined {
-    if (typeof value !== "string") return undefined;
-    const normalized = value.trim();
-    return normalized.length > 0 ? normalized : undefined;
-  }
-
-  private asBoolean(value: unknown): boolean | undefined {
-    if (typeof value === "boolean") return value;
-    if (typeof value === "string") {
-      const normalized = value.trim().toLowerCase();
-      if (normalized === "true") return true;
-      if (normalized === "false") return false;
-    }
-    return undefined;
-  }
-
-  private asNumber(value: unknown): number | undefined {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (
-      value &&
-      typeof value === "object" &&
-      "toNumber" in value &&
-      typeof (value as { toNumber: unknown }).toNumber === "function"
-    ) {
-      const parsed = (value as { toNumber: () => number }).toNumber();
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    if (typeof value === "string" && value.trim().length > 0) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    return undefined;
-  }
-
-  private asInteger(value: unknown): number | undefined {
-    const parsed = this.asNumber(value);
-    if (parsed === undefined) return undefined;
-    return Math.max(0, Math.floor(parsed));
-  }
-
-  private parseJsonRecord(value?: string): Record<string, unknown> | null {
-    if (!value) return null;
-    try {
-      const parsed = JSON.parse(value);
-      return this.asRecord(parsed);
-    } catch {
-      return null;
-    }
-  }
-
-  private parseJsonArray(value?: string): unknown[] | null {
-    if (!value) return null;
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private parseProviderHint(value?: string): PaymentProvider | undefined {
-    if (!value) return undefined;
-    const normalized = value.trim().toUpperCase();
-    if (normalized === PaymentProvider.PAYSTACK) return PaymentProvider.PAYSTACK;
-    if (normalized === PaymentProvider.STRIPE) return PaymentProvider.STRIPE;
-    if (normalized === PaymentProvider.PAYPAL) return PaymentProvider.PAYPAL;
-    return undefined;
   }
 
   private resolveCustomerFacingFromEmail(): string {
@@ -5332,7 +4913,7 @@ export class PaymentsService {
     });
     const metadata =
       params.baseMetadata ??
-      this.asRecord(
+      asRecord(
         (
           await this.prisma.payment.findUnique({
             where: { id: params.paymentId },
@@ -5341,7 +4922,7 @@ export class PaymentsService {
         )?.metadata
       );
     const previous = this.readSignupLinkDeliverySnapshot(metadata);
-    const attemptedAt = this.asString(delivery.attemptedAt) ?? new Date().toISOString();
+    const attemptedAt = asString(delivery.attemptedAt) ?? new Date().toISOString();
     const delivered = delivery.emailDelivered || delivery.whatsappDelivered;
     const snapshot: SignupLinkDeliverySnapshot = {
       status: delivered
@@ -5396,27 +4977,27 @@ export class PaymentsService {
   private readSignupLinkDeliverySnapshot(
     metadata: Record<string, unknown> | null
   ): SignupLinkDeliverySnapshot | null {
-    const raw = this.asRecord(metadata?.[SIGNUP_LINK_DELIVERY_METADATA_KEY]);
+    const raw = asRecord(metadata?.[SIGNUP_LINK_DELIVERY_METADATA_KEY]);
     if (!raw) return null;
 
-    const status = this.asString(raw.status);
+    const status = asString(raw.status);
     if (status !== "DELIVERED" && status !== "PARTIAL" && status !== "FAILED") {
       return null;
     }
 
     return {
       status,
-      emailDelivered: this.asBoolean(raw.emailDelivered) ?? false,
-      whatsappDelivered: this.asBoolean(raw.whatsappDelivered) ?? false,
-      emailFailureReason: this.asString(raw.emailFailureReason) ?? null,
-      whatsappFailureReason: this.asString(raw.whatsappFailureReason) ?? null,
-      attemptCount: this.asInteger(raw.attemptCount) ?? 0,
-      lastAttemptAt: this.asString(raw.lastAttemptAt) ?? null,
-      lastSuccessfulAt: this.asString(raw.lastSuccessfulAt) ?? null,
+      emailDelivered: asBoolean(raw.emailDelivered) ?? false,
+      whatsappDelivered: asBoolean(raw.whatsappDelivered) ?? false,
+      emailFailureReason: asString(raw.emailFailureReason) ?? null,
+      whatsappFailureReason: asString(raw.whatsappFailureReason) ?? null,
+      attemptCount: asInteger(raw.attemptCount) ?? 0,
+      lastAttemptAt: asString(raw.lastAttemptAt) ?? null,
+      lastSuccessfulAt: asString(raw.lastSuccessfulAt) ?? null,
       lastAttemptSource:
-        this.asString(raw.lastAttemptSource) === "BANK_TRANSFER_APPROVAL" ||
-        this.asString(raw.lastAttemptSource) === "VERIFY_RETRY"
-          ? (this.asString(raw.lastAttemptSource) as SignupLinkDeliveryAttemptSource)
+        asString(raw.lastAttemptSource) === "BANK_TRANSFER_APPROVAL" ||
+        asString(raw.lastAttemptSource) === "VERIFY_RETRY"
+          ? (asString(raw.lastAttemptSource) as SignupLinkDeliveryAttemptSource)
           : "WEBHOOK",
     };
   }
@@ -5444,7 +5025,7 @@ export class PaymentsService {
   }
 
   private truncateSignupLinkFailureReason(value?: string | null): string | null {
-    const normalized = this.asString(value);
+    const normalized = asString(value);
     if (!normalized) return null;
     return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
   }
@@ -5516,14 +5097,14 @@ export class PaymentsService {
       };
     }
 
-    const metadata = this.asRecord(payment.metadata);
+    const metadata = asRecord(payment.metadata);
     let snapshot = this.readSignupLinkDeliverySnapshot(metadata);
     const token = payment.user?.verificationToken?.trim();
     const tokenExpired = Boolean(
       payment.user?.tokenExpiry && payment.user.tokenExpiry < new Date()
     );
     const userInactive = payment.user?.isActive === false;
-    const locale = this.resolveLocale(payment.user?.preferredLanguage);
+    const locale = resolveLocale(payment.user?.preferredLanguage);
 
     if (options.retryFailedDelivery && snapshot?.status === "FAILED") {
       if (!token) {
@@ -5559,14 +5140,13 @@ export class PaymentsService {
           baseMetadata: metadata,
           source: "VERIFY_RETRY",
           email: payment.user.email,
-          name:
-            payment.user.firstName?.trim() || this.pickDisplayName(undefined, payment.user.email),
+          name: payment.user.firstName?.trim() || pickDisplayName(undefined, payment.user.email),
           locale,
           token,
           phoneNumber: payment.user.phoneNumber ?? null,
           orderNumber: payment.order.orderNumber,
           packageName: payment.order.package.name,
-          amountPaid: this.formatNaira(Number(payment.order.totalAmount)),
+          amountPaid: formatNaira(Number(payment.order.totalAmount)),
           addons: payment.order.addons
             .map((entry) => entry.addon.name)
             .filter((value): value is string => value.trim().length > 0),
@@ -5627,7 +5207,7 @@ export class PaymentsService {
     return {
       orderNumber: order.orderNumber,
       packageName: order.package?.name ?? "BookPrinta Package",
-      amountPaid: this.formatNaira(Number(order.totalAmount)),
+      amountPaid: formatNaira(Number(order.totalAmount)),
       addons: orderAddons.map((oa) => oa.addon.name).filter(Boolean),
     };
   }
@@ -5684,8 +5264,8 @@ export class PaymentsService {
     const costPerPageRaw = settings.find((s) => s.key === REPRINT_COST_PER_PAGE_SETTING_KEY)?.value;
     const coverCostRaw = settings.find((s) => s.key === REPRINT_COVER_COST_SETTING_KEY)?.value;
 
-    const costPerPage = this.toCurrency(costPerPageRaw);
-    const coverCost = this.toCurrency(coverCostRaw);
+    const costPerPage = toCurrency(costPerPageRaw);
+    const coverCost = toCurrency(coverCostRaw);
 
     return [
       costPerPage > 0 ? costPerPage : DEFAULT_REPRINT_COST_PER_PAGE,
