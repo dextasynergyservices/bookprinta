@@ -6,6 +6,7 @@ import { CheckoutFulfillmentService } from "./services/checkout-fulfillment.serv
 import { CheckoutIdentityService } from "./services/checkout-identity.service.js";
 import { CheckoutMetadataPricingService } from "./services/checkout-metadata-pricing.service.js";
 import { CheckoutPricingService } from "./services/checkout-pricing.service.js";
+import { CustomQuoteFulfillmentService } from "./services/custom-quote-fulfillment.service.js";
 import { PaymentNotificationsService } from "./services/payment-notifications.service.js";
 import { PaymentReconciliationService } from "./services/payment-reconciliation.service.js";
 import { SignupLinkDeliveryService } from "./services/signup-link-delivery.service.js";
@@ -18,6 +19,7 @@ const COLLABORATORS = [
   CheckoutPricingService,
   CheckoutMetadataPricingService,
   CheckoutIdentityService,
+  CustomQuoteFulfillmentService,
   CheckoutFulfillmentService,
   BankTransferService,
 ];

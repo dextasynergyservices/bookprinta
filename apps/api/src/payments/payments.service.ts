@@ -51,6 +51,7 @@ import { CheckoutFulfillmentService } from "./services/checkout-fulfillment.serv
 import { CheckoutIdentityService } from "./services/checkout-identity.service.js";
 import { CheckoutMetadataPricingService } from "./services/checkout-metadata-pricing.service.js";
 import { CheckoutPricingService } from "./services/checkout-pricing.service.js";
+import { CustomQuoteFulfillmentService } from "./services/custom-quote-fulfillment.service.js";
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
 import { GatewayService } from "./services/gateway.service.js";
 import { PaymentNotificationsService } from "./services/payment-notifications.service.js";
@@ -111,6 +112,7 @@ export class PaymentsService {
   private paymentReconciliation!: PaymentReconciliationService;
   private metadataPricing!: CheckoutMetadataPricingService;
   private checkoutIdentity!: CheckoutIdentityService;
+  private customQuoteFulfillment!: CustomQuoteFulfillmentService;
   private checkoutFulfillment!: CheckoutFulfillmentService;
   private bankTransfers!: BankTransferService;
 
@@ -138,7 +140,8 @@ export class PaymentsService {
     @Optional() metadataPricingInject?: CheckoutMetadataPricingService,
     @Optional() checkoutFulfillmentInject?: CheckoutFulfillmentService,
     @Optional() bankTransfersInject?: BankTransferService,
-    @Optional() checkoutIdentityInject?: CheckoutIdentityService
+    @Optional() checkoutIdentityInject?: CheckoutIdentityService,
+    @Optional() customQuoteFulfillmentInject?: CustomQuoteFulfillmentService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     // Sub-service initialization: NestJS provides instances in production;
@@ -178,6 +181,9 @@ export class PaymentsService {
     this.metadataPricing =
       metadataPricingInject ?? new CheckoutMetadataPricingService(prisma, checkoutPricing);
     this.checkoutIdentity = checkoutIdentityInject ?? new CheckoutIdentityService(prisma);
+    this.customQuoteFulfillment =
+      customQuoteFulfillmentInject ??
+      new CustomQuoteFulfillmentService(prisma, this.metadataPricing, this.checkoutIdentity);
     // Built from this service's own collaborators, so a spec that stubs one of
     // them (e.g. paymentNotifications) stubs what fulfilment uses.
     this.checkoutFulfillment =
@@ -189,6 +195,7 @@ export class PaymentsService {
         this.signupLinkDelivery,
         this.metadataPricing,
         this.checkoutIdentity,
+        this.customQuoteFulfillment,
         this.extraPagesService,
         this.reprintPaymentService,
         whatsappNotificationsService

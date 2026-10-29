@@ -14,6 +14,7 @@ import { CheckoutFulfillmentService } from "./services/checkout-fulfillment.serv
 import { CheckoutIdentityService } from "./services/checkout-identity.service.js";
 import { CheckoutMetadataPricingService } from "./services/checkout-metadata-pricing.service.js";
 import { CheckoutPricingService } from "./services/checkout-pricing.service.js";
+import { CustomQuoteFulfillmentService } from "./services/custom-quote-fulfillment.service.js";
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
 import { GatewayService } from "./services/gateway.service.js";
 import { PaymentNotificationsService } from "./services/payment-notifications.service.js";
@@ -69,6 +70,7 @@ import { StripeService } from "./services/stripe.service.js";
     CheckoutPricingService,
     CheckoutMetadataPricingService,
     CheckoutIdentityService,
+    CustomQuoteFulfillmentService,
     CheckoutFulfillmentService,
     BankTransferService,
 
