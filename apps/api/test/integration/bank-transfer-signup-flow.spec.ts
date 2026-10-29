@@ -105,7 +105,10 @@ type PaymentsServicePrivate = {
     sendBankTransferAdminEmail: (...args: never[]) => Promise<void>;
   };
   generateReference: () => string;
-  generateOrderNumber: () => Promise<string>;
+  // Checkout fulfilment lives in CheckoutFulfillmentService.
+  checkoutFulfillment: {
+    generateOrderNumber: () => Promise<string>;
+  };
 };
 
 type AuthServicePrivate = {
@@ -545,7 +548,9 @@ function createFlowHarness() {
     .spyOn(paymentsServicePrivate.paymentNotifications, "sendBankTransferAdminEmail")
     .mockResolvedValue(undefined);
   jest.spyOn(paymentsServicePrivate, "generateReference").mockReturnValue("BT-2026-0009");
-  jest.spyOn(paymentsServicePrivate, "generateOrderNumber").mockResolvedValue("BP-2026-0099");
+  jest
+    .spyOn(paymentsServicePrivate.checkoutFulfillment, "generateOrderNumber")
+    .mockResolvedValue("BP-2026-0099");
   jest.spyOn(authServicePrivate, "generateVerificationCode").mockReturnValue("123456");
 
   return {

@@ -13,29 +13,32 @@ jest.mock("@sentry/node", () => ({
 const captureMessage = Sentry.captureMessage as unknown as jest.Mock;
 
 type PaymentsServicePrivate = {
-  createPaymentFromWebhook: (data: {
-    provider: "PAYSTACK" | "STRIPE" | "PAYPAL";
-    providerRef: string;
-    amount: number;
-    currency: string;
-    payerEmail: string | null;
-    gatewayResponse: Record<string, unknown>;
-    metadata: Record<string, unknown> | null;
-  }) => Promise<void>;
-  createCheckoutEntitiesFromMetadata: (...args: never[]) => Promise<{
-    userId: string;
-    orderId: string;
-    email: string;
-    name: string;
-    locale: "en" | "fr" | "es";
-    signupToken: string | null;
-    phone: string | null;
-    orderNumber: string;
-    packageName: string;
-    amountPaid: string;
-    addons: string[];
-  } | null>;
   resolveOrderDetailsForPayment: (...args: never[]) => Promise<null>;
+  // Checkout fulfilment lives in CheckoutFulfillmentService.
+  checkoutFulfillment: {
+    createPaymentFromWebhook: (data: {
+      provider: "PAYSTACK" | "STRIPE" | "PAYPAL";
+      providerRef: string;
+      amount: number;
+      currency: string;
+      payerEmail: string | null;
+      gatewayResponse: Record<string, unknown>;
+      metadata: Record<string, unknown> | null;
+    }) => Promise<void>;
+    createCheckoutEntitiesFromMetadata: (...args: never[]) => Promise<{
+      userId: string;
+      orderId: string;
+      email: string;
+      name: string;
+      locale: "en" | "fr" | "es";
+      signupToken: string | null;
+      phone: string | null;
+      orderNumber: string;
+      packageName: string;
+      amountPaid: string;
+      addons: string[];
+    } | null>;
+  };
 };
 
 function getPaymentsServicePrivate(service: PaymentsService) {
@@ -157,19 +160,21 @@ describe("PaymentsService signup-link delivery", () => {
 
     prisma.payment.findUnique.mockResolvedValue(null);
     prisma.payment.create.mockResolvedValue({ id: "payment_1" });
-    servicePrivate.createCheckoutEntitiesFromMetadata = jest.fn().mockResolvedValue({
-      userId: "user_1",
-      orderId: "order_1",
-      email: "author@example.com",
-      name: "Ada Okafor",
-      locale: "en",
-      signupToken: "signup_token_1",
-      phone: "+2348012345678",
-      orderNumber: "BP-2026-0008",
-      packageName: "Legacy",
-      amountPaid: "₦150,000",
-      addons: ["ISBN Registration"],
-    });
+    servicePrivate.checkoutFulfillment.createCheckoutEntitiesFromMetadata = jest
+      .fn()
+      .mockResolvedValue({
+        userId: "user_1",
+        orderId: "order_1",
+        email: "author@example.com",
+        name: "Ada Okafor",
+        locale: "en",
+        signupToken: "signup_token_1",
+        phone: "+2348012345678",
+        orderNumber: "BP-2026-0008",
+        packageName: "Legacy",
+        amountPaid: "₦150,000",
+        addons: ["ISBN Registration"],
+      });
     signupNotificationsService.sendRegistrationLink.mockResolvedValue({
       emailDelivered: false,
       whatsappDelivered: false,
@@ -178,7 +183,7 @@ describe("PaymentsService signup-link delivery", () => {
       attemptedAt: "2026-03-14T10:00:00.000Z",
     });
 
-    await servicePrivate.createPaymentFromWebhook({
+    await servicePrivate.checkoutFulfillment.createPaymentFromWebhook({
       provider: "PAYSTACK",
       providerRef: "ps_ref_failed",
       amount: 150000,

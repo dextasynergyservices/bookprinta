@@ -9,6 +9,7 @@ import { PayPalProvider } from "./providers/paypal.provider.js";
 import { PaystackProvider } from "./providers/paystack.provider.js";
 import { StripeProvider } from "./providers/stripe.provider.js";
 import { AdminPaymentListService } from "./services/admin-payment-list.service.js";
+import { CheckoutFulfillmentService } from "./services/checkout-fulfillment.service.js";
 import { CheckoutMetadataPricingService } from "./services/checkout-metadata-pricing.service.js";
 import { CheckoutPricingService } from "./services/checkout-pricing.service.js";
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
@@ -65,6 +66,7 @@ import { StripeService } from "./services/stripe.service.js";
     PaymentReconciliationService,
     CheckoutPricingService,
     CheckoutMetadataPricingService,
+    CheckoutFulfillmentService,
 
     // Orchestrator (facade — delegates to sub-services above)
     PaymentsService,

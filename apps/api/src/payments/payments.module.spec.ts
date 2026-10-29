@@ -1,6 +1,7 @@
 /// <reference types="jest" />
 import { PaymentsModule } from "./payments.module.js";
 import { PaymentsService } from "./payments.service.js";
+import { CheckoutFulfillmentService } from "./services/checkout-fulfillment.service.js";
 import { CheckoutMetadataPricingService } from "./services/checkout-metadata-pricing.service.js";
 import { CheckoutPricingService } from "./services/checkout-pricing.service.js";
 import { PaymentNotificationsService } from "./services/payment-notifications.service.js";
@@ -14,6 +15,7 @@ const COLLABORATORS = [
   PaymentReconciliationService,
   CheckoutPricingService,
   CheckoutMetadataPricingService,
+  CheckoutFulfillmentService,
 ];
 
 function createPaymentsService(): PaymentsService {
