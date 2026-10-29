@@ -54,7 +54,13 @@ export function Testimonials() {
 
         {/* Cards — horizontal scroll on mobile, 3-col grid on desktop */}
         <div className="relative -mx-5 px-5 lg:mx-0 lg:px-0">
-          <div className="flex gap-6 overflow-x-auto pb-4 scrollbar-none md:grid md:grid-cols-3 md:gap-6 md:overflow-visible md:pb-0 lg:gap-8">
+          {/* Focusable + labelled so keyboard users can scroll the mobile carousel (WCAG 2.1.1). */}
+          <section
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be focusable for keyboard scrolling
+            tabIndex={0}
+            aria-label={t("testimonials_title")}
+            className="flex gap-6 overflow-x-auto pb-4 scrollbar-none focus-visible:outline-2 focus-visible:outline-accent md:grid md:grid-cols-3 md:gap-6 md:overflow-visible md:pb-0 lg:gap-8"
+          >
             {testimonials.map((item, i) => (
               <motion.div
                 key={item.key}
@@ -104,7 +110,7 @@ export function Testimonials() {
                 </div>
               </motion.div>
             ))}
-          </div>
+          </section>
         </div>
       </div>
     </section>

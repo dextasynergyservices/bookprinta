@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
 import { LenisProvider } from "@/components/shared/lenis-provider";
 import { OfflineStatusBanner } from "@/components/shared/offline-status-banner";
+import { PendingPaymentRecovery } from "@/components/shared/pending-payment-recovery";
 import { PwaInstallBanner } from "@/components/shared/pwa-install-banner";
 import { ServiceWorkerUpdatePrompt } from "@/components/shared/service-worker-update-prompt";
 import { Toaster } from "@/components/ui/sonner";
@@ -52,6 +53,7 @@ export default async function LocaleLayout({
             <ServiceWorkerUpdatePrompt />
             <PwaInstallBanner />
             <LenisProvider>{children}</LenisProvider>
+            <PendingPaymentRecovery />
             <Toaster />
           </Providers>
         </NextIntlClientProvider>

@@ -143,7 +143,7 @@ function AdminBookStatusBadge({
         ? "border-[#22c55e]/45 bg-[#22c55e]/15 text-[#22c55e]"
         : tone === "pending"
           ? "border-[#facc15]/45 bg-[#facc15]/15 text-[#facc15]"
-          : "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]";
+          : "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]";
 
   return (
     <Badge
@@ -271,7 +271,7 @@ function AdminBooksFilterBar({
             className={cn(
               "inline-flex min-h-9 items-center rounded-full border px-3 font-sans text-xs font-medium",
               hasActiveFilters
-                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]"
+                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]"
                 : "border-[#2A2A2A] bg-[#101010] text-[#b4b4b4]"
             )}
           >

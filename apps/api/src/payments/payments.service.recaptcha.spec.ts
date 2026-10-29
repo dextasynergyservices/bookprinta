@@ -51,13 +51,25 @@ describe("PaymentsService verifyRecaptcha", () => {
     jest.restoreAllMocks();
   });
 
-  it("returns true when RECAPTCHA_SECRET_KEY is not set (skips verification)", async () => {
+  it("rejects in production when RECAPTCHA_SECRET_KEY is not set (fails closed)", async () => {
     delete process.env.RECAPTCHA_SECRET_KEY;
+    process.env.NODE_ENV = "production";
     const { service } = createService();
 
     const result = await getPrivate(service).verifyRecaptcha("any-token");
 
-    expect(result).toBe(true);
+    expect(result).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects in production when the token is missing", async () => {
+    process.env.RECAPTCHA_SECRET_KEY = "real-secret";
+    process.env.NODE_ENV = "production";
+    const { service } = createService();
+
+    const result = await getPrivate(service).verifyRecaptcha("   ");
+
+    expect(result).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

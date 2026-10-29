@@ -86,9 +86,9 @@ export function ShowcasePreview({ entries }: ShowcasePreviewProps) {
           <Link
             href="/showcase"
             className={cn(
-              "group inline-flex items-center gap-2 rounded-full bg-accent px-8 py-3.5",
+              "group inline-flex items-center gap-2 rounded-full bg-accent-strong px-8 py-3.5",
               "font-display text-sm font-semibold tracking-wide text-accent-foreground",
-              "transition-all duration-300 hover:bg-accent/90 hover:shadow-lg hover:shadow-accent/20",
+              "transition-all duration-300 hover:bg-accent-strong-hover hover:shadow-lg hover:shadow-accent/20",
               "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
             )}
           >

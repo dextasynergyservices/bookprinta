@@ -97,7 +97,7 @@ export function DashboardRefundPolicyDialog({
             href={SUPPORT_WHATSAPP_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="font-sans inline-flex min-h-11 items-center justify-center rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-[#0066d1] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+            className="font-sans inline-flex min-h-11 items-center justify-center rounded-full bg-accent-strong px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-strong-hover focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
           >
             {tDashboard("order_tracking_refund_policy_modal_contact")}
           </a>

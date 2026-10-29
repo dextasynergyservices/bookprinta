@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { type ExecutionContext, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AddonsModule } from "./addons/addons.module.js";
@@ -27,6 +27,7 @@ import { ProductionDelayModule } from "./production-delay/production-delay.modul
 import { QuotesModule } from "./quotes/quotes.module.js";
 import { AppThrottlerGuard } from "./rate-limit/app-throttler.guard.js";
 import { RedisThrottlerStorage } from "./rate-limit/redis-throttler.storage.js";
+import { extractAuthenticatedUserId } from "./rate-limit/tracker.utils.js";
 import { RedisModule } from "./redis/redis.module.js";
 import { RedisService } from "./redis/redis.service.js";
 import { ResourcesModule } from "./resources/resources.module.js";
@@ -35,6 +36,10 @@ import { RolloutModule } from "./rollout/rollout.module.js";
 import { ScannerModule } from "./scanner/scanner.module.js";
 import { ShowcaseModule } from "./showcase/showcase.module.js";
 import { UsersModule } from "./users/users.module.js";
+
+function isAuthenticatedContext(context: ExecutionContext): boolean {
+  return extractAuthenticatedUserId(context.switchToHttp().getRequest()) !== null;
+}
 
 @Module({
   imports: [
@@ -71,16 +76,24 @@ import { UsersModule } from "./users/users.module.js";
         const useRedis = process.env.RATE_LIMIT_STORAGE === "redis";
         return {
           storage: useRedis ? new RedisThrottlerStorage(redisService) : undefined,
+          // Baseline abuse protection for every endpoint. Sensitive routes
+          // (login, signup links, coupons, payments, quotes) set much tighter
+          // limits with @Throttle(). Buckets are per signed-in user, else per
+          // client IP — see rate-limit/tracker.utils.ts.
+          //
+          // The previous 10/min + 100/hour was sized as if it were per-user, but
+          // keyed on the shared proxy address it throttled the whole site, and
+          // one dashboard tab polling every 30s used more than 100/hour alone.
           throttlers: [
             {
               name: "short",
-              ttl: 60000, // 1 minute
-              limit: 10, // 10 requests
+              ttl: 60_000,
+              limit: (context) => (isAuthenticatedContext(context) ? 180 : 90),
             },
             {
               name: "long",
-              ttl: 3600000, // 1 hour
-              limit: 100, // 100 requests
+              ttl: 3_600_000,
+              limit: (context) => (isAuthenticatedContext(context) ? 4_000 : 2_000),
             },
           ],
         };

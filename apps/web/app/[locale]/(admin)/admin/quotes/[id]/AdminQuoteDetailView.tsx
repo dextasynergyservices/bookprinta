@@ -604,7 +604,7 @@ export function AdminQuoteDetailView({ quoteId }: AdminQuoteDetailViewProps) {
                 <Button
                   type="button"
                   onClick={() => detailQuery.refetch()}
-                  className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+                  className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
                 >
                   <RotateCcw className="size-4" aria-hidden="true" />
                   {tAdmin("quotes_detail_refetch")}
@@ -833,7 +833,7 @@ export function AdminQuoteDetailView({ quoteId }: AdminQuoteDetailViewProps) {
                 type="submit"
                 disabled={!hasContactChanges || contactPatchMutation.isPending}
                 aria-busy={contactPatchMutation.isPending}
-                className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8] disabled:opacity-50"
+                className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover disabled:opacity-50"
               >
                 {contactPatchMutation.isPending ? (
                   <>
@@ -903,7 +903,7 @@ export function AdminQuoteDetailView({ quoteId }: AdminQuoteDetailViewProps) {
                 type="submit"
                 disabled={generateMutation.isPending || !parsedFinalPrice}
                 aria-busy={generateMutation.isPending}
-                className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8] disabled:opacity-50"
+                className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover disabled:opacity-50"
               >
                 {generateMutation.isPending ? (
                   <>
@@ -1034,7 +1034,7 @@ export function AdminQuoteDetailView({ quoteId }: AdminQuoteDetailViewProps) {
                       id="quote-revoke-notify"
                       checked={notifyCustomer}
                       onCheckedChange={(checked) => setNotifyCustomer(checked === true)}
-                      className="border-[#3A3A3A] data-[state=checked]:border-[#007eff] data-[state=checked]:bg-[#007eff]"
+                      className="border-[#3A3A3A] data-[state=checked]:border-[#007eff] data-[state=checked]:bg-accent-strong"
                     />
                     {tAdmin("quotes_detail_revoke_notify_customer")}
                   </label>

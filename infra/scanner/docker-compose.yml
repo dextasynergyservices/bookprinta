@@ -1,0 +1,46 @@
+# BookPrinta malware scanner — runs on a dedicated VM (e.g. Oracle Cloud Always
+# Free, Ampere A1). See README.md. Only ports 80/443 (Caddy) are published;
+# clamd (3310) and the gateway (8080) stay on the private compose network.
+services:
+  clamav:
+    # Multi-arch image (amd64 + arm64) — required for Oracle's Ampere VMs.
+    image: clamav/clamav-debian:stable
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 300s # first boot downloads the virus database
+
+  gateway:
+    build: ./gateway
+    restart: unless-stopped
+    environment:
+      SCANNER_TOKEN: ${SCANNER_TOKEN:?set SCANNER_TOKEN in .env}
+      CLAMD_HOST: clamav
+      CLAMD_PORT: "3310"
+    depends_on:
+      - clamav
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SCANNER_DOMAIN: ${SCANNER_DOMAIN:?set SCANNER_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - gateway
+
+volumes:
+  clamav_db:
+  caddy_data:
+  caddy_config:

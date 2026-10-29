@@ -15,7 +15,7 @@ export class MarketingController {
    * Public aggregate counters used on the About page.
    */
   @Get("about-stats")
-  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=300")
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=300, s-maxage=300")
   @ApiOperation({
     summary: "Get public About page stats",
     description:

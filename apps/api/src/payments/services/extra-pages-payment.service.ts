@@ -1,5 +1,10 @@
 import { DEFAULT_CURRENCY } from "@bookprinta/shared";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  isExtraPagesGateSatisfied,
+  resolveExtraPagePriceNgn,
+  summarizeExtraPagePayments,
+} from "../../common/extra-page-pricing.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { OrderStatus, PaymentStatus, PaymentType } from "../../generated/prisma/enums.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
@@ -14,8 +19,6 @@ import { GatewayService } from "./gateway.service.js";
 // extra-pages WhatsApp confirmation notifications.
 // Extracted from the PaymentsService monolith.
 // ──────────────────────────────────────────────
-
-const EXTRA_PAGE_PRICE_NGN = 10;
 
 @Injectable()
 export class ExtraPagesPaymentService {
@@ -93,13 +96,33 @@ export class ExtraPagesPaymentService {
       throw new BadRequestException("No extra pages payment is required for this manuscript.");
     }
 
-    if (params.extraPages !== overagePages) {
+    // Charge only for pages not already paid for. A recount that raises the
+    // overage (e.g. after a font change) bills the difference, never the whole
+    // overage a second time.
+    const pricePerPage = await resolveExtraPagePriceNgn(this.prisma);
+    const { paidPages } = summarizeExtraPagePayments(
+      await this.prisma.payment.findMany({
+        where: {
+          orderId: book.orderId,
+          type: PaymentType.EXTRA_PAGES,
+          status: PaymentStatus.SUCCESS,
+        },
+        select: { amount: true, metadata: true },
+      })
+    );
+    const chargeablePages = Math.max(0, overagePages - paidPages);
+    if (chargeablePages <= 0) {
+      throw new BadRequestException("Your extra pages are already paid for. You can approve now.");
+    }
+
+    // The client may send the full overage or the remaining unpaid pages; any
+    // other number means it is looking at a stale page count.
+    if (params.extraPages !== overagePages && params.extraPages !== chargeablePages) {
       throw new BadRequestException(
         `Extra pages mismatch. Current overage is ${overagePages}. Please refresh and try again.`
       );
     }
-
-    const amount = overagePages * EXTRA_PAGE_PRICE_NGN;
+    const amount = Number((chargeablePages * pricePerPage).toFixed(2));
 
     await this.prisma.order.update({
       where: { id: book.orderId },
@@ -123,8 +146,9 @@ export class ExtraPagesPaymentService {
         userId: params.userId,
         metadata: {
           bookId: params.bookId,
-          extraPages: overagePages,
-          costPerPage: EXTRA_PAGE_PRICE_NGN,
+          extraPages: chargeablePages,
+          overagePages,
+          costPerPage: pricePerPage,
           pageCount: book.pageCount,
           pageLimit: book.order.package.pageLimit,
           requiredAmount: amount,
@@ -171,6 +195,7 @@ export class ExtraPagesPaymentService {
           },
           select: {
             amount: true,
+            metadata: true,
           },
         },
       },
@@ -191,19 +216,21 @@ export class ExtraPagesPaymentService {
     }
 
     const overagePages = Math.max(0, order.book.pageCount - order.package.pageLimit);
-    const requiredAmount = overagePages * EXTRA_PAGE_PRICE_NGN;
-    const paidAmount = order.payments.reduce((sum, payment) => {
-      return sum + this.toCurrency(payment.amount);
-    }, 0);
+    const pricePerPage = await resolveExtraPagePriceNgn(this.prisma);
+    const { paidAmount, paidPages } = summarizeExtraPagePayments(order.payments);
+    const satisfied = isExtraPagesGateSatisfied({
+      overagePages,
+      pricePerPage,
+      paidAmount,
+      paidPages,
+    });
 
     await this.prisma.order.update({
       where: { id: order.id },
       data: {
-        status:
-          requiredAmount > 0 && paidAmount < requiredAmount
-            ? OrderStatus.PENDING_EXTRA_PAYMENT
-            : OrderStatus.PREVIEW_READY,
-        extraAmount: requiredAmount,
+        status: satisfied ? OrderStatus.PREVIEW_READY : OrderStatus.PENDING_EXTRA_PAYMENT,
+        // Unpaid: the amount still due for the remaining pages.
+        extraAmount: satisfied ? paidAmount : Math.max(0, overagePages - paidPages) * pricePerPage,
       },
     });
   }

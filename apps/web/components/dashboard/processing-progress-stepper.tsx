@@ -453,7 +453,7 @@ export function ProcessingProgressStepper({
         <motion.div
           className={cn(
             "h-full rounded-full",
-            phase === "completed" ? "bg-[#22c55e]" : "bg-[#007eff]"
+            phase === "completed" ? "bg-[#22c55e]" : "bg-accent-strong"
           )}
           initial={false}
           animate={{ width: `${Math.round(progressFraction * 100)}%` }}

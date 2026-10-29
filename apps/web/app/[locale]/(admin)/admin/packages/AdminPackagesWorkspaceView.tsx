@@ -442,7 +442,7 @@ function CategoryCreateForm() {
             void onCreate();
           }}
           disabled={createMutation.isPending}
-          className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+          className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
         >
           {createMutation.isPending
             ? tAdmin("packages_category_action_creating")
@@ -562,7 +562,7 @@ function CategoryRow({
               <Button
                 type="button"
                 variant="ghost"
-                className="size-9 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
+                className="size-11 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
                 aria-label={tAdmin("users_table_actions")}
               >
                 <MoreHorizontal className="size-4" aria-hidden="true" />
@@ -706,7 +706,7 @@ function CategoryRow({
             void onSave();
           }}
           disabled={updateMutation.isPending}
-          className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+          className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
         >
           {updateMutation.isPending
             ? tAdmin("packages_category_action_saving")
@@ -1181,7 +1181,7 @@ function PackageCreateForm({ categories }: { categories: AdminPackageCategory[] 
             void onCreate();
           }}
           disabled={createMutation.isPending}
-          className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+          className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
         >
           {createMutation.isPending
             ? tAdmin("packages_package_action_creating")
@@ -1282,7 +1282,7 @@ function PackageRow({
               <Button
                 type="button"
                 variant="ghost"
-                className="size-9 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
+                className="size-11 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
                 aria-label={tAdmin("users_table_actions")}
               >
                 <MoreHorizontal className="size-4" aria-hidden="true" />
@@ -1583,7 +1583,7 @@ function PackageRow({
             void onSave();
           }}
           disabled={updateMutation.isPending}
-          className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+          className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
         >
           {updateMutation.isPending
             ? tAdmin("packages_package_action_saving")
@@ -1899,7 +1899,7 @@ function AddonCreateForm() {
             void onCreate();
           }}
           disabled={createMutation.isPending}
-          className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+          className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
         >
           {createMutation.isPending
             ? tAdmin("packages_addon_action_creating")
@@ -2024,7 +2024,7 @@ function AddonRow({
               <Button
                 type="button"
                 variant="ghost"
-                className="size-9 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
+                className="size-11 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
                 aria-label={tAdmin("users_table_actions")}
               >
                 <MoreHorizontal className="size-4" aria-hidden="true" />
@@ -2231,7 +2231,7 @@ function AddonRow({
             void onSave();
           }}
           disabled={updateMutation.isPending}
-          className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+          className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
         >
           {updateMutation.isPending
             ? tAdmin("packages_addon_action_saving")
@@ -2316,7 +2316,7 @@ function CategoriesDesktopTable({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="size-9 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
+                  className="size-11 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
                   aria-label={tAdmin("users_table_actions")}
                 >
                   <MoreHorizontal className="size-4" aria-hidden="true" />
@@ -2461,7 +2461,7 @@ function PackagesDesktopTable({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="size-9 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
+                  className="size-11 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
                   aria-label={tAdmin("users_table_actions")}
                 >
                   <MoreHorizontal className="size-4" aria-hidden="true" />
@@ -2616,7 +2616,7 @@ function AddonsDesktopTable({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="size-9 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
+                  className="size-11 rounded-full border border-[#2A2A2A] bg-[#0C0C0C] p-0 text-[#D1D1D1] hover:bg-[#171717]"
                   aria-label={tAdmin("users_table_actions")}
                 >
                   <MoreHorizontal className="size-4" aria-hidden="true" />
@@ -3045,7 +3045,7 @@ export function AdminPackagesWorkspaceView() {
               void packagesQuery.refetch();
               void addonsQuery.refetch();
             }}
-            className="mt-4 min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0068d8]"
+            className="mt-4 min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-accent-strong-hover"
           >
             <RefreshCw className="size-4" aria-hidden="true" />
             {tAdmin("packages_page_retry_all")}
@@ -3061,7 +3061,7 @@ export function AdminPackagesWorkspaceView() {
             onClick={() => setMobileSection("categories")}
             className={`min-h-10 whitespace-normal rounded-full px-2 text-center font-sans text-[11px] font-medium leading-tight ${
               mobileSection === "categories"
-                ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                 : "bg-[#121212] text-[#D0D0D0] hover:bg-[#1A1A1A]"
             }`}
           >
@@ -3073,7 +3073,7 @@ export function AdminPackagesWorkspaceView() {
             onClick={() => setMobileSection("packages")}
             className={`min-h-10 whitespace-normal rounded-full px-2 text-center font-sans text-[11px] font-medium leading-tight ${
               mobileSection === "packages"
-                ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                 : "bg-[#121212] text-[#D0D0D0] hover:bg-[#1A1A1A]"
             }`}
           >
@@ -3085,7 +3085,7 @@ export function AdminPackagesWorkspaceView() {
             onClick={() => setMobileSection("addons")}
             className={`min-h-10 whitespace-normal rounded-full px-2 text-center font-sans text-[11px] font-medium leading-tight ${
               mobileSection === "addons"
-                ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                 : "bg-[#121212] text-[#D0D0D0] hover:bg-[#1A1A1A]"
             }`}
           >
@@ -3208,7 +3208,7 @@ export function AdminPackagesWorkspaceView() {
                     }}
                     className={`min-h-9 rounded-full text-xs ${
                       mobileCategoryStatus === "all"
-                        ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                        ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                         : "bg-[#131313] text-[#D0D0D0] hover:bg-[#1A1A1A]"
                     }`}
                   >
@@ -3223,7 +3223,7 @@ export function AdminPackagesWorkspaceView() {
                     }}
                     className={`min-h-9 rounded-full text-xs ${
                       mobileCategoryStatus === "active"
-                        ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                        ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                         : "bg-[#131313] text-[#D0D0D0] hover:bg-[#1A1A1A]"
                     }`}
                   >
@@ -3238,7 +3238,7 @@ export function AdminPackagesWorkspaceView() {
                     }}
                     className={`min-h-9 rounded-full text-xs ${
                       mobileCategoryStatus === "inactive"
-                        ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                        ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                         : "bg-[#131313] text-[#D0D0D0] hover:bg-[#1A1A1A]"
                     }`}
                   >
@@ -3411,7 +3411,7 @@ export function AdminPackagesWorkspaceView() {
                     }}
                     className={`min-h-9 rounded-full text-xs ${
                       mobilePackageStatus === "all"
-                        ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                        ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                         : "bg-[#131313] text-[#D0D0D0] hover:bg-[#1A1A1A]"
                     }`}
                   >
@@ -3426,7 +3426,7 @@ export function AdminPackagesWorkspaceView() {
                     }}
                     className={`min-h-9 rounded-full text-xs ${
                       mobilePackageStatus === "active"
-                        ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                        ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                         : "bg-[#131313] text-[#D0D0D0] hover:bg-[#1A1A1A]"
                     }`}
                   >
@@ -3441,7 +3441,7 @@ export function AdminPackagesWorkspaceView() {
                     }}
                     className={`min-h-9 rounded-full text-xs ${
                       mobilePackageStatus === "inactive"
-                        ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                        ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                         : "bg-[#131313] text-[#D0D0D0] hover:bg-[#1A1A1A]"
                     }`}
                   >
@@ -3614,7 +3614,7 @@ export function AdminPackagesWorkspaceView() {
                     }}
                     className={`min-h-9 rounded-full text-xs ${
                       mobileAddonStatus === "all"
-                        ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                        ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                         : "bg-[#131313] text-[#D0D0D0] hover:bg-[#1A1A1A]"
                     }`}
                   >
@@ -3629,7 +3629,7 @@ export function AdminPackagesWorkspaceView() {
                     }}
                     className={`min-h-9 rounded-full text-xs ${
                       mobileAddonStatus === "active"
-                        ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                        ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                         : "bg-[#131313] text-[#D0D0D0] hover:bg-[#1A1A1A]"
                     }`}
                   >
@@ -3644,7 +3644,7 @@ export function AdminPackagesWorkspaceView() {
                     }}
                     className={`min-h-9 rounded-full text-xs ${
                       mobileAddonStatus === "inactive"
-                        ? "bg-[#007eff] text-white hover:bg-[#0068d8]"
+                        ? "bg-accent-strong text-white hover:bg-accent-strong-hover"
                         : "bg-[#131313] text-[#D0D0D0] hover:bg-[#1A1A1A]"
                     }`}
                   >

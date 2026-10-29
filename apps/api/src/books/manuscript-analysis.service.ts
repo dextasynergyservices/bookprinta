@@ -13,21 +13,64 @@ const ZIP_CENTRAL_DIRECTORY_HEADER = 0x02014b50;
 const ZIP_END_OF_CENTRAL_DIRECTORY = 0x06054b50;
 const MAX_ZIP_COMMENT_LENGTH = 65_535;
 
-const PAGE_DIMENSIONS_MM: Record<BookPageSize, { width: number; height: number }> = {
-  A4: { width: 210, height: 297 },
-  A5: { width: 148, height: 210 },
-};
-
-const PAGE_MARGINS_MM: Record<BookPageSize, { horizontal: number; vertical: number }> = {
-  A4: { horizontal: 38, vertical: 46 },
-  A5: { horizontal: 28, vertical: 34 },
+/**
+ * Printable area of the authoritative render (page size minus the margins in
+ * GotenbergPageCountService.prepareCountHtml). Keep the two in sync.
+ */
+const PRINTABLE_AREA_MM: Record<BookPageSize, { width: number; height: number }> = {
+  A4: { width: 210 - 38, height: 297 - 38 },
+  A5: { width: 148 - 28, height: 210 - 28 },
 };
 
 const POINT_TO_MM = 0.352778;
-const AVERAGE_CHAR_WIDTH_FACTOR = 0.52;
-const LINE_HEIGHT_FACTOR = 1.5;
-const AVERAGE_WORD_CHARS = 6;
-const TEXT_DENSITY_FACTOR = 0.87;
+/** Body line-height of the authoritative render. */
+const RENDER_LINE_HEIGHT = 1.58;
+
+/*
+ * Page-estimate coefficients, fitted against authoritative Gotenberg counts of
+ * real customer manuscripts and public-domain prose at every size/font (see
+ * docs/audit-2026-10.md, "Page estimate calibration"). Mean error: line model
+ * 5% (7% on real manuscripts), rescaling a known count 5%, word model 13%. The
+ * previous fixed-density formula averaged 18% (21% on real manuscripts).
+ */
+/** Average glyph width as a fraction of the font size. */
+const AVERAGE_CHAR_WIDTH_EM = 0.4388;
+/** Extra lines per paragraph: list/heading spacing and break slack. */
+const EXTRA_LINES_PER_PARAGRAPH = 0.1643;
+const LINE_MODEL_BASE_PAGES = 0.937;
+/** Pages lost to each section break (chapters start on a new page). */
+const LINE_MODEL_PAGES_PER_BREAK = 0.611;
+/** Word model: words per (printable mm² / font mm²). */
+const WORD_MODEL_DENSITY = 0.2242;
+const WORD_MODEL_BASE_PAGES = 2.968;
+const WORD_MODEL_PAGES_PER_BREAK = 0.9897;
+/** Assumed section length when the manuscript's structure is unknown. */
+const WORDS_PER_ASSUMED_SECTION = 2500;
+/** Upper bound for a heading signal to be believed as a section count. */
+const MAX_PLAUSIBLE_SECTIONS = 80;
+
+const SECTION_KEYWORD_PATTERN = /^(chapter|part|day|lesson|section|book)\b[\s\d.:IVXLC-]/i;
+
+/** Structure visible at upload time, used by the page estimate. */
+export type ManuscriptLayoutProfile = {
+  /** Character length of every paragraph, headings included. */
+  paragraphLengths: number[];
+  /** Estimated number of sections (each starts on a new page). */
+  sectionBreaks: number;
+};
+
+/** An authoritative count measured at other settings, for rescaling. */
+export type PageCountReference = {
+  pageCount: number;
+  pageSize: BookPageSize;
+  fontSize: BookFontSize;
+};
+
+export type ManuscriptAnalysis = {
+  wordCount: number;
+  /** Null for PDFs, whose paragraph boundaries are not reliable. */
+  layout: ManuscriptLayoutProfile | null;
+};
 
 @Injectable()
 export class ManuscriptAnalysisService {
@@ -58,7 +101,19 @@ export class ManuscriptAnalysisService {
   }
 
   async extractWordCount(buffer: Buffer, mimeType: ManuscriptMimeType): Promise<number> {
-    const text = await this.extractText(buffer, mimeType);
+    return (await this.analyzeManuscript(buffer, mimeType)).wordCount;
+  }
+
+  /**
+   * Validate the manuscript and measure what the page estimate needs. Parses the
+   * file once (mammoth/pdf-parse are the expensive part on a 0.1 CPU host).
+   */
+  async analyzeManuscript(
+    buffer: Buffer,
+    mimeType: ManuscriptMimeType
+  ): Promise<ManuscriptAnalysis> {
+    const rawText = await this.extractRawText(buffer, mimeType);
+    const text = this.normalizeText(rawText);
     const wordCount = this.countWords(text);
 
     if (wordCount <= 0) {
@@ -86,42 +141,155 @@ export class ManuscriptAnalysisService {
       throw new BadRequestException(qualityIssue);
     }
 
-    return wordCount;
+    return {
+      wordCount,
+      layout:
+        mimeType === DOCX_MIME_TYPE ? this.buildLayoutProfile(rawText, buffer, wordCount) : null,
+    };
   }
 
   async extractText(buffer: Buffer, mimeType: ManuscriptMimeType): Promise<string> {
-    const text =
-      mimeType === DOCX_MIME_TYPE
-        ? await this.extractDocxText(buffer)
-        : await this.extractPdfText(buffer);
-    return this.normalizeText(text);
+    return this.normalizeText(await this.extractRawText(buffer, mimeType));
   }
 
+  private async extractRawText(buffer: Buffer, mimeType: ManuscriptMimeType): Promise<string> {
+    return mimeType === DOCX_MIME_TYPE
+      ? await this.extractDocxText(buffer)
+      : await this.extractPdfText(buffer);
+  }
+
+  /**
+   * Paragraph lengths come from the raw text (one paragraph per line). Section
+   * breaks use the most specific signal available: "Chapter/Day/Part…" lines,
+   * then Word heading styles, then short all-caps lines, then an assumed
+   * section length.
+   */
+  private buildLayoutProfile(
+    rawText: string,
+    buffer: Buffer,
+    wordCount: number
+  ): ManuscriptLayoutProfile | null {
+    const paragraphs = rawText
+      .split(/\n+/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) => line.length > 0);
+    if (paragraphs.length === 0) return null;
+
+    const isPlausible = (count: number) => count >= 2 && count <= MAX_PLAUSIBLE_SECTIONS;
+
+    const keywordHeadings = paragraphs.filter(
+      (line) => line.length <= 80 && SECTION_KEYWORD_PATTERN.test(line)
+    ).length;
+
+    let sectionBreaks: number | null = keywordHeadings >= 2 ? keywordHeadings : null;
+
+    if (sectionBreaks === null) {
+      const styles = this.countDocxHeadingStyles(buffer);
+      sectionBreaks = [styles.heading1, styles.heading2].find(isPlausible) ?? null;
+    }
+
+    if (sectionBreaks === null) {
+      const capsHeadings = paragraphs.filter(
+        (line) =>
+          line.length >= 3 &&
+          line.length <= 70 &&
+          /\p{Lu}/u.test(line) &&
+          line === line.toUpperCase() &&
+          !/[.,;]$/.test(line)
+      ).length;
+      sectionBreaks = isPlausible(capsHeadings) ? capsHeadings : null;
+    }
+
+    return {
+      paragraphLengths: paragraphs.map((line) => line.length),
+      sectionBreaks: sectionBreaks ?? this.assumedSectionBreaks(wordCount),
+    };
+  }
+
+  private countDocxHeadingStyles(buffer: Buffer): { heading1: number; heading2: number } {
+    try {
+      const xml = this.readZipEntry(buffer, "word/document.xml")?.toString("utf8") ?? "";
+      return {
+        heading1: (xml.match(/<w:pStyle w:val="Heading1"\s*\/>/g) ?? []).length,
+        heading2: (xml.match(/<w:pStyle w:val="Heading2"\s*\/>/g) ?? []).length,
+      };
+    } catch {
+      return { heading1: 0, heading2: 0 };
+    }
+  }
+
+  private assumedSectionBreaks(wordCount: number): number {
+    return Math.max(1, Math.round(wordCount / WORDS_PER_ASSUMED_SECTION));
+  }
+
+  /**
+   * Estimated page count of the authoritative render at the given settings.
+   *
+   * - `reference` (an authoritative count at other settings): rescales it. It
+   *   already reflects the manuscript's real structure, so this is the most
+   *   accurate input on a settings change.
+   * - `layout` (DOCX upload): sums wrapped lines per paragraph and adds the
+   *   pages lost to section breaks.
+   * - otherwise (PDF, or only a stored word count): words per page by area.
+   */
   estimatePages(params: {
     wordCount: number;
     pageSize: BookPageSize;
     fontSize: BookFontSize;
+    layout?: ManuscriptLayoutProfile | null;
+    reference?: PageCountReference | null;
   }): number {
-    const { wordCount, pageSize, fontSize } = params;
-    const dimensions = PAGE_DIMENSIONS_MM[pageSize];
-    const margins = PAGE_MARGINS_MM[pageSize];
+    const { wordCount, pageSize, fontSize, layout, reference } = params;
 
-    const printableWidth = Math.max(20, dimensions.width - margins.horizontal);
-    const printableHeight = Math.max(40, dimensions.height - margins.vertical);
+    if (reference && reference.pageCount > 0) {
+      if (reference.pageSize === pageSize && reference.fontSize === fontSize) {
+        return reference.pageCount;
+      }
+      // Only the text-flow part scales with size/font; section overhead does not.
+      const fixed = this.wordModelFixedPages(wordCount);
+      const referenceModel = this.wordModelPages(wordCount, reference.pageSize, reference.fontSize);
+      const fixedShare = Math.min(0.9, fixed / referenceModel);
+      const flowRatio =
+        (this.wordModelPages(wordCount, pageSize, fontSize) - fixed) / (referenceModel - fixed);
+      return Math.max(
+        1,
+        Math.round(reference.pageCount * ((1 - fixedShare) * flowRatio + fixedShare))
+      );
+    }
 
-    const charWidthMm = Math.max(0.2, fontSize * POINT_TO_MM * AVERAGE_CHAR_WIDTH_FACTOR);
-    const lineHeightMm = Math.max(0.35, fontSize * POINT_TO_MM * LINE_HEIGHT_FACTOR);
+    if (layout && layout.paragraphLengths.length > 0) {
+      const area = PRINTABLE_AREA_MM[pageSize];
+      const fontMm = fontSize * POINT_TO_MM;
+      const charsPerLine = area.width / (fontMm * AVERAGE_CHAR_WIDTH_EM);
+      const linesPerPage = Math.floor(area.height / (fontMm * RENDER_LINE_HEIGHT));
+      let lines = 0;
+      for (const length of layout.paragraphLengths) {
+        lines += Math.ceil(Math.max(1, length) / charsPerLine) + EXTRA_LINES_PER_PARAGRAPH;
+      }
+      return Math.max(
+        1,
+        Math.round(
+          lines / linesPerPage +
+            LINE_MODEL_BASE_PAGES +
+            layout.sectionBreaks * LINE_MODEL_PAGES_PER_BREAK
+        )
+      );
+    }
 
-    const charsPerLine = Math.max(18, Math.floor(printableWidth / charWidthMm));
-    const linesPerPage = Math.max(14, Math.floor(printableHeight / lineHeightMm));
+    return Math.max(1, Math.round(this.wordModelPages(wordCount, pageSize, fontSize)));
+  }
 
-    const wordsPerLine = charsPerLine / AVERAGE_WORD_CHARS;
-    const wordsPerPage = Math.max(
-      80,
-      Math.floor(wordsPerLine * linesPerPage * TEXT_DENSITY_FACTOR)
+  private wordModelPages(wordCount: number, pageSize: BookPageSize, fontSize: BookFontSize) {
+    const area = PRINTABLE_AREA_MM[pageSize];
+    const fontMm = fontSize * POINT_TO_MM;
+    const wordsPerPage = (WORD_MODEL_DENSITY * (area.width * area.height)) / (fontMm * fontMm);
+    return wordCount / wordsPerPage + this.wordModelFixedPages(wordCount);
+  }
+
+  private wordModelFixedPages(wordCount: number): number {
+    return (
+      WORD_MODEL_BASE_PAGES + WORD_MODEL_PAGES_PER_BREAK * this.assumedSectionBreaks(wordCount)
     );
-
-    return Math.max(1, Math.ceil(wordCount / wordsPerPage));
   }
 
   /**

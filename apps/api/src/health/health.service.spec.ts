@@ -165,11 +165,12 @@ describe("HealthService", () => {
       runtimeTelemetry as never
     );
 
-    const result = await service.ping();
+    const result = service.ping();
 
     expect(result.status).toBe("ok");
     expect(result.runtime.processStartedAt).toBe("2026-03-10T10:00:00.000Z");
-    expect(prisma.$queryRawUnsafe).toHaveBeenCalledWith("SELECT 1");
+    // Must not wake Neon: a DB keep-alive exhausts the Free plan's compute hours.
+    expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 
   it("sends Basic auth headers to Gotenberg when credentials are configured", async () => {

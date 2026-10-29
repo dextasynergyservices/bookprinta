@@ -3,7 +3,7 @@ import { DEFAULT_CURRENCY } from "@bookprinta/shared";
 import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import type { AxiosInstance } from "axios";
 import axios from "axios";
-import { PAYSTACK_CLIENT } from "../constants.js";
+import { PAYSTACK_CLIENT, PAYSTACK_PRODUCT_TAG, PAYSTACK_PRODUCT_TAG_KEY } from "../constants.js";
 import type { PaystackConfig } from "../providers/paystack.provider.js";
 
 // ──────────────────────────────────────────────
@@ -106,7 +106,8 @@ export class PaystackService {
       currency: params.currency ?? DEFAULT_CURRENCY,
       reference: params.reference,
       callback_url: params.callbackUrl,
-      metadata: params.metadata,
+      // Every charge we create carries the product tag (see constants.ts).
+      metadata: { ...(params.metadata ?? {}), [PAYSTACK_PRODUCT_TAG_KEY]: PAYSTACK_PRODUCT_TAG },
     };
 
     this.logger.log(`Initializing Paystack payment for ${params.email} — ₦${params.amount}`);

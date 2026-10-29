@@ -11,6 +11,9 @@ import { UsersService } from "./users.service.js";
 
 describe("UsersService", () => {
   const prisma = {
+    authSession: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     user: {
       findUnique: jest.fn(),
       update: jest.fn(),

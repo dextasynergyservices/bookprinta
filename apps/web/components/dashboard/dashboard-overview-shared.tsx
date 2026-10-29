@@ -26,7 +26,7 @@ export const SUB_SURFACE =
 export const SECTION_REVEAL_CLASS =
   "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-3 motion-safe:duration-700";
 export const PRIMARY_BUTTON_CLASS =
-  "font-sans min-h-12 rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(0,126,255,0.32)] hover:bg-[#0A72DF] hover:brightness-110";
+  "font-sans min-h-12 rounded-full bg-accent-strong px-6 text-sm font-semibold text-white shadow-[0_12px_30px_rgba(0,126,255,0.32)] hover:bg-accent-strong-hover hover:brightness-110";
 export const SECONDARY_BUTTON_CLASS =
   "font-sans min-h-11 rounded-full border border-white/10 bg-[#050505] px-5 text-sm font-semibold text-white hover:border-[#007eff] hover:bg-[#11161d]";
 export const EYEBROW_PILL_CLASS =

@@ -91,7 +91,7 @@ export function FaqAccordionItem({
         >
           <span className="flex items-baseline gap-3 transition-transform duration-300 group-hover/item:translate-x-1">
             {/* #4 — Numbered prefix */}
-            <span className="font-sans text-xs font-medium text-accent/50">{num}</span>
+            <span className="font-sans text-xs font-medium text-accent">{num}</span>
             <span>{question}</span>
           </span>
         </AccordionTrigger>
@@ -101,7 +101,7 @@ export function FaqAccordionItem({
             <p
               className={cn(
                 "max-w-2xl pl-8 font-serif text-sm leading-relaxed md:text-base",
-                isLight ? "text-primary/50" : "text-white/45"
+                isLight ? "text-primary/50" : "text-white/50"
               )}
             >
               {answer}
@@ -130,7 +130,7 @@ export function FaqAccordionItem({
                   <span
                     className={cn(
                       "font-sans text-xs",
-                      isLight ? "text-primary/25" : "text-white/25"
+                      isLight ? "text-primary/25" : "text-white/50"
                     )}
                   >
                     {t("helpful_question")}
@@ -142,7 +142,7 @@ export function FaqAccordionItem({
                       "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 font-sans text-xs transition-all duration-200 hover:border-green-500/50 hover:text-green-400",
                       isLight
                         ? "border-primary/10 text-primary/40"
-                        : "border-white/10 text-white/40"
+                        : "border-white/10 text-white/50"
                     )}
                     aria-label={t("helpful_yes")}
                   >
@@ -156,7 +156,7 @@ export function FaqAccordionItem({
                       "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 font-sans text-xs transition-all duration-200 hover:border-red-500/50 hover:text-red-400",
                       isLight
                         ? "border-primary/10 text-primary/40"
-                        : "border-white/10 text-white/40"
+                        : "border-white/10 text-white/50"
                     )}
                     aria-label={t("helpful_no")}
                   >
@@ -200,8 +200,11 @@ export function FaqDividerImage({ src, alt }: { src: string; alt: string }) {
   return (
     <motion.div
       ref={containerRef}
-      initial={{ opacity: 0, scale: 1.04 }}
-      whileInView={{ opacity: 1, scale: 1 }}
+      // Fade only: scaling this full-width box (it used to start at 1.04) made it
+      // wider than the viewport until scrolled into view — horizontal scroll on
+      // every breakpoint. The inner image keeps its own zoom.
+      initial={{ opacity: 0 }}
+      whileInView={{ opacity: 1 }}
       viewport={{ once: true, amount: 0.15 }}
       transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
       className="relative h-48 w-full overflow-hidden sm:h-56 md:h-72 lg:h-88"
@@ -244,7 +247,7 @@ export function FaqCategoryHeading({
             transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] },
           },
         }}
-        className="absolute top-0 left-0 h-full w-[3px] origin-top bg-accent"
+        className="absolute top-0 left-0 h-full w-[3px] origin-top bg-accent-strong"
       />
       <motion.h2
         variants={{
@@ -257,7 +260,7 @@ export function FaqCategoryHeading({
         }}
         className={cn(
           "font-display text-xs font-semibold uppercase tracking-widest md:text-sm",
-          isLight ? "text-primary/30" : "text-white/30"
+          isLight ? "text-primary/30" : "text-white/50"
         )}
       >
         {children}

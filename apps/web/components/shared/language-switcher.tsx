@@ -62,7 +62,8 @@ export function LanguageSwitcher({
           variant="ghost"
           size="icon"
           className={cn(
-            compact ? "size-9 min-h-9 min-w-9" : "size-10",
+            // 44px minimum touch target on every variant (CLAUDE.md mobile rules).
+            compact ? "size-11 min-h-11 min-w-11" : "size-11",
             "shrink-0 transition-colors duration-300",
             isScrolled
               ? "text-primary-foreground/70 hover:text-primary-foreground hover:bg-white/10"

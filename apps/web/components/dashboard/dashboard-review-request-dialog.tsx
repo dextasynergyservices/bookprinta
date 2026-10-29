@@ -435,7 +435,7 @@ export function DashboardReviewRequestDialog({
                                 type="button"
                                 onClick={() => void handleSubmit()}
                                 disabled={isPending}
-                                className="font-sans inline-flex min-h-11 w-full items-center justify-center rounded-full bg-[#007eff] px-5 text-sm font-bold text-white transition-[transform,background-color] duration-150 hover:scale-[0.995] hover:bg-[#006ddf] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
+                                className="font-sans inline-flex min-h-11 w-full items-center justify-center rounded-full bg-accent-strong px-5 text-sm font-bold text-white transition-[transform,background-color] duration-150 hover:scale-[0.995] hover:bg-[#006ddf] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
                               >
                                 {isPending
                                   ? tDashboard("review_dialog_submit_loading")

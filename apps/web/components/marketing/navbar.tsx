@@ -141,7 +141,7 @@ export function Navbar() {
                 >
                   {t(labelKey)}
                   {isActive && (
-                    <span className="absolute right-3 bottom-0 left-3 h-0.5 rounded-full bg-accent" />
+                    <span className="absolute right-3 bottom-0 left-3 h-0.5 rounded-full bg-accent-strong" />
                   )}
                 </Link>
               );
@@ -204,7 +204,7 @@ export function Navbar() {
             )}
             <Button
               asChild
-              className="rounded-full bg-accent px-6 font-display text-sm font-semibold text-accent-foreground hover:bg-accent/90"
+              className="rounded-full bg-accent-strong px-6 font-display text-sm font-semibold text-accent-foreground hover:bg-accent-strong-hover"
             >
               <Link href="/quote">{t("get_quote")} &gt;</Link>
             </Button>
@@ -333,7 +333,7 @@ function ResourcesDesktopDropdown({
           className={cn("size-3.5 transition-transform duration-200", open && "rotate-180")}
         />
         {isChildActive && (
-          <span className="absolute right-3 bottom-0 left-3 h-0.5 rounded-full bg-accent" />
+          <span className="absolute right-3 bottom-0 left-3 h-0.5 rounded-full bg-accent-strong" />
         )}
       </button>
 

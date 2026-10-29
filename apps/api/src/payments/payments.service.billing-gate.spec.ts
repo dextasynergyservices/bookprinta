@@ -31,7 +31,12 @@ function createService() {
     payment: {
       create: jest.fn(),
       findUnique: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn(),
+    },
+    // No extra_page_price row → the ₦10 default applies.
+    systemSetting: {
+      findUnique: jest.fn().mockResolvedValue(null),
     },
   };
 

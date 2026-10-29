@@ -244,7 +244,7 @@ export function ContactView() {
                 initial={prefersReduced ? false : { opacity: 0, y: 24 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.7, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
-                className="mt-5 max-w-md border-l-[3px] border-accent pl-4 text-left font-serif text-base leading-relaxed text-primary-foreground/45 md:mt-8 md:text-lg lg:text-xl"
+                className="mt-5 max-w-md border-l-[3px] border-accent pl-4 text-left font-serif text-base leading-relaxed text-primary-foreground/50 md:mt-8 md:text-lg lg:text-xl"
               >
                 {t("hero_subtitle")}
               </motion.p>
@@ -304,7 +304,9 @@ export function ContactView() {
               </div>
 
               {/* ── Details (takes 2 cols) ── */}
-              <div ref={detailsSectionRef} className="md:col-span-2">
+              {/* overflow-x-clip: the items slide in from x:40; before they
+                  animate that offset caused horizontal scroll on mobile. */}
+              <div ref={detailsSectionRef} className="overflow-x-clip md:col-span-2">
                 <h3 className="mb-8 font-display text-xl font-semibold text-primary-foreground md:text-2xl">
                   {detailsTitle}
                 </h3>
@@ -312,55 +314,59 @@ export function ContactView() {
                 <ul className="space-y-6">
                   {DETAILS.map((detail, i) => {
                     const Icon = detail.icon;
-                    const content = (
-                      <li
-                        key={detail.labelKey}
-                        ref={(el) => {
-                          detailItemsRef.current[i] = el;
-                        }}
-                        className="flex items-start gap-4"
-                      >
+                    const body = (
+                      <>
                         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
                           <Icon className="size-5" aria-hidden="true" />
                         </div>
                         <div>
-                          <p className="font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/30">
+                          <p className="font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/50">
                             {t(detail.labelKey)}
                           </p>
                           <p className="mt-0.5 font-serif text-sm leading-relaxed text-primary-foreground/70 md:text-base">
                             {detail.value}
                           </p>
                         </div>
-                      </li>
+                      </>
                     );
 
-                    if (detail.href) {
-                      return (
-                        <a
-                          key={detail.labelKey}
-                          href={detail.href}
-                          target={detail.href.startsWith("http") ? "_blank" : undefined}
-                          rel={detail.href.startsWith("http") ? "noopener noreferrer" : undefined}
-                          className="block transition-opacity hover:opacity-80"
-                        >
-                          {content}
-                        </a>
-                      );
-                    }
-                    return content;
+                    // The <li> is always the direct child of the <ul>; the link
+                    // (when there is one) goes inside it. Wrapping the <li> in an
+                    // <a> was invalid list markup for screen readers.
+                    return (
+                      <li
+                        key={detail.labelKey}
+                        ref={(el) => {
+                          detailItemsRef.current[i] = el;
+                        }}
+                      >
+                        {detail.href ? (
+                          <a
+                            href={detail.href}
+                            target={detail.href.startsWith("http") ? "_blank" : undefined}
+                            rel={detail.href.startsWith("http") ? "noopener noreferrer" : undefined}
+                            className="flex items-start gap-4 transition-opacity hover:opacity-80"
+                          >
+                            {body}
+                          </a>
+                        ) : (
+                          <div className="flex items-start gap-4">{body}</div>
+                        )}
+                      </li>
+                    );
                   })}
                 </ul>
 
                 {/* Social links */}
                 <div className="mt-10">
-                  <p className="font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/30">
+                  <p className="font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/50">
                     {t("details_social_label")}
                   </p>
                   <MarketingSocialLinkList
                     links={managedSocialLinks}
                     fallbackLinks={CONTACT_FALLBACK_SOCIAL_LINKS}
                     className="mt-3 flex gap-3"
-                    linkClassName="rounded-lg border border-white/10 text-primary-foreground/40 transition-all duration-200 hover:border-accent/50 hover:text-accent"
+                    linkClassName="rounded-lg border border-white/10 text-primary-foreground/50 transition-all duration-200 hover:border-accent/50 hover:text-accent"
                     iconClassName="size-4"
                   />
                 </div>
@@ -377,7 +383,7 @@ export function ContactView() {
         {/* ════════════════════════════════════════════════════════════
             CTA — Accent blue band with text split reveal
             ════════════════════════════════════════════════════════════ */}
-        <section className="bg-accent" aria-labelledby="contact-cta-heading">
+        <section className="bg-accent-strong" aria-labelledby="contact-cta-heading">
           <div className="mx-auto flex max-w-7xl flex-col gap-6 px-5 py-14 md:flex-row md:items-center md:justify-between md:px-10 md:py-20 lg:px-14">
             <div>
               <h2

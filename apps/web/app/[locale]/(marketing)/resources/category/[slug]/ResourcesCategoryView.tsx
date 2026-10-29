@@ -178,7 +178,7 @@ export function ResourcesCategoryView({ categorySlug, categoryName }: ResourcesC
                         type="button"
                         onClick={() => void resourcesQuery.fetchNextPage()}
                         disabled={resourcesQuery.isFetchingNextPage}
-                        className="min-h-[48px] min-w-[180px] rounded-full bg-[#007eff] px-6 font-sans text-xs font-bold tracking-[0.08em] text-white uppercase hover:bg-[#007eff]/90"
+                        className="min-h-[48px] min-w-[180px] rounded-full bg-accent-strong px-6 font-sans text-xs font-bold tracking-[0.08em] text-white uppercase hover:bg-[#007eff]/90"
                       >
                         {resourcesQuery.isFetchingNextPage ? (
                           <>

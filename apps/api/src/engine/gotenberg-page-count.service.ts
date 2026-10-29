@@ -42,6 +42,18 @@ const GOTENBERG_COLD_START_RETRY_DELAYS_MS = [5_000, 15_000] as const;
  */
 const GOTENBERG_TRANSIENT_STATUS_CODES = new Set([429, 502, 503]);
 
+/**
+ * Gotenberg answers 500 when Chromium fails to START, not because the HTML is
+ * bad. On Render's 0.1 CPU the pressure test reproduced this on every cold
+ * Gotenberg ("process first start ... websocket url timeout reached") — the
+ * first render after an idle spin-down failed outright. It is transient: the
+ * next attempt finds Chromium running. (Also fix at the source: run Gotenberg
+ * with --chromium-auto-start --chromium-start-timeout=120s.)
+ */
+function isChromiumStartupFailure(status: number, body: string): boolean {
+  return status === 500 && /start process|websocket url timeout|first start/i.test(body);
+}
+
 export type AuthoritativePageCountInput = {
   html: string;
   pageSize: SupportedPageSize;
@@ -257,27 +269,20 @@ export class GotenbergPageCountService {
             return Buffer.from(bytes);
           }
 
-          if (response && hasAuthHeader && (response.status === 401 || response.status === 403)) {
-            const msg = `Auth rejected (HTTP ${response.status})`;
+          if (response && (response.status === 401 || response.status === 403)) {
+            const msg = hasAuthHeader
+              ? `Gotenberg rejected the configured basic-auth credentials (HTTP ${response.status})`
+              : `Gotenberg requires authentication (HTTP ${response.status}) but GOTENBERG_USERNAME/GOTENBERG_PASSWORD are not set`;
             errors.push(`[${baseUrl}] ${msg}`);
-            this.logger.warn(
-              `Gotenberg rejected configured basic auth via ${baseUrl}; retrying without auth headers.`
-            );
-
-            // Security-relevant and otherwise invisible: our credentials were
-            // rejected, so we fall back to UNAUTHENTICATED calls. Rendering keeps
-            // working, which is exactly why this needs to surface — a credential
-            // mismatch would otherwise look like normal operation forever.
-            // Pino logs never reach Sentry, so capture explicitly.
-            Sentry.captureMessage(
-              `Gotenberg rejected basic auth (HTTP ${response.status}) — falling back to unauthenticated requests`,
-              {
-                level: "warning",
-                tags: { service: "gotenberg", reason: "basic_auth_rejected" },
-                extra: { baseUrl, status: response.status },
-              }
-            );
-            break; // Try next header variant (without auth)
+            this.logger.error(`${msg} via ${baseUrl}. Not retrying — fix the credentials.`);
+            // Pino logs never reach Sentry, so capture explicitly: renders stop
+            // until someone fixes the env vars.
+            Sentry.captureMessage(msg, {
+              level: "error",
+              tags: { service: "gotenberg", reason: "basic_auth_rejected" },
+              extra: { baseUrl, status: response.status },
+            });
+            break; // Credentials will not start working on retry.
           }
 
           if (response) {
@@ -293,7 +298,9 @@ export class GotenbergPageCountService {
             // 502/503 are transient (Render cold-start, brief outages).
             // Other 4xx/5xx (e.g. 400 Bad Request from malformed HTML) are permanent —
             // retrying the same HTML against the same endpoint won't help.
-            isTransientFailure = GOTENBERG_TRANSIENT_STATUS_CODES.has(response.status);
+            isTransientFailure =
+              GOTENBERG_TRANSIENT_STATUS_CODES.has(response.status) ||
+              isChromiumStartupFailure(response.status, bodySnippet);
             if (!isTransientFailure) {
               break; // Non-retryable error — skip remaining attempts for this endpoint
             }
@@ -359,12 +366,15 @@ export class GotenbergPageCountService {
     );
   }
 
+  /**
+   * Exactly one header set: with credentials when configured, without when
+   * not. There is deliberately no "retry unauthenticated" variant any more —
+   * if Gotenberg accepts an unauthenticated request after rejecting our
+   * credentials, it is open to the internet, and silently relying on that hid
+   * the misconfiguration. A rejected credential now fails closed.
+   */
   private buildGotenbergHeaderVariants(): Array<Record<string, string>> {
-    const authHeaders = this.buildGotenbergAuthHeaders();
-    if (Object.keys(authHeaders).length === 0) {
-      return [{}];
-    }
-    return [authHeaders, {}];
+    return [this.buildGotenbergAuthHeaders()];
   }
 
   private async delay(ms: number): Promise<void> {

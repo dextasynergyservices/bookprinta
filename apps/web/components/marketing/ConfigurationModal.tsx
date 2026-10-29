@@ -124,7 +124,7 @@ function OptionGroup<T extends string>({
               {isSelected && (
                 <motion.span
                   layoutId={`${id}-selection`}
-                  className="absolute inset-0 rounded-2xl bg-[#007eff]"
+                  className="absolute inset-0 rounded-2xl bg-accent-strong"
                   transition={SPRING_TRANSITION}
                   aria-hidden="true"
                 />
@@ -313,7 +313,7 @@ export function ConfigurationModal({
                         {t("configuration_subtitle")}
                       </DialogPrimitive.Description>
                       {packageName && (
-                        <p className="mt-2 font-sans text-xs font-medium text-white/45 uppercase tracking-[0.14em]">
+                        <p className="mt-2 font-sans text-xs font-medium text-white/50 uppercase tracking-[0.14em]">
                           {t("configuration_package", { packageName })}
                         </p>
                       )}
@@ -345,7 +345,7 @@ export function ConfigurationModal({
                         initial={false}
                         animate={{ width: `${progressPercent}%` }}
                         transition={{ duration: 0.28, ease: "easeOut" }}
-                        className="h-full rounded-full bg-[#007eff]"
+                        className="h-full rounded-full bg-accent-strong"
                       />
                     </div>
                   </div>
@@ -423,7 +423,7 @@ export function ConfigurationModal({
                         "flex min-h-12 w-full items-center justify-center rounded-full px-6 font-display text-sm font-semibold tracking-wide transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                         canContinue
                           ? "bg-linear-to-r from-[#007eff] to-[#2494ff] text-white shadow-[0_14px_30px_rgba(0,126,255,0.35)] hover:brightness-110"
-                          : "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/45"
+                          : "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/50"
                       )}
                     >
                       {t("configuration_continue")}

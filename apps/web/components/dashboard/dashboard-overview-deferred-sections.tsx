@@ -927,7 +927,7 @@ export function DashboardOverviewDeferredSections({
                       {!item.isRead ? (
                         <span
                           aria-hidden="true"
-                          className="absolute inset-y-4 left-0 w-1 rounded-full bg-[#007eff]"
+                          className="absolute inset-y-4 left-0 w-1 rounded-full bg-accent-strong"
                         />
                       ) : null}
                       <div className="relative flex items-start gap-3">
@@ -1296,7 +1296,7 @@ export function DashboardOverviewDeferredSections({
                 href={SUPPORT_WHATSAPP_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-sans inline-flex min-h-11 items-center justify-center rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-[#0066d1] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                className="font-sans inline-flex min-h-11 items-center justify-center rounded-full bg-accent-strong px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-strong-hover focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
               >
                 {tDashboard("order_journey_contact_support")}
               </a>

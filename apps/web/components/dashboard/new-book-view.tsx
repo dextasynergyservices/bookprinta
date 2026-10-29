@@ -83,7 +83,7 @@ export function NewBookView() {
       <div className="flex justify-center mt-6">
         <button
           type="button"
-          className="rounded-full bg-accent px-8 py-3 font-display text-sm font-semibold tracking-wide text-accent-foreground shadow hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary"
+          className="rounded-full bg-accent-strong px-8 py-3 font-display text-sm font-semibold tracking-wide text-accent-foreground shadow hover:bg-accent-strong-hover focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary"
           onClick={() => setShowComparison(true)}
         >
           {t("compare_plans", { defaultValue: "Compare Plans" })}

@@ -20,7 +20,7 @@ export class PackagesController {
    * List all active packages sorted by display order.
    */
   @Get()
-  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600, s-maxage=300")
   @ApiOperation({
     summary: "List active packages",
     description:
@@ -41,7 +41,7 @@ export class PackagesController {
    * Get a single package by ID.
    */
   @Get(":id")
-  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600")
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=600, s-maxage=300")
   @ApiOperation({
     summary: "Get package by ID",
     description:

@@ -208,7 +208,7 @@ function NotificationListItem({
           }}
           transition={prefersReducedMotion ? { duration: 0.01 } : READ_BORDER_TRANSITION}
           data-notification-indicator="true"
-          className="absolute inset-y-3 left-0 w-1 rounded-full bg-[#007eff]"
+          className="absolute inset-y-3 left-0 w-1 rounded-full bg-accent-strong"
           style={{ transformOrigin: "50% 0%" }}
         />
 

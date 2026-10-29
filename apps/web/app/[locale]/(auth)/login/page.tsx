@@ -720,8 +720,8 @@ function LoginPageInner() {
                     className={cn(
                       "mt-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border px-4 font-sans text-xs font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]",
                       canResendLink
-                        ? "border-[#007eff] text-[#007eff] hover:bg-[#007eff]/10"
-                        : "cursor-not-allowed border-[#2A2A2A] text-white/45"
+                        ? "border-[#007eff] text-[#4da3ff] hover:bg-[#007eff]/10"
+                        : "cursor-not-allowed border-[#2A2A2A] text-white/50"
                     )}
                   >
                     {isResendingLink ? t("login_resend_sending") : t("login_resend_button")}
@@ -741,7 +741,7 @@ function LoginPageInner() {
               whileHover={canSubmit ? { scale: 1.015 } : undefined}
               whileTap={canSubmit ? { scale: 0.985 } : undefined}
               className={cn(
-                "inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-bold text-white transition-[opacity,filter] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                "inline-flex min-h-12 w-full items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-bold text-white transition-[opacity,filter] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                 canSubmit ? "hover:brightness-110" : "cursor-not-allowed opacity-60"
               )}
             >
@@ -759,20 +759,20 @@ function LoginPageInner() {
           <div className="mt-5 flex items-center justify-center gap-2 font-sans text-xs text-white/55">
             <Link
               href="/terms"
-              className="rounded-sm px-1 text-white/60 transition-colors duration-150 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+              className="inline-flex min-h-11 items-center rounded-sm px-1 text-white/60 transition-colors duration-150 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
             >
               {t("login_footer_terms")}
             </Link>
-            <span aria-hidden="true" className="text-white/25">
+            <span aria-hidden="true" className="text-white/50">
               /
             </span>
             <Link
               href="/privacy"
-              className="rounded-sm px-1 text-white/60 transition-colors duration-150 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+              className="inline-flex min-h-11 items-center rounded-sm px-1 text-white/60 transition-colors duration-150 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
             >
               {t("login_footer_privacy")}
             </Link>
-            <span aria-hidden="true" className="text-white/25">
+            <span aria-hidden="true" className="text-white/50">
               /
             </span>
             <Link

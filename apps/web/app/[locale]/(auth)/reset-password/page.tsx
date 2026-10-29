@@ -356,7 +356,7 @@ function ResetPasswordPageContent() {
 
                 <Link
                   href="/forgot-password"
-                  className="mt-8 inline-flex min-h-12 min-w-12 items-center justify-center rounded-full bg-[#007eff] px-6 font-sans text-sm font-bold text-white transition-[filter] duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                  className="mt-8 inline-flex min-h-12 min-w-12 items-center justify-center rounded-full bg-accent-strong px-6 font-sans text-sm font-bold text-white transition-[filter] duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 >
                   {t("reset_password_request_new_link")}
                 </Link>
@@ -505,7 +505,7 @@ function ResetPasswordPageContent() {
                               ? passwordStrength.score >= 4
                                 ? "bg-emerald-400"
                                 : passwordStrength.score >= 3
-                                  ? "bg-[#007eff]"
+                                  ? "bg-accent-strong"
                                   : passwordStrength.score >= 2
                                     ? "bg-amber-400"
                                     : "bg-[#ff6b6b]"
@@ -610,7 +610,7 @@ function ResetPasswordPageContent() {
                     whileHover={!isSubmitting ? { scale: 1.015 } : undefined}
                     whileTap={!isSubmitting ? { scale: 0.985 } : undefined}
                     className={cn(
-                      "inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-bold text-white transition-[opacity,filter] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                      "inline-flex min-h-12 w-full items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-bold text-white transition-[opacity,filter] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                       isSubmitting ? "cursor-not-allowed opacity-60" : "hover:brightness-110"
                     )}
                   >

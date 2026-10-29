@@ -201,7 +201,7 @@ function resolveQuoteStatusTone(status: AdminQuoteRow["status"]): string {
     case "PAID":
       return "border-[#22c55e]/45 bg-[#22c55e]/15 text-[#22c55e]";
     case "PAYMENT_LINK_SENT":
-      return "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]";
+      return "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]";
     case "REJECTED":
       return "border-[#ef4444]/45 bg-[#ef4444]/15 text-[#ef4444]";
     case "PENDING":
@@ -214,7 +214,7 @@ function resolveQuoteStatusTone(status: AdminQuoteRow["status"]): string {
 function resolvePaymentLinkTone(status: AdminQuoteRow["paymentLinkStatus"]): string {
   switch (status) {
     case "SENT":
-      return "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]";
+      return "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]";
     case "PAID":
       return "border-[#22c55e]/45 bg-[#22c55e]/15 text-[#22c55e]";
     case "EXPIRED":
@@ -427,7 +427,7 @@ function AdminQuotesFilterBar({
             className={cn(
               "inline-flex min-h-9 items-center rounded-full border px-3 font-sans text-xs font-medium",
               hasActiveFilters
-                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]"
+                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]"
                 : "border-[#2A2A2A] bg-[#101010] text-[#b4b4b4]"
             )}
           >
@@ -454,7 +454,7 @@ function AdminQuotesFilterBar({
           className={cn(
             "min-h-10 rounded-full border px-4 font-sans text-xs font-medium transition-colors",
             status === ""
-              ? "border-[#007eff]/65 bg-[#007eff]/15 text-[#007eff]"
+              ? "border-[#007eff]/65 bg-[#007eff]/15 text-[#4da3ff]"
               : "border-[#2A2A2A] bg-[#101010] text-[#d0d0d0] hover:border-[#3A3A3A]"
           )}
         >
@@ -468,7 +468,7 @@ function AdminQuotesFilterBar({
             className={cn(
               "min-h-10 rounded-full border px-4 font-sans text-xs font-medium transition-colors",
               status === statusOption
-                ? "border-[#007eff]/65 bg-[#007eff]/15 text-[#007eff]"
+                ? "border-[#007eff]/65 bg-[#007eff]/15 text-[#4da3ff]"
                 : "border-[#2A2A2A] bg-[#101010] text-[#d0d0d0] hover:border-[#3A3A3A]"
             )}
           >

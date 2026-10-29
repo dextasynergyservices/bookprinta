@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import { InjectQueue } from "@nestjs/bullmq";
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
+import {
+  isExtraPagesGateSatisfied,
+  resolveExtraPagePriceNgn,
+  summarizeExtraPagePayments,
+} from "../common/extra-page-pricing.js";
 import { PendingRedisSignal } from "../common/pending-redis-signal.js";
 import { PaymentStatus, PaymentType } from "../generated/prisma/enums.js";
 import {
@@ -57,7 +62,6 @@ const TERMINAL_BOOK_STATUSES = new Set([
 const TERMINAL_ORDER_STATUSES = new Set(["IN_PRODUCTION", "COMPLETED", "CANCELLED", "REFUNDED"]);
 const FORMAT_CACHE_PROFILE_VERSION = "2026-03-10-format-cache-v1";
 const RENDER_CACHE_PROFILE_VERSION = "2026-03-10-render-cache-v1";
-const EXTRA_PAGE_PRICE_NGN = 10;
 
 @Injectable()
 export class BooksPipelineService {
@@ -961,15 +965,23 @@ export class BooksPipelineService {
         },
         select: {
           amount: true,
+          metadata: true,
         },
       });
 
-      const paidAmount = successfulExtraPayments.reduce((sum, payment) => {
-        return sum + this.toCurrencyNumber(payment.amount);
-      }, 0);
-
+      const { paidAmount, paidPages } = summarizeExtraPagePayments(successfulExtraPayments);
       const overagePages = Math.max(0, pageCount - params.bundlePageLimit);
-      const requiredAmount = overagePages * EXTRA_PAGE_PRICE_NGN;
+      const pricePerPage = await resolveExtraPagePriceNgn(this.prisma);
+      const gateSatisfied = isExtraPagesGateSatisfied({
+        overagePages,
+        pricePerPage,
+        paidAmount,
+        paidPages,
+      });
+      // What the order shows as due: remaining unpaid pages, or what was paid.
+      const extraAmountDue = gateSatisfied
+        ? paidAmount
+        : Math.max(0, overagePages - paidPages) * pricePerPage;
 
       await this.prisma.$transaction(async (tx) => {
         await tx.book.update({
@@ -985,11 +997,8 @@ export class BooksPipelineService {
         await tx.order.update({
           where: { id: params.orderId },
           data: {
-            status:
-              requiredAmount > 0 && paidAmount < requiredAmount
-                ? "PENDING_EXTRA_PAYMENT"
-                : "PREVIEW_READY",
-            extraAmount: requiredAmount,
+            status: !gateSatisfied ? "PENDING_EXTRA_PAYMENT" : "PREVIEW_READY",
+            extraAmount: extraAmountDue,
           },
         });
       });
@@ -1054,28 +1063,6 @@ export class BooksPipelineService {
   private isCompatibleCacheVersion(value: string | null, expectedVersion: string): boolean {
     return value === null || value === expectedVersion;
   }
-
-  private toCurrencyNumber(value: unknown): number {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string" && value.trim().length > 0) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-    if (
-      value &&
-      typeof value === "object" &&
-      "toNumber" in value &&
-      typeof (value as { toNumber?: unknown }).toNumber === "function"
-    ) {
-      return Number((value as { toNumber: () => number }).toNumber());
-    }
-    return 0;
-  }
-
   private isSupportedPageSize(value: string | null): value is "A4" | "A5" {
     return value === "A4" || value === "A5";
   }

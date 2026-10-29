@@ -66,6 +66,7 @@ type QuotePricingDraft = {
   quoteCoverCost: string;
   reprintCostPerPage: string;
   reprintCoverCost: string;
+  extraPagePrice: string;
   minimumCopies: string;
 };
 
@@ -163,6 +164,7 @@ const SETTING_KEYS: Record<string, AdminSystemSettingKey> = {
   reprint_cost_per_page: "reprint_cost_per_page",
   reprint_cover_cost: "reprint_cover_cost",
   reprint_minimum_copies: "reprint_minimum_copies",
+  extra_page_price: "extra_page_price",
   comms_sender_name: "comms_sender_name",
   comms_sender_email: "comms_sender_email",
   comms_whatsapp_template_toggles: "comms_whatsapp_template_toggles",
@@ -484,6 +486,7 @@ export function AdminSystemSettingsLanding() {
     quoteCoverCost: "0",
     reprintCostPerPage: "0",
     reprintCoverCost: "0",
+    extraPagePrice: "10",
     minimumCopies: "25",
   });
   const [notificationDraft, setNotificationDraft] = useState<NotificationDraft>({
@@ -582,6 +585,7 @@ export function AdminSystemSettingsLanding() {
         quoteCoverCost: toMoney(settingsMap.get(SETTING_KEYS.quote_cover_cost)?.value),
         reprintCostPerPage: toMoney(settingsMap.get(SETTING_KEYS.reprint_cost_per_page)?.value),
         reprintCoverCost: toMoney(settingsMap.get(SETTING_KEYS.reprint_cover_cost)?.value),
+        extraPagePrice: toMoney(settingsMap.get(SETTING_KEYS.extra_page_price)?.value),
         minimumCopies: toInteger(settingsMap.get(SETTING_KEYS.reprint_minimum_copies)?.value, 25),
       };
 
@@ -891,6 +895,7 @@ export function AdminSystemSettingsLanding() {
       ["quoteCoverCost", "quoteCoverCost"],
       ["reprintCostPerPage", "reprintCostPerPage"],
       ["reprintCoverCost", "reprintCoverCost"],
+      ["extraPagePrice", "extraPagePrice"],
       ["minimumCopies", "minimumCopies"],
     ];
 
@@ -911,6 +916,7 @@ export function AdminSystemSettingsLanding() {
       const nextQuoteCoverCost = Number.parseFloat(quoteDraft.quoteCoverCost);
       const nextReprintCostPerPage = Number.parseFloat(quoteDraft.reprintCostPerPage);
       const nextReprintCoverCost = Number.parseFloat(quoteDraft.reprintCoverCost);
+      const nextExtraPagePrice = Number.parseFloat(quoteDraft.extraPagePrice);
       const nextMinimumCopies = Number.parseInt(quoteDraft.minimumCopies, 10);
 
       if (settingHasChanged(SETTING_KEYS.quote_cost_per_page, nextQuoteCostPerPage)) {
@@ -938,6 +944,13 @@ export function AdminSystemSettingsLanding() {
         await updateSettingMutation.mutateAsync({
           key: SETTING_KEYS.reprint_cover_cost,
           body: { value: nextReprintCoverCost, changeReason: undefined },
+        });
+      }
+
+      if (settingHasChanged(SETTING_KEYS.extra_page_price, nextExtraPagePrice)) {
+        await updateSettingMutation.mutateAsync({
+          key: SETTING_KEYS.extra_page_price,
+          body: { value: nextExtraPagePrice, changeReason: undefined },
         });
       }
 
@@ -1509,8 +1522,15 @@ export function AdminSystemSettingsLanding() {
               </div>
             ) : null}
 
+            {!isSuperAdmin && isSystemAdmin ? (
+              <p className="font-sans text-xs text-[#9D9D9D]">
+                {tAdmin("system_settings_gateways_super_admin_only")}
+              </p>
+            ) : null}
+
             {gatewayDrafts.map((gateway) => {
-              const isEditable = isSystemAdmin;
+              // Gateway keys move money — SUPER_ADMIN only, matching the API.
+              const isEditable = isSuperAdmin;
               return (
                 <div
                   key={gateway.id}
@@ -1544,6 +1564,7 @@ export function AdminSystemSettingsLanding() {
                         {tAdmin("system_settings_enabled")}
                       </span>
                       <Switch
+                        aria-label={`${gateway.name}: ${tAdmin("system_settings_enabled")}`}
                         checked={gateway.isEnabled}
                         disabled={!isEditable || savingAnySection}
                         onCheckedChange={(checked) => {
@@ -1568,6 +1589,7 @@ export function AdminSystemSettingsLanding() {
                       </span>
                       <div className="flex items-center gap-2">
                         <Switch
+                          aria-label={`${gateway.name}: ${tAdmin("system_settings_mode")}`}
                           checked={gateway.isTestMode}
                           disabled={!isEditable || savingAnySection}
                           onCheckedChange={(checked) => {
@@ -1597,6 +1619,7 @@ export function AdminSystemSettingsLanding() {
                         {tAdmin("system_settings_gateway_priority")}
                       </span>
                       <Input
+                        aria-label={`${gateway.name}: ${tAdmin("system_settings_gateway_priority")}`}
                         inputMode="numeric"
                         value={gateway.priority}
                         disabled={!isEditable || savingAnySection}
@@ -1628,6 +1651,7 @@ export function AdminSystemSettingsLanding() {
                       {tAdmin("system_settings_gateway_instructions")}
                     </span>
                     <Textarea
+                      aria-label={`${gateway.name}: ${tAdmin("system_settings_gateway_instructions")}`}
                       rows={3}
                       value={gateway.instructions}
                       disabled={!isEditable || savingAnySection}
@@ -1688,6 +1712,7 @@ export function AdminSystemSettingsLanding() {
                           </p>
 
                           <Input
+                            aria-label={credential.label}
                             className="mt-2"
                             type={showValue ? "text" : "password"}
                             autoComplete="off"
@@ -1727,9 +1752,10 @@ export function AdminSystemSettingsLanding() {
                 {tAdmin("system_settings_field_change_reason")}
               </span>
               <Textarea
+                aria-label={tAdmin("system_settings_field_change_reason")}
                 rows={2}
                 value={gatewayChangeReason}
-                disabled={!isSystemAdmin || savingAnySection}
+                disabled={!isSuperAdmin || savingAnySection}
                 onChange={(event) => setGatewayChangeReason(event.target.value)}
                 placeholder={tAdmin("system_settings_change_reason_hint")}
               />
@@ -1744,7 +1770,7 @@ export function AdminSystemSettingsLanding() {
               <Button
                 type="button"
                 disabled={
-                  !isSystemAdmin ||
+                  !isSuperAdmin ||
                   savingAnySection ||
                   !dirty.isSectionDirty(SECTION_PAYMENT_GATEWAYS)
                 }
@@ -1790,6 +1816,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_business_website")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_business_website")}
                   type="url"
                   value={businessDraft.websiteUrl}
                   disabled={!canEditKey(SETTING_KEYS.business_website_url) || savingAnySection}
@@ -1809,6 +1836,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_business_email")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_business_email")}
                   type="email"
                   value={businessDraft.supportEmail}
                   disabled={!canEditKey(SETTING_KEYS.business_support_email) || savingAnySection}
@@ -1829,6 +1857,7 @@ export function AdminSystemSettingsLanding() {
                     {tAdmin("system_settings_business_phone")}
                   </span>
                   <Input
+                    aria-label={tAdmin("system_settings_business_phone")}
                     value={businessDraft.supportPhone}
                     disabled={!canEditKey(SETTING_KEYS.business_support_phone) || savingAnySection}
                     onChange={(event) => {
@@ -1844,6 +1873,7 @@ export function AdminSystemSettingsLanding() {
                     {tAdmin("system_settings_business_whatsapp")}
                   </span>
                   <Input
+                    aria-label={tAdmin("system_settings_business_whatsapp")}
                     value={businessDraft.whatsappNumber}
                     disabled={
                       !canEditKey(SETTING_KEYS.business_whatsapp_number) || savingAnySection
@@ -1862,6 +1892,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_business_address")}
                 </span>
                 <Textarea
+                  aria-label={tAdmin("system_settings_business_address")}
                   rows={2}
                   value={businessDraft.officeAddress}
                   disabled={!canEditKey(SETTING_KEYS.business_office_address) || savingAnySection}
@@ -1903,6 +1934,7 @@ export function AdminSystemSettingsLanding() {
                     className="grid gap-2 rounded-lg border border-[#232323] bg-[#111111] p-3"
                   >
                     <Input
+                      aria-label={tAdmin("system_settings_social_label_placeholder")}
                       placeholder={tAdmin("system_settings_social_label_placeholder")}
                       value={link.label}
                       disabled={!canEditKey(SETTING_KEYS.business_social_links) || savingAnySection}
@@ -1916,6 +1948,7 @@ export function AdminSystemSettingsLanding() {
                       }}
                     />
                     <Input
+                      aria-label={tAdmin("system_settings_social_url_placeholder")}
                       placeholder={tAdmin("system_settings_social_url_placeholder")}
                       value={link.url}
                       disabled={!canEditKey(SETTING_KEYS.business_social_links) || savingAnySection}
@@ -2021,10 +2054,16 @@ export function AdminSystemSettingsLanding() {
                   label: tAdmin("system_settings_reprint_cover_cost"),
                   settingKey: SETTING_KEYS.reprint_cover_cost,
                 },
+                {
+                  key: "extraPagePrice" as const,
+                  label: tAdmin("system_settings_extra_page_price"),
+                  settingKey: SETTING_KEYS.extra_page_price,
+                },
               ].map((field) => (
                 <div key={field.key} className="grid gap-1.5">
                   <span className="font-sans text-xs text-[#9F9F9F]">{field.label}</span>
                   <Input
+                    aria-label={field.label}
                     inputMode="decimal"
                     value={quoteDraft[field.key]}
                     disabled={!canEditKey(field.settingKey) || savingAnySection}
@@ -2048,6 +2087,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_reprint_minimum_copies")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_reprint_minimum_copies")}
                   inputMode="numeric"
                   value={quoteDraft.minimumCopies}
                   disabled={!canEditKey(SETTING_KEYS.reprint_minimum_copies) || savingAnySection}
@@ -2113,6 +2153,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_sender_name")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_sender_name")}
                   value={notificationDraft.senderName}
                   disabled={!canEditKey(SETTING_KEYS.comms_sender_name) || savingAnySection}
                   onChange={(event) => {
@@ -2128,6 +2169,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_sender_email")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_sender_email")}
                   type="email"
                   value={notificationDraft.senderEmail}
                   disabled={!canEditKey(SETTING_KEYS.comms_sender_email) || savingAnySection}
@@ -2174,6 +2216,7 @@ export function AdminSystemSettingsLanding() {
                     className="grid gap-2 rounded-md border border-[#2A2A2A] p-2 md:grid-cols-[1fr_auto_auto] md:items-center"
                   >
                     <Input
+                      aria-label={tAdmin("system_settings_template_key_placeholder")}
                       value={toggle.key}
                       placeholder={tAdmin("system_settings_template_key_placeholder")}
                       disabled={
@@ -2192,6 +2235,7 @@ export function AdminSystemSettingsLanding() {
                     />
 
                     <Switch
+                      aria-label={`${toggle.key || tAdmin("system_settings_template_key_placeholder")}: ${tAdmin("system_settings_enabled")}`}
                       checked={toggle.enabled}
                       disabled={
                         !canEditKey(SETTING_KEYS.comms_whatsapp_template_toggles) ||
@@ -2209,6 +2253,7 @@ export function AdminSystemSettingsLanding() {
                     />
 
                     <Button
+                      aria-label={`${tAdmin("system_settings_remove")}: ${toggle.key || tAdmin("system_settings_template_key_placeholder")}`}
                       type="button"
                       variant="ghost"
                       size="sm"
@@ -2265,6 +2310,7 @@ export function AdminSystemSettingsLanding() {
                         className="flex items-center gap-2"
                       >
                         <Input
+                          aria-label={tAdmin("system_settings_recipient_placeholder")}
                           value={recipient}
                           placeholder={tAdmin("system_settings_recipient_placeholder")}
                           disabled={
@@ -2285,6 +2331,7 @@ export function AdminSystemSettingsLanding() {
                           }}
                         />
                         <Button
+                          aria-label={`${tAdmin("system_settings_remove")}: ${recipient || tAdmin("system_settings_recipient_placeholder")}`}
                           type="button"
                           variant="ghost"
                           size="icon"
@@ -2382,6 +2429,7 @@ export function AdminSystemSettingsLanding() {
                     </p>
                   </div>
                   <Switch
+                    aria-label={tAdmin("system_settings_maintenance_mode")}
                     checked={operationalDraft.maintenanceMode}
                     disabled={!canEditKey(SETTING_KEYS.maintenance_mode) || savingAnySection}
                     onCheckedChange={(checked) => {
@@ -2398,6 +2446,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_backlog_threshold")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_backlog_threshold")}
                   inputMode="numeric"
                   value={operationalDraft.backlogThreshold}
                   disabled={
@@ -2432,7 +2481,7 @@ export function AdminSystemSettingsLanding() {
                   }}
                   disabled={!isSystemAdmin || savingAnySection}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger aria-label={tAdmin("system_settings_delay_override")}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -2452,6 +2501,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_field_change_reason")}
                 </span>
                 <Textarea
+                  aria-label={tAdmin("system_settings_field_change_reason")}
                   rows={2}
                   value={operationalChangeReason}
                   disabled={!isSystemAdmin || savingAnySection}
@@ -2470,6 +2520,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_delay_notes")}
                 </span>
                 <Textarea
+                  aria-label={tAdmin("system_settings_delay_notes")}
                   rows={2}
                   value={operationalDraft.delayNotes}
                   disabled={!isSystemAdmin || savingAnySection}
@@ -2554,6 +2605,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_content_about_heading")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_content_about_heading")}
                   value={contentDraft.aboutHeading}
                   disabled={!canEditKey(SETTING_KEYS.content_about_blocks) || savingAnySection}
                   onChange={(event) => {
@@ -2569,6 +2621,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_content_about_summary")}
                 </span>
                 <Textarea
+                  aria-label={tAdmin("system_settings_content_about_summary")}
                   rows={3}
                   value={contentDraft.aboutSummary}
                   disabled={!canEditKey(SETTING_KEYS.content_about_blocks) || savingAnySection}
@@ -2610,6 +2663,7 @@ export function AdminSystemSettingsLanding() {
                     className="grid gap-2 rounded-md border border-[#2A2A2A] p-2"
                   >
                     <Input
+                      aria-label={tAdmin("system_settings_content_section_title")}
                       placeholder={tAdmin("system_settings_content_section_title")}
                       value={section.title}
                       disabled={!canEditKey(SETTING_KEYS.content_about_blocks) || savingAnySection}
@@ -2623,6 +2677,7 @@ export function AdminSystemSettingsLanding() {
                       }}
                     />
                     <Textarea
+                      aria-label={tAdmin("system_settings_content_section_body")}
                       rows={2}
                       placeholder={tAdmin("system_settings_content_section_body")}
                       value={section.body}
@@ -2645,6 +2700,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_content_contact_block")}
                 </p>
                 <Input
+                  aria-label={tAdmin("system_settings_content_contact_heading")}
                   placeholder={tAdmin("system_settings_content_contact_heading")}
                   value={contentDraft.contactHeading}
                   disabled={!canEditKey(SETTING_KEYS.content_contact_blocks) || savingAnySection}
@@ -2655,6 +2711,7 @@ export function AdminSystemSettingsLanding() {
                   }}
                 />
                 <Input
+                  aria-label={tAdmin("system_settings_content_contact_email")}
                   placeholder={tAdmin("system_settings_content_contact_email")}
                   value={contentDraft.contactEmail}
                   disabled={!canEditKey(SETTING_KEYS.content_contact_blocks) || savingAnySection}
@@ -2665,6 +2722,7 @@ export function AdminSystemSettingsLanding() {
                   }}
                 />
                 <Input
+                  aria-label={tAdmin("system_settings_content_contact_phone")}
                   placeholder={tAdmin("system_settings_content_contact_phone")}
                   value={contentDraft.contactPhone}
                   disabled={!canEditKey(SETTING_KEYS.content_contact_blocks) || savingAnySection}
@@ -2675,6 +2733,7 @@ export function AdminSystemSettingsLanding() {
                   }}
                 />
                 <Textarea
+                  aria-label={tAdmin("system_settings_content_contact_address")}
                   rows={2}
                   placeholder={tAdmin("system_settings_content_contact_address")}
                   value={contentDraft.contactAddress}
@@ -2712,6 +2771,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_content_hero_block")}
                 </p>
                 <Input
+                  aria-label={tAdmin("system_settings_content_hero_title")}
                   placeholder={tAdmin("system_settings_content_hero_title")}
                   value={contentDraft.heroTitle}
                   disabled={
@@ -2724,6 +2784,7 @@ export function AdminSystemSettingsLanding() {
                   }}
                 />
                 <Textarea
+                  aria-label={tAdmin("system_settings_content_hero_subtitle")}
                   rows={2}
                   placeholder={tAdmin("system_settings_content_hero_subtitle")}
                   value={contentDraft.heroSubtitle}
@@ -2738,6 +2799,7 @@ export function AdminSystemSettingsLanding() {
                 />
                 <div className="grid gap-2 md:grid-cols-2">
                   <Input
+                    aria-label={tAdmin("system_settings_content_hero_primary_cta")}
                     placeholder={tAdmin("system_settings_content_hero_primary_cta")}
                     value={contentDraft.heroPrimaryCta}
                     disabled={
@@ -2750,6 +2812,7 @@ export function AdminSystemSettingsLanding() {
                     }}
                   />
                   <Input
+                    aria-label={tAdmin("system_settings_content_hero_secondary_cta")}
                     placeholder={tAdmin("system_settings_content_hero_secondary_cta")}
                     value={contentDraft.heroSecondaryCta}
                     disabled={
@@ -2813,6 +2876,7 @@ export function AdminSystemSettingsLanding() {
                     className="grid gap-2 rounded-md border border-[#2A2A2A] p-2"
                   >
                     <Textarea
+                      aria-label={tAdmin("system_settings_content_faq_question")}
                       rows={2}
                       placeholder={tAdmin("system_settings_content_faq_question")}
                       value={entry.question}
@@ -2827,6 +2891,7 @@ export function AdminSystemSettingsLanding() {
                       }}
                     />
                     <Textarea
+                      aria-label={tAdmin("system_settings_content_faq_answer")}
                       rows={3}
                       placeholder={tAdmin("system_settings_content_faq_answer")}
                       value={entry.answer}
@@ -2899,6 +2964,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_seo_canonical_url")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_seo_canonical_url")}
                   type="url"
                   value={seoDraft.canonicalBaseUrl}
                   disabled={!canEditKey(SETTING_KEYS.seo_canonical_base_url) || savingAnySection}
@@ -2918,6 +2984,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_seo_og_url")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_seo_og_url")}
                   type="url"
                   value={seoDraft.ogFallbackImageUrl}
                   disabled={!canEditKey(SETTING_KEYS.seo_og_fallback_image_url) || savingAnySection}
@@ -2937,6 +3004,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_seo_title_template")}
                 </span>
                 <Input
+                  aria-label={tAdmin("system_settings_seo_title_template")}
                   value={seoDraft.titleTemplate}
                   disabled={!canEditKey(SETTING_KEYS.seo_metadata_defaults) || savingAnySection}
                   onChange={(event) => {
@@ -2952,6 +3020,7 @@ export function AdminSystemSettingsLanding() {
                   {tAdmin("system_settings_seo_description")}
                 </span>
                 <Textarea
+                  aria-label={tAdmin("system_settings_seo_description")}
                   rows={3}
                   value={seoDraft.defaultDescription}
                   disabled={!canEditKey(SETTING_KEYS.seo_metadata_defaults) || savingAnySection}
@@ -2979,7 +3048,7 @@ export function AdminSystemSettingsLanding() {
                   }}
                   disabled={!canEditKey(SETTING_KEYS.seo_metadata_defaults) || savingAnySection}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger aria-label={tAdmin("system_settings_seo_robots")}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -3053,6 +3122,7 @@ export function AdminSystemSettingsLanding() {
               {tAdmin("system_settings_field_change_reason")}
             </span>
             <Textarea
+              aria-label={tAdmin("system_settings_field_change_reason")}
               rows={3}
               value={operationalChangeReason}
               onChange={(event) => setOperationalChangeReason(event.target.value)}
@@ -3063,7 +3133,7 @@ export function AdminSystemSettingsLanding() {
           <AlertDialogFooter>
             <AlertDialogCancel>{tCommon("cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-[#007eff] text-white hover:bg-[#0066d1]"
+              className="bg-accent-strong text-white hover:bg-accent-strong-hover"
               onClick={(event) => {
                 event.preventDefault();
                 void (async () => {

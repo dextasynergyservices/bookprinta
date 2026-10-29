@@ -53,7 +53,7 @@ export function ResourceCard({
 
         {item.category ? (
           <div className="absolute left-3 top-3 z-10 md:left-4 md:top-4">
-            <Badge className="border-0 bg-[#007eff] font-sans text-[0.625rem] font-semibold tracking-[0.08em] text-white uppercase">
+            <Badge className="border-0 bg-accent-strong font-sans text-[0.625rem] font-semibold tracking-[0.08em] text-white uppercase">
               {item.category.name}
             </Badge>
           </div>

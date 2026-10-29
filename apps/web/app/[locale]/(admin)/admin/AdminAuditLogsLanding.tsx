@@ -1209,7 +1209,7 @@ export function AdminAuditLogsLanding() {
             variant={activeTab === "audit" ? "default" : "outline"}
             className={
               activeTab === "audit"
-                ? "rounded-full bg-[#007eff] text-white hover:bg-[#0066d1]"
+                ? "rounded-full bg-accent-strong text-white hover:bg-accent-strong-hover"
                 : "rounded-full border-[#2A2A2A] bg-[#0D0D0D] text-[#E8E8E8] hover:bg-[#171717] hover:text-white"
             }
             onClick={() => setActiveTab("audit")}
@@ -1226,7 +1226,7 @@ export function AdminAuditLogsLanding() {
             variant={activeTab === "errors" ? "default" : "outline"}
             className={
               activeTab === "errors"
-                ? "rounded-full bg-[#007eff] text-white hover:bg-[#0066d1]"
+                ? "rounded-full bg-accent-strong text-white hover:bg-accent-strong-hover"
                 : "rounded-full border-[#2A2A2A] bg-[#0D0D0D] text-[#E8E8E8] hover:bg-[#171717] hover:text-white"
             }
             onClick={() => setActiveTab("errors")}
@@ -1898,7 +1898,7 @@ export function AdminAuditLogsLanding() {
             </Button>
             <Button
               type="button"
-              className="bg-[#007eff] text-white hover:bg-[#0066d1]"
+              className="bg-accent-strong text-white hover:bg-accent-strong-hover"
               onClick={() => setIsMobileFilterOpen(false)}
             >
               {tAdmin("audit_logs_filter_apply")}
@@ -1928,7 +1928,7 @@ export function AdminAuditLogsLanding() {
           <AlertDialogFooter>
             <AlertDialogCancel>{tCommon("cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-[#007eff] text-white hover:bg-[#0066d1]"
+              className="bg-accent-strong text-white hover:bg-accent-strong-hover"
               disabled={assignOwnerDraft.trim().length === 0}
               onClick={() => void confirmAssignOwner()}
             >
@@ -1964,7 +1964,7 @@ export function AdminAuditLogsLanding() {
           <AlertDialogFooter>
             <AlertDialogCancel>{tCommon("cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-[#007eff] text-white hover:bg-[#0066d1]"
+              className="bg-accent-strong text-white hover:bg-accent-strong-hover"
               disabled={noteDraft.trim().length === 0}
               onClick={() => void confirmAttachNote()}
             >

@@ -131,7 +131,7 @@ export default async function RefundPolicyPage({ params }: RefundPolicyPageProps
           <div className="flex flex-wrap gap-3">
             <Link
               href="/contact"
-              className="inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-5 font-sans text-sm font-semibold text-primary-foreground transition-colors hover:bg-accent"
+              className="inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-5 font-sans text-sm font-semibold text-primary-foreground transition-colors hover:bg-accent-strong"
             >
               {tDashboard("order_tracking_refund_policy_modal_contact")}
             </Link>

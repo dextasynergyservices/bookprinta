@@ -75,7 +75,7 @@ export function HowItWorks() {
           <span className="absolute left-5 top-3.5 h-[calc(100%-3rem)] w-px bg-primary/10" />
           <motion.span
             style={{ scaleY: lineScaleY }}
-            className="absolute left-5 top-3.5 h-[calc(100%-3rem)] w-px origin-top bg-accent"
+            className="absolute left-5 top-3.5 h-[calc(100%-3rem)] w-px origin-top bg-accent-strong"
           />
         </div>
 
@@ -155,9 +155,9 @@ export function HowItWorks() {
           <Link
             href="/pricing"
             className={cn(
-              "group inline-flex items-center gap-2 rounded-full bg-accent px-8 py-3.5 shadow-[0_12px_28px_rgba(0,126,255,0.28)]",
+              "group inline-flex items-center gap-2 rounded-full bg-accent-strong px-8 py-3.5 shadow-[0_12px_28px_rgba(0,126,255,0.28)]",
               "font-display text-sm font-semibold tracking-wide text-accent-foreground",
-              "transition-all duration-300 hover:bg-accent/90 hover:shadow-[0_16px_34px_rgba(0,126,255,0.35)]",
+              "transition-all duration-300 hover:bg-accent-strong-hover hover:shadow-[0_16px_34px_rgba(0,126,255,0.35)]",
               "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary-foreground"
             )}
           >

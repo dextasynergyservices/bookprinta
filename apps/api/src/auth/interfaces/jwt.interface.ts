@@ -10,6 +10,8 @@ export interface JwtPayload {
   email: string;
   /** User role for RBAC */
   role: UserRole;
+  /** AuthSession id (the signed-in device). Absent on pre-session legacy tokens. */
+  sid?: string;
 }
 
 /**
@@ -17,7 +19,11 @@ export interface JwtPayload {
  */
 export interface TokenPair {
   accessToken: string;
-  refreshToken: string;
+  /**
+   * New refresh token, or null when only the access token was reissued (the
+   * multi-tab rotation grace path — the cookie jar already holds the newer one).
+   */
+  refreshToken: string | null;
 }
 
 /**
@@ -25,3 +31,5 @@ export interface TokenPair {
  */
 export const ACCESS_TOKEN_COOKIE = "access_token";
 export const REFRESH_TOKEN_COOKIE = "refresh_token";
+/** Non-sensitive "probably signed in" marker readable by the web app (no token). */
+export const SESSION_MARKER_COOKIE = "bp_session";

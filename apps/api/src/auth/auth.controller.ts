@@ -20,7 +20,10 @@ import {
 } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
-import { getNormalizedEmailTracker } from "../rate-limit/tracker.utils.js";
+import {
+  getLoginIdentifierTracker,
+  getNormalizedEmailTracker,
+} from "../rate-limit/tracker.utils.js";
 import { AuthService } from "./auth.service.js";
 import { CurrentUser } from "./decorators/index.js";
 import {
@@ -36,7 +39,12 @@ import {
 } from "./dto/index.js";
 import { JwtAuthGuard, JwtRefreshGuard } from "./guards/index.js";
 import type { JwtPayload } from "./interfaces/index.js";
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "./interfaces/index.js";
+import {
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  SESSION_MARKER_COOKIE,
+} from "./interfaces/index.js";
+import type { RefreshValidationContext } from "./strategies/jwt-refresh.strategy.js";
 
 const RESEND_SIGNUP_LINK_THROTTLE = {
   short: { limit: 3, ttl: 3_600_000, getTracker: getNormalizedEmailTracker },
@@ -46,6 +54,16 @@ const RESEND_SIGNUP_LINK_THROTTLE = {
 const AUTH_WRITE_THROTTLE = {
   short: { limit: 10, ttl: 60_000 },
   long: { limit: 10, ttl: 60_000 },
+};
+
+/**
+ * Login is limited two ways: per client (10/min, stops one source hammering)
+ * and per target email (20/hour, stops a distributed or IP-spoofing attacker
+ * guessing one account's password from many addresses).
+ */
+const LOGIN_THROTTLE = {
+  short: { limit: 10, ttl: 60_000 },
+  long: { limit: 20, ttl: 3_600_000, getTracker: getLoginIdentifierTracker },
 };
 
 type AuthRequest = Request & {
@@ -197,7 +215,7 @@ export class AuthController {
   // POST /auth/login
   // ==========================================
   @Post("login")
-  @Throttle(AUTH_WRITE_THROTTLE)
+  @Throttle(LOGIN_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Login with email/phone & password",
@@ -233,6 +251,8 @@ export class AuthController {
   ) {
     const result = await this.authService.login(dto, {
       correlationId: this.resolveCorrelationId(req),
+      userAgent: typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : null,
+      ipAddress: req.ip ?? null,
       clientRecaptchaDurationMs: this.parseDurationHeader(
         req.headers["x-client-recaptcha-duration-ms"]
       ),
@@ -262,13 +282,15 @@ export class AuthController {
   })
   @ApiResponse({ status: 200, description: "Logged out successfully" })
   @ApiResponse({ status: 401, description: "Not authenticated" })
-  async logout(@CurrentUser("sub") userId: string, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.logout(userId);
+  async logout(@CurrentUser() user: JwtPayload, @Res({ passthrough: true }) res: Response) {
+    // Signs out THIS device only; other devices keep their sessions.
+    const result = await this.authService.logout(user.sub, user.sid);
 
     // Clear both cookies
     const clearedOpts = this.authService.getClearedCookieOptions();
     res.cookie(ACCESS_TOKEN_COOKIE, "", clearedOpts);
     res.cookie(REFRESH_TOKEN_COOKIE, "", { ...clearedOpts, path: "/api/v1/auth" });
+    res.cookie(SESSION_MARKER_COOKIE, "", { ...clearedOpts, httpOnly: false });
 
     return result;
   }
@@ -291,7 +313,13 @@ export class AuthController {
   @ApiResponse({ status: 200, description: "New token pair set in cookies" })
   @ApiResponse({ status: 401, description: "Invalid or expired refresh token" })
   async refresh(@CurrentUser() user: JwtPayload, @Res({ passthrough: true }) res: Response) {
-    const tokens = await this.authService.refresh(user.sub, user.email, user.role);
+    // JwtRefreshStrategy annotates the payload with how the token matched.
+    const validated = user as JwtPayload & RefreshValidationContext;
+    const tokens = await this.authService.refresh(user.sub, user.email, user.role, {
+      sid: user.sid,
+      grace: validated.refreshGrace === true,
+      validatedDigest: validated.refreshDigest,
+    });
 
     // Set new tokens in HttpOnly cookies
     this.setTokenCookies(res, tokens.accessToken, tokens.refreshToken, user.role);
@@ -398,15 +426,18 @@ export class AuthController {
   private setTokenCookies(
     res: Response,
     accessToken: string,
-    refreshToken: string,
+    refreshToken: string | null,
     role: string
   ): void {
     res.cookie(ACCESS_TOKEN_COOKIE, accessToken, this.authService.getAccessTokenCookieOptions());
-    res.cookie(
-      REFRESH_TOKEN_COOKIE,
-      refreshToken,
-      this.authService.getRefreshTokenCookieOptions(role)
-    );
+    if (refreshToken) {
+      res.cookie(
+        REFRESH_TOKEN_COOKIE,
+        refreshToken,
+        this.authService.getRefreshTokenCookieOptions(role)
+      );
+      res.cookie(SESSION_MARKER_COOKIE, "1", this.authService.getSessionMarkerCookieOptions(role));
+    }
   }
 
   private resolveCorrelationId(req: AuthRequest): string | null {

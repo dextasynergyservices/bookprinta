@@ -896,7 +896,7 @@ export function AdminReviewsView() {
             </Button>
             <Button
               type="button"
-              className="rounded-full bg-[#007eff] text-white hover:bg-[#0f6ecf]"
+              className="rounded-full bg-accent-strong text-white hover:bg-[#0f6ecf]"
               onClick={() => {
                 void handleSaveComment();
               }}

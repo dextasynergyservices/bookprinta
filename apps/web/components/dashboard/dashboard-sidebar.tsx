@@ -193,7 +193,7 @@ export function DashboardSidebar({
                       ? "cursor-not-allowed border-l-transparent bg-[#2A2A2A] text-[#919191] hover:bg-[#2A2A2A] hover:text-[#919191]"
                       : isAccent
                         ? isActive
-                          ? "border-l-[#007eff] bg-[#007eff]/10 text-[#007eff]"
+                          ? "border-l-[#007eff] bg-[#007eff]/10 text-[#4da3ff]"
                           : "border-l-transparent text-[#007eff] hover:bg-[#007eff]/5 hover:text-[#007eff]"
                         : isActive
                           ? "border-l-[#007eff] bg-[#1a1a1a] text-white"
