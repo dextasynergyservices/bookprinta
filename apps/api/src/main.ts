@@ -1,5 +1,6 @@
 import "./instrument.js";
 import { HttpAdapterHost, NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import cookieParser from "cookie-parser";
 import type { NextFunction, Request, Response } from "express";
@@ -10,9 +11,17 @@ import { AppModule } from "./app.module.js";
 import { assertJwtSecretConfigured } from "./auth/jwt-secret.util.js";
 import { installRedisCommandMeter } from "./health/redis-command-meter.js";
 import { RuntimeTelemetryService } from "./health/runtime-telemetry.service.js";
+import { resolveTrustProxySetting } from "./rate-limit/tracker.utils.js";
 import { SentryExceptionFilter } from "./sentry/sentry-exception.filter.js";
 
 const bootstrapStartedAt = Date.now();
+
+function isSwaggerEnabled(): boolean {
+  const flag = process.env.SWAGGER_ENABLED?.trim().toLowerCase();
+  if (flag === "true") return true;
+  if (flag === "false") return false;
+  return process.env.NODE_ENV !== "production";
+}
 
 async function bootstrap() {
   // Fail fast on an untrustworthy signing secret, BEFORE anything else starts.
@@ -35,7 +44,14 @@ async function bootstrap() {
   // Buffer early logs so nothing is lost before Pino is initialised
   // rawBody: true — preserves the raw request body for Stripe webhook signature verification.
   // NestJS stores it on req.rawBody; only routes using @RawBodyRequest<Request> access it.
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+  });
+
+  // Resolve req.ip through our proxy chain (Vercel → Render) so rate limits and
+  // audit logs see the real client instead of Render's shared proxy address.
+  app.set("trust proxy", resolveTrustProxySetting());
 
   // Swap NestJS's default ConsoleLogger for Pino (structured logging)
   const logger = app.get(Logger);
@@ -109,57 +125,62 @@ async function bootstrap() {
   // Global Zod validation pipe (validates all incoming DTOs)
   app.useGlobalPipes(new ZodValidationPipe());
 
-  // Swagger / OpenAPI documentation
-  const config = new DocumentBuilder()
-    .setTitle("BookPrinta API")
-    .setDescription("API documentation for the BookPrinta publishing platform")
-    .setVersion("1.0")
-    .addBearerAuth(
-      {
-        type: "http",
-        scheme: "bearer",
-        bearerFormat: "JWT",
-        description: "Enter your JWT access token",
+  // Swagger / OpenAPI documentation — dev and staging only (CLAUDE.md §9).
+  // In production it publishes a full map of the API and costs boot time and
+  // memory on a 512 MB instance. Set SWAGGER_ENABLED=true to force it on.
+  const swaggerEnabled = isSwaggerEnabled();
+  if (swaggerEnabled) {
+    const config = new DocumentBuilder()
+      .setTitle("BookPrinta API")
+      .setDescription("API documentation for the BookPrinta publishing platform")
+      .setVersion("1.0")
+      .addBearerAuth(
+        {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+          description: "Enter your JWT access token",
+        },
+        "access-token"
+      )
+      .addCookieAuth("access_token", {
+        type: "apiKey",
+        in: "cookie",
+        name: "access_token",
+        description: "JWT stored in HttpOnly cookie",
+      })
+      .addTag("Auth", "Authentication & authorization")
+      .addTag("Contact", "Public contact form submissions")
+      .addTag("Users", "User management")
+      .addTag("Orders", "Order lifecycle")
+      .addTag("Books", "Book management & processing")
+      .addTag("Payments", "Payment processing & webhooks")
+      .addTag("Packages", "Pricing tier management")
+      .addTag("Quotes", "Custom quote requests")
+      .addTag("Files", "File upload & management")
+      .addTag("Engine", "AI formatting & PDF generation")
+      .addTag("Notifications", "Notification management")
+      .addTag("Coupons", "Discount code management")
+      .addTag("Reviews", "Book review system")
+      .addTag("Showcase", "Author showcase & categories")
+      .addTag("Resources", "Blog & resource articles")
+      .addTag("Marketing", "Public marketing pages and aggregate counters")
+      .addTag("Admin", "Admin panel operations")
+      .addTag("Health", "Service health checks")
+      .build();
+
+    // Create document then clean up Zod-generated schemas (nestjs-zod v5)
+    const document = cleanupOpenApiDoc(SwaggerModule.createDocument(app, config));
+
+    SwaggerModule.setup("api/docs", app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        tagsSorter: "alpha",
+        operationsSorter: "alpha",
       },
-      "access-token"
-    )
-    .addCookieAuth("access_token", {
-      type: "apiKey",
-      in: "cookie",
-      name: "access_token",
-      description: "JWT stored in HttpOnly cookie",
-    })
-    .addTag("Auth", "Authentication & authorization")
-    .addTag("Contact", "Public contact form submissions")
-    .addTag("Users", "User management")
-    .addTag("Orders", "Order lifecycle")
-    .addTag("Books", "Book management & processing")
-    .addTag("Payments", "Payment processing & webhooks")
-    .addTag("Packages", "Pricing tier management")
-    .addTag("Quotes", "Custom quote requests")
-    .addTag("Files", "File upload & management")
-    .addTag("Engine", "AI formatting & PDF generation")
-    .addTag("Notifications", "Notification management")
-    .addTag("Coupons", "Discount code management")
-    .addTag("Reviews", "Book review system")
-    .addTag("Showcase", "Author showcase & categories")
-    .addTag("Resources", "Blog & resource articles")
-    .addTag("Marketing", "Public marketing pages and aggregate counters")
-    .addTag("Admin", "Admin panel operations")
-    .addTag("Health", "Service health checks")
-    .build();
-
-  // Create document then clean up Zod-generated schemas (nestjs-zod v5)
-  const document = cleanupOpenApiDoc(SwaggerModule.createDocument(app, config));
-
-  SwaggerModule.setup("api/docs", app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      tagsSorter: "alpha",
-      operationsSorter: "alpha",
-    },
-    customSiteTitle: "BookPrinta API Docs",
-  });
+      customSiteTitle: "BookPrinta API Docs",
+    });
+  }
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
@@ -167,6 +188,8 @@ async function bootstrap() {
   const startupDurationMs = runtimeSnapshot.startupDurationMs ?? 0;
   logger.log(`Application running on port ${port}`, "Bootstrap");
   logger.log(`Startup completed in ${startupDurationMs}ms`, "Bootstrap");
-  logger.log(`Swagger docs available at http://localhost:${port}/api/docs`, "Bootstrap");
+  if (swaggerEnabled) {
+    logger.log(`Swagger docs available at http://localhost:${port}/api/docs`, "Bootstrap");
+  }
 }
 bootstrap();

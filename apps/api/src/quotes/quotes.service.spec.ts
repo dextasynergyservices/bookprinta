@@ -301,7 +301,20 @@ describe("QuotesService", () => {
       });
     });
 
-    it("skips reCAPTCHA verification when token is missing (optional) even in production", async () => {
+    it("rejects a public submission with no reCAPTCHA token in production", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.RECAPTCHA_SECRET_KEY = "test-secret";
+      global.fetch = jest.fn() as unknown as typeof fetch;
+
+      await expect(
+        service.create(makeCreateQuoteInput({ recaptchaToken: undefined }), { ip: "127.0.0.1" })
+      ).rejects.toThrow(BadRequestException);
+
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(mockPrismaService.customQuote.create).not.toHaveBeenCalled();
+    });
+
+    it("does not require a token for dashboard submissions (skipRecaptcha)", async () => {
       process.env.NODE_ENV = "production";
       process.env.RECAPTCHA_SECRET_KEY = "test-secret";
       global.fetch = jest.fn() as unknown as typeof fetch;
@@ -310,12 +323,10 @@ describe("QuotesService", () => {
         status: "PENDING",
       });
 
-      await service.create(
-        makeCreateQuoteInput({
-          recaptchaToken: undefined,
-        }),
-        { ip: "127.0.0.1" }
-      );
+      await service.create(makeCreateQuoteInput({ recaptchaToken: undefined }), {
+        ip: "127.0.0.1",
+        skipRecaptcha: true,
+      });
 
       expect(global.fetch).not.toHaveBeenCalled();
       expect(mockPrismaService.customQuote.create).toHaveBeenCalledTimes(1);

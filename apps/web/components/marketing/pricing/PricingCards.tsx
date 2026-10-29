@@ -81,7 +81,7 @@ function CategoryTabs({
                   {isActive && (
                     <motion.div
                       layoutId="category-tab-pill-mobile"
-                      className="absolute inset-0 rounded-lg bg-accent shadow-sm"
+                      className="absolute inset-0 rounded-lg bg-accent-strong shadow-sm"
                       transition={{ type: "spring", stiffness: 400, damping: 30 }}
                     />
                   )}
@@ -90,7 +90,7 @@ function CategoryTabs({
                     <span
                       className={cn(
                         "font-sans text-[10px] font-medium tabular-nums",
-                        isActive ? "text-accent-foreground/70" : "text-primary-foreground/35"
+                        isActive ? "text-accent-foreground/90" : "text-primary-foreground/50"
                       )}
                     >
                       {cat.copies}
@@ -130,7 +130,7 @@ function CategoryTabs({
                 {isActive && (
                   <motion.div
                     layoutId="category-tab-pill"
-                    className="absolute inset-0 rounded-lg bg-accent shadow-sm"
+                    className="absolute inset-0 rounded-lg bg-accent-strong shadow-sm"
                     transition={{ type: "spring", stiffness: 400, damping: 30 }}
                   />
                 )}
@@ -139,7 +139,7 @@ function CategoryTabs({
                   <span
                     className={cn(
                       "font-sans text-xs font-medium tabular-nums",
-                      isActive ? "text-accent-foreground/60" : "text-primary-foreground/30"
+                      isActive ? "text-accent-foreground" : "text-primary-foreground/50"
                     )}
                   >
                     {cat.copies}
@@ -160,7 +160,7 @@ function CategoryTabs({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.2 }}
-            className="mx-auto mt-3 max-w-md px-5 text-center font-serif text-xs text-primary-foreground/40 md:mt-4 md:text-sm"
+            className="mx-auto mt-3 max-w-md px-5 text-center font-serif text-xs text-primary-foreground/50 md:mt-4 md:text-sm"
           >
             <span className="font-semibold text-accent">
               {t("copies_count", { count: activeCategory.copies })}
@@ -190,7 +190,7 @@ function CopyCountGrid({ copies }: { copies: { A4: number; A5: number; A6: numbe
 
   return (
     <div className="mt-5 mb-6">
-      <p className="mb-2.5 font-sans text-[10px] font-semibold tracking-widest text-primary-foreground/30 uppercase">
+      <p className="mb-2.5 font-sans text-[10px] font-semibold tracking-widest text-primary-foreground/50 uppercase">
         {t("copies_per_size")}
       </p>
       <div className="grid grid-cols-3 gap-1.5">
@@ -202,7 +202,7 @@ function CopyCountGrid({ copies }: { copies: { A4: number; A5: number; A6: numbe
             <span className="font-display text-lg font-bold text-primary-foreground">
               {size.count}
             </span>
-            <span className="font-sans text-[10px] font-medium text-primary-foreground/40 uppercase">
+            <span className="font-sans text-[10px] font-medium text-primary-foreground/50 uppercase">
               {size.label}
             </span>
           </div>
@@ -244,7 +244,7 @@ function PackageCard({
           transition={{ duration: 0.4, delay: 0.3 + index * 0.1 }}
           className="absolute top-0 left-1/2 z-20 -translate-x-1/2"
         >
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-4 py-1.5 font-display text-[11px] font-bold tracking-wider text-accent-foreground uppercase shadow-[0_4px_16px_rgba(0,126,255,0.3)]">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-strong px-4 py-1.5 font-display text-[11px] font-bold tracking-wider text-accent-foreground uppercase shadow-[0_4px_16px_rgba(0,126,255,0.3)]">
             <Sparkles className="size-3" aria-hidden="true" />
             {t("most_popular")}
           </span>
@@ -278,7 +278,7 @@ function PackageCard({
 
         {/* Price */}
         <div className="relative mt-5">
-          <p className="font-sans text-[10px] font-semibold tracking-widest text-primary-foreground/30 uppercase">
+          <p className="font-sans text-[10px] font-semibold tracking-widest text-primary-foreground/50 uppercase">
             {t("starting_from")}
           </p>
           <div className="mt-1.5 flex items-baseline gap-1">
@@ -290,7 +290,7 @@ function PackageCard({
 
         {/* Description */}
         {pkg.description && (
-          <p className="relative mt-3 font-serif text-sm leading-relaxed text-primary-foreground/45">
+          <p className="relative mt-3 font-serif text-sm leading-relaxed text-primary-foreground/50">
             {pkg.description}
           </p>
         )}
@@ -314,7 +314,7 @@ function PackageCard({
 
         {/* Feature list */}
         <div className="relative mb-8 flex-grow">
-          <p className="mb-3 font-sans text-[10px] font-semibold tracking-widest text-primary-foreground/30 uppercase">
+          <p className="mb-3 font-sans text-[10px] font-semibold tracking-widest text-primary-foreground/50 uppercase">
             {t("whats_included")}
           </p>
           <ul className="flex flex-col gap-3">
@@ -345,7 +345,7 @@ function PackageCard({
           className={cn(
             "relative mt-auto flex h-12 w-full items-center justify-center rounded-full px-6 text-center font-display text-sm font-semibold tracking-wide transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-primary",
             isPopular
-              ? "bg-accent text-accent-foreground shadow-[0_4px_16px_rgba(0,126,255,0.2)] hover:shadow-[0_8px_24px_rgba(0,126,255,0.3)] hover:brightness-110 focus:ring-accent"
+              ? "bg-accent-strong text-accent-foreground shadow-[0_4px_16px_rgba(0,126,255,0.2)] hover:shadow-[0_8px_24px_rgba(0,126,255,0.3)] hover:brightness-110 focus:ring-accent"
               : "border border-accent/40 bg-transparent text-accent hover:border-accent/60 hover:bg-accent/[0.06] focus:ring-accent/50"
           )}
         >
@@ -393,7 +393,7 @@ function CustomQuoteCard({ index, quoteHref = "/quote" }: { index: number; quote
         </h3>
 
         {/* Description */}
-        <p className="relative mt-3 max-w-[18rem] font-serif text-sm leading-relaxed text-primary-foreground/45">
+        <p className="relative mt-3 max-w-[18rem] font-serif text-sm leading-relaxed text-primary-foreground/50">
           {t("quote_card_description")}
         </p>
 
@@ -629,7 +629,7 @@ export function PricingCards({
         <button
           onClick={() => refetch()}
           type="button"
-          className="rounded-full bg-accent px-8 py-3 font-display text-sm font-semibold tracking-wide text-accent-foreground transition-all hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary"
+          className="rounded-full bg-accent-strong px-8 py-3 font-display text-sm font-semibold tracking-wide text-accent-foreground transition-all hover:bg-accent-strong-hover focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-primary"
         >
           {t("retry")}
         </button>

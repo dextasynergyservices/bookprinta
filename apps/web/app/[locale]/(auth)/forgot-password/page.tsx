@@ -288,8 +288,8 @@ function ForgotPasswordPageInner() {
                   className={cn(
                     "mt-7 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border px-5 font-sans text-sm font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]",
                     resendDisabled
-                      ? "cursor-not-allowed border-[#2A2A2A] text-white/45"
-                      : "border-[#007eff] text-[#007eff] hover:bg-[#007eff]/10"
+                      ? "cursor-not-allowed border-[#2A2A2A] text-white/50"
+                      : "border-[#007eff] text-[#4da3ff] hover:bg-[#007eff]/10"
                   )}
                 >
                   {resendText}
@@ -372,7 +372,7 @@ function ForgotPasswordPageInner() {
                     whileHover={!isSubmitting ? { scale: 1.015 } : undefined}
                     whileTap={!isSubmitting ? { scale: 0.985 } : undefined}
                     className={cn(
-                      "inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-bold text-white transition-[opacity,filter] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+                      "inline-flex min-h-12 w-full items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-bold text-white transition-[opacity,filter] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                       isSubmitting ? "cursor-not-allowed opacity-60" : "hover:brightness-110"
                     )}
                   >

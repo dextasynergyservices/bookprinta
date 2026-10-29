@@ -20,6 +20,10 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { ZodError } from "zod";
+import {
+  DEFAULT_EXTRA_PAGE_PRICE_NGN,
+  invalidateExtraPagePriceCache,
+} from "../common/extra-page-pricing.js";
 import { Prisma } from "../generated/prisma/client.js";
 import type { PaymentProvider } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -120,6 +124,12 @@ const SETTING_DEFINITIONS: Record<AdminSystemSettingKey, SettingDefinition> = {
     description: "Minimum copies required for reprint same flow",
     defaultValue: 25,
     requiresSuperAdmin: true,
+  },
+  extra_page_price: {
+    category: "quote_pricing",
+    valueType: "decimal",
+    description: "Billing gate price per page above the package page limit, in NGN",
+    defaultValue: DEFAULT_EXTRA_PAGE_PRICE_NGN,
   },
   comms_sender_name: {
     category: "notification_comms",
@@ -658,6 +668,7 @@ export class AdminSystemSettingsService {
     });
 
     this.settingsCache.invalidate();
+    invalidateExtraPagePriceCache();
 
     return {
       key,

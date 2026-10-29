@@ -94,7 +94,7 @@ export function ShowcaseCard({ entry, onContactAuthor, index }: ShowcaseCardProp
 
           {/* Year — always visible */}
           {entry.publishedYear && (
-            <span className="mt-0.5 font-sans text-[0.625rem] font-medium uppercase tracking-widest text-white/40 md:mt-1 md:text-xs">
+            <span className="mt-0.5 font-sans text-[0.625rem] font-medium uppercase tracking-widest text-white/50 md:mt-1 md:text-xs">
               {entry.publishedYear}
             </span>
           )}

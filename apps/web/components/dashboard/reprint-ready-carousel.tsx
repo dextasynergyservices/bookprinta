@@ -249,7 +249,7 @@ export function ReprintReadyCarousel({ orders, onReprintClick }: ReprintReadyCar
                 }}
                 className={cn(
                   "size-2 rounded-full transition-all duration-300",
-                  i === safeIndex ? "w-5 bg-[#007eff]" : "bg-white/20 hover:bg-white/40"
+                  i === safeIndex ? "w-5 bg-accent-strong" : "bg-white/20 hover:bg-white/40"
                 )}
               />
             ))}

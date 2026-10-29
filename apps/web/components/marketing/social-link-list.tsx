@@ -210,7 +210,8 @@ export function MarketingSocialLinkList({
               aria-label={social.label}
               data-social-platform={platform}
               className={cn(
-                "flex size-10 items-center justify-center rounded-full transition-colors",
+                // 44px touch target (CLAUDE.md mobile rules).
+                "flex size-11 items-center justify-center rounded-full transition-colors",
                 linkClassName
               )}
             >

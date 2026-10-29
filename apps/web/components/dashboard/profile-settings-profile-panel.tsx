@@ -625,7 +625,7 @@ export function ProfileSettingsProfilePanel() {
                 </div>
                 <div className="h-2 rounded-full bg-[#1D1D1D]">
                   <div
-                    className="h-full rounded-full bg-[#007eff] transition-[width] duration-200"
+                    className="h-full rounded-full bg-accent-strong transition-[width] duration-200"
                     style={{ width: `${imageUploadProgress}%` }}
                   />
                 </div>
@@ -649,7 +649,7 @@ export function ProfileSettingsProfilePanel() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isBusy}
-              className="font-sans min-h-11 flex-1 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
+              className="font-sans min-h-11 flex-1 rounded-full bg-accent-strong px-5 text-sm font-semibold text-white hover:bg-accent-strong-hover"
             >
               <UploadCloud className="size-4" aria-hidden="true" />
               {currentImageUrl
@@ -758,7 +758,7 @@ export function ProfileSettingsProfilePanel() {
               type="button"
               onClick={addPurchaseLink}
               disabled={draft.purchaseLinks.length >= PROFILE_LINK_LIMIT || isBusy}
-              className="font-sans min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
+              className="font-sans min-h-11 rounded-full bg-accent-strong px-5 text-sm font-semibold text-white hover:bg-accent-strong-hover"
             >
               <Plus className="size-4" aria-hidden="true" />
               {tDashboard("profile_add_purchase_link")}
@@ -830,7 +830,7 @@ export function ProfileSettingsProfilePanel() {
               type="button"
               onClick={addSocialLink}
               disabled={draft.socialLinks.length >= PROFILE_LINK_LIMIT || isBusy}
-              className="font-sans min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
+              className="font-sans min-h-11 rounded-full bg-accent-strong px-5 text-sm font-semibold text-white hover:bg-accent-strong-hover"
             >
               <Plus className="size-4" aria-hidden="true" />
               {tDashboard("profile_add_social_link")}
@@ -917,7 +917,7 @@ export function ProfileSettingsProfilePanel() {
         <Button
           type="submit"
           disabled={isBusy || !isDirty}
-          className="font-sans min-h-12 w-full rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0a72df]"
+          className="font-sans min-h-12 w-full rounded-full bg-accent-strong px-6 text-sm font-semibold text-white hover:bg-accent-strong-hover"
         >
           {isSaving ? (
             <>

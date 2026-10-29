@@ -35,6 +35,7 @@ export const AdminSystemSettingKeySchema = z.enum([
   "reprint_cost_per_page",
   "reprint_cover_cost",
   "reprint_minimum_copies",
+  "extra_page_price",
   "comms_sender_name",
   "comms_sender_email",
   "comms_whatsapp_template_toggles",
@@ -217,6 +218,11 @@ const keyValidationMap: Record<
     category: "quote_pricing",
     schema: z.number().int().min(25).max(10_000),
     requiresSuperAdmin: true,
+  },
+  extra_page_price: {
+    valueType: "decimal",
+    category: "quote_pricing",
+    schema: DecimalMoneySchema,
   },
   comms_sender_name: {
     valueType: "string",

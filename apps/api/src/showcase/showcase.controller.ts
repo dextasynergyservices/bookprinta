@@ -16,7 +16,7 @@ export class ShowcaseController {
   constructor(private readonly publicShowcaseService: PublicShowcaseService) {}
 
   @Get()
-  @Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300")
+  @Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300, s-maxage=120")
   @ApiOperation({
     summary: "List public showcase entries",
     description:
@@ -49,7 +49,7 @@ export class ShowcaseController {
   }
 
   @Get("categories")
-  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=300")
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=300, s-maxage=300")
   @ApiOperation({
     summary: "List active showcase categories",
     description: "Returns active showcase categories sorted by display order for filter UIs.",

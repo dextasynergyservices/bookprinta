@@ -26,7 +26,6 @@ import type {
   UpdateMyProfileResponse,
 } from "@bookprinta/shared";
 import {
-  BCRYPT_SALT_ROUNDS,
   PurchaseLinkSchema,
   SocialLinkSchema,
   UserProfileBioSchema,
@@ -42,7 +41,8 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
-import * as bcrypt from "bcrypt";
+import { revokeAllSessions } from "../auth/auth-session.store.js";
+import { hashPassword, verifyPassword } from "../auth/password-hasher.js";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -346,7 +346,7 @@ export class UsersService {
       throw new BadRequestException("Password login is not available for this account");
     }
 
-    const isCurrentPasswordValid = await bcrypt.compare(input.currentPassword, user.password);
+    const isCurrentPasswordValid = await verifyPassword(input.currentPassword, user.password);
     if (!isCurrentPasswordValid) {
       throw new UnauthorizedException("Current password is incorrect");
     }
@@ -355,7 +355,7 @@ export class UsersService {
       throw new BadRequestException("New password must be different from the current password");
     }
 
-    const hashedPassword = await bcrypt.hash(input.newPassword, BCRYPT_SALT_ROUNDS);
+    const hashedPassword = await hashPassword(input.newPassword);
 
     await this.prisma.user.update({
       where: { id: userId },
@@ -365,6 +365,8 @@ export class UsersService {
         refreshTokenExp: null,
       },
     });
+    // A password change signs the user out on every device.
+    await revokeAllSessions(this.prisma, userId);
 
     return { success: true };
   }
@@ -480,7 +482,7 @@ export class UsersService {
       throw new ConflictException("A user with this email address already exists.");
     }
 
-    const hashedPassword = await bcrypt.hash(input.password, BCRYPT_SALT_ROUNDS);
+    const hashedPassword = await hashPassword(input.password);
     const firstName = input.firstName.trim();
     const lastName = input.lastName?.trim() || null;
 
@@ -595,6 +597,10 @@ export class UsersService {
         select: ADMIN_USER_STATE_SELECT,
       });
 
+      if (previousState.isActive && nextState.isActive === false) {
+        await revokeAllSessions(tx, userId);
+      }
+
       const auditLog = await tx.auditLog.create({
         data: {
           userId: adminId,
@@ -692,6 +698,7 @@ export class UsersService {
           deletedAt,
         },
       });
+      await revokeAllSessions(tx, userId);
 
       const auditLog = await tx.auditLog.create({
         data: {

@@ -389,7 +389,7 @@ export function AddressFormPanel({
                           <Button
                             type="submit"
                             disabled={isPending}
-                            className="font-sans min-h-11 w-full rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df] sm:w-auto"
+                            className="font-sans min-h-11 w-full rounded-full bg-accent-strong px-5 text-sm font-semibold text-white hover:bg-accent-strong-hover sm:w-auto"
                           >
                             {isPending ? (
                               <>

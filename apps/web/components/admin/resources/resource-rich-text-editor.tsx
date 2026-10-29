@@ -965,7 +965,7 @@ function ResourceRichTextEditorInner({
           <button
             type="button"
             aria-label={labels.imageWidth}
-            className="absolute z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 cursor-se-resize rounded-sm border border-[#007eff] bg-[#007eff] shadow-[0_0_0_2px_rgba(9,9,9,0.85)]"
+            className="absolute z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 cursor-se-resize rounded-sm border border-[#007eff] bg-accent-strong shadow-[0_0_0_2px_rgba(9,9,9,0.85)]"
             style={{
               left: `${resizeHandlePosition.left}px`,
               top: `${resizeHandlePosition.top}px`,

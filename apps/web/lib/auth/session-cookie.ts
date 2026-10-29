@@ -22,6 +22,18 @@ const SESSION_MARKER_VALUE = "1";
 const SESSION_MARKER_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
 /**
+ * True when the marker is present. The API also sets it (non-HttpOnly) on every
+ * token issue, so it covers login, signup verification and refresh alike.
+ * Returns true outside the browser so server code never short-circuits.
+ */
+export function hasSessionMarkerCookie(): boolean {
+  if (typeof document === "undefined") return true;
+  return document.cookie
+    .split(";")
+    .some((part) => part.trim().startsWith(`${SESSION_MARKER_COOKIE}=${SESSION_MARKER_VALUE}`));
+}
+
+/**
  * Set the session marker cookie after successful login.
  * Must be called from client-side code (document.cookie).
  */

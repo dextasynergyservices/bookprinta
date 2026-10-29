@@ -53,6 +53,7 @@ import {
 import * as Sentry from "@sentry/node";
 import { Resend } from "resend";
 import { normalizePhoneNumber } from "../auth/phone-number.util.js";
+import { verifyRecaptchaToken } from "../common/recaptcha.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { PaymentProvider, PaymentStatus, PaymentType } from "../generated/prisma/enums.js";
 import { WhatsappService } from "../notifications/whatsapp.service.js";
@@ -2195,42 +2196,8 @@ export class QuotesService {
     return null;
   }
 
-  /**
-   * Optional reCAPTCHA check for the public quote form.
-   * - No secret key: skip verification
-   * - Non-production: skip verification
-   * - No token provided: skip verification (optional)
-   */
-  private async verifyRecaptcha(token?: string): Promise<boolean> {
-    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-    if (!secretKey) {
-      this.logger.warn("RECAPTCHA_SECRET_KEY not set — skipping verification");
-      return true;
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      this.logger.warn("Development mode — skipping reCAPTCHA verification");
-      return true;
-    }
-
-    const normalizedToken = token?.trim();
-    if (!normalizedToken) {
-      return true;
-    }
-
-    try {
-      const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ secret: secretKey, response: normalizedToken }),
-        signal: AbortSignal.timeout(5000),
-      });
-
-      const data = (await response.json()) as { success?: boolean; score?: number };
-      return data.success === true && (data.score === undefined || data.score >= 0.5);
-    } catch (error) {
-      this.logger.error("reCAPTCHA verification failed", error);
-      return false;
-    }
+  /** reCAPTCHA check — fails closed in production (see common/recaptcha.ts). */
+  private verifyRecaptcha(token?: string): Promise<boolean> {
+    return verifyRecaptchaToken(token, this.logger);
   }
 }

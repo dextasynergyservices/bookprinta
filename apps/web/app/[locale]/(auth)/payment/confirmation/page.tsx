@@ -423,7 +423,7 @@ function PaymentConfirmedContent() {
           >
             <a
               href={signupUrl}
-              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#007eff] px-6 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black md:w-auto"
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-accent-strong px-6 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black md:w-auto"
             >
               <UserPlus className="size-4" aria-hidden="true" />
               {t("payment_confirmed_complete_signup")}
@@ -456,7 +456,7 @@ function PaymentConfirmedContent() {
           </Link>
           <Link
             href="/"
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
             {t("payment_confirmation_home_cta")}
           </Link>

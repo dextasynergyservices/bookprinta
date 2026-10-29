@@ -1,4 +1,4 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, Header } from "@nestjs/common";
 import { ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { SkipThrottle } from "@nestjs/throttler";
 import { PackageCategoryResponseDto } from "./dto/package-category-response.dto.js";
@@ -19,6 +19,7 @@ export class PackageCategoriesController {
    * List all active categories with nested active packages for pricing UI.
    */
   @Get()
+  @Header("Cache-Control", "public, max-age=300, s-maxage=300, stale-while-revalidate=600")
   @ApiOperation({
     summary: "List active package categories with nested packages",
     description:

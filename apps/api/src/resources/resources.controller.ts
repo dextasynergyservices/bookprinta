@@ -20,7 +20,7 @@ export class ResourcesController {
    * List active resource categories and published article counts.
    */
   @Get("categories")
-  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=300")
+  @Header("Cache-Control", "public, max-age=300, stale-while-revalidate=300, s-maxage=300")
   @ApiOperation({
     summary: "List active resource categories",
     description:
@@ -41,7 +41,7 @@ export class ResourcesController {
    * List published resources with cursor-based pagination.
    */
   @Get()
-  @Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300")
+  @Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300, s-maxage=120")
   @ApiOperation({
     summary: "List published resources",
     description:
@@ -82,7 +82,7 @@ export class ResourcesController {
    * Get single published resource article by slug.
    */
   @Get(":slug")
-  @Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300")
+  @Header("Cache-Control", "public, max-age=120, stale-while-revalidate=300, s-maxage=120")
   @ApiOperation({
     summary: "Get published resource by slug",
     description:

@@ -356,7 +356,7 @@ export function AdminAnalyticsLanding() {
               variant={range === rangeKey ? "default" : "outline"}
               className={
                 range === rangeKey
-                  ? "shrink-0 rounded-full bg-[#007eff] px-4 text-white hover:bg-[#0066d1]"
+                  ? "shrink-0 rounded-full bg-accent-strong px-4 text-white hover:bg-accent-strong-hover"
                   : "shrink-0 rounded-full border-[#2A2A2A] bg-[#0D0D0D] px-4 text-[#E8E8E8] hover:bg-[#171717] hover:text-white"
               }
               onClick={() => setRange(rangeKey)}
@@ -708,6 +708,8 @@ export function AdminAnalyticsLanding() {
                         return (
                           <Cell
                             key={`${entry.label}-${entry.value}`}
+                            // Recharts gives each slice role="img"; it needs a name.
+                            aria-label={`${entry.label}: ${entry.value}`}
                             fill={palette[index % palette.length]}
                           />
                         );

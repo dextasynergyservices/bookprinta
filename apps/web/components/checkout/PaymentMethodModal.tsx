@@ -28,8 +28,9 @@ import {
   submitBankTransfer,
   usePaymentGateways,
 } from "@/hooks/usePayments";
-import { RateLimitError, toRetryAfterMinutes } from "@/lib/api-error";
+import { ApiRequestError, RateLimitError, toRetryAfterMinutes } from "@/lib/api-error";
 import { useRouter } from "@/lib/i18n/navigation";
+import { rememberPendingCheckout } from "@/lib/payments/pending-checkout";
 import { cn } from "@/lib/utils";
 import type { PaymentMetadata } from "@/stores/usePricingStore";
 
@@ -185,6 +186,16 @@ export function PaymentMethodModal({
     [bankGateway?.bankDetails]
   );
 
+  // The server re-prices every checkout; when its figure differs from the
+  // summary the customer saw, say so plainly instead of a generic failure.
+  const describePaymentError = (error: unknown): string | undefined => {
+    if (error instanceof ApiRequestError) {
+      if (error.errorCode === "CHECKOUT_PRICE_MISMATCH") return t("payment_modal_price_changed");
+      if (error.errorCode?.startsWith("CHECKOUT_COUPON_")) return t("payment_modal_coupon_invalid");
+    }
+    return error instanceof Error ? error.message : undefined;
+  };
+
   const initializeMutation = useMutation({
     mutationFn: initializePayment,
     onSuccess: (response) => {
@@ -194,6 +205,13 @@ export function PaymentMethodModal({
         return;
       }
       setIsRedirectingToProvider(true);
+      // If the customer pays and closes the tab before the redirect back, the
+      // next visit finishes the order (components/shared/pending-payment-recovery).
+      rememberPendingCheckout({
+        reference: response.reference,
+        provider: response.provider.toLowerCase(),
+        confirmPath: callbackBasePath || "/payment/confirmation",
+      });
       window.location.assign(response.authorizationUrl);
     },
     onError: (error) => {
@@ -207,7 +225,7 @@ export function PaymentMethodModal({
       }
 
       toast.error(t("payment_modal_online_error"), {
-        description: error instanceof Error ? error.message : undefined,
+        description: describePaymentError(error),
       });
       setIsRedirectingToProvider(false);
     },
@@ -239,7 +257,7 @@ export function PaymentMethodModal({
       }
 
       toast.error(t("payment_modal_bank_error"), {
-        description: error instanceof Error ? error.message : undefined,
+        description: describePaymentError(error),
       });
     },
   });
@@ -530,7 +548,7 @@ export function PaymentMethodModal({
                   </div>
 
                   <div className="mt-4 rounded-2xl border border-[#2A2A2A] bg-[#0a0a0a] px-4 py-3">
-                    <p className="font-sans text-[11px] tracking-[0.08em] text-white/45 uppercase">
+                    <p className="font-sans text-[11px] tracking-[0.08em] text-white/50 uppercase">
                       {t("payment_modal_summary_label", { packageName })}
                     </p>
                     <p className="mt-1 font-sans text-2xl font-semibold text-white">
@@ -578,7 +596,7 @@ export function PaymentMethodModal({
                             isOffline ? "cursor-not-allowed opacity-55" : "hover:border-[#007eff]"
                           )}
                         >
-                          <span className="flex size-9 items-center justify-center rounded-full border border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]">
+                          <span className="flex size-9 items-center justify-center rounded-full border border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]">
                             <CreditCard className="size-4" aria-hidden="true" />
                           </span>
                           <p className="font-sans text-base font-semibold text-white">
@@ -598,7 +616,7 @@ export function PaymentMethodModal({
                             isOffline ? "cursor-not-allowed opacity-55" : "hover:border-[#007eff]"
                           )}
                         >
-                          <span className="flex size-9 items-center justify-center rounded-full border border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]">
+                          <span className="flex size-9 items-center justify-center rounded-full border border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]">
                             <Landmark className="size-4" aria-hidden="true" />
                           </span>
                           <p className="font-sans text-base font-semibold text-white">
@@ -623,8 +641,8 @@ export function PaymentMethodModal({
                         </div>
 
                         <div>
-                          <p className="mb-2 flex items-center gap-2 font-sans text-xs font-semibold tracking-[0.08em] text-white/45 uppercase">
-                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#007eff]/20 font-sans text-[10px] font-bold text-[#007eff]">
+                          <p className="mb-2 flex items-center gap-2 font-sans text-xs font-semibold tracking-[0.08em] text-white/50 uppercase">
+                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#007eff]/20 font-sans text-[10px] font-bold text-[#4da3ff]">
                               1
                             </span>
                             {t("payment_modal_online_step_provider")}
@@ -648,7 +666,7 @@ export function PaymentMethodModal({
                               <button
                                 type="button"
                                 onClick={() => refetch()}
-                                className="mt-3 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                                className="mt-3 inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                               >
                                 {t("payment_modal_retry")}
                               </button>
@@ -692,7 +710,7 @@ export function PaymentMethodModal({
                                       className={cn(
                                         "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-150",
                                         isSelected
-                                          ? "border-[#007eff] bg-[#007eff]"
+                                          ? "border-[#007eff] bg-accent-strong"
                                           : "border-white/25 bg-transparent"
                                       )}
                                     >
@@ -731,8 +749,8 @@ export function PaymentMethodModal({
                         </div>
 
                         <div>
-                          <p className="mb-2 flex items-center gap-2 font-sans text-xs font-semibold tracking-[0.08em] text-white/45 uppercase">
-                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#007eff]/20 font-sans text-[10px] font-bold text-[#007eff]">
+                          <p className="mb-2 flex items-center gap-2 font-sans text-xs font-semibold tracking-[0.08em] text-white/50 uppercase">
+                            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#007eff]/20 font-sans text-[10px] font-bold text-[#4da3ff]">
                               2
                             </span>
                             {t("payment_modal_online_step_details")}
@@ -778,8 +796,8 @@ export function PaymentMethodModal({
                           className={cn(
                             "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full px-5 font-sans text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                             onlineSubmitDisabled
-                              ? "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/45"
-                              : "bg-[#007eff] text-white hover:brightness-110"
+                              ? "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/50"
+                              : "bg-accent-strong text-white hover:brightness-110"
                           )}
                         >
                           {initializeMutation.isPending ? (
@@ -822,7 +840,7 @@ export function PaymentMethodModal({
                         ) : (
                           <>
                             <div className="rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] p-4">
-                              <p className="font-sans text-xs font-semibold tracking-[0.08em] text-white/45 uppercase">
+                              <p className="font-sans text-xs font-semibold tracking-[0.08em] text-white/50 uppercase">
                                 {t("payment_modal_bank_instructions_label")}
                               </p>
                               <p className="mt-2 font-sans text-sm text-white/75">
@@ -831,7 +849,7 @@ export function PaymentMethodModal({
 
                               {bankAccounts.length > 0 ? (
                                 <div className="mt-4 space-y-2">
-                                  <p className="font-sans text-xs font-semibold tracking-[0.08em] text-white/45 uppercase">
+                                  <p className="font-sans text-xs font-semibold tracking-[0.08em] text-white/50 uppercase">
                                     {t("payment_modal_bank_accounts_label")}
                                   </p>
                                   {bankAccounts.map((account) => (
@@ -937,8 +955,8 @@ export function PaymentMethodModal({
                                 className={cn(
                                   "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full px-5 font-sans text-sm font-semibold text-white transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                                   isOffline
-                                    ? "cursor-not-allowed bg-[#121212] text-white/45"
-                                    : "bg-[#007eff] hover:brightness-110"
+                                    ? "cursor-not-allowed bg-[#121212] text-white/50"
+                                    : "bg-accent-strong hover:brightness-110"
                                 )}
                               >
                                 <CheckCircle2 className="mr-2 size-4" aria-hidden="true" />
@@ -994,7 +1012,7 @@ export function PaymentMethodModal({
                                         event.currentTarget.files?.[0] ?? null
                                       )
                                     }
-                                    className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 py-2 font-sans text-sm text-white file:mr-3 file:rounded-md file:border-0 file:bg-[#007eff] file:px-3 file:py-1 file:font-sans file:text-xs file:font-semibold file:text-white hover:border-[#007eff] disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="min-h-11 w-full rounded-xl border border-[#2A2A2A] bg-black px-4 py-2 font-sans text-sm text-white file:mr-3 file:rounded-md file:border-0 file:bg-accent-strong file:px-3 file:py-1 file:font-sans file:text-xs file:font-semibold file:text-white hover:border-[#007eff] disabled:cursor-not-allowed disabled:opacity-60"
                                   />
                                 </label>
 
@@ -1021,8 +1039,8 @@ export function PaymentMethodModal({
                                   className={cn(
                                     "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full px-5 font-sans text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                                     bankSubmitDisabled
-                                      ? "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/45"
-                                      : "bg-[#007eff] text-white hover:brightness-110"
+                                      ? "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/50"
+                                      : "bg-accent-strong text-white hover:brightness-110"
                                   )}
                                 >
                                   {bankTransferMutation.isPending ? (

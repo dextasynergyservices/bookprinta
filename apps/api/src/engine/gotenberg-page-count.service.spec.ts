@@ -102,30 +102,61 @@ describe("GotenbergPageCountService", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  // A rejected credential silently downgrades every subsequent render to an
-  // UNAUTHENTICATED call, and rendering keeps working — so without an explicit
-  // capture this security regression looks exactly like normal operation.
-  it("reports to Sentry when Gotenberg rejects basic auth and we fall back to no auth", async () => {
+  // A rejected credential used to downgrade every render to an UNAUTHENTICATED
+  // call that kept working — hiding an internet-open Gotenberg. It must now
+  // fail closed: no unauthenticated retry, an error, and a Sentry capture.
+  it("fails closed and reports to Sentry when Gotenberg rejects basic auth", async () => {
     process.env.GOTENBERG_URL = "http://gotenberg.local";
     process.env.GOTENBERG_USERNAME = "admin";
     process.env.GOTENBERG_PASSWORD = "secret";
     captureMessage.mockClear();
 
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => "Unauthorized",
+    } as Response) as unknown as typeof fetch;
+
+    await expect(
+      service.countPages({
+        html: "<html><body><p>Hello</p></body></html>",
+        pageSize: "A5",
+        fontSize: 12,
+      })
+    ).rejects.toThrow();
+
+    // One attempt, always with credentials — never an unauthenticated retry.
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const init = (global.fetch as unknown as jest.Mock).mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toMatch(/^Basic /);
+    expect(captureMessage).toHaveBeenCalledTimes(1);
+    expect(captureMessage.mock.calls[0][0]).toContain("rejected the configured basic-auth");
+    expect(captureMessage.mock.calls[0][1]).toMatchObject({ level: "error" });
+  });
+
+  // Reproduced in the 0.1-CPU pressure test: a cold Gotenberg returns 500 while
+  // Chromium is still starting. That must be retried, not treated as bad HTML.
+  it("retries a Chromium-startup 500 and succeeds on the next attempt", async () => {
+    process.env.GOTENBERG_URL = "http://gotenberg.local";
+    delete process.env.GOTENBERG_USERNAME;
+    delete process.env.GOTENBERG_PASSWORD;
     const fakePdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n", "latin1");
-    global.fetch = jest.fn().mockImplementation(async (_url, init) => {
-      const hasAuth = Boolean(
-        (init as RequestInit)?.headers &&
-          ((init as RequestInit).headers as Record<string, string>).Authorization
-      );
-      if (hasAuth) {
-        return { ok: false, status: 401, text: async () => "Unauthorized" } as Response;
-      }
-      return {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () =>
+          "convert to PDF: process first start: start process: run exec allocator: websocket url timeout reached",
+      } as Response)
+      .mockResolvedValueOnce({
         ok: true,
         arrayBuffer: async () =>
           fakePdf.buffer.slice(fakePdf.byteOffset, fakePdf.byteOffset + fakePdf.byteLength),
-      } as Response;
-    }) as unknown as typeof fetch;
+      } as Response) as unknown as typeof fetch;
+    jest
+      .spyOn(service as unknown as { delay: (ms: number) => Promise<void> }, "delay")
+      .mockResolvedValue(undefined);
 
     const result = await service.countPages({
       html: "<html><body><p>Hello</p></body></html>",
@@ -133,11 +164,8 @@ describe("GotenbergPageCountService", () => {
       fontSize: 12,
     });
 
-    // Render still succeeds via the unauthenticated retry — that is the danger.
     expect(result.pageCount).toBe(1);
-    expect(captureMessage).toHaveBeenCalledTimes(1);
-    expect(captureMessage.mock.calls[0][0]).toContain("rejected basic auth");
-    expect(captureMessage.mock.calls[0][1]).toMatchObject({ level: "warning" });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("stays SILENT when auth is accepted", async () => {

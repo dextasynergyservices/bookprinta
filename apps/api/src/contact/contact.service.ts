@@ -8,10 +8,21 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Resend } from "resend";
+import { verifyRecaptchaToken } from "../common/recaptcha.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RedisService } from "../redis/index.js";
 import type { CreateContactDto } from "./dto/create-contact.dto.js";
 import type { ReplyContactDto } from "./dto/reply-contact.dto.js";
+
+/** Submitter-provided text is interpolated into HTML below — escape it. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 /**
  * Subject enum → human-readable labels for emails.
@@ -67,7 +78,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 @Injectable()
 export class ContactService {
   private readonly logger = new Logger(ContactService.name);
-  private readonly resend: Resend;
+  /** Null when RESEND_API_KEY is unset — emails are skipped, the API still boots. */
+  private readonly resend: Resend | null;
   private readonly contactFromEmail =
     process.env.CONTACT_FROM_EMAIL || "BookPrinta <info@bookprinta.com>";
   private readonly contactAdminEmail = process.env.CONTACT_ADMIN_EMAIL || "info@bookprinta.com";
@@ -76,7 +88,7 @@ export class ContactService {
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService
   ) {
-    this.resend = new Resend(process.env.RESEND_API_KEY);
+    this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
   }
 
   // ── Rate Limiting (Redis-backed) ────────────────────────────────────
@@ -124,38 +136,9 @@ export class ContactService {
 
   // ── reCAPTCHA v3 Verification ───────────────────────────────────────
 
-  /**
-   * Validate reCAPTCHA token with Google's API.
-   * Skips verification in dev if no secret key configured.
-   */
-  private async verifyRecaptcha(token: string): Promise<boolean> {
-    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-    if (!secretKey) {
-      this.logger.warn("RECAPTCHA_SECRET_KEY not set — skipping verification");
-      return true;
-    }
-
-    // Skip in development — localhost isn't a registered reCAPTCHA domain
-    if (process.env.NODE_ENV !== "production") {
-      this.logger.warn("Development mode — skipping reCAPTCHA verification");
-      return true;
-    }
-
-    try {
-      const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ secret: secretKey, response: token }),
-        signal: AbortSignal.timeout(5000), // 5s timeout — don't let Google hang us
-      });
-
-      const data = await response.json();
-      // reCAPTCHA v3 returns a score (0.0 - 1.0). Score >= 0.5 is likely human.
-      return data.success && (data.score === undefined || data.score >= 0.5);
-    } catch (error) {
-      this.logger.error("reCAPTCHA verification failed", error);
-      return false;
-    }
+  /** reCAPTCHA check — fails closed in production (see common/recaptcha.ts). */
+  private verifyRecaptcha(token: string): Promise<boolean> {
+    return verifyRecaptchaToken(token, this.logger);
   }
 
   // ── Email Sending ───────────────────────────────────────────────────
@@ -196,7 +179,7 @@ export class ContactService {
         adminPanelUrl,
       });
 
-      const adminResult = await this.resend.emails.send({
+      const adminResult = await this.sendEmail({
         from: this.contactFromEmail,
         to: this.contactAdminEmail,
         subject: admin.subject,
@@ -222,7 +205,7 @@ export class ContactService {
         message: submission.message,
       });
 
-      const confirmResult = await this.resend.emails.send({
+      const confirmResult = await this.sendEmail({
         from: this.contactFromEmail,
         to: submission.email,
         subject: confirm.subject,
@@ -330,14 +313,14 @@ export class ContactService {
     const replySubject = dto.replySubject || `Re: ${submission.subject} — BookPrinta`;
 
     try {
-      await this.resend.emails.send({
+      await this.sendEmail({
         from: this.contactFromEmail,
         to: submission.email,
         subject: replySubject,
         html: `
           <div style="font-family: 'DM Sans', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px;">
-            <p style="font-size: 15px; line-height: 24px; color: #2A2A2A;">Hi ${submission.name.split(" ")[0]},</p>
-            <div style="font-size: 15px; line-height: 24px; color: #2A2A2A; white-space: pre-wrap;">${dto.replyMessage}</div>
+            <p style="font-size: 15px; line-height: 24px; color: #2A2A2A;">Hi ${escapeHtml(submission.name.split(" ")[0] ?? "")},</p>
+            <div style="font-size: 15px; line-height: 24px; color: #2A2A2A; white-space: pre-wrap;">${escapeHtml(dto.replyMessage)}</div>
             <hr style="border-top: 1px solid #ededed; margin: 24px 0;" />
             <p style="font-size: 13px; color: #6b7280;">Best regards,<br />The BookPrinta Team</p>
           </div>
@@ -354,5 +337,20 @@ export class ContactService {
       success: true,
       message: "Reply sent successfully.",
     };
+  }
+
+  /**
+   * Send through Resend, or report a not-configured error in the same shape so
+   * callers' existing `result.error` handling logs it. A missing key used to
+   * throw in the constructor and take the whole API down at boot.
+   */
+  private async sendEmail(payload: Parameters<Resend["emails"]["send"]>[0]) {
+    if (!this.resend) {
+      return {
+        data: null,
+        error: { name: "not_configured", message: "RESEND_API_KEY is not set; email skipped" },
+      };
+    }
+    return this.resend.emails.send(payload);
   }
 }

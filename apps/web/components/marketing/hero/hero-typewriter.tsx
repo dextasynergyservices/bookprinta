@@ -113,7 +113,7 @@ export function HeroTypewriter({
         ))}
         {!isComplete && (
           <motion.span
-            className="ml-0.5 inline-block w-[3px] bg-accent align-baseline"
+            className="ml-0.5 inline-block w-[3px] bg-accent-strong align-baseline"
             style={{ height: "0.85em" }}
             animate={{ opacity: [1, 0] }}
             transition={{

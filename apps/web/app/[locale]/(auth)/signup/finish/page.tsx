@@ -647,7 +647,7 @@ function SignupFinishPageContent() {
                             ? passwordStrength.score >= 4
                               ? "bg-emerald-400"
                               : passwordStrength.score >= 3
-                                ? "bg-[#007eff]"
+                                ? "bg-accent-strong"
                                 : passwordStrength.score >= 2
                                   ? "bg-amber-400"
                                   : "bg-[#ff6b6b]"
@@ -731,8 +731,8 @@ function SignupFinishPageContent() {
                   className={cn(
                     "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full px-5 font-sans text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                     canSubmitPassword
-                      ? "bg-[#007eff] text-white shadow-[0_10px_28px_rgba(0,126,255,0.3)] hover:brightness-110"
-                      : "cursor-not-allowed border border-white/10 bg-[#121212] text-white/45"
+                      ? "bg-accent-strong text-white shadow-[0_10px_28px_rgba(0,126,255,0.3)] hover:brightness-110"
+                      : "cursor-not-allowed border border-white/10 bg-[#121212] text-white/50"
                   )}
                 >
                   {isSubmittingPassword ? (
@@ -766,8 +766,8 @@ function SignupFinishPageContent() {
                   className={cn(
                     "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full px-5 font-sans text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                     canSubmitCode
-                      ? "bg-[#007eff] text-white shadow-[0_10px_28px_rgba(0,126,255,0.3)] hover:brightness-110"
-                      : "cursor-not-allowed border border-white/10 bg-[#121212] text-white/45"
+                      ? "bg-accent-strong text-white shadow-[0_10px_28px_rgba(0,126,255,0.3)] hover:brightness-110"
+                      : "cursor-not-allowed border border-white/10 bg-[#121212] text-white/50"
                   )}
                 >
                   {isSubmittingCode ? (
@@ -788,7 +788,7 @@ function SignupFinishPageContent() {
                     "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full border px-5 font-sans text-sm font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
                     canResend
                       ? "border-white/15 bg-black text-white hover:border-[#007eff]"
-                      : "cursor-not-allowed border-white/10 bg-[#121212] text-white/45"
+                      : "cursor-not-allowed border-white/10 bg-[#121212] text-white/50"
                   )}
                 >
                   {isResending ? (

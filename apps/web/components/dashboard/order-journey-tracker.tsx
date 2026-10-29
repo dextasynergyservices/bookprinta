@@ -97,7 +97,7 @@ function StepNode({
   const nodeClassName = isIssue
     ? "border-[#EF4444] bg-[#EF4444] text-white"
     : isCompleted || isCurrent
-      ? "border-[#007eff] bg-[#007eff] text-white"
+      ? "border-[#007eff] bg-accent-strong text-white"
       : "border-[#2A2A2A] bg-[#2A2A2A] text-[#8f8f8f]";
 
   return (

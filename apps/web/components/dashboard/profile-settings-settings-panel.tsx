@@ -389,7 +389,7 @@ export function ProfileSettingsSettingsPanel() {
         <Button
           type="submit"
           disabled={isChangingPassword}
-          className="font-sans mt-5 min-h-12 w-full rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0a72df]"
+          className="font-sans mt-5 min-h-12 w-full rounded-full bg-accent-strong px-6 text-sm font-semibold text-white hover:bg-accent-strong-hover"
         >
           {isChangingPassword ? (
             <>
@@ -511,7 +511,7 @@ export function ProfileSettingsSettingsPanel() {
                       void handleNotificationToggle(item.key, checked);
                     }}
                     className={cn(
-                      "data-[state=checked]:bg-[#007eff] data-[state=unchecked]:bg-[#2A2A2A]",
+                      "data-[state=checked]:bg-accent-strong data-[state=unchecked]:bg-[#2A2A2A]",
                       "focus-visible:ring-[#007eff]/20"
                     )}
                     aria-label={item.label}

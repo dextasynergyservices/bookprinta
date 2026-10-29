@@ -108,6 +108,43 @@ describe("PaymentsService.reconcilePaystackPayments", () => {
     expect(result).toMatchObject({ ours: 0, finalised: 0, skippedForeign: 1 });
   });
 
+  // Extra-page and reprint charges carry only { paymentId, orderId } metadata —
+  // no checkout shape. Before the product tag they were classified as the other
+  // product's and skipped: paid, but the billing gate never unlocked.
+  it("finalises an extra-pages charge recognised by its pre-created Payment row", async () => {
+    const { service, verify } = createService({
+      transactions: [{ reference: "ep_abc", metadata: { paymentId: "pay_1", orderId: "ord_1" } }],
+      existingPayments: { ep_abc: { processedAt: null, orderId: "ord_1" } },
+    });
+
+    const result = await service.reconcilePaystackPayments();
+
+    expect(verify).toHaveBeenCalledWith("ep_abc", "PAYSTACK");
+    expect(result).toMatchObject({ ours: 1, finalised: 1, skippedForeign: 0 });
+  });
+
+  it("recognises any charge carrying the BookPrinta product tag", async () => {
+    const { service, verify } = createService({
+      transactions: [{ reference: "bp_tagged", metadata: { app: "bookprinta", paymentId: "p" } }],
+    });
+
+    const result = await service.reconcilePaystackPayments();
+
+    expect(verify).toHaveBeenCalledWith("bp_tagged", "PAYSTACK");
+    expect(result).toMatchObject({ ours: 1, skippedForeign: 0 });
+  });
+
+  it("does not treat another product's tag as ours", async () => {
+    const { service, verify } = createService({
+      transactions: [{ reference: "x1", metadata: { app: "other-product" } }],
+    });
+
+    const result = await service.reconcilePaystackPayments();
+
+    expect(verify).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ours: 0, skippedForeign: 1 });
+  });
+
   it("skips a charge whose package does not resolve to an active BookPrinta package", async () => {
     // Guards against treating any metadata with a packageId as ours.
     const { service, verify } = createService({
@@ -175,6 +212,47 @@ describe("PaymentsService.reconcilePaystackPayments", () => {
 
     expect(verify).toHaveBeenCalledWith("ps_stuck", "PAYSTACK");
     expect(result.finalised).toBe(1);
+  });
+
+  it("makes no database query on a later tick once every charge is settled", async () => {
+    const { service, prisma, verify } = createService({
+      transactions: [
+        { reference: "ps_done", metadata: { packageId: OUR_PACKAGE_ID } },
+        { reference: "ps_other_app", metadata: { orderId: "OTHER-123" } },
+        { reference: "ps_new", metadata: { packageId: OUR_PACKAGE_ID } },
+      ],
+      packages: [{ id: OUR_PACKAGE_ID }],
+      existingPayments: {
+        ps_done: { processedAt: new Date("2026-07-01T10:00:00.000Z"), orderId: "cmorder1" },
+      },
+    });
+
+    await service.reconcilePaystackPayments();
+    expect(verify).toHaveBeenCalledTimes(1);
+    prisma.payment.findUnique.mockClear();
+    prisma.package.findFirst.mockClear();
+
+    // Lets Neon scale to zero between 10-minute ticks (Free plan compute hours).
+    const second = await service.reconcilePaystackPayments();
+
+    expect(prisma.payment.findUnique).not.toHaveBeenCalled();
+    expect(prisma.package.findFirst).not.toHaveBeenCalled();
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(second).toMatchObject({ ours: 2, alreadyProcessed: 2, skippedForeign: 1, finalised: 0 });
+  });
+
+  it("retries a charge whose finalisation failed on the next tick", async () => {
+    const { service, verify } = createService({
+      transactions: [{ reference: "ps_bad", metadata: { packageId: OUR_PACKAGE_ID } }],
+      packages: [{ id: OUR_PACKAGE_ID }],
+    });
+    verify.mockRejectedValueOnce(new Error("Paystack verify failed"));
+
+    await service.reconcilePaystackPayments();
+    const second = await service.reconcilePaystackPayments();
+
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect(second.finalised).toBe(1);
   });
 
   it("counts a failure without aborting the rest of the batch", async () => {

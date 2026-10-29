@@ -153,7 +153,7 @@ function StepNode({
     : isSkipped
       ? "border-[#1a1a1a] bg-[#1a1a1a] text-[#555555]"
       : isCompleted || isCurrent
-        ? "border-[#007eff] bg-[#007eff] text-white"
+        ? "border-[#007eff] bg-accent-strong text-white"
         : "border-[#2A2A2A] bg-[#2A2A2A] text-[#8f8f8f]";
 
   return (

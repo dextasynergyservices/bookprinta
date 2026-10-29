@@ -165,11 +165,14 @@ function ResourcesViewInner() {
                       >
                         {isActive ? (
                           prefersReducedMotion ? (
-                            <span className="absolute inset-0 bg-[#007eff]" aria-hidden="true" />
+                            <span
+                              className="absolute inset-0 bg-accent-strong"
+                              aria-hidden="true"
+                            />
                           ) : (
                             <motion.span
                               layoutId="resources-pill-active"
-                              className="absolute inset-0 bg-[#007eff]"
+                              className="absolute inset-0 bg-accent-strong"
                               transition={{ type: "spring", stiffness: 380, damping: 30 }}
                               aria-hidden="true"
                             />
@@ -244,7 +247,7 @@ function ResourcesViewInner() {
                         type="button"
                         onClick={() => void resourcesQuery.fetchNextPage()}
                         disabled={resourcesQuery.isFetchingNextPage}
-                        className="min-h-[48px] min-w-[180px] rounded-full bg-[#007eff] px-6 font-sans text-xs font-bold tracking-[0.08em] text-white uppercase hover:bg-[#007eff]/90"
+                        className="min-h-[48px] min-w-[180px] rounded-full bg-accent-strong px-6 font-sans text-xs font-bold tracking-[0.08em] text-white uppercase hover:bg-[#007eff]/90"
                       >
                         {resourcesQuery.isFetchingNextPage ? (
                           <>

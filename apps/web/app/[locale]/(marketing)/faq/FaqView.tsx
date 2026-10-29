@@ -234,12 +234,12 @@ export function FaqView() {
                 transition={{ duration: 0.7, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
                 className="mt-5 flex flex-col gap-4 md:mt-8"
               >
-                <p className="max-w-md border-l-[3px] border-accent pl-4 text-left font-serif text-base leading-relaxed text-primary-foreground/45 md:text-lg lg:text-xl">
+                <p className="max-w-md border-l-[3px] border-accent pl-4 text-left font-serif text-base leading-relaxed text-primary-foreground/50 md:text-lg lg:text-xl">
                   {t("hero_subtitle")}
                 </p>
 
                 {/* Animated counter */}
-                <p className="font-sans text-sm uppercase tracking-widest text-primary-foreground/25 md:text-base">
+                <p className="font-sans text-sm uppercase tracking-widest text-primary-foreground/50 md:text-base">
                   <span ref={counter.ref} className="tabular-nums text-accent">
                     {counter.display}
                   </span>{" "}
@@ -255,7 +255,7 @@ export function FaqView() {
                 className="mt-6 flex flex-wrap items-center justify-center gap-2 md:mt-8 md:justify-start"
                 aria-label={t("jump_to")}
               >
-                <span className="mr-1 font-sans text-sm uppercase tracking-widest text-primary-foreground/20">
+                <span className="mr-1 font-sans text-sm uppercase tracking-widest text-primary-foreground/50">
                   {t("jump_to")}
                 </span>
                 {ANCHOR_PILLS.map((pill) => (
@@ -263,7 +263,7 @@ export function FaqView() {
                     key={pill.target}
                     type="button"
                     onClick={() => scrollToSection(pill.target)}
-                    className="rounded-full border border-white/10 px-4 py-2 font-sans text-sm text-white/40 transition-all duration-200 hover:border-accent/50 hover:text-accent"
+                    className="rounded-full border border-white/10 px-4 py-2 font-sans text-sm text-white/50 transition-all duration-200 hover:border-accent/50 hover:text-accent"
                   >
                     {t(pill.label)}
                   </button>
@@ -426,7 +426,7 @@ export function FaqView() {
           whileInView={{ opacity: 1 }}
           viewport={{ once: true, margin: "-60px" }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] as const }}
-          className="bg-accent"
+          className="bg-accent-strong"
           aria-labelledby="ready-heading"
         >
           <div className="mx-auto max-w-7xl px-5 py-16 md:px-10 md:py-24 lg:px-14">

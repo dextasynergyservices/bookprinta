@@ -62,7 +62,7 @@ const BADGE_CLASSES: Record<CountCellProps["kind"], string> = {
 
 function CountCell({ count, kind, queueName, isUnavailable, onSelect }: CountCellProps) {
   if (isUnavailable) {
-    return <span className="font-sans text-sm text-[#5A5A5A]">—</span>;
+    return <span className="font-sans text-sm text-[#8f8f8f]">—</span>;
   }
 
   if (count <= 0) {
@@ -76,7 +76,7 @@ function CountCell({ count, kind, queueName, isUnavailable, onSelect }: CountCel
       type="button"
       title={`View ${count} ${kind} jobs in ${getQueueLabel(queueName)}`}
       onClick={() => onSelect(queueName, state, count)}
-      className="inline-flex cursor-pointer items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
+      className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff]"
     >
       <Badge className={`${BADGE_CLASSES[kind]} transition-opacity hover:opacity-80`}>
         {count}
@@ -267,7 +267,7 @@ export function AdminQueueHealthPanel() {
               </div>
 
               {/* Click hint */}
-              <p className="font-sans border-t border-[#161616] bg-[#080808] px-4 py-2 text-xs text-[#5A5A5A]">
+              <p className="font-sans border-t border-[#161616] bg-[#080808] px-4 py-2 text-xs text-[#8f8f8f]">
                 {tAdmin("system_settings_queue_health_click_hint")}
               </p>
             </div>

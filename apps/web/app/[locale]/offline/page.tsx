@@ -61,7 +61,7 @@ export default async function OfflinePage({ params }: OfflinePageProps) {
           </div>
 
           <div className="mt-14">
-            <p className="font-sans text-xs font-semibold tracking-[0.22em] text-white/45 uppercase">
+            <p className="font-sans text-xs font-semibold tracking-[0.22em] text-white/50 uppercase">
               {t("eyebrow")}
             </p>
             <h1

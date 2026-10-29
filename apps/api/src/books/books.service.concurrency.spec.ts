@@ -38,8 +38,11 @@ const txOrderUpdate = jest.fn();
 const mockPrismaService = {
   book: { findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn(), update: jest.fn() },
   order: { update: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
-  payment: { aggregate: jest.fn() },
-  systemSetting: { findMany: jest.fn().mockResolvedValue([]) },
+  payment: { findMany: jest.fn() },
+  systemSetting: {
+    findMany: jest.fn().mockResolvedValue([]),
+    findUnique: jest.fn().mockResolvedValue(null),
+  },
   paymentGateway: { findMany: jest.fn().mockResolvedValue([]) },
   $transaction: jest.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
     cb({
@@ -115,7 +118,9 @@ describe("BooksService — concurrency guards", () => {
 
     jest.clearAllMocks();
     txBookUpdateMany.mockResolvedValue({ count: 1 });
-    mockPrismaService.payment.aggregate.mockResolvedValue({ _sum: { amount: 200 } });
+    mockPrismaService.payment.findMany.mockResolvedValue([
+      { amount: 200, metadata: { extraPages: 20 } },
+    ]);
     mockBooksPipelineService.enqueueGeneratePdf.mockResolvedValue({
       queued: true,
       reason: "QUEUED",

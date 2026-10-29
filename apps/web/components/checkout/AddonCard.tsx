@@ -61,9 +61,9 @@ export function AddonCard({
         className={cn(
           "absolute top-3 right-3 flex size-5 items-center justify-center rounded-full border",
           disabled
-            ? "border-[#3a3a3a] bg-[#1b1b1b] text-white/45"
+            ? "border-[#3a3a3a] bg-[#1b1b1b] text-white/50"
             : selected
-              ? "border-[#007eff] bg-[#007eff]/15 text-[#007eff]"
+              ? "border-[#007eff] bg-[#007eff]/15 text-[#4da3ff]"
               : "border-[#2A2A2A] bg-transparent text-transparent"
         )}
         aria-hidden="true"

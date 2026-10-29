@@ -77,6 +77,10 @@ export class StripeService {
       metadata: {
         orderId: params.orderId ?? "",
         checkout_state: this.serializeCheckoutState(params.metadata),
+        // Kept outside checkout_state so its 64 chars never push that value
+        // past Stripe's 500-char limit. Read back by extractCheckoutMetadata.
+        pricingSignature: this.asMetadataString(params.metadata?.pricingSignature),
+        pricingVersion: this.asMetadataString(params.metadata?.pricingVersion),
       },
     });
 
@@ -212,6 +216,13 @@ export class StripeService {
     if (serialized.length <= 500) return serialized;
 
     const minimal = {
+      paymentFlow: normalized.paymentFlow,
+      customQuoteId: normalized.customQuoteId,
+      quoteFinalPrice: normalized.quoteFinalPrice,
+      source: normalized.source,
+      dashboardUserId: normalized.dashboardUserId,
+      couponCode: normalized.couponCode,
+      formattingWordCount: normalized.formattingWordCount,
       locale: normalized.locale,
       fullName: normalized.fullName,
       phone: normalized.phone,
@@ -230,6 +241,7 @@ export class StripeService {
             id: addon.id,
             slug: addon.slug,
             price: addon.price,
+            wordCount: addon.wordCount ?? null,
           }))
         : undefined,
     };
@@ -237,6 +249,10 @@ export class StripeService {
     const compact = JSON.stringify(minimal);
     if (compact.length <= 500) return compact;
     throw new BadRequestException("Checkout metadata is too large for Stripe metadata limits.");
+  }
+
+  private asMetadataString(value: unknown): string {
+    return typeof value === "string" || typeof value === "number" ? String(value) : "";
   }
 
   private minimizeCheckoutMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
@@ -260,6 +276,16 @@ export class StripeService {
       "basePrice",
       "addonTotal",
       "totalPrice",
+      // Flow + ownership fields: without these a Stripe custom-quote or
+      // dashboard payment loses its routing and lands as an orphan.
+      "paymentFlow",
+      "customQuoteId",
+      "quoteTitle",
+      "quoteQuantity",
+      "quotePrintSize",
+      "quoteFinalPrice",
+      "source",
+      "dashboardUserId",
     ] as const;
 
     const result: Record<string, unknown> = {};
@@ -278,6 +304,7 @@ export class StripeService {
             slug: item.slug,
             name: item.name,
             price: item.price,
+            wordCount: item.wordCount ?? null,
           };
         });
     }

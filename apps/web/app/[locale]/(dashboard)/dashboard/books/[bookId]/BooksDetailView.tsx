@@ -12,6 +12,7 @@ import { ReprintSameModal } from "@/components/dashboard/reprint-same-modal";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
+import { useExtraPagePrice } from "@/hooks/use-extra-page-price";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import {
   approveBookForProduction,
@@ -62,7 +63,6 @@ const STATE_LABEL_KEYS: Record<BookProgressTimelineStep["state"], string> = {
 };
 const MOBILE_SKELETON_STAGES = BOOK_PROGRESS_STAGES.slice(0, 6);
 const DESKTOP_SKELETON_STAGES = BOOK_PROGRESS_STAGES;
-const EXTRA_PAGE_RATE_NAIRA = 10;
 const WORKSPACE_APPROVED_BOOK_STATUSES = new Set([
   "APPROVED",
   "IN_PRODUCTION",
@@ -392,9 +392,10 @@ function BookWorkspacePanel({
   latestExtraPaymentStatus,
   forceProcessing,
 }: BookWorkspacePanelProps) {
+  const extraPageRate = useExtraPagePrice();
   const extraPages =
     typeof extraAmount === "number" && extraAmount > 0
-      ? Math.ceil(extraAmount / EXTRA_PAGE_RATE_NAIRA)
+      ? Math.ceil(extraAmount / extraPageRate)
       : typeof pageCount === "number"
         ? 0
         : null;
@@ -554,6 +555,7 @@ function BillingGatePanel({
   onPayExtraPages,
   onApproveBook,
 }: BillingGatePanelProps) {
+  const extraPageRate = useExtraPagePrice();
   const gateState = resolveBillingGateState({
     orderStatus,
     bookStatus,
@@ -571,9 +573,7 @@ function BillingGatePanel({
     forceProcessing,
   });
   const extraPages =
-    typeof extraAmount === "number" && extraAmount > 0
-      ? Math.ceil(extraAmount / EXTRA_PAGE_RATE_NAIRA)
-      : 0;
+    typeof extraAmount === "number" && extraAmount > 0 ? Math.ceil(extraAmount / extraPageRate) : 0;
   const descriptionKey =
     gateState === "processing"
       ? "book_progress_billing_gate_pending"
@@ -689,7 +689,7 @@ function BillingGatePanel({
               disabled={
                 isPayingExtra || isPaymentGatewayLoading || isPaymentGatewayUnavailable || isOffline
               }
-              className="font-sans min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0066d1] disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
+              className="font-sans min-h-11 rounded-full bg-accent-strong px-5 text-sm font-semibold text-white hover:bg-accent-strong-hover disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
             >
               {isPayingExtra
                 ? tDashboard("book_progress_billing_gate_pay_loading")
@@ -702,7 +702,7 @@ function BillingGatePanel({
               type="button"
               onClick={onApproveBook}
               disabled={isApprovingBook}
-              className="font-sans min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0066d1] disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
+              className="font-sans min-h-11 rounded-full bg-accent-strong px-5 text-sm font-semibold text-white hover:bg-accent-strong-hover disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
             >
               {isApprovingBook
                 ? tDashboard("book_progress_billing_gate_approve_loading")
@@ -801,7 +801,7 @@ function ReprintApprovePanel({
             type="button"
             onClick={onApproveBook}
             disabled={isApprovingBook}
-            className="font-sans min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0066d1] disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
+            className="font-sans min-h-11 rounded-full bg-accent-strong px-5 text-sm font-semibold text-white hover:bg-accent-strong-hover disabled:cursor-not-allowed disabled:bg-[#1f4f87] disabled:text-[#d0d0d0]"
           >
             {isApprovingBook
               ? tDashboard("reprint_approve_loading")
@@ -832,6 +832,7 @@ function ReprintApprovePanel({
 }
 
 export function BooksDetailView({ bookId }: { bookId: string }) {
+  const extraPageRate = useExtraPagePrice();
   const tDashboard = useTranslations("dashboard");
   const tCommon = useTranslations("common");
   const locale = useLocale();
@@ -1118,7 +1119,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
     const dueExtraAmount = typeof extraAmount === "number" ? extraAmount : null;
     const computedExtraPages =
       typeof dueExtraAmount === "number" && dueExtraAmount > 0
-        ? Math.ceil(dueExtraAmount / EXTRA_PAGE_RATE_NAIRA)
+        ? Math.ceil(dueExtraAmount / extraPageRate)
         : 0;
 
     if (!extraPagesProvider) {
@@ -1562,7 +1563,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
                   void handleOpenPreview();
                 }}
                 disabled={isOpeningPreview}
-                className="font-sans inline-flex min-h-11 items-center justify-center rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-[#0066d1] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                className="font-sans inline-flex min-h-11 items-center justify-center rounded-full bg-accent-strong px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-strong-hover focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
               >
                 {isOpeningPreview
                   ? tDashboard("book_progress_cta_review_preview_loading")

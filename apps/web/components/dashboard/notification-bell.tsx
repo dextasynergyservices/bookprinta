@@ -131,7 +131,7 @@ export function NotificationBell({ onOpenReviewDialog }: NotificationBellProps) 
               data-notification-badge="true"
               data-bounce-seq={badgeAnimationKey}
               aria-hidden="true"
-              className="absolute -top-1 -right-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[#007eff] px-1 font-sans text-[10px] leading-none font-semibold text-white"
+              className="absolute -top-1 -right-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent-strong px-1 font-sans text-[10px] leading-none font-semibold text-white"
             >
               {badgeLabel}
             </motion.span>

@@ -144,7 +144,7 @@ describe("PaymentsService identity conflicts", () => {
     const result = await service.initialize({
       provider: "PAYSTACK",
       email: "author@example.com",
-      amount: 15000,
+      amount: 50000,
       currency: "NGN",
       metadata: {
         phone: "+2348012345678",
@@ -329,7 +329,7 @@ describe("PaymentsService identity conflicts", () => {
           phone: "+2348012345678",
           packageSlug: "starter",
         },
-        amount: 25000,
+        amount: 50000,
         currency: "NGN",
       })
     ).rejects.toBeInstanceOf(ConflictException);
@@ -361,7 +361,7 @@ describe("PaymentsService identity conflicts", () => {
           fullName: "Author Example",
           packageSlug: "starter",
         },
-        amount: 25000,
+        amount: 50000,
         currency: "NGN",
       })
     ).rejects.toThrow(
@@ -399,7 +399,7 @@ describe("PaymentsService identity conflicts", () => {
           phone: "+2348012345678",
           packageSlug: "starter",
         },
-        amount: 25000,
+        amount: 50000,
         currency: "NGN",
       })
     ).rejects.toThrow(

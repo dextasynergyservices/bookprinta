@@ -126,3 +126,32 @@ describe("PaystackService.listTransactions", () => {
     expect(result).toHaveLength(4);
   });
 });
+
+describe("PaystackService.initialize", () => {
+  it("tags every charge with the BookPrinta product tag, keeping caller metadata", async () => {
+    const service = new PaystackService({
+      secretKey: SECRET,
+      baseUrl: "https://api.paystack.co",
+      currency: "NGN",
+    });
+    const post = jest.fn().mockResolvedValue({
+      data: { data: { authorization_url: "u", access_code: "a", reference: "ep_1" } },
+    });
+    (service as unknown as { http: { post: typeof post } }).http = { post };
+
+    await service.initialize({
+      email: "a@b.co",
+      amount: 200,
+      reference: "ep_1",
+      metadata: { paymentId: "pay_1" },
+    });
+
+    expect(post).toHaveBeenCalledWith(
+      "/transaction/initialize",
+      expect.objectContaining({
+        amount: 20000,
+        metadata: { paymentId: "pay_1", app: "bookprinta" },
+      })
+    );
+  });
+});

@@ -4,6 +4,9 @@ import { UsersService } from "./users.service.js";
 
 describe("UsersService admin user management", () => {
   const prisma = {
+    authSession: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     user: {
       findMany: jest.fn(),
       count: jest.fn(),
@@ -37,6 +40,7 @@ describe("UsersService admin user management", () => {
     service = new UsersService(prisma as never, cloudinary as never);
     prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) =>
       callback({
+        authSession: prisma.authSession,
         user: {
           update: prisma.user.update,
         },
@@ -439,6 +443,8 @@ describe("UsersService admin user management", () => {
     });
     expect(result.currentState.isActive).toBe(false);
     expect(result.audit.action).toBe("ADMIN_USER_DEACTIVATED");
+    // Deactivation ends every device session, not just the legacy slot.
+    expect(prisma.authSession.deleteMany).toHaveBeenCalledWith({ where: { userId: "cmuser_2" } });
   });
 
   it("rejects admin updates when the payload would not change the user", async () => {
@@ -522,6 +528,8 @@ describe("UsersService admin user management", () => {
         }),
       })
     );
+    // Deletion also ends every device session.
+    expect(prisma.authSession.deleteMany).toHaveBeenCalledWith({ where: { userId: "cmuser_4" } });
 
     // Verify audit records the previous email
     expect(prisma.auditLog.create).toHaveBeenCalledWith(

@@ -541,7 +541,7 @@ export function ManuscriptUploadFlow({
             type="button"
             onClick={() => void handleSettingsSave()}
             disabled={isSavingSettings}
-            className="font-sans min-h-11 w-full rounded-full bg-[#007eff] text-sm font-semibold text-white hover:bg-[#0066d1]"
+            className="font-sans min-h-11 w-full rounded-full bg-accent-strong text-sm font-semibold text-white hover:bg-accent-strong-hover"
           >
             {isSavingSettings
               ? tDashboard("manuscript_upload_save_settings")
@@ -594,7 +594,7 @@ export function ManuscriptUploadFlow({
               <span className="font-sans text-[11px] text-[#8f8f8f]">
                 {tDashboard("manuscript_upload_dropzone_formats")}
               </span>
-              <span className="font-sans inline-flex items-center gap-1.5 rounded-lg border border-[#007eff]/20 bg-[#007eff]/10 px-3 py-1.5 text-xs leading-tight text-[#007eff]">
+              <span className="font-sans inline-flex items-center gap-1.5 rounded-lg border border-[#007eff]/20 bg-[#007eff]/10 px-3 py-1.5 text-xs leading-tight text-[#4da3ff]">
                 <Info className="size-3.5 shrink-0" aria-hidden="true" />
                 {tDashboard("manuscript_upload_docx_recommended")}
               </span>
@@ -628,7 +628,7 @@ export function ManuscriptUploadFlow({
                 aria-label={tDashboard("manuscript_upload_progress_label")}
               >
                 <motion.div
-                  className="h-full bg-[#007eff]"
+                  className="h-full bg-accent-strong"
                   initial={false}
                   animate={{ width: `${uploadProgress}%` }}
                   transition={{ duration: 0.28, ease: "easeOut" }}

@@ -149,7 +149,7 @@ export function DashboardErrorState({
         type="button"
         onClick={onRetry}
         disabled={isRetrying}
-        className="mt-6 min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white hover:bg-[#0a72df]"
+        className="mt-6 min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white hover:bg-accent-strong-hover"
       >
         {isRetrying ? loadingLabel : retryLabel}
       </Button>

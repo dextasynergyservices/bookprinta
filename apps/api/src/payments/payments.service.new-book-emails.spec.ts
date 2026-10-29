@@ -3,6 +3,7 @@ import {
   renderNewBookOrderAdminEmail,
   renderNewBookOrderUserEmail,
 } from "@bookprinta/emails/render";
+import { withSignedCheckoutPricing } from "../../test/helpers/checkout-pricing.js";
 import { PaymentProvider, PaymentStatus } from "../generated/prisma/enums.js";
 import { PaymentsService } from "./payments.service.js";
 
@@ -182,7 +183,7 @@ describe("PaymentsService new-book order emails", () => {
       orderId: null,
       processedAt: null,
       payerEmail: existingUser.email,
-      metadata: {
+      metadata: withSignedCheckoutPricing({
         source: "dashboard",
         dashboardUserId: existingUser.id,
         paymentFlow: "CHECKOUT",
@@ -199,7 +200,7 @@ describe("PaymentsService new-book order emails", () => {
         lamination: "gloss",
         totalPrice: 125000,
         addons: [{ id: "addon_isbn", name: "ISBN Registration", price: 5000 }],
-      },
+      }),
     });
     prisma.payment.updateMany.mockResolvedValue({ count: 1 });
 
@@ -298,7 +299,7 @@ describe("PaymentsService new-book order emails", () => {
       amount: 125000,
       currency: "NGN",
       providerRef: "BT-NEW-001",
-      metadata: {
+      metadata: withSignedCheckoutPricing({
         source: "dashboard",
         dashboardUserId: existingUser.id,
         paymentFlow: "CHECKOUT",
@@ -315,7 +316,7 @@ describe("PaymentsService new-book order emails", () => {
         lamination: "gloss",
         totalPrice: 125000,
         addons: [{ id: "addon_isbn", name: "ISBN Registration", price: 5000 }],
-      },
+      }),
       userId: existingUser.id,
       orderId: null,
     });

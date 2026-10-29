@@ -21,6 +21,12 @@ function getApiV1BaseUrl() {
 }
 
 async function fetchAuthSession(): Promise<AuthSessionUser | null> {
+  // Anonymous visitors have no marker: skip the probe. Otherwise every public
+  // page view (and the 5-minute health check) cost two failing API calls
+  // (/auth/me 401 → /auth/refresh 401) on a CPU-limited API.
+  const { hasSessionMarkerCookie } = await import("@/lib/auth/session-cookie");
+  if (!hasSessionMarkerCookie()) return null;
+
   const meUrl = `${getApiV1BaseUrl()}/auth/me`;
   const refreshUrl = `${getApiV1BaseUrl()}/auth/refresh`;
 
