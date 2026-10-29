@@ -232,8 +232,10 @@ export class ReprintPaymentService {
 
   /**
    * Create the Order, Book, and audit logs after a reprint payment succeeds.
-   * Called from PaymentsService.createPaymentFromWebhook when reprint entity
-   * creation is needed.
+   * The only implementation, used by every path that confirms a reprint
+   * payment: the webhook (CheckoutFulfillmentService.createPaymentFromWebhook),
+   * the redirect and reconciliation (PaymentsService.verify), and bank-transfer
+   * approval (BankTransferService).
    */
   async createReprintEntitiesFromMetadata(params: {
     paymentId: string;
@@ -490,7 +492,7 @@ export class ReprintPaymentService {
 
   /**
    * Send reprint confirmation emails to the user and an admin notification.
-   * Called from PaymentsService.createPaymentFromWebhook after entity creation.
+   * Called after createReprintEntitiesFromMetadata.
    */
   async sendReprintConfirmationEmails(params: {
     locale: Locale;

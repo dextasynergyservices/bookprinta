@@ -415,7 +415,7 @@ export class PaymentsService {
           `Payment ${reference} is a stuck reprint (SUCCESS but no orderId) — retrying entity creation`
         );
         try {
-          await this.checkoutFulfillment.createReprintEntitiesFromMetadata({
+          await this.reprintPaymentService.createReprintEntitiesFromMetadata({
             paymentId: existing.id,
             userId: existing.userId,
             payerEmail: existing.payerEmail,

@@ -613,10 +613,10 @@ export class BankTransferService {
 
     // Create reprint Order + Book
     let reprintResult: Awaited<
-      ReturnType<typeof this.checkoutFulfillment.createReprintEntitiesFromMetadata>
+      ReturnType<typeof this.reprintPaymentService.createReprintEntitiesFromMetadata>
     >;
     try {
-      reprintResult = await this.checkoutFulfillment.createReprintEntitiesFromMetadata({
+      reprintResult = await this.reprintPaymentService.createReprintEntitiesFromMetadata({
         paymentId: payment.id,
         userId: payment.userId,
         payerEmail: payment.payerEmail,

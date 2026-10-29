@@ -3,7 +3,6 @@ import { DEFAULT_CURRENCY } from "@bookprinta/shared";
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   Logger,
   Optional,
@@ -14,7 +13,6 @@ import type { Prisma } from "../../generated/prisma/client.js";
 import {
   BookStatus,
   OrderStatus,
-  OrderType,
   PaymentProvider,
   PaymentStatus,
   PaymentType,
@@ -29,10 +27,8 @@ import {
   asString,
   type CheckoutMetadata,
   type CustomQuoteCheckoutMetadata,
-  deriveTitleFromFileName,
   extractCheckoutMetadata,
   extractCustomQuoteCheckoutMetadata,
-  extractReprintMetadata,
   formatNaira,
   generateSecureToken,
   isPrismaUniqueViolation,
@@ -982,257 +978,6 @@ export class CheckoutFulfillmentService {
     }
 
     throw new ConflictException(PHONE_ALREADY_IN_USE_MESSAGE);
-  }
-
-  async createReprintEntitiesFromMetadata(params: {
-    paymentId: string;
-    userId: string | null;
-    payerEmail: string | null;
-    metadata: Record<string, unknown> | null;
-    amount: number;
-    currency: string;
-  }): Promise<{
-    email: string;
-    name: string;
-    locale: Locale;
-    phone: string | null;
-    whatsAppNotificationsEnabled: boolean;
-    orderNumber: string;
-    packageName: string;
-    amountPaid: string;
-    addons: string[];
-    bookTitle: string;
-    copies: number;
-    costPerCopy: string;
-    bookSize: string;
-    paperColor: string;
-    lamination: string;
-  } | null> {
-    if (!params.userId) {
-      throw new ConflictException("Authenticated reprint payments require a linked user.");
-    }
-
-    const reprint = extractReprintMetadata(params.metadata);
-    if (!reprint) {
-      this.logger.warn(
-        `Webhook payment ${params.paymentId}: reprint metadata is incomplete, skipping order creation`
-      );
-      return null;
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const sourceBook = await tx.book.findUnique({
-        where: { id: reprint.sourceBookId },
-        select: {
-          id: true,
-          orderId: true,
-          userId: true,
-          title: true,
-          coverImageUrl: true,
-          pageCount: true,
-          wordCount: true,
-          estimatedPages: true,
-          fontFamily: true,
-          fontSize: true,
-          finalPdfUrl: true,
-          files: {
-            where: { fileType: "RAW_MANUSCRIPT" },
-            orderBy: [{ version: "desc" }, { createdAt: "desc" }],
-            take: 1,
-            select: {
-              url: true,
-              fileName: true,
-              fileSize: true,
-              mimeType: true,
-            },
-          },
-          user: {
-            select: {
-              email: true,
-              firstName: true,
-              preferredLanguage: true,
-              phoneNumber: true,
-              whatsAppNotificationsEnabled: true,
-            },
-          },
-          order: {
-            select: {
-              id: true,
-              packageId: true,
-              packagePriceSnap: true,
-              bookSize: true,
-              paperColor: true,
-              lamination: true,
-              package: {
-                select: {
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      if (!sourceBook || sourceBook.userId !== params.userId) {
-        throw new ForbiddenException("Source book is no longer available for reprint fulfillment.");
-      }
-
-      if (reprint.sourceOrderId && sourceBook.orderId !== reprint.sourceOrderId) {
-        throw new ConflictException("Reprint payment metadata does not match the source order.");
-      }
-
-      const finalPdfUrl = reprint.finalPdfUrl ?? sourceBook.finalPdfUrl;
-      if (!finalPdfUrl) {
-        throw new ConflictException("Final PDF is required to fulfill a same-file reprint.");
-      }
-
-      const pageCount = reprint.pageCount ?? sourceBook.pageCount ?? null;
-      if (typeof pageCount !== "number" || pageCount < 1) {
-        throw new ConflictException(
-          "Authoritative page count is required for reprint fulfillment."
-        );
-      }
-
-      // Pull bookSize/paperColor/lamination from source order (authoritative)
-      const bookSize = sourceBook.order.bookSize ?? reprint.bookSize ?? "A5";
-      const paperColor = sourceBook.order.paperColor ?? reprint.paperColor ?? "white";
-      const lamination = sourceBook.order.lamination ?? reprint.lamination ?? "gloss";
-
-      const orderNumber = await this.generateOrderNumber(tx);
-      const amount = toCurrency(params.amount);
-      const now = new Date();
-
-      const order = await tx.order.create({
-        data: {
-          orderNumber,
-          userId: sourceBook.userId,
-          packageId: sourceBook.order.packageId,
-          orderType: OrderType.REPRINT,
-          originalBookId: sourceBook.id,
-          skipFormatting: true,
-          copies: reprint.copies,
-          packagePriceSnap: Number(sourceBook.order.packagePriceSnap),
-          hasCoverDesign: false,
-          hasFormatting: false,
-          bookSize,
-          paperColor,
-          lamination,
-          status: OrderStatus.PAID,
-          initialAmount: amount,
-          extraAmount: 0,
-          discountAmount: 0,
-          totalAmount: amount,
-          currency: (params.currency || DEFAULT_CURRENCY).toUpperCase(),
-        } as Prisma.OrderUncheckedCreateInput,
-      });
-
-      const sourceManuscript = sourceBook.files[0] ?? null;
-
-      const book = await tx.book.create({
-        data: {
-          orderId: order.id,
-          userId: sourceBook.userId,
-          status: BookStatus.REVIEW,
-          productionStatus: BookStatus.REVIEW,
-          productionStatusUpdatedAt: now,
-          title: sourceBook.title,
-          coverImageUrl: sourceBook.coverImageUrl,
-          pageCount,
-          wordCount: sourceBook.wordCount,
-          estimatedPages: sourceBook.estimatedPages,
-          fontFamily: sourceBook.fontFamily,
-          fontSize: sourceBook.fontSize,
-          pageSize: bookSize,
-          finalPdfUrl,
-          previewPdfUrl: finalPdfUrl,
-        },
-      });
-
-      // Copy the source book's latest RAW_MANUSCRIPT file so the title
-      // derivation in list serializers works identically to normal books.
-      if (sourceManuscript?.url) {
-        await tx.file.create({
-          data: {
-            bookId: book.id,
-            fileType: "RAW_MANUSCRIPT",
-            url: sourceManuscript.url,
-            fileName: sourceManuscript.fileName,
-            fileSize: sourceManuscript.fileSize,
-            mimeType: sourceManuscript.mimeType,
-            version: 1,
-            createdBy: "SYSTEM",
-          },
-        });
-      }
-
-      await tx.auditLog.createMany({
-        data: [
-          {
-            userId: sourceBook.userId,
-            action: "ORDER_STATUS_REACHED",
-            entityType: "ORDER_TRACKING",
-            entityId: order.id,
-            details: {
-              source: "order",
-              status: OrderStatus.PAID,
-              reachedAt: order.createdAt.toISOString(),
-              label: "Paid",
-            },
-          },
-          {
-            userId: sourceBook.userId,
-            action: "ORDER_STATUS_REACHED",
-            entityType: "ORDER_TRACKING",
-            entityId: order.id,
-            details: {
-              source: "book",
-              status: BookStatus.REVIEW,
-              reachedAt: book.createdAt.toISOString(),
-              label: "Review",
-            },
-          },
-        ],
-      });
-
-      await tx.payment.update({
-        where: { id: params.paymentId },
-        data: {
-          userId: sourceBook.userId,
-          orderId: order.id,
-        },
-      });
-
-      await this.notificationsService.createOrderStatusNotification(
-        {
-          userId: sourceBook.userId,
-          orderId: order.id,
-          orderNumber,
-          status: OrderStatus.PAID,
-          source: "order",
-          bookId: book.id,
-        },
-        tx
-      );
-
-      return {
-        email: params.payerEmail ?? sourceBook.user.email,
-        name: sourceBook.user.firstName,
-        locale: resolveLocale(sourceBook.user.preferredLanguage),
-        phone: sourceBook.user.phoneNumber ?? null,
-        whatsAppNotificationsEnabled: sourceBook.user.whatsAppNotificationsEnabled,
-        orderNumber,
-        packageName: sourceBook.order.package.name,
-        amountPaid: formatNaira(params.amount),
-        addons: [],
-        bookTitle:
-          deriveTitleFromFileName(sourceManuscript?.fileName) ?? sourceBook.title ?? "Untitled",
-        copies: reprint.copies,
-        costPerCopy: formatNaira(pageCount > 0 ? params.amount / reprint.copies : 0),
-        bookSize,
-        paperColor,
-        lamination,
-      };
-    });
   }
 
   private async createOrderAddonsFromMetadata(
