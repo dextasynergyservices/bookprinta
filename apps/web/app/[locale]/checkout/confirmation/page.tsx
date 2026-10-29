@@ -74,7 +74,7 @@ export default async function CheckoutConfirmationPage({
           </Link>
           <Link
             href="/"
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110"
           >
             <ShieldCheck className="mr-2 size-4" aria-hidden="true" />
             {t("payment_confirmation_home_cta")}

@@ -193,7 +193,7 @@ function resolveRoleTone(role: UserRoleValue): string {
     case "SUPER_ADMIN":
       return "border-[#22c55e]/45 bg-[#22c55e]/15 text-[#22c55e]";
     case "ADMIN":
-      return "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]";
+      return "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]";
     case "MANAGER":
       return "border-[#06b6d4]/45 bg-[#06b6d4]/15 text-[#67e8f9]";
     case "EDITOR":
@@ -553,7 +553,7 @@ function CreateAdminDialog({
             <Button
               type="submit"
               disabled={createMutation.isPending}
-              className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0066cc]"
+              className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-[#0066cc]"
             >
               {createMutation.isPending ? (
                 <>
@@ -630,7 +630,7 @@ function AdminUsersFilterBar({
             className={cn(
               "inline-flex min-h-9 items-center rounded-full border px-3 font-sans text-xs font-medium",
               hasActiveFilters
-                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]"
+                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]"
                 : "border-[#2A2A2A] bg-[#101010] text-[#b4b4b4]"
             )}
           >
@@ -736,7 +736,10 @@ function AdminUsersFilterBar({
           onChange={(event) => onIncludeDeletedChange(event.target.checked)}
           className="size-4 rounded border-[#2A2A2A] bg-[#0B0B0B] accent-[#007eff]"
         />
-        <label htmlFor={includeDeletedId} className="font-sans text-xs font-medium text-[#8f8f8f]">
+        <label
+          htmlFor={includeDeletedId}
+          className="inline-flex min-h-11 items-center font-sans text-xs font-medium text-[#8f8f8f]"
+        >
           {tAdmin("users_filters_include_deleted")}
         </label>
       </div>
@@ -1641,7 +1644,7 @@ export function AdminUsersView() {
             <Button
               type="button"
               onClick={() => setCreateDialogOpen(true)}
-              className="min-h-11 rounded-full bg-[#007eff] px-5 font-sans text-sm font-medium text-white hover:bg-[#0066cc]"
+              className="min-h-11 rounded-full bg-accent-strong px-5 font-sans text-sm font-medium text-white hover:bg-[#0066cc]"
             >
               <Plus className="mr-2 size-4" aria-hidden="true" />
               {tAdmin("users_create_button")}

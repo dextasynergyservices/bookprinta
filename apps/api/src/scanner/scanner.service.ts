@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { ClamavProvider } from "./providers/clamav.provider.js";
+import { ClamavHttpProvider } from "./providers/clamav-http.provider.js";
 import { VirusTotalProvider } from "./providers/virustotal.provider.js";
 import type { ScanProvider, ScanResult } from "./scanner.interface.js";
 
@@ -7,8 +8,11 @@ import type { ScanProvider, ScanResult } from "./scanner.interface.js";
  * Scanner service — routes malware scans to the configured provider.
  *
  * Provider is selected via `SCANNER_PROVIDER` env var:
- *  - "clamav"     → ClamAV daemon (local dev via Docker)
- *  - "virustotal" → VirusTotal API (production)
+ *  - "clamav"      → ClamAV daemon over TCP (local dev via Docker)
+ *  - "clamav-http" → our ClamAV VM behind the HTTPS scan gateway (production;
+ *                    see infra/scanner) — files never leave our servers
+ *  - "virustotal"  → VirusTotal public API (legacy; shares files with third
+ *                    parties and is not licensed for commercial use)
  *
  * Per CLAUDE.md constraint #6: uploads MUST be blocked entirely
  * when the scanner is unreachable.
@@ -21,7 +25,17 @@ export class ScannerService {
   constructor() {
     const providerName = process.env.SCANNER_PROVIDER ?? "clamav";
 
-    if (providerName === "virustotal") {
+    if (providerName === "clamav-http") {
+      const url = process.env.SCANNER_URL?.trim();
+      const token = process.env.SCANNER_TOKEN?.trim();
+      if (!url || !token) {
+        throw new Error(
+          "SCANNER_URL and SCANNER_TOKEN are required when SCANNER_PROVIDER=clamav-http"
+        );
+      }
+      this.provider = new ClamavHttpProvider(url, token);
+      this.logger.log(`Scanner provider: remote ClamAV (${new URL(url).host})`);
+    } else if (providerName === "virustotal") {
       const apiKey = process.env.VIRUSTOTAL_API_KEY;
       if (!apiKey) {
         throw new Error("VIRUSTOTAL_API_KEY is required when SCANNER_PROVIDER=virustotal");

@@ -133,7 +133,7 @@ export function AdminSidebar({
               <div key={section.labelKey} className={cn(isCollapsed ? "space-y-1.5" : "space-y-2")}>
                 {isCollapsed ? null : (
                   <div className="px-3">
-                    <p className="font-sans text-[10px] font-medium uppercase tracking-[0.28em] text-[#6F6F6F]">
+                    <p className="font-sans text-[10px] font-medium uppercase tracking-[0.28em] text-[#8F8F8F]">
                       {tAdmin(section.labelKey)}
                     </p>
                   </div>

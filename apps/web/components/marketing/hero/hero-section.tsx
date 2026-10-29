@@ -195,9 +195,9 @@ export function HeroSection() {
                     <Link
                       href="/pricing"
                       className={cn(
-                        "group inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-accent px-6 py-2.5",
+                        "group inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-accent-strong px-6 py-2.5",
                         "font-display text-sm font-semibold tracking-wide text-accent-foreground",
-                        "transition-all duration-300 hover:bg-accent/90 hover:shadow-lg hover:shadow-accent/20",
+                        "transition-all duration-300 hover:bg-accent-strong-hover hover:shadow-lg hover:shadow-accent/20",
                         "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary"
                       )}
                     >

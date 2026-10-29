@@ -110,8 +110,8 @@ export function ResendSignupLinkForm({ onSuccess }: ResendSignupLinkFormProps) {
           className={cn(
             "inline-flex min-h-11 min-w-11 w-full items-center justify-center rounded-full px-5 font-sans text-sm font-semibold transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
             canSubmit
-              ? "bg-[#007eff] text-white hover:brightness-110"
-              : "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/45"
+              ? "bg-accent-strong text-white hover:brightness-110"
+              : "cursor-not-allowed border border-[#2A2A2A] bg-[#121212] text-white/50"
           )}
         >
           {isPending ? (

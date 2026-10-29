@@ -51,6 +51,11 @@ import {
 } from "@nestjs/common";
 import { Resend } from "resend";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
+import {
+  isExtraPagesGateSatisfied,
+  resolveExtraPagePriceNgn,
+  summarizeExtraPagePayments,
+} from "../common/extra-page-pricing.js";
 import { FilesService } from "../files/files.service.js";
 import { Prisma } from "../generated/prisma/client.js";
 import type { FileType, JobStatus } from "../generated/prisma/enums.js";
@@ -361,7 +366,6 @@ type AdminDownloadAsset = {
 @Injectable()
 export class BooksService {
   private readonly logger = new Logger(BooksService.name);
-  private static readonly EXTRA_PAGE_PRICE_NGN = 10;
   private static readonly DEFAULT_REPRINT_COST_PER_PAGE = 15;
   private static readonly DEFAULT_REPRINT_COVER_COST = 300;
   private static readonly REPRINT_COST_PER_PAGE_SETTING_KEY = "reprint_cost_per_page";
@@ -469,6 +473,7 @@ export class BooksService {
       select: {
         id: true,
         wordCount: true,
+        pageCount: true,
         status: true,
         version: true,
         pageSize: true,
@@ -487,12 +492,21 @@ export class BooksService {
 
     this.rollout.assertManuscriptPipelineAccess(book);
 
+    // The authoritative count at the current settings already reflects the
+    // manuscript's structure, so rescaling it beats estimating from words alone.
+    const currentPageSize = this.resolvePageSize(book.pageSize);
+    const currentFontSize = this.resolveFontSize(book.fontSize);
+    const reference =
+      typeof book.pageCount === "number" && book.pageCount > 0 && currentPageSize && currentFontSize
+        ? { pageCount: book.pageCount, pageSize: currentPageSize, fontSize: currentFontSize }
+        : null;
     const estimatedPages =
       typeof book.wordCount === "number"
         ? this.manuscriptAnalysis.estimatePages({
             wordCount: book.wordCount,
             pageSize: input.pageSize,
             fontSize: input.fontSize,
+            reference,
           })
         : null;
 
@@ -612,11 +626,15 @@ export class BooksService {
     // Fast structural integrity check before expensive ClamAV + Cloudinary upload
     this.manuscriptAnalysis.validateFileIntegrity(file.buffer, mimeType);
 
-    const wordCount = await this.manuscriptAnalysis.extractWordCount(file.buffer, mimeType);
+    const { wordCount, layout } = await this.manuscriptAnalysis.analyzeManuscript(
+      file.buffer,
+      mimeType
+    );
     const estimatedPages = this.manuscriptAnalysis.estimatePages({
       wordCount,
       pageSize,
       fontSize,
+      layout,
     });
     const documentPageCount = await this.manuscriptAnalysis.extractDocumentPageCount(
       file.buffer,
@@ -2314,28 +2332,32 @@ export class BooksService {
     }
 
     const overagePages = Math.max(0, book.pageCount - book.order.package.pageLimit);
-    const requiredExtraAmount = overagePages * BooksService.EXTRA_PAGE_PRICE_NGN;
+    let requiredExtraAmount = 0;
 
-    if (requiredExtraAmount > 0) {
+    if (overagePages > 0) {
       this.rollout.assertBillingGateAccess(book);
 
-      const successfulExtraPayments = await this.prisma.payment.aggregate({
-        where: {
-          orderId: book.orderId,
-          type: "EXTRA_PAGES",
-          status: "SUCCESS",
-        },
-        _sum: {
-          amount: true,
-        },
-      });
+      const pricePerPage = await resolveExtraPagePriceNgn(this.prisma);
+      const { paidAmount, paidPages } = summarizeExtraPagePayments(
+        await this.prisma.payment.findMany({
+          where: {
+            orderId: book.orderId,
+            type: "EXTRA_PAGES",
+            status: "SUCCESS",
+          },
+          select: { amount: true, metadata: true },
+        })
+      );
 
-      const paidAmount = this.readMoneyValue(successfulExtraPayments._sum.amount);
-      if (paidAmount < requiredExtraAmount) {
+      // Gate on pages paid for, so an admin price change after payment cannot
+      // block an author who already paid (see common/extra-page-pricing.ts).
+      if (!isExtraPagesGateSatisfied({ overagePages, pricePerPage, paidAmount, paidPages })) {
         throw new ConflictException(
           "Extra pages payment is required before approval. Please complete payment to continue."
         );
       }
+      // Record what was actually charged, not a recomputation at today's price.
+      requiredExtraAmount = paidAmount;
     }
 
     this.rollout.assertFinalPdfAccess(book);

@@ -257,7 +257,7 @@ function OrderRowActionsMenu({
           type="button"
           variant="outline"
           size="icon"
-          className="h-10 w-10 rounded-full border-[#2A2A2A] bg-[#000000] text-white hover:border-[#007eff] hover:bg-[#101010]"
+          className="size-11 rounded-full border-[#2A2A2A] bg-[#000000] text-white hover:border-[#007eff] hover:bg-[#101010]"
         >
           <MoreHorizontal className="size-4" aria-hidden="true" />
           <span className="sr-only">{tAdmin("orders_actions_menu_sr")}</span>
@@ -330,7 +330,7 @@ function AdminOrdersDateRangePicker({
                 : "border-[#2A2A2A] hover:border-[#3A3A3A]"
             )}
           >
-            <span className={cn(hasValue ? "text-white" : "text-[#6f6f6f]")}>
+            <span className={cn(hasValue ? "text-white" : "text-[#8f8f8f]")}>
               {formatDateRangeLabel({
                 dateFrom,
                 dateTo,
@@ -452,7 +452,7 @@ function AdminOrdersFilterBar({
             className={cn(
               "inline-flex min-h-9 items-center rounded-full border px-3 font-sans text-xs font-medium",
               hasActiveFilters
-                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#007eff]"
+                ? "border-[#007eff]/45 bg-[#007eff]/15 text-[#4da3ff]"
                 : "border-[#2A2A2A] bg-[#101010] text-[#b4b4b4]"
             )}
           >
@@ -867,8 +867,8 @@ function AdminOrdersMobileCards({ items, locale, transitioning, onArchive }: Mob
             </div>
           </div>
 
-          <dl className="mt-4 space-y-3">
-            <div>
+          <dl className="mt-4 grid grid-cols-2 gap-3">
+            <div className="col-span-2">
               <dt className="font-sans text-[11px] font-medium tracking-[0.08em] text-[#8f8f8f] uppercase">
                 {tAdmin("orders_table_email")}
               </dt>
@@ -876,32 +876,30 @@ function AdminOrdersMobileCards({ items, locale, transitioning, onArchive }: Mob
                 {order.customer.email}
               </dd>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <dt className="font-sans text-[11px] font-medium tracking-[0.08em] text-[#8f8f8f] uppercase">
-                  {tAdmin("orders_table_package")}
-                </dt>
-                <dd className="mt-1">
-                  <OrderMetaText>{order.package.name}</OrderMetaText>
-                </dd>
-              </div>
-              <div className="text-right">
-                <dt className="font-sans text-[11px] font-medium tracking-[0.08em] text-[#8f8f8f] uppercase">
-                  {tAdmin("orders_table_total")}
-                </dt>
-                <dd className="mt-1">
-                  <OrderMetaText>
-                    {formatAdminCurrency(
-                      order.totalAmount,
-                      order.currency,
-                      locale,
-                      tAdmin("orders_total_unavailable")
-                    )}
-                  </OrderMetaText>
-                </dd>
-              </div>
-            </div>
             <div>
+              <dt className="font-sans text-[11px] font-medium tracking-[0.08em] text-[#8f8f8f] uppercase">
+                {tAdmin("orders_table_package")}
+              </dt>
+              <dd className="mt-1">
+                <OrderMetaText>{order.package.name}</OrderMetaText>
+              </dd>
+            </div>
+            <div className="text-right">
+              <dt className="font-sans text-[11px] font-medium tracking-[0.08em] text-[#8f8f8f] uppercase">
+                {tAdmin("orders_table_total")}
+              </dt>
+              <dd className="mt-1">
+                <OrderMetaText>
+                  {formatAdminCurrency(
+                    order.totalAmount,
+                    order.currency,
+                    locale,
+                    tAdmin("orders_total_unavailable")
+                  )}
+                </OrderMetaText>
+              </dd>
+            </div>
+            <div className="col-span-2">
               <dt className="font-sans text-[11px] font-medium tracking-[0.08em] text-[#8f8f8f] uppercase">
                 {tAdmin("orders_table_date")}
               </dt>

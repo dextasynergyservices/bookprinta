@@ -26,7 +26,7 @@ export function ReprintBadge({ orderType, label, className }: ReprintBadgeProps)
       variant="outline"
       data-order-type={orderType ?? ""}
       className={cn(
-        "shrink-0 rounded-full border border-[#007eff]/50 bg-[#007eff]/20 px-2.5 py-1 font-sans text-[10px] leading-none font-semibold tracking-[0.05em] text-[#007eff]",
+        "shrink-0 rounded-full border border-[#007eff]/50 bg-[#007eff]/20 px-2.5 py-1 font-sans text-[10px] leading-none font-semibold tracking-[0.05em] text-[#4da3ff]",
         className
       )}
     >

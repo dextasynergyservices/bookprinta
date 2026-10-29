@@ -72,6 +72,13 @@ function buildService(initialState: Partial<MutableUserState> = {}) {
   };
 
   const prisma = {
+    authSession: {
+      create: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     user: {
       findUnique: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
         if (typeof where.verificationToken === "string") {

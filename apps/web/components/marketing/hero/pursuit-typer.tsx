@@ -42,7 +42,7 @@ export function PursuitTyper({ prefix, phrases }: PursuitTyperProps) {
   return (
     <span className="inline-flex items-baseline gap-1.5">
       {/* Small, subtle prefix */}
-      <span className="text-xs text-primary-foreground/30 sm:text-sm">{prefix}</span>
+      <span className="text-xs text-primary-foreground/50 sm:text-sm">{prefix}</span>
 
       {/* Prominent typed value */}
       <AnimatePresence mode="wait">
@@ -53,7 +53,7 @@ export function PursuitTyper({ prefix, phrases }: PursuitTyperProps) {
           className="inline-block text-xl font-bold text-accent sm:text-2xl lg:text-3xl"
         >
           {displayText}
-          <span className="inline-block w-[2px] animate-pulse bg-accent">&nbsp;</span>
+          <span className="inline-block w-[2px] animate-pulse bg-accent-strong">&nbsp;</span>
         </motion.span>
       </AnimatePresence>
     </span>

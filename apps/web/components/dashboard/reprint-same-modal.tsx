@@ -896,7 +896,7 @@ export function ReprintSameModal({
                                 disabled={
                                   isOffline || totalPrice <= 0 || effectiveCopies < MIN_COPIES
                                 }
-                                className="font-sans inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#007eff] px-6 text-base font-semibold text-white transition-colors duration-150 hover:bg-[#0a72df] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:bg-[#007eff]/40 disabled:text-white/50"
+                                className="font-sans inline-flex min-h-12 w-full items-center justify-center rounded-full bg-accent-strong px-6 text-base font-semibold text-white transition-colors duration-150 hover:bg-accent-strong-hover focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:bg-[#007eff]/40 disabled:text-white/50"
                               >
                                 {tDashboard("reprint_pay_cta")}
                               </Button>
@@ -953,7 +953,7 @@ export function ReprintSameModal({
                                     <Button
                                       type="button"
                                       onClick={() => void refetchPaymentGateways()}
-                                      className="font-sans mt-3 min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
+                                      className="font-sans mt-3 min-h-11 rounded-full bg-accent-strong px-5 text-sm font-semibold text-white hover:bg-accent-strong-hover"
                                     >
                                       {tDashboard("reprint_same_payment_retry")}
                                     </Button>
@@ -1052,7 +1052,7 @@ export function ReprintSameModal({
                               <Button
                                 type="button"
                                 onClick={() => goTo("payment_method", -1)}
-                                className="font-sans mt-6 min-h-11 rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0a72df]"
+                                className="font-sans mt-6 min-h-11 rounded-full bg-accent-strong px-6 text-sm font-semibold text-white hover:bg-accent-strong-hover"
                               >
                                 {tCommon("retry")}
                               </Button>
@@ -1134,7 +1134,7 @@ export function ReprintSameModal({
                               <Button
                                 type="button"
                                 onClick={() => goTo("bank_receipt")}
-                                className="font-sans inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#007eff] px-6 text-base font-semibold text-white transition-colors duration-150 hover:bg-[#0a72df] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+                                className="font-sans inline-flex min-h-12 w-full items-center justify-center rounded-full bg-accent-strong px-6 text-base font-semibold text-white transition-colors duration-150 hover:bg-accent-strong-hover focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
                               >
                                 {tCheckout("transfer_done")}
                               </Button>
@@ -1275,7 +1275,7 @@ export function ReprintSameModal({
                                   <div className="mt-4">
                                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#2A2A2A]">
                                       <motion.div
-                                        className="h-full rounded-full bg-[#007eff]"
+                                        className="h-full rounded-full bg-accent-strong"
                                         initial={{ width: "0%" }}
                                         animate={{ width: "85%" }}
                                         transition={{ duration: 2, ease: "easeOut" }}
@@ -1301,7 +1301,7 @@ export function ReprintSameModal({
                                 type="button"
                                 onClick={() => void handleReceiptSubmit()}
                                 disabled={!receiptFile || isUploadingReceipt}
-                                className="font-sans inline-flex min-h-12 w-full items-center justify-center rounded-full bg-[#007eff] px-6 text-base font-semibold text-white transition-colors duration-150 hover:bg-[#0a72df] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:bg-[#007eff]/40 disabled:text-white/50"
+                                className="font-sans inline-flex min-h-12 w-full items-center justify-center rounded-full bg-accent-strong px-6 text-base font-semibold text-white transition-colors duration-150 hover:bg-accent-strong-hover focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:bg-[#007eff]/40 disabled:text-white/50"
                               >
                                 {isUploadingReceipt ? (
                                   <>
@@ -1360,7 +1360,7 @@ export function ReprintSameModal({
                                   onOpenChange(false);
                                   router.push("/dashboard/books");
                                 }}
-                                className="font-sans mt-6 min-h-11 rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0066d1]"
+                                className="font-sans mt-6 min-h-11 rounded-full bg-accent-strong px-6 text-sm font-semibold text-white hover:bg-accent-strong-hover"
                               >
                                 {tDashboard("reprint_success_go_to_books")}
                               </Button>
@@ -1409,7 +1409,7 @@ export function ReprintSameModal({
                                   onOpenChange(false);
                                   router.push("/dashboard/books");
                                 }}
-                                className="font-sans mt-6 min-h-11 rounded-full bg-[#007eff] px-6 text-sm font-semibold text-white hover:bg-[#0066d1]"
+                                className="font-sans mt-6 min-h-11 rounded-full bg-accent-strong px-6 text-sm font-semibold text-white hover:bg-accent-strong-hover"
                               >
                                 {tDashboard("reprint_success_go_to_books")}
                               </Button>

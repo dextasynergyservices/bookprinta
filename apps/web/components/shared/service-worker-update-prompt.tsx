@@ -242,7 +242,7 @@ export function ServiceWorkerUpdatePrompt() {
                     type="button"
                     onClick={handleReload}
                     disabled={isReloading}
-                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white transition-all duration-150 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                   >
                     {isReloading ? tCommon("sw_update_reloading") : tCommon("sw_update_reload")}
                   </button>

@@ -1,7 +1,9 @@
-import { Controller, Get, Headers, Post, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Headers, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiExcludeEndpoint, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import { SkipThrottle } from "@nestjs/throttler";
+import type { Request } from "express";
 import { HealthStatusGuard } from "../common/health-status.guard.js";
+import { resolveTrustProxySetting } from "../rate-limit/tracker.utils.js";
 import { BaselineMetricsService } from "./baseline-metrics.service.js";
 import { HealthService } from "./health.service.js";
 
@@ -26,15 +28,16 @@ export class HealthController {
   /**
    * GET /api/v1/health/ping
    * Explicit keep-warm endpoint for external monitors.
-   * Used by UptimeRobot / external cron to prevent Render and Neon cold starts.
+   * Used by UptimeRobot / external cron to prevent Render cold starts. It never
+   * touches the database, so Neon can still scale to zero (Free plan compute hours).
    */
   @Get("ping")
   @ApiOperation({
     summary: "Lightweight keep-warm ping",
     description:
       "Preferred keep-alive endpoint for UptimeRobot or UptimeBoot. " +
-      "Warms the Neon DB connection and returns runtime cold-start telemetry. " +
-      "Redis is NOT pinged here to conserve Upstash quota.",
+      "Returns runtime cold-start telemetry. Touches neither the database (so Neon " +
+      "can scale to zero) nor Redis (Upstash quota).",
   })
   @ApiResponse({
     status: 200,
@@ -132,6 +135,25 @@ export class HealthController {
    * Pass ?deep=1 to run the Gotenberg render smoke test; omit it for a cheap
    * liveness-only check suitable for routine polling.
    */
+  /**
+   * GET /api/v1/health/client-ip
+   * Calibrates TRUST_PROXY_HOPS. Call it through the public site
+   * (https://<frontend>/api/v1/health/client-ip) and check that `ip` is your own
+   * public address — not a Vercel or Render one. Token-guarded like /status
+   * because it echoes forwarding headers.
+   */
+  @Get("client-ip")
+  @UseGuards(HealthStatusGuard)
+  @ApiExcludeEndpoint()
+  clientIp(@Req() req: Request) {
+    return {
+      ip: req.ip ?? null,
+      proxyChain: req.ips,
+      forwardedFor: req.headers["x-forwarded-for"] ?? null,
+      trustProxyHops: resolveTrustProxySetting(),
+    };
+  }
+
   @Get("status")
   @UseGuards(HealthStatusGuard)
   @ApiOperation({

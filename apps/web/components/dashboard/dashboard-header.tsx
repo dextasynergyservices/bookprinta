@@ -92,7 +92,7 @@ export function DashboardHeader({
               aria-expanded={isMobileMenuOpen}
               aria-controls="dashboard-mobile-drawer"
               onClick={onOpenMobileMenu}
-              className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#111111] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#1a1a1a] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 lg:hidden"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-[#111111] text-white transition-colors duration-150 hover:border-[#007eff] hover:bg-[#1a1a1a] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 lg:hidden"
             >
               <Menu className="size-5" aria-hidden="true" />
             </button>

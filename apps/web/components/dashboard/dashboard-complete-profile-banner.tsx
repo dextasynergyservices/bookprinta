@@ -33,7 +33,7 @@ export function DashboardCompleteProfileBanner({ onDismiss }: DashboardCompleteP
           <div className="mt-3">
             <Button
               asChild
-              className="min-h-11 rounded-full bg-[#007eff] px-5 text-sm font-semibold text-white hover:bg-[#0a72df]"
+              className="min-h-11 rounded-full bg-accent-strong px-5 text-sm font-semibold text-white hover:bg-accent-strong-hover"
             >
               <Link href="/dashboard/profile">{tDashboard("complete_profile_cta")}</Link>
             </Button>

@@ -29,6 +29,13 @@ describe("AuthService login instrumentation", () => {
 
   const buildService = () => {
     const prisma = {
+      authSession: {
+        create: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       user: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
@@ -466,9 +473,10 @@ describe("AuthService login instrumentation", () => {
       }
     );
 
-    expect(prisma.user.update).toHaveBeenCalled();
+    // The refresh session is now an AuthSession row (one per device).
+    expect(prisma.authSession.create).toHaveBeenCalled();
 
-    const refreshTokenExp = prisma.user.update.mock.calls.at(-1)?.[0]?.data?.refreshTokenExp;
+    const refreshTokenExp = prisma.authSession.create.mock.calls.at(-1)?.[0]?.data?.expiresAt;
     const refreshTokenLifetimeMs = refreshTokenExp.getTime() - loginStartedAt;
 
     expect(refreshTokenExp).toBeInstanceOf(Date);

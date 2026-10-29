@@ -40,10 +40,10 @@ const inputBase =
   "w-full rounded-lg border border-white/10 bg-white/5 px-4 pb-3 pt-6 font-sans text-sm text-primary-foreground placeholder-transparent transition-all duration-200 focus:border-accent/50 focus:bg-white/[0.07] focus:outline-none focus:ring-2 focus:ring-accent/20 md:text-base peer";
 
 const labelBase =
-  "pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/25 transition-all duration-200 peer-focus:top-2.5 peer-focus:translate-y-0 peer-focus:text-[10px] peer-focus:text-accent/60 peer-[:not(:placeholder-shown)]:top-2.5 peer-[:not(:placeholder-shown)]:translate-y-0 peer-[:not(:placeholder-shown)]:text-[10px]";
+  "pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/50 transition-all duration-200 peer-focus:top-2.5 peer-focus:translate-y-0 peer-focus:text-[10px] peer-focus:text-accent/60 peer-[:not(:placeholder-shown)]:top-2.5 peer-[:not(:placeholder-shown)]:translate-y-0 peer-[:not(:placeholder-shown)]:text-[10px]";
 
 const selectLabelBase =
-  "pointer-events-none absolute left-4 font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/25 transition-all duration-200";
+  "pointer-events-none absolute left-4 font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/50 transition-all duration-200";
 
 const errorBase = "mt-1 font-sans text-xs text-red-400";
 
@@ -344,7 +344,7 @@ function ContactFormInner() {
             />
             <label htmlFor="contact-phone" className={labelBase}>
               {t("form_phone")}{" "}
-              <span className="font-normal normal-case tracking-normal text-primary-foreground/15">
+              <span className="font-normal normal-case tracking-normal text-primary-foreground/50">
                 {t("form_phone_optional")}
               </span>
             </label>
@@ -430,7 +430,7 @@ function ContactFormInner() {
           />
           <label
             htmlFor="contact-message"
-            className="pointer-events-none absolute left-4 top-4 font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/25 transition-all duration-200 peer-focus:top-1.5 peer-focus:text-[10px] peer-focus:text-accent/60 peer-[:not(:placeholder-shown)]:top-1.5 peer-[:not(:placeholder-shown)]:text-[10px]"
+            className="pointer-events-none absolute left-4 top-4 font-display text-xs font-semibold uppercase tracking-widest text-primary-foreground/50 transition-all duration-200 peer-focus:top-1.5 peer-focus:text-[10px] peer-focus:text-accent/60 peer-[:not(:placeholder-shown)]:top-1.5 peer-[:not(:placeholder-shown)]:text-[10px]"
           >
             {t("form_message")}
           </label>
@@ -440,14 +440,14 @@ function ContactFormInner() {
             {errors.message}
           </p>
         )}
-        <p className="mt-1 text-right font-sans text-xs text-primary-foreground/20">
+        <p className="mt-1 text-right font-sans text-xs text-primary-foreground/50">
           {formData.message.length} / 2000
         </p>
       </div>
 
       {/* reCAPTCHA notice */}
       <div ref={setFieldRef(6)}>
-        <p className="font-sans text-xs leading-relaxed text-primary-foreground/20">
+        <p className="font-sans text-xs leading-relaxed text-primary-foreground/50">
           {t.rich("recaptcha_notice", {
             privacy: (chunks) => (
               <a
@@ -478,7 +478,7 @@ function ContactFormInner() {
         <button
           type="submit"
           disabled={mutation.isPending}
-          className="group inline-flex w-full items-center justify-center gap-2.5 rounded-lg bg-accent px-8 py-4 font-display text-sm font-semibold uppercase tracking-wider text-white transition-all duration-300 hover:bg-accent/90 hover:scale-[1.01] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 md:w-auto md:text-base"
+          className="group inline-flex w-full items-center justify-center gap-2.5 rounded-lg bg-accent-strong px-8 py-4 font-display text-sm font-semibold uppercase tracking-wider text-white transition-all duration-300 hover:bg-accent-strong-hover hover:scale-[1.01] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 md:w-auto md:text-base"
         >
           {mutation.isPending ? (
             <>

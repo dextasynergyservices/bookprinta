@@ -182,6 +182,8 @@ export class AdminSystemController {
   }
 
   @Patch("payment-gateways/:id")
+  // Gateway keys move money: restricted to SUPER_ADMIN (audit finding #10).
+  @Roles(UserRole.SUPER_ADMIN)
   @Throttle(ADMIN_SETTINGS_MUTATION_THROTTLE)
   @Header("Cache-Control", "private, no-store")
   @Header("Vary", "Cookie")

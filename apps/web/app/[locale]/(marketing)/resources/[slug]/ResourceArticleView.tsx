@@ -145,7 +145,7 @@ export function ResourceArticleView({
 
         <div className="mx-auto w-full max-w-4xl px-5 pb-14 pt-8 md:px-10 md:pb-16 md:pt-10 lg:px-0 lg:pb-20 lg:pt-12">
           {article.category ? (
-            <p className="resource-article-hero-reveal inline-flex rounded-full bg-[#007eff] px-3 py-1 font-sans text-[0.7rem] font-semibold tracking-[0.08em] text-white uppercase">
+            <p className="resource-article-hero-reveal inline-flex rounded-full bg-accent-strong px-3 py-1 font-sans text-[0.7rem] font-semibold tracking-[0.08em] text-white uppercase">
               {article.category.name}
             </p>
           ) : null}
@@ -258,7 +258,7 @@ export function ResourceArticleView({
           >
             <Link
               href="/pricing"
-              className="inline-flex min-h-[48px] min-w-[220px] items-center justify-center gap-2 rounded-full bg-[#007eff] px-8 py-3 font-sans text-sm font-bold uppercase tracking-[0.08em] text-white transition-all duration-300 hover:bg-[#007eff]/90 hover:shadow-[0_0_24px_rgba(0,126,255,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#111111]"
+              className="inline-flex min-h-[48px] min-w-[220px] items-center justify-center gap-2 rounded-full bg-accent-strong px-8 py-3 font-sans text-sm font-bold uppercase tracking-[0.08em] text-white transition-all duration-300 hover:bg-[#007eff]/90 hover:shadow-[0_0_24px_rgba(0,126,255,0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007eff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#111111]"
             >
               {t("article_cta_button")}
               <ArrowRightIcon className="size-4" aria-hidden="true" />

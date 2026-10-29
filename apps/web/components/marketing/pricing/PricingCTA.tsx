@@ -58,7 +58,7 @@ export function PricingCTA() {
   return (
     <section
       ref={containerRef}
-      className="relative flex overflow-hidden bg-accent px-5 py-14 md:flex-row md:items-center md:justify-between md:px-10 md:py-20 lg:px-14"
+      className="relative flex overflow-hidden bg-accent-strong px-5 py-14 md:flex-row md:items-center md:justify-between md:px-10 md:py-20 lg:px-14"
       aria-labelledby="pricing-cta-heading"
     >
       {/* Background decoration */}
@@ -79,7 +79,7 @@ export function PricingCTA() {
             {t("cta_title")}
           </h2>
 
-          <p className="pricing-cta-sub mt-5 max-w-lg font-serif text-base leading-relaxed text-accent-foreground/70 md:mt-1 md:text-lg">
+          <p className="pricing-cta-sub mt-5 max-w-lg font-serif text-base leading-relaxed text-accent-foreground/90 md:mt-1 md:text-lg">
             {t("cta_subtitle")}
           </p>
         </div>

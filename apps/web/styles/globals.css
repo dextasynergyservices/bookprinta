@@ -61,6 +61,11 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  /* Filled surfaces behind white text (buttons, badges). Brand #007eff with white
+     text is 3.86:1 — below WCAG AA 4.5:1 — so fills use a deeper shade of the
+     brand blue. #007eff stays for text, links, borders and tints on black. */
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-strong-hover: var(--accent-strong-hover);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-input: var(--input);
@@ -98,6 +103,8 @@
   --muted-foreground: oklch(0.554 0.022 264.364);
   --accent: #007eff;
   --accent-foreground: #ffffff;
+  --accent-strong: #0068d8; /* white text 5.0:1 */
+  --accent-strong-hover: #0057b8; /* white text 6.6:1 */
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.929 0.013 255.508);
   --input: oklch(0.929 0.013 255.508);
@@ -133,6 +140,8 @@
   --muted-foreground: oklch(0.704 0.015 261.285);
   --accent: #007eff;
   --accent-foreground: #ffffff;
+  --accent-strong: #0068d8; /* white text 5.0:1 */
+  --accent-strong-hover: #0057b8; /* white text 6.6:1 */
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
@@ -205,7 +214,7 @@ html.lenis body {
 
 /* ─── Selection highlight ─── */
 ::selection {
-  background-color: var(--accent);
+  background-color: var(--accent-strong);
   color: var(--accent-foreground);
 }
 
@@ -233,7 +242,7 @@ html.lenis body {
   width: auto;
   height: auto;
   padding: 0.75rem 1.5rem;
-  background: var(--accent);
+  background: var(--accent-strong);
   color: var(--accent-foreground);
   border-radius: 0.5rem;
   font-weight: 600;
@@ -289,7 +298,7 @@ html.lenis body {
   width: 3.5rem;
   height: 3.5rem;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--accent-strong);
   color: var(--accent-foreground);
   font-weight: 700;
   font-size: 1.25rem;

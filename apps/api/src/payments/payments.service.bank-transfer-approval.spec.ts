@@ -1,4 +1,6 @@
 /// <reference types="jest" />
+
+import { withSignedCheckoutPricing } from "../../test/helpers/checkout-pricing.js";
 import {
   BookStatus,
   OrderStatus,
@@ -251,7 +253,7 @@ describe("PaymentsService bank transfer approval", () => {
       amount: 125000,
       currency: "NGN",
       providerRef: "BT-002",
-      metadata: {
+      metadata: withSignedCheckoutPricing({
         locale: "es",
         fullName: "Ada Okafor",
         phone: "+2348099999999",
@@ -260,7 +262,7 @@ describe("PaymentsService bank transfer approval", () => {
         bookSize: "A5",
         paperColor: "white",
         lamination: "gloss",
-      },
+      }),
       userId: "user_1",
       orderId: null,
     });
@@ -442,7 +444,7 @@ describe("PaymentsService bank transfer approval", () => {
       amount: 98000,
       currency: "NGN",
       providerRef: "BT-003",
-      metadata: {
+      metadata: withSignedCheckoutPricing({
         locale: "en",
         fullName: "Guest Writer",
         phone: "+2348123456789",
@@ -451,7 +453,7 @@ describe("PaymentsService bank transfer approval", () => {
         bookSize: "A5",
         paperColor: "white",
         lamination: "matte",
-      },
+      }),
       userId: null,
       orderId: null,
     });

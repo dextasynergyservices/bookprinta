@@ -69,7 +69,7 @@ export default async function SignupFinishConfirmationPage({
             </Link>
             <Link
               href="/dashboard"
-              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-[#007eff] px-5 font-sans text-sm font-semibold text-white shadow-[0_10px_28px_rgba(0,126,255,0.3)] transition-all duration-150 hover:brightness-110"
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-accent-strong px-5 font-sans text-sm font-semibold text-white shadow-[0_10px_28px_rgba(0,126,255,0.3)] transition-all duration-150 hover:brightness-110"
             >
               {t("signup_finish_proceed_dashboard")}
               <ArrowRight className="ml-2 size-4" aria-hidden="true" />

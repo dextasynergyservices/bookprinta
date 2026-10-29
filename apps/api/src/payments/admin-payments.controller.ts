@@ -129,6 +129,8 @@ export class AdminPaymentsController {
   }
 
   @Post(":paymentId/refund")
+  // Refunds send money out: restricted to SUPER_ADMIN (audit finding #10).
+  @Roles(UserRole.SUPER_ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: "Process an admin refund",

@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import type { Locale } from "@bookprinta/emails";
 import { renderPasswordResetEmail } from "@bookprinta/emails/render";
-import { BCRYPT_SALT_ROUNDS, isAdminRole } from "@bookprinta/shared";
+import { isAdminRole } from "@bookprinta/shared";
 import {
   BadRequestException,
   ConflictException,
@@ -11,13 +11,20 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
-import * as bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { PinoLogger } from "nestjs-pino";
 import { Resend } from "resend";
+import { verifyRecaptchaToken } from "../common/recaptcha.js";
 import type { UserRole } from "../generated/prisma/enums.js";
 import { SignupNotificationsService } from "../notifications/signup-notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+import {
+  createSession,
+  newSessionId,
+  revokeAllSessions,
+  revokeSession,
+  rotateSession,
+} from "./auth-session.store.js";
 import type {
   FinishSignupDto,
   ForgotPasswordDto,
@@ -31,6 +38,7 @@ import type {
 } from "./dto/index.js";
 import type { JwtPayload, TokenPair } from "./interfaces/index.js";
 import { resolveJwtSecret } from "./jwt-secret.util.js";
+import { hashPassword, needsRehash, verifyPassword } from "./password-hasher.js";
 import { normalizePhoneNumber } from "./phone-number.util.js";
 import { hashRefreshToken } from "./refresh-token.util.js";
 
@@ -186,7 +194,7 @@ export class AuthService {
     }
 
     // Hash the password
-    const hashedPassword = await bcrypt.hash(dto.password, BCRYPT_SALT_ROUNDS);
+    const hashedPassword = await hashPassword(dto.password);
 
     // Generate a 6-digit email verification code
     const verificationCode = this.generateVerificationCode();
@@ -456,7 +464,7 @@ export class AuthService {
         }
 
         const passwordCompareStartedAt = performance.now();
-        const isPasswordValid = await bcrypt.compare(dto.password, user.password);
+        const isPasswordValid = await verifyPassword(dto.password, user.password);
         loginTiming.passwordCompareDurationMs = this.roundDuration(
           performance.now() - passwordCompareStartedAt
         );
@@ -483,6 +491,7 @@ export class AuthService {
       }
 
       await this.ensureAccountIsActive(user);
+      this.rehashPasswordIfNeeded(user.id, dto.password, user.password);
 
       // Check if email is verified
       if (!user.isVerified) {
@@ -496,6 +505,7 @@ export class AuthService {
       // Generate tokens and set refresh token in database
       const tokens = await this.generateTokenPair(user.id, user.email, user.role, {
         timing: loginTiming,
+        client: { userAgent: context.userAgent ?? null, ipAddress: context.ipAddress ?? null },
       });
       loginTiming.outcome = "success";
 
@@ -513,6 +523,26 @@ export class AuthService {
     }
   }
 
+  /**
+   * Migrate a stored hash to the configured BCRYPT_COST after a successful
+   * login (we only ever have the plaintext at that moment). Fire-and-forget:
+   * a failure here must never fail the login.
+   */
+  private rehashPasswordIfNeeded(
+    userId: string,
+    password: string,
+    storedHash: string | null | undefined
+  ): void {
+    if (!storedHash || !needsRehash(storedHash)) return;
+    void hashPassword(password)
+      .then((hash) => this.prisma.user.update({ where: { id: userId }, data: { password: hash } }))
+      .catch((error: unknown) => {
+        this.logger.warn(
+          `Password rehash skipped for user ${userId}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      });
+  }
+
   // ==========================================
   // LOGOUT (POST /auth/logout)
   // ==========================================
@@ -521,14 +551,18 @@ export class AuthService {
    * Invalidate refresh token in database.
    * Cookies are cleared at the controller level.
    */
-  async logout(userId: string): Promise<{ message: string }> {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        refreshToken: null,
-        refreshTokenExp: null,
-      },
-    });
+  async logout(userId: string, sessionId?: string): Promise<{ message: string }> {
+    if (sessionId) {
+      // This device only — the user stays signed in elsewhere.
+      await revokeSession(this.prisma, { id: sessionId, userId });
+    } else {
+      // Pre-session token: we cannot tell which device it is, so fall back to
+      // the old behaviour and end the legacy slot.
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { refreshToken: null, refreshTokenExp: null },
+      });
+    }
 
     return { message: "Logged out successfully" };
   }
@@ -573,30 +607,75 @@ export class AuthService {
    * Important: refresh preserves the original refresh-session expiry window.
    * It rotates the token value, but does not extend session lifetime forever.
    */
-  async refresh(userId: string, email: string, role: UserRole): Promise<TokenPair> {
-    const session = await this.prisma.user.findUnique({
+  async refresh(
+    userId: string,
+    email: string,
+    role: UserRole,
+    options: { sid?: string; grace?: boolean; validatedDigest?: string } = {}
+  ): Promise<TokenPair> {
+    const account = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, isActive: true, isDeleted: true, refreshTokenExp: true },
     });
 
-    if (!session?.refreshTokenExp) {
+    if (!account) {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
-    await this.ensureAccountIsActive(session, {
+    await this.ensureAccountIsActive(account, {
       revokeRefreshToken: true,
     });
 
-    const refreshTokenExpiresAt = new Date(session.refreshTokenExp);
-    const remainingMs = refreshTokenExpiresAt.getTime() - Date.now();
+    // Pre-session (legacy) token: its expiry lives on the User row. Rotating
+    // it creates an AuthSession, migrating this device to multi-session.
+    let refreshTokenExpiresAt: Date | null = account.refreshTokenExp
+      ? new Date(account.refreshTokenExp)
+      : null;
 
+    if (options.sid) {
+      const session = await this.prisma.authSession.findFirst({
+        where: { id: options.sid, userId },
+        select: { expiresAt: true },
+      });
+      if (!session) {
+        throw new UnauthorizedException("Invalid refresh token");
+      }
+      refreshTokenExpiresAt = session.expiresAt;
+    }
+
+    if (!refreshTokenExpiresAt) {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    const remainingMs = refreshTokenExpiresAt.getTime() - Date.now();
     if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
       throw new UnauthorizedException("Refresh token expired");
     }
 
-    return this.generateTokenPair(userId, email, role, {
+    if (options.grace && options.sid) {
+      // Another tab rotated this session moments ago and its response already
+      // put the new refresh token in the shared cookie jar. Reissue only the
+      // access token so this tab carries on instead of being logged out.
+      return {
+        accessToken: this.signAccessToken({ sub: userId, email, role, sid: options.sid }),
+        refreshToken: null,
+      };
+    }
+
+    const tokens = await this.generateTokenPair(userId, email, role, {
       refreshTokenExpiresAt,
+      sessionId: options.sid,
+      expectedDigest: options.validatedDigest,
     });
+
+    if (!options.sid) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { refreshToken: null, refreshTokenExp: null },
+      });
+    }
+
+    return tokens;
   }
 
   // ==========================================
@@ -694,7 +773,7 @@ export class AuthService {
 
     const user = await this.getValidResetTokenUser(dto.token);
 
-    const hashedPassword = await bcrypt.hash(dto.newPassword, BCRYPT_SALT_ROUNDS);
+    const hashedPassword = await hashPassword(dto.newPassword);
 
     // Update password, clear reset token, invalidate all refresh tokens
     await this.prisma.user.update({
@@ -703,10 +782,11 @@ export class AuthService {
         password: hashedPassword,
         resetToken: null,
         tokenExpiry: null,
-        refreshToken: null, // Force re-login on all devices
+        refreshToken: null, // Force re-login on all devices (legacy slot)
         refreshTokenExp: null,
       },
     });
+    await revokeAllSessions(this.prisma, user.id);
 
     return { message: "Password reset successfully. Please log in with your new password." };
   }
@@ -847,11 +927,16 @@ export class AuthService {
     options: {
       refreshTokenExpiresAt?: Date;
       timing?: AuthLoginTimingLog;
+      /** Rotate this existing session instead of creating a new one. */
+      sessionId?: string;
+      /** The refresh-token digest the guard validated; rotation is conditional on it. */
+      expectedDigest?: string;
+      client?: { userAgent: string | null; ipAddress: string | null };
     } = {}
   ): Promise<TokenPair> {
-    const payload: JwtPayload = { sub: userId, email, role };
+    const sessionId = options.sessionId ?? newSessionId();
+    const payload: JwtPayload = { sub: userId, email, role, sid: sessionId };
 
-    const accessExpiryMs = this.parseExpiryToMs(this.ACCESS_TOKEN_EXPIRY);
     let refreshTokenExp: Date;
 
     if (options.refreshTokenExpiresAt) {
@@ -874,15 +959,17 @@ export class AuthService {
       throw new UnauthorizedException("Refresh token expired");
     }
 
-    // Sign access token (expiresIn as seconds — jsonwebtoken v9 requires number)
-    const accessToken = jwt.sign(payload, this.JWT_SECRET, {
-      expiresIn: Math.floor(accessExpiryMs / 1000),
-    });
+    const accessToken = this.signAccessToken(payload);
 
-    // Sign refresh token
-    const refreshToken = jwt.sign(payload, this.JWT_SECRET, {
-      expiresIn: Math.max(1, Math.floor(refreshExpiryMs / 1000)),
-    });
+    // Sign refresh token. `jti` makes every token unique even when two are
+    // minted for the same session within one second (digests are unique-indexed).
+    const refreshToken = jwt.sign(
+      { ...payload, jti: crypto.randomBytes(9).toString("base64url") },
+      this.JWT_SECRET,
+      {
+        expiresIn: Math.max(1, Math.floor(refreshExpiryMs / 1000)),
+      }
+    );
     const refreshHashStartedAt = performance.now();
     const hashedRefreshToken = hashRefreshToken(refreshToken);
     if (options.timing) {
@@ -891,15 +978,32 @@ export class AuthService {
       );
     }
 
-    // Store hashed refresh token in database (rotation: replaces old token)
+    // One row per device (AuthSession) — see auth-session.store.ts.
     const refreshPersistStartedAt = performance.now();
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        refreshToken: hashedRefreshToken,
-        refreshTokenExp,
-      },
-    });
+    if (options.sessionId) {
+      const rotated =
+        options.expectedDigest !== undefined &&
+        (await rotateSession(this.prisma, {
+          id: options.sessionId,
+          userId,
+          expectedDigest: options.expectedDigest,
+          nextDigest: hashedRefreshToken,
+        }));
+      if (!rotated) {
+        // A concurrent refresh (another tab) rotated first. Its response
+        // carries the new refresh token; give this one a fresh access token.
+        return { accessToken, refreshToken: null };
+      }
+    } else {
+      await createSession(this.prisma, {
+        id: sessionId,
+        userId,
+        tokenDigest: hashedRefreshToken,
+        expiresAt: refreshTokenExp,
+        userAgent: options.client?.userAgent ?? null,
+        ipAddress: options.client?.ipAddress ?? null,
+      });
+    }
     if (options.timing) {
       options.timing.refreshTokenPersistDurationMs = this.roundDuration(
         performance.now() - refreshPersistStartedAt
@@ -907,6 +1011,13 @@ export class AuthService {
     }
 
     return { accessToken, refreshToken };
+  }
+
+  private signAccessToken(payload: JwtPayload): string {
+    // expiresIn as seconds — jsonwebtoken v9 requires a number
+    return jwt.sign(payload, this.JWT_SECRET, {
+      expiresIn: Math.floor(this.parseExpiryToMs(this.ACCESS_TOKEN_EXPIRY) / 1000),
+    });
   }
 
   // ==========================================
@@ -955,6 +1066,16 @@ export class AuthService {
   /**
    * Get cleared cookie options (for logout).
    */
+  /**
+   * Options for the non-sensitive `bp_session=1` marker. It lets browser JS
+   * skip the /auth/me probe for anonymous visitors (two wasted API calls per
+   * page view on a 0.1-CPU instance). JS-readable on purpose; carries no token.
+   * Lives as long as the refresh session it signals.
+   */
+  getSessionMarkerCookieOptions(role: string): CookieOptions {
+    return { ...this.getRefreshTokenCookieOptions(role), httpOnly: false, path: "/" };
+  }
+
   getClearedCookieOptions(): CookieOptions {
     const secure = process.env.NODE_ENV === "production";
     const usePartitioned = this.cookieSameSite === "none" && secure;
@@ -1164,7 +1285,7 @@ export class AuthService {
     for (const candidate of users) {
       if (!candidate.password) continue;
       const passwordCompareStartedAt = performance.now();
-      const isPasswordValid = await bcrypt.compare(password, candidate.password);
+      const isPasswordValid = await verifyPassword(password, candidate.password);
       passwordCompareDurationMs += performance.now() - passwordCompareStartedAt;
       if (isPasswordValid) {
         return {
@@ -1247,6 +1368,7 @@ export class AuthService {
           where: { id: user.id },
           data: { refreshToken: null, refreshTokenExp: null },
         });
+        await revokeAllSessions(this.prisma, user.id);
       }
 
       throw new UnauthorizedException({
@@ -1267,6 +1389,7 @@ export class AuthService {
           refreshTokenExp: null,
         },
       });
+      await revokeAllSessions(this.prisma, user.id);
     }
 
     throw new UnauthorizedException({
@@ -1339,47 +1462,9 @@ export class AuthService {
     return configured;
   }
 
-  /**
-   * Validate reCAPTCHA token with Google's API.
-   * Skips verification in development or when secret key is missing.
-   */
-  private async verifyRecaptcha(token: string): Promise<boolean> {
-    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-    if (!secretKey) {
-      this.logger.warn("RECAPTCHA_SECRET_KEY not set — skipping verification");
-      return true;
-    }
-
-    if (process.env.NODE_ENV !== "production") {
-      this.logger.warn("Development mode — skipping reCAPTCHA verification");
-      return true;
-    }
-
-    try {
-      const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ secret: secretKey, response: token }),
-        signal: AbortSignal.timeout(5000),
-      });
-
-      const data = (await response.json()) as {
-        success?: boolean;
-        score?: number;
-        "error-codes"?: string[];
-      };
-
-      if (!data.success) {
-        this.logger.warn(
-          `reCAPTCHA rejected — success: ${data.success}, score: ${data.score}, errors: ${JSON.stringify(data["error-codes"])}`
-        );
-      }
-
-      return data.success === true && (data.score === undefined || data.score >= 0.5);
-    } catch (error) {
-      this.logger.error("reCAPTCHA verification network error", error);
-      return false;
-    }
+  /** reCAPTCHA check — fails closed in production (see common/recaptcha.ts). */
+  private verifyRecaptcha(token: string): Promise<boolean> {
+    return verifyRecaptchaToken(token, this.logger);
   }
 
   private resolveFrontendBaseUrl(): string {
@@ -1437,6 +1522,9 @@ type AuthLoginIdentifierType = "email" | "phone";
 type AuthLoginInstrumentationContext = {
   correlationId?: string | null;
   clientRecaptchaDurationMs?: number | null;
+  /** Recorded on the new AuthSession so a user can recognise their devices. */
+  userAgent?: string | null;
+  ipAddress?: string | null;
 };
 
 type AuthLoginTimingLog = {

@@ -53,12 +53,17 @@ services:
       - "gotenberg"
       - "--api-timeout=120s"
       - "--chromium-allow-list=file:///tmp/.*"
+      # Start Chromium at boot and give it time to come up. On Render's 0.1 CPU
+      # the default 20s start timeout is exceeded, so the FIRST render after
+      # every cold start failed with HTTP 500 (measured in the pressure test).
+      # Use the same two flags on the Render Gotenberg service.
+      - "--chromium-auto-start"
+      - "--chromium-start-timeout=120s"
       # Burst protection (Phase 5): the API sends renders one at a time
       # (BullMQ concurrency: 1), so Gotenberg is not the concurrency bottleneck
       # for us today. If that ever changes, cap queued Chromium work so a burst
-      # queues instead of OOM-killing the container. VERIFY the exact flag name
-      # against the pinned Gotenberg 8.x before enabling — a wrong flag aborts
-      # boot. As of writing: "--chromium-max-queue-size=N".
+      # queues instead of OOM-killing the container. Flag name verified against
+      # gotenberg/gotenberg:8 (`gotenberg --help`, 2026-10).
       # - "--chromium-max-queue-size=8"
 
   # ─────────────────────────────────────

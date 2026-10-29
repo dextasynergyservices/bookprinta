@@ -438,7 +438,7 @@ function OrdersEmptyState() {
       </p>
       <Link
         href="/pricing"
-        className="font-sans mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-[#007eff] px-6 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-[#0066d1] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+        className="font-sans mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-accent-strong px-6 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-strong-hover focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
       >
         {tDashboard("orders_empty_cta")}
       </Link>

@@ -65,6 +65,12 @@ export class ClamavProvider implements ScanProvider {
         if (trimmed.endsWith("OK")) {
           this.logger.debug(`ClamAV: "${fileName}" is clean`);
           resolve({ clean: true });
+        } else if (!/FOUND$/.test(trimmed)) {
+          // e.g. "INSTREAM size limit exceeded. ERROR" — the file was NOT
+          // scanned. Reporting it as a virus told users their clean file was
+          // infected; fail as unavailable instead (upload blocked, retryable).
+          this.logger.error(`ClamAV could not scan "${fileName}": ${trimmed}`);
+          reject(new Error(`ClamAV scan error: ${trimmed}`));
         } else {
           // Extract virus name from "stream: VirusName FOUND"
           const match = trimmed.match(/stream:\s*(.+)\s+FOUND/);

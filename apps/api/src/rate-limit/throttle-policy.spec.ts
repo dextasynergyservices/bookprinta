@@ -67,13 +67,13 @@ describe("throttle policy metadata", () => {
     expect(getTracker(target, "long")).toBe(getNormalizedEmailTracker);
   });
 
-  it("applies 3/hour coupon validation limit keyed by IP", () => {
+  it("applies 10/10min + 20/hour coupon validation limits keyed by IP", () => {
     const target = methodOf(CouponsController, "validate");
 
-    expect(getLimit(target, "short")).toBe(3);
-    expect(getTtl(target, "short")).toBe(3_600_000);
+    expect(getLimit(target, "short")).toBe(10);
+    expect(getTtl(target, "short")).toBe(600_000);
     expect(getTracker(target, "short")).toBe(getIpTracker);
-    expect(getLimit(target, "long")).toBe(3);
+    expect(getLimit(target, "long")).toBe(20);
     expect(getTtl(target, "long")).toBe(3_600_000);
     expect(getTracker(target, "long")).toBe(getIpTracker);
   });

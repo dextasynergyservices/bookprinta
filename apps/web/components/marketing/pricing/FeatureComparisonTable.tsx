@@ -176,7 +176,7 @@ export function FeatureComparisonTable() {
                       {isActive && (
                         <motion.div
                           layoutId="compare-tab-pill-mobile"
-                          className="absolute inset-0 rounded-lg bg-accent shadow-sm"
+                          className="absolute inset-0 rounded-lg bg-accent-strong shadow-sm"
                           transition={{ type: "spring", stiffness: 400, damping: 30 }}
                         />
                       )}
@@ -216,7 +216,7 @@ export function FeatureComparisonTable() {
                     {isActive && (
                       <motion.div
                         layoutId="compare-tab-pill"
-                        className="absolute inset-0 rounded-lg bg-accent shadow-sm"
+                        className="absolute inset-0 rounded-lg bg-accent-strong shadow-sm"
                         transition={{ type: "spring", stiffness: 400, damping: 30 }}
                       />
                     )}
@@ -251,7 +251,7 @@ export function FeatureComparisonTable() {
             </span>
             <ChevronDown
               className={cn(
-                "size-4 text-primary-foreground/40 transition-transform duration-200",
+                "size-4 text-primary-foreground/50 transition-transform duration-200",
                 pkgDropdownOpen && "rotate-180"
               )}
             />
@@ -289,7 +289,7 @@ export function FeatureComparisonTable() {
                       <span
                         className={cn(
                           "font-sans text-xs font-semibold",
-                          isActive ? "text-accent" : "text-primary-foreground/40"
+                          isActive ? "text-accent" : "text-primary-foreground/50"
                         )}
                       >
                         {formatPrice(pkg.basePrice)}
@@ -304,7 +304,13 @@ export function FeatureComparisonTable() {
       )}
 
       {/* Comparison table */}
-      <div className="compare-table overflow-x-auto rounded-2xl border border-white/[0.06] pb-2">
+      {/* Focusable + labelled so keyboard users can scroll the table sideways (WCAG 2.1.1). */}
+      <section
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be focusable for keyboard scrolling
+        tabIndex={0}
+        aria-label={t("compare_title")}
+        className="compare-table overflow-x-auto rounded-2xl border border-white/[0.06] pb-2 focus-visible:outline-2 focus-visible:outline-accent"
+      >
         <table className="min-w-full border-collapse text-left">
           <thead>
             <tr>
@@ -375,7 +381,7 @@ export function FeatureComparisonTable() {
                     <Check className="mx-auto size-5 text-accent" aria-label={t("isbn_included")} />
                   ) : (
                     <Minus
-                      className="mx-auto size-4 text-primary-foreground/20"
+                      className="mx-auto size-4 text-primary-foreground/50"
                       aria-label={t("isbn_not_included")}
                     />
                   )}
@@ -410,7 +416,7 @@ export function FeatureComparisonTable() {
             <tr>
               <td
                 colSpan={packages.length + 1}
-                className="border-y border-white/[0.06] bg-secondary/30 px-5 py-3 font-display text-[11px] font-bold tracking-widest text-primary-foreground/60 uppercase md:px-6"
+                className="border-y border-white/[0.06] bg-secondary/30 px-5 py-3 font-display text-[11px] font-bold tracking-widest text-primary-foreground/75 uppercase md:px-6"
               >
                 {t("whats_included")}
               </td>
@@ -439,7 +445,7 @@ export function FeatureComparisonTable() {
                         <Check className="mx-auto size-5 text-accent" aria-hidden="true" />
                       ) : (
                         <Minus
-                          className="mx-auto size-4 text-primary-foreground/20"
+                          className="mx-auto size-4 text-primary-foreground/50"
                           aria-hidden="true"
                         />
                       )}
@@ -450,7 +456,7 @@ export function FeatureComparisonTable() {
             ))}
           </tbody>
         </table>
-      </div>
+      </section>
     </div>
   );
 }

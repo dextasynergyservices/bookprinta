@@ -1028,7 +1028,9 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
               <span
                 className={cn(
                   "flex size-5 items-center justify-center rounded border transition-colors",
-                  form.hasSpecialRequirements ? "border-[#007eff] bg-[#007eff]" : "border-[#2A2A2A]"
+                  form.hasSpecialRequirements
+                    ? "border-[#007eff] bg-accent-strong"
+                    : "border-[#2A2A2A]"
                 )}
               >
                 {form.hasSpecialRequirements ? <Check className="size-3.5 text-white" /> : null}
@@ -1073,7 +1075,7 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
                             <span
                               className={cn(
                                 "flex size-5 items-center justify-center rounded border transition-colors",
-                                checked ? "border-[#007eff] bg-[#007eff]" : "border-[#2A2A2A]"
+                                checked ? "border-[#007eff] bg-accent-strong" : "border-[#2A2A2A]"
                               )}
                             >
                               {checked ? <Check className="size-3.5 text-white" /> : null}
@@ -1236,7 +1238,7 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
                     </output>
                     <div className="relative h-2 overflow-hidden rounded-full bg-white/10">
                       <motion.div
-                        className="h-full rounded-full bg-[#007eff]"
+                        className="h-full rounded-full bg-accent-strong"
                         initial={false}
                         animate={{ width: estimateLoadingProgress }}
                         transition={{ duration: prefersReducedMotion ? 0 : 0.45, ease: "easeOut" }}
@@ -1318,7 +1320,7 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
       <div ref={topRef} className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8">
         <header>
           {!submittedQuote ? (
-            <p className="font-sans text-xs tracking-[0.22em] text-white/45 uppercase">
+            <p className="font-sans text-xs tracking-[0.22em] text-white/50 uppercase">
               {t("step_progress", {
                 current: currentStep + 1,
                 total: STEP_COUNT,
@@ -1460,7 +1462,7 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
                 >
                   <Link
                     href={isDashboard ? "/dashboard" : "/"}
-                    className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#007eff] px-6 py-3 font-sans text-sm font-semibold text-white transition-colors hover:bg-[#006fe0]"
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl bg-accent-strong px-6 py-3 font-sans text-sm font-semibold text-white transition-colors hover:bg-accent-strong-hover"
                   >
                     {isDashboard ? t("confirmation_back_dashboard") : t("confirmation_back_home")}
                   </Link>
@@ -1488,9 +1490,9 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
                             className={cn(
                               "flex min-h-11 min-w-11 items-center justify-center rounded-full border font-sans text-sm font-semibold",
                               isActive
-                                ? "border-[#007eff] bg-[#007eff] text-white"
+                                ? "border-[#007eff] bg-accent-strong text-white"
                                 : isCompleted
-                                  ? "border-[#007eff] bg-[#007eff] text-white"
+                                  ? "border-[#007eff] bg-accent-strong text-white"
                                   : "border-[#2A2A2A] bg-transparent text-white/65"
                             )}
                             initial={false}
@@ -1511,7 +1513,7 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
                         {index < stepLabels.length - 1 ? (
                           <div className="mx-2 mt-5 h-[2px] flex-1 rounded-full bg-[#2A2A2A] sm:mx-3">
                             <motion.div
-                              className="h-full rounded-full bg-[#007eff]"
+                              className="h-full rounded-full bg-accent-strong"
                               initial={false}
                               animate={{
                                 width: currentStep > index ? "100%" : "0%",
@@ -1573,7 +1575,7 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
                   className={cn(
                     "min-h-11 w-full rounded-xl border px-5 py-3 font-sans text-sm font-semibold transition-colors sm:w-auto",
                     currentStep === 0 || isSubmitting
-                      ? "cursor-not-allowed border-[#2A2A2A] text-white/35"
+                      ? "cursor-not-allowed border-[#2A2A2A] text-white/50"
                       : "border-[#2A2A2A] text-white hover:border-white/40 hover:text-white"
                   )}
                 >
@@ -1588,8 +1590,8 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
                     className={cn(
                       "min-h-11 w-full rounded-xl px-6 py-3 font-sans text-sm font-semibold transition-colors sm:w-auto",
                       disableNextButton || isSubmitting
-                        ? "cursor-not-allowed bg-[#2A2A2A] text-white/35"
-                        : "bg-[#007eff] text-white hover:bg-[#006fe0]"
+                        ? "cursor-not-allowed bg-[#2A2A2A] text-white/50"
+                        : "bg-accent-strong text-white hover:bg-accent-strong-hover"
                     )}
                   >
                     {t("next_button")}
@@ -1604,8 +1606,8 @@ function QuoteViewInner({ variant = "public", initialContact }: QuoteWizardProps
                     className={cn(
                       "min-h-11 w-full rounded-xl px-6 py-3 font-sans text-sm font-semibold transition-colors sm:w-auto",
                       disableSubmitButton
-                        ? "cursor-not-allowed bg-[#2A2A2A] text-white/35"
-                        : "bg-[#007eff] text-white hover:bg-[#006fe0]"
+                        ? "cursor-not-allowed bg-[#2A2A2A] text-white/50"
+                        : "bg-accent-strong text-white hover:bg-accent-strong-hover"
                     )}
                   >
                     {isSubmitting ? (
