@@ -330,6 +330,13 @@ export function splitFullName(name: string): { firstName: string; lastName: stri
   };
 }
 
+/** A unique payment reference: `<prefix>_<base36 time>_<random>`. */
+export function generatePaymentReference(prefix = "bp"): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 10);
+  return `${prefix}_${timestamp}_${random}`;
+}
+
 export function generateSecureToken(): string {
   return randomBytes(32).toString("hex");
 }

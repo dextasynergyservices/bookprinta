@@ -1,6 +1,7 @@
 /// <reference types="jest" />
 import { PaymentsModule } from "./payments.module.js";
 import { PaymentsService } from "./payments.service.js";
+import { BankTransferService } from "./services/bank-transfer.service.js";
 import { CheckoutFulfillmentService } from "./services/checkout-fulfillment.service.js";
 import { CheckoutMetadataPricingService } from "./services/checkout-metadata-pricing.service.js";
 import { CheckoutPricingService } from "./services/checkout-pricing.service.js";
@@ -16,6 +17,7 @@ const COLLABORATORS = [
   CheckoutPricingService,
   CheckoutMetadataPricingService,
   CheckoutFulfillmentService,
+  BankTransferService,
 ];
 
 function createPaymentsService(): PaymentsService {
