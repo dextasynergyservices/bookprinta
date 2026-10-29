@@ -52,6 +52,18 @@ const PROSE_SENTENCE =
 const mockPdfParse = jest.fn();
 jest.mock("pdf-parse", () => mockPdfParse);
 
+// mammoth is dynamically imported too. Mocked so these tests do not depend on
+// loading the real library (~460 modules, which under a busy parallel run can
+// exceed the 5 s test timeout). The real parser is covered by
+// test/integration/manuscript-docx-analysis.spec.ts.
+const mockExtractRawText = jest.fn();
+jest.mock("mammoth", () => ({ extractRawText: mockExtractRawText }));
+
+/** mammoth's raw-text output: one paragraph per block, separated by a blank line. */
+function mammothText(paragraphs: Array<{ text: string }>): { value: string } {
+  return { value: paragraphs.map((paragraph) => paragraph.text).join("\n\n") };
+}
+
 describe("ManuscriptAnalysisService", () => {
   let service: ManuscriptAnalysisService;
 
@@ -218,18 +230,35 @@ describe("ManuscriptAnalysisService", () => {
       expect(many - few).toBeGreaterThanOrEqual(15);
     });
 
-    it("reads paragraphs and chapter headings from a DOCX", async () => {
-      const paragraphs = [];
+    function threeChapters() {
+      const paragraphs: Array<{ text: string; style?: string }> = [];
       for (let chapter = 1; chapter <= 3; chapter += 1) {
         paragraphs.push({ text: `Chapter ${chapter}` });
         for (let i = 0; i < 4; i += 1) paragraphs.push({ text: PROSE_SENTENCE.repeat(3) });
       }
+      return paragraphs;
+    }
+
+    it("reads paragraphs and chapter headings from mammoth's text", async () => {
+      const paragraphs = threeChapters();
+      mockExtractRawText.mockResolvedValue(mammothText(paragraphs));
+
+      const analysis = await service.analyzeManuscript(createManuscriptDocx(paragraphs), DOCX);
+
+      expect(mockExtractRawText).toHaveBeenCalledTimes(1);
+      expect(analysis.layout?.sectionBreaks).toBe(3);
+      expect(analysis.layout?.paragraphLengths).toHaveLength(15);
+      expect(analysis.wordCount).toBeGreaterThan(300);
+    });
+
+    it("gives the same layout from the document XML when mammoth cannot read the file", async () => {
+      const paragraphs = threeChapters();
+      mockExtractRawText.mockRejectedValue(new Error("Could not find file in options"));
 
       const analysis = await service.analyzeManuscript(createManuscriptDocx(paragraphs), DOCX);
 
       expect(analysis.layout?.sectionBreaks).toBe(3);
       expect(analysis.layout?.paragraphLengths).toHaveLength(15);
-      expect(analysis.wordCount).toBeGreaterThan(300);
     });
 
     it("falls back to Word heading styles when there are no chapter keywords", async () => {
@@ -238,6 +267,7 @@ describe("ManuscriptAnalysisService", () => {
         paragraphs.push({ text: `Walking in grace ${section}`, style: "Heading1" });
         paragraphs.push({ text: PROSE_SENTENCE.repeat(4) });
       }
+      mockExtractRawText.mockResolvedValue(mammothText(paragraphs));
 
       const analysis = await service.analyzeManuscript(createManuscriptDocx(paragraphs), DOCX);
 

@@ -472,6 +472,14 @@ describe("OrdersService", () => {
   });
 
   describe("getUserOrderInvoiceArchive", () => {
+    beforeEach(() => {
+      // Gotenberg retries back off with real sleeps (400 ms x attempt). These
+      // tests check retry and fallback decisions, so backoff is instant.
+      jest
+        .spyOn(service as unknown as { delay: (ms: number) => Promise<void> }, "delay")
+        .mockResolvedValue(undefined);
+    });
+
     it("generates and archives invoice metadata when archive is missing", async () => {
       process.env.GOTENBERG_URL = "http://gotenberg.local";
 
