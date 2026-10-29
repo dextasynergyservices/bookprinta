@@ -1,10 +1,15 @@
 /// <reference types="jest" />
 import { NotFoundException } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
+import * as Sentry from "@sentry/node";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { OrdersService } from "./orders.service.js";
+
+// Sentry's module exports are non-configurable, so jest.spyOn cannot patch them.
+jest.mock("@sentry/node", () => ({ captureMessage: jest.fn() }));
+const captureMessage = Sentry.captureMessage as unknown as jest.Mock;
 
 const mockPrismaService = {
   order: {
@@ -472,6 +477,55 @@ describe("OrdersService", () => {
   });
 
   describe("getUserOrderInvoiceArchive", () => {
+    /** An order whose invoice has not been archived yet. */
+    function mockUnarchivedInvoiceOrder() {
+      mockPrismaService.order.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        orderNumber: "BP-2026-0011",
+        orderType: "STANDARD",
+        status: "PAID",
+        createdAt: new Date("2026-03-01T08:00:00.000Z"),
+        updatedAt: new Date("2026-03-02T09:00:00.000Z"),
+        copies: 100,
+        bookSize: "A5",
+        paperColor: "white",
+        lamination: "gloss",
+        initialAmount: { toNumber: () => 120000 } as unknown,
+        extraAmount: { toNumber: () => 0 } as unknown,
+        discountAmount: { toNumber: () => 0 } as unknown,
+        totalAmount: { toNumber: () => 120000 } as unknown,
+        refundAmount: { toNumber: () => 0 } as unknown,
+        currency: "NGN",
+        trackingNumber: null,
+        shippingProvider: null,
+        package: {
+          id: "pkg_1",
+          name: "Legacy",
+          slug: "legacy",
+        },
+        book: null,
+        payments: [
+          {
+            id: "pay_11",
+            provider: "PAYSTACK",
+            status: "SUCCESS",
+            type: "INITIAL",
+            amount: { toNumber: () => 120000 } as unknown,
+            currency: "NGN",
+            providerRef: "PSK_REF_11",
+            createdAt: new Date("2026-03-01T08:10:00.000Z"),
+          },
+        ],
+        addons: [],
+        user: {
+          id: "user_1",
+          email: "author@example.com",
+          firstName: "Ada",
+          lastName: "Author",
+        },
+      });
+    }
+
     beforeEach(() => {
       // Gotenberg retries back off with real sleeps (400 ms x attempt). These
       // tests check retry and fallback decisions, so backoff is instant.
@@ -626,67 +680,15 @@ describe("OrdersService", () => {
       expect(result.renderEngine).toBe("fallback");
     });
 
-    it("retries invoice conversion without auth when Gotenberg returns 401", async () => {
+    // Mirrors the C5 fix in GotenbergPageCountService: rejected credentials
+    // fail closed (no unauthenticated retry), are reported to Sentry, and the
+    // invoice uses the plain fallback renderer until they are fixed.
+    it("never retries without credentials when Gotenberg rejects them", async () => {
       process.env.GOTENBERG_URL = "http://gotenberg.local";
       process.env.GOTENBERG_USERNAME = "local-user";
       process.env.GOTENBERG_PASSWORD = "local-pass";
-
-      mockPrismaService.order.findFirst.mockResolvedValue({
-        id: "cm1111111111111111111111111",
-        orderNumber: "BP-2026-0011",
-        orderType: "STANDARD",
-        status: "PAID",
-        createdAt: new Date("2026-03-01T08:00:00.000Z"),
-        updatedAt: new Date("2026-03-02T09:00:00.000Z"),
-        copies: 100,
-        bookSize: "A5",
-        paperColor: "white",
-        lamination: "gloss",
-        initialAmount: { toNumber: () => 120000 } as unknown,
-        extraAmount: { toNumber: () => 0 } as unknown,
-        discountAmount: { toNumber: () => 0 } as unknown,
-        totalAmount: { toNumber: () => 120000 } as unknown,
-        refundAmount: { toNumber: () => 0 } as unknown,
-        currency: "NGN",
-        trackingNumber: null,
-        shippingProvider: null,
-        package: {
-          id: "pkg_1",
-          name: "Legacy",
-          slug: "legacy",
-        },
-        book: null,
-        payments: [
-          {
-            id: "pay_11",
-            provider: "PAYSTACK",
-            status: "SUCCESS",
-            type: "INITIAL",
-            amount: { toNumber: () => 120000 } as unknown,
-            currency: "NGN",
-            providerRef: "PSK_REF_11",
-            createdAt: new Date("2026-03-01T08:10:00.000Z"),
-          },
-        ],
-        addons: [],
-        user: {
-          id: "user_1",
-          email: "author@example.com",
-          firstName: "Ada",
-          lastName: "Author",
-        },
-      });
-
-      fetchMock
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 401,
-        } as unknown as Response)
-        .mockResolvedValueOnce({
-          ok: true,
-          arrayBuffer: jest.fn().mockResolvedValue(new Uint8Array([37, 80, 68, 70]).buffer),
-        } as unknown as Response);
-
+      mockUnarchivedInvoiceOrder();
+      fetchMock.mockResolvedValue({ ok: false, status: 401 } as unknown as Response);
       mockCloudinaryService.upload.mockResolvedValueOnce({
         secure_url: "https://cdn.example.com/bookprinta/invoices/invoice-bp-2026-0011.pdf",
       });
@@ -696,14 +698,75 @@ describe("OrdersService", () => {
         "cm1111111111111111111111111"
       );
 
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-        headers: expect.objectContaining({ Authorization: expect.stringContaining("Basic ") }),
+      // One request, with credentials; credentials will not start working on retry.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      for (const [, init] of fetchMock.mock.calls) {
+        expect((init as RequestInit).headers).toMatchObject({
+          Authorization: expect.stringMatching(/^Basic /),
+        });
+      }
+      expect(captureMessage).toHaveBeenCalledWith(
+        "Gotenberg rejected the configured basic-auth credentials (HTTP 401)",
+        expect.objectContaining({
+          level: "error",
+          tags: expect.objectContaining({ reason: "basic_auth_rejected", area: "invoice" }),
+        })
+      );
+      expect(result.renderEngine).toBe("fallback");
+    });
+
+    it("tries the backup Gotenberg with credentials too, never without", async () => {
+      process.env.GOTENBERG_URL = "http://gotenberg-primary.local";
+      process.env.GOTENBERG_BACKUP_URL = "http://gotenberg-backup.local";
+      process.env.GOTENBERG_USERNAME = "local-user";
+      process.env.GOTENBERG_PASSWORD = "local-pass";
+      mockUnarchivedInvoiceOrder();
+      fetchMock
+        .mockResolvedValueOnce({ ok: false, status: 403 } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          arrayBuffer: jest.fn().mockResolvedValue(new Uint8Array([37, 80, 68, 70]).buffer),
+        } as unknown as Response);
+      mockCloudinaryService.upload.mockResolvedValueOnce({
+        secure_url: "https://cdn.example.com/bookprinta/invoices/invoice-bp-2026-0011.pdf",
       });
-      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
-        headers: {},
-      });
+
+      const result = await service.getUserOrderInvoiceArchive(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
+
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        "http://gotenberg-primary.local/forms/chromium/convert/html",
+        "http://gotenberg-backup.local/forms/chromium/convert/html",
+      ]);
+      for (const [, init] of fetchMock.mock.calls) {
+        expect((init as RequestInit).headers).toMatchObject({
+          Authorization: expect.stringMatching(/^Basic /),
+        });
+      }
       expect(result.renderEngine).toBe("gotenberg");
+    });
+
+    it("reports missing credentials when Gotenberg requires them", async () => {
+      process.env.GOTENBERG_URL = "http://gotenberg.local";
+      mockUnarchivedInvoiceOrder();
+      fetchMock.mockResolvedValue({ ok: false, status: 401 } as unknown as Response);
+      mockCloudinaryService.upload.mockResolvedValueOnce({
+        secure_url: "https://cdn.example.com/bookprinta/invoices/invoice-bp-2026-0011.pdf",
+      });
+
+      const result = await service.getUserOrderInvoiceArchive(
+        "user_1",
+        "cm1111111111111111111111111"
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(captureMessage).toHaveBeenCalledWith(
+        "Gotenberg requires authentication (HTTP 401) but GOTENBERG_USERNAME/GOTENBERG_PASSWORD are not set",
+        expect.anything()
+      );
+      expect(result.renderEngine).toBe("fallback");
     });
 
     it("retries primary Gotenberg 3 times then switches to backup URL", async () => {
