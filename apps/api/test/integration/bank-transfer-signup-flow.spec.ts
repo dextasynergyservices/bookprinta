@@ -98,9 +98,12 @@ type PackageRecord = {
 };
 
 type PaymentsServicePrivate = {
-  sendBankTransferAdminWhatsApp: (...args: never[]) => Promise<void>;
-  sendBankTransferUserEmail: (...args: never[]) => Promise<void>;
-  sendBankTransferAdminEmail: (...args: never[]) => Promise<void>;
+  // Bank-transfer notifications are sent by PaymentNotificationsService.
+  paymentNotifications: {
+    sendBankTransferAdminWhatsApp: (...args: never[]) => Promise<void>;
+    sendBankTransferUserEmail: (...args: never[]) => Promise<void>;
+    sendBankTransferAdminEmail: (...args: never[]) => Promise<void>;
+  };
   generateReference: () => string;
   generateOrderNumber: () => Promise<string>;
 };
@@ -532,9 +535,15 @@ function createFlowHarness() {
   const paymentsServicePrivate = getPaymentsServicePrivate(paymentsService);
   const authServicePrivate = getAuthServicePrivate(authService);
 
-  jest.spyOn(paymentsServicePrivate, "sendBankTransferAdminWhatsApp").mockResolvedValue(undefined);
-  jest.spyOn(paymentsServicePrivate, "sendBankTransferUserEmail").mockResolvedValue(undefined);
-  jest.spyOn(paymentsServicePrivate, "sendBankTransferAdminEmail").mockResolvedValue(undefined);
+  jest
+    .spyOn(paymentsServicePrivate.paymentNotifications, "sendBankTransferAdminWhatsApp")
+    .mockResolvedValue(undefined);
+  jest
+    .spyOn(paymentsServicePrivate.paymentNotifications, "sendBankTransferUserEmail")
+    .mockResolvedValue(undefined);
+  jest
+    .spyOn(paymentsServicePrivate.paymentNotifications, "sendBankTransferAdminEmail")
+    .mockResolvedValue(undefined);
   jest.spyOn(paymentsServicePrivate, "generateReference").mockReturnValue("BT-2026-0009");
   jest.spyOn(paymentsServicePrivate, "generateOrderNumber").mockResolvedValue("BP-2026-0099");
   jest.spyOn(authServicePrivate, "generateVerificationCode").mockReturnValue("123456");

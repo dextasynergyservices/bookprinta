@@ -4,6 +4,11 @@ import { PaymentsService } from "./payments.service.js";
 
 type PaymentsServicePrivate = {
   generateReference: () => string;
+  // Bank-transfer notifications are sent by PaymentNotificationsService.
+  paymentNotifications: PaymentNotificationsPrivate;
+};
+
+type PaymentNotificationsPrivate = {
   sendBankTransferAdminWhatsApp: (...args: never[]) => Promise<void>;
   sendBankTransferUserEmail: (...args: never[]) => Promise<void>;
   sendBankTransferAdminEmail: (...args: never[]) => Promise<void>;
@@ -105,13 +110,13 @@ describe("PaymentsService bank transfer submission", () => {
 
     jest.spyOn(servicePrivate, "generateReference").mockReturnValue("BT-2026-0001");
     const sendAdminWhatsApp = jest
-      .spyOn(servicePrivate, "sendBankTransferAdminWhatsApp")
+      .spyOn(servicePrivate.paymentNotifications, "sendBankTransferAdminWhatsApp")
       .mockResolvedValue(undefined);
     const sendUserEmail = jest
-      .spyOn(servicePrivate, "sendBankTransferUserEmail")
+      .spyOn(servicePrivate.paymentNotifications, "sendBankTransferUserEmail")
       .mockResolvedValue(undefined);
     const sendAdminEmail = jest
-      .spyOn(servicePrivate, "sendBankTransferAdminEmail")
+      .spyOn(servicePrivate.paymentNotifications, "sendBankTransferAdminEmail")
       .mockResolvedValue(undefined);
 
     const result = await service.submitBankTransfer({

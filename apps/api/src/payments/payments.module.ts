@@ -11,6 +11,7 @@ import { StripeProvider } from "./providers/stripe.provider.js";
 import { AdminPaymentListService } from "./services/admin-payment-list.service.js";
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
 import { GatewayService } from "./services/gateway.service.js";
+import { PaymentNotificationsService } from "./services/payment-notifications.service.js";
 import { PayPalService } from "./services/paypal.service.js";
 import { PaystackService } from "./services/paystack.service.js";
 import { RefundService } from "./services/refund.service.js";
@@ -55,6 +56,7 @@ import { StripeService } from "./services/stripe.service.js";
     RefundService,
     ReprintPaymentService,
     ExtraPagesPaymentService,
+    PaymentNotificationsService,
 
     // Orchestrator (facade — delegates to sub-services above)
     PaymentsService,

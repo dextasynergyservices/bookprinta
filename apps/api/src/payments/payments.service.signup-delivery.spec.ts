@@ -138,11 +138,14 @@ describe("PaymentsService signup-link delivery", () => {
     const { service } = createService();
     const serviceState = service as unknown as {
       customerPaymentsFromEmail: string;
-      adminNotificationsFromEmail: string;
+      paymentNotifications: { adminNotificationsFromEmail: string };
     };
 
     expect(serviceState.customerPaymentsFromEmail).toBe("BookPrinta <info@bookprinta.com>");
-    expect(serviceState.adminNotificationsFromEmail).toBe("BookPrinta <admin@bookprinta.com>");
+    // Admin alerts are sent by PaymentNotificationsService.
+    expect(serviceState.paymentNotifications.adminNotificationsFromEmail).toBe(
+      "BookPrinta <admin@bookprinta.com>"
+    );
   });
 
   it("persists a failed signup-link delivery snapshot for webhook-created payments", async () => {

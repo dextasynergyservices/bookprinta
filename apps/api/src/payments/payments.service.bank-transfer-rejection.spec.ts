@@ -4,7 +4,10 @@ import { PaymentProvider, PaymentStatus } from "../generated/prisma/enums.js";
 import { PaymentsService } from "./payments.service.js";
 
 type PaymentsServicePrivate = {
-  sendBankTransferRejectedEmail: (...args: never[]) => Promise<boolean>;
+  // The rejection email is sent by PaymentNotificationsService.
+  paymentNotifications: {
+    sendBankTransferRejectedEmail: (...args: never[]) => Promise<boolean>;
+  };
 };
 
 function getPaymentsServicePrivate(service: PaymentsService) {
@@ -77,7 +80,10 @@ describe("PaymentsService bank transfer rejection", () => {
   it("creates a user notification and sends a localized rejection email for linked payments", async () => {
     const { service, prisma, tx, notificationsService } = createService();
     const sendRejectionEmail = jest
-      .spyOn(getPaymentsServicePrivate(service), "sendBankTransferRejectedEmail")
+      .spyOn(
+        getPaymentsServicePrivate(service).paymentNotifications,
+        "sendBankTransferRejectedEmail"
+      )
       .mockResolvedValue(true);
 
     prisma.payment.findUnique.mockResolvedValue({
@@ -183,7 +189,10 @@ describe("PaymentsService bank transfer rejection", () => {
   it("still sends the rejection email when the payment is not linked to a user account yet", async () => {
     const { service, prisma, tx, notificationsService } = createService();
     const sendRejectionEmail = jest
-      .spyOn(getPaymentsServicePrivate(service), "sendBankTransferRejectedEmail")
+      .spyOn(
+        getPaymentsServicePrivate(service).paymentNotifications,
+        "sendBankTransferRejectedEmail"
+      )
       .mockResolvedValue(true);
 
     prisma.payment.findUnique.mockResolvedValue({
