@@ -12,6 +12,7 @@ import { AdminPaymentListService } from "./services/admin-payment-list.service.j
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
 import { GatewayService } from "./services/gateway.service.js";
 import { PaymentNotificationsService } from "./services/payment-notifications.service.js";
+import { PaymentReconciliationService } from "./services/payment-reconciliation.service.js";
 import { PayPalService } from "./services/paypal.service.js";
 import { PaystackService } from "./services/paystack.service.js";
 import { RefundService } from "./services/refund.service.js";
@@ -59,6 +60,7 @@ import { StripeService } from "./services/stripe.service.js";
     ExtraPagesPaymentService,
     PaymentNotificationsService,
     SignupLinkDeliveryService,
+    PaymentReconciliationService,
 
     // Orchestrator (facade — delegates to sub-services above)
     PaymentsService,

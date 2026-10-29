@@ -41,6 +41,7 @@ import { WhatsappNotificationsService } from "../notifications/whatsapp-notifica
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RolloutService } from "../rollout/rollout.service.js";
 import { ScannerService } from "../scanner/scanner.service.js";
+import { resolvePackageFromCheckoutMetadata } from "./checkout-package.js";
 import type { InitializePaymentDto } from "./dto/payment-request.dto.js";
 import { DEFAULT_DASHBOARD_PATH } from "./payment-config.js";
 import {
@@ -55,13 +56,11 @@ import {
   extractReprintMetadata,
   formatNaira,
   generateSecureToken,
-  hasBookPrintaProductTag,
   isPrismaUniqueViolation,
   isPrismaUniqueViolationForField,
   mimeToExtension,
   normalizeWebhookMetadata,
   parseDataUrl,
-  parseJsonRecord,
   parseProviderHint,
   pickDisplayName,
   REPRINT_MIN_COPIES,
@@ -80,11 +79,9 @@ import {
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
 import { GatewayService } from "./services/gateway.service.js";
 import { PaymentNotificationsService } from "./services/payment-notifications.service.js";
+import { PaymentReconciliationService } from "./services/payment-reconciliation.service.js";
 import { PayPalService } from "./services/paypal.service.js";
-import type {
-  PaystackTransactionListItem,
-  PaystackWebhookPayload,
-} from "./services/paystack.service.js";
+import type { PaystackWebhookPayload } from "./services/paystack.service.js";
 import { PaystackService } from "./services/paystack.service.js";
 import { RefundService } from "./services/refund.service.js";
 import { ReprintPaymentService } from "./services/reprint-payment.service.js";
@@ -109,22 +106,6 @@ const REPRINT_ELIGIBLE_BOOK_STATUSES = new Set<BookStatus>([
   BookStatus.DELIVERED,
   BookStatus.COMPLETED,
 ]);
-
-/**
- * How far back payment reconciliation looks for unfinalised successful charges.
- * Comfortably wider than the cron interval so a skipped run self-heals, and wide
- * enough to absorb a multi-hour webhook/redirect outage.
- */
-const PAYMENT_RECONCILE_LOOKBACK_HOURS = 24;
-
-/** Transactions fetched per Paystack list call during reconciliation. */
-const PAYMENT_RECONCILE_PAGE_SIZE = 100;
-
-/**
- * How long reconciliation remembers a reference it has already settled (ours and
- * processed, or the other product's). Longer than the widest manual lookback.
- */
-const PAYMENT_RECONCILE_MEMO_TTL_MS = 31 * 24 * 60 * 60 * 1000;
 
 type NormalizedBankTransferInput = {
   payerName: string;
@@ -169,16 +150,6 @@ type CheckoutFinalizationInfo = {
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
-  /**
-   * References reconciliation has already settled, so a 10-minute tick with no
-   * new charges makes no database query and Neon can scale to zero. Outcomes are
-   * final (an order exists, or the charge is not ours); a restart only costs one
-   * query per reference. Values: classification and expiry (ms epoch).
-   */
-  private readonly reconciledReferences = new Map<
-    string,
-    { kind: "processed" | "foreign"; expiresAt: number }
-  >();
   private _resend: Resend | null = null;
   private get resend(): Resend | null {
     return this._resend;
@@ -200,6 +171,7 @@ export class PaymentsService {
   private checkoutPricing!: CheckoutPricingService;
   private paymentNotifications!: PaymentNotificationsService;
   private signupLinkDelivery!: SignupLinkDeliveryService;
+  private paymentReconciliation!: PaymentReconciliationService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -220,7 +192,8 @@ export class PaymentsService {
     @Optional() extraPagesServiceInject?: ExtraPagesPaymentService,
     @Optional() checkoutPricingServiceInject?: CheckoutPricingService,
     @Optional() paymentNotificationsInject?: PaymentNotificationsService,
-    @Optional() signupLinkDeliveryInject?: SignupLinkDeliveryService
+    @Optional() signupLinkDeliveryInject?: SignupLinkDeliveryService,
+    @Optional() paymentReconciliationInject?: PaymentReconciliationService
   ) {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     // Sub-service initialization: NestJS provides instances in production;
@@ -255,6 +228,8 @@ export class PaymentsService {
       );
     this.signupLinkDelivery =
       signupLinkDeliveryInject ?? new SignupLinkDeliveryService(prisma, signupNotificationsService);
+    this.paymentReconciliation =
+      paymentReconciliationInject ?? new PaymentReconciliationService(prisma, paystackService);
   }
 
   // ────────────────────────────────────────────
@@ -1734,253 +1709,20 @@ export class PaymentsService {
   verifyStripeSignature(rawBody: string | Buffer, signature: string) {
     return this.stripeService.verifyWebhookSignature(rawBody, signature);
   }
+  /**
+   * Finalise successful Paystack charges that never became orders (no webhook on
+   * the shared account; see PaymentReconciliationService). Each charge is
+   * finalised through verify(), the same idempotent path as the browser redirect.
+   */
+  async reconcilePaystackPayments(options: { lookbackHours?: number } = {}) {
+    return this.paymentReconciliation.reconcilePaystackPayments(options, (reference) =>
+      this.verify(reference, "PAYSTACK")
+    );
+  }
 
   // ────────────────────────────────────────────
   // Payment reconciliation (safety net for missed webhooks)
   // ────────────────────────────────────────────
-
-  /**
-   * Finalise successful Paystack charges that never became local Orders.
-   *
-   * WHY THIS EXISTS
-   * Our Paystack integration is shared with another product, and Paystack allows
-   * only one webhook URL per integration — so BookPrinta cannot rely on receiving
-   * webhooks. Without a webhook, finalisation happens when the browser returns to
-   * /payments/verify/:reference. That covers most cases but NOT: the customer
-   * closing the tab on Paystack's success page, losing connectivity mid-redirect,
-   * or switching apps on mobile. In those cases money is taken and no Order,
-   * account, or signup email is ever created — and nothing surfaces it.
-   *
-   * This job asks Paystack directly "what did you charge successfully?" and
-   * finalises anything we missed, which also covers webhook/redirect outages
-   * generally. Run it on a schedule (external cron).
-   *
-   * SAFETY
-   * - Only transactions carrying BookPrinta checkout metadata are touched. The
-   *   shared integration means the list also contains the other product's
-   *   charges; those are skipped (see `looksLikeBookPrintaCheckout`).
-   * - Finalisation delegates to `verify()`, the exact path the redirect uses, so
-   *   there is no duplicated order-creation logic. `verify()` is idempotent (it
-   *   claims `processedAt` atomically), so overlapping runs or a late webhook
-   *   cannot double-create.
-   */
-  async reconcilePaystackPayments(options: { lookbackHours?: number } = {}): Promise<{
-    scanned: number;
-    ours: number;
-    alreadyProcessed: number;
-    finalised: number;
-    failed: number;
-    skippedForeign: number;
-  }> {
-    const lookbackHours = Math.max(1, options.lookbackHours ?? PAYMENT_RECONCILE_LOOKBACK_HOURS);
-    const to = new Date();
-    const from = new Date(to.getTime() - lookbackHours * 60 * 60 * 1000);
-
-    const summary = {
-      scanned: 0,
-      ours: 0,
-      alreadyProcessed: 0,
-      finalised: 0,
-      failed: 0,
-      skippedForeign: 0,
-    };
-
-    if (!this.paystackService.isAvailable) {
-      this.logger.warn("Payment reconciliation skipped — Paystack is not configured");
-      return summary;
-    }
-
-    let transactions: PaystackTransactionListItem[];
-    try {
-      transactions = await this.paystackService.listTransactions({
-        from,
-        to,
-        status: "success",
-        perPage: PAYMENT_RECONCILE_PAGE_SIZE,
-      });
-    } catch (error) {
-      this.logger.error(
-        `Payment reconciliation could not list Paystack transactions: ${error instanceof Error ? error.message : error}`
-      );
-      return summary;
-    }
-
-    summary.scanned = transactions.length;
-
-    const now = Date.now();
-    for (const [reference, memo] of this.reconciledReferences) {
-      if (memo.expiresAt <= now) this.reconciledReferences.delete(reference);
-    }
-    const remember = (reference: string, kind: "processed" | "foreign") => {
-      this.reconciledReferences.set(reference, {
-        kind,
-        expiresAt: now + PAYMENT_RECONCILE_MEMO_TTL_MS,
-      });
-    };
-
-    for (const transaction of transactions) {
-      const reference = transaction.reference?.trim();
-      if (!reference) continue;
-
-      const memo = this.reconciledReferences.get(reference);
-      if (memo) {
-        if (memo.kind === "foreign") {
-          summary.skippedForeign += 1;
-        } else {
-          summary.ours += 1;
-          summary.alreadyProcessed += 1;
-        }
-        continue;
-      }
-
-      // One indexed lookup per row. A Payment row with this reference means we
-      // created the charge (extra pages and reprints are pre-created PENDING),
-      // so it is ours regardless of what its metadata looks like.
-      const existing = await this.prisma.payment.findUnique({
-        where: { providerRef: reference },
-        select: { processedAt: true, orderId: true },
-      });
-
-      // Shared integration: ignore the other product's charges entirely.
-      const ours =
-        existing !== null ||
-        hasBookPrintaProductTag(transaction.metadata) ||
-        (await this.isBookPrintaCharge(transaction.metadata));
-      if (!ours) {
-        summary.skippedForeign += 1;
-        remember(reference, "foreign");
-        continue;
-      }
-      summary.ours += 1;
-
-      if (existing?.processedAt && existing.orderId) {
-        summary.alreadyProcessed += 1;
-        remember(reference, "processed");
-        continue;
-      }
-
-      try {
-        // Same finalisation path as the browser redirect — idempotent.
-        await this.verify(reference, "PAYSTACK");
-        summary.finalised += 1;
-        remember(reference, "processed");
-        this.logger.warn(
-          `Payment reconciliation finalised orphaned Paystack charge ${reference} ` +
-            "(no webhook and the browser never returned)"
-        );
-      } catch (error) {
-        summary.failed += 1;
-        this.logger.error(
-          `Payment reconciliation failed for ${reference}: ${error instanceof Error ? error.message : error}`
-        );
-      }
-    }
-
-    this.logger.log(
-      `Payment reconciliation complete — scanned ${summary.scanned}, ours ${summary.ours}, ` +
-        `already processed ${summary.alreadyProcessed}, finalised ${summary.finalised}, ` +
-        `failed ${summary.failed}, foreign skipped ${summary.skippedForeign}`
-    );
-
-    return summary;
-  }
-
-  /**
-   * True when a Paystack transaction was created by BookPrinta's checkout.
-   *
-   * This is a PRODUCT check, not a user check — it asks "did our checkout create
-   * this charge?", never "does this payer have an account". That distinction
-   * matters because BookPrinta is pay-first-then-signup: at charge time there is
-   * deliberately no user yet.
-   *
-   * IMPORTANT: do NOT use `extractCheckoutMetadata() !== null` as the signal — it
-   * returns a populated object for ANY non-empty metadata (every field is
-   * optional), so it matches the other product's charges too. The authoritative
-   * signal is the one finalisation itself depends on:
-   *   - a `customQuoteId` that exists in our DB (custom-quote flow), or
-   *   - a package identifier that resolves to an active BookPrinta package.
-   * Both are DB-verified, so a foreign charge cannot be mistaken for ours even if
-   * it happens to carry a similarly-named metadata field.
-   *
-   * Paystack may return metadata as a JSON string rather than an object.
-   */
-  private async isBookPrintaCharge(
-    metadata: Record<string, unknown> | string | null | undefined
-  ): Promise<boolean> {
-    const record = typeof metadata === "string" ? parseJsonRecord(metadata) : asRecord(metadata);
-    if (!record) return false;
-
-    // Custom-quote flow: verify the quote is one of ours.
-    const quoteCheckout = extractCustomQuoteCheckoutMetadata(record);
-    const customQuoteId = quoteCheckout
-      ? asString(quoteCheckout.customQuoteId)
-      : asString(record.customQuoteId);
-    if (customQuoteId) {
-      const quote = await this.prisma.customQuote.findUnique({
-        where: { id: customQuoteId },
-        select: { id: true },
-      });
-      if (quote) return true;
-    }
-
-    // Standard checkout: the package must resolve to an active BookPrinta package.
-    const checkout = extractCheckoutMetadata(record);
-    if (!checkout) return false;
-    if (!checkout.packageId && !checkout.packageSlug && !checkout.tier) return false;
-
-    const pkg = await this.resolvePackageFromCheckoutMetadata(checkout);
-    return pkg !== null;
-  }
-
-  /**
-   * Classify a charge, distinguishing "not ours" from "ours but unresolvable".
-   *
-   * `isBookPrintaCharge` collapses these two into `false`, which is wrong for
-   * the second case. `resolvePackageFromCheckoutMetadata` requires
-   * `isActive: true` on both the package AND its category, so if an admin
-   * deactivates a package (or category) while a customer is mid-checkout, that
-   * customer's charge stops resolving — and a plain boolean makes it
-   * indistinguishable from another product's charge.
-   *
-   * Treating that as "foreign" would mean silently ignoring a charge we took
-   * money for, leaving no Payment row and therefore nothing for
-   * listOrphanedPayments() to surface. The money is gone and we have no record.
-   *
-   * So:
-   *   - "foreign"      → no BookPrinta checkout shape at all. Safe to ignore.
-   *   - "unresolvable" → carries our checkout shape (packageId/slug/tier, or a
-   *                      customQuoteId) but nothing resolves. Record it and let
-   *                      it surface for a human.
-   *   - "ours"         → resolves normally.
-   */
-  private async classifyCharge(
-    metadata: Record<string, unknown> | string | null | undefined
-  ): Promise<"ours" | "unresolvable" | "foreign"> {
-    // Tagged at creation (constants.ts) — covers extra-page and reprint
-    // charges, whose metadata has no checkout shape. Whether they resolve is
-    // decided downstream (an unresolvable one is recorded as an orphan).
-    if (hasBookPrintaProductTag(metadata) || (await this.isBookPrintaCharge(metadata))) {
-      return "ours";
-    }
-
-    const record = typeof metadata === "string" ? parseJsonRecord(metadata) : asRecord(metadata);
-    if (!record) return "foreign";
-
-    // A customQuoteId that does not resolve is still a claim to be one of ours.
-    const quoteCheckout = extractCustomQuoteCheckoutMetadata(record);
-    const customQuoteId = quoteCheckout
-      ? asString(quoteCheckout.customQuoteId)
-      : asString(record.customQuoteId);
-    if (customQuoteId) return "unresolvable";
-
-    const checkout = extractCheckoutMetadata(record);
-    if (!checkout) return "foreign";
-    if (checkout.packageId || checkout.packageSlug || checkout.tier) {
-      return "unresolvable";
-    }
-
-    return "foreign";
-  }
 
   // ────────────────────────────────────────────
   // Webhook handlers
@@ -2013,7 +1755,7 @@ export class PaymentsService {
       // deactivated mid-checkout stops resolving, and silently dropping such a
       // charge would leave no Payment row and nothing for
       // listOrphanedPayments() to surface — money taken, no record.
-      const classification = await this.classifyCharge(metadata);
+      const classification = await this.paymentReconciliation.classifyCharge(metadata);
 
       if (classification === "foreign") {
         this.logger.log(
@@ -3559,29 +3301,9 @@ export class PaymentsService {
     throw new ConflictException({ message, errorCode: "CHECKOUT_UNDERPAID" });
   }
 
+  /** Kept as a method so specs can stub package lookup (see checkout-package.ts). */
   private async resolvePackageFromCheckoutMetadata(checkout: CheckoutMetadata) {
-    const packageId = asString(checkout.packageId);
-    if (packageId) {
-      const byId = await this.prisma.package.findFirst({
-        where: {
-          id: packageId,
-          isActive: true,
-          category: { isActive: true },
-        },
-      });
-      if (byId) return byId;
-    }
-
-    const packageSlug = asString(checkout.packageSlug) || asString(checkout.tier);
-    if (!packageSlug) return null;
-
-    return this.prisma.package.findFirst({
-      where: {
-        slug: packageSlug,
-        isActive: true,
-        category: { isActive: true },
-      },
-    });
+    return resolvePackageFromCheckoutMetadata(this.prisma, checkout);
   }
 
   private async generateOrderNumber(tx: Prisma.TransactionClient): Promise<string> {

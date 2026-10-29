@@ -2,10 +2,15 @@
 import { PaymentsModule } from "./payments.module.js";
 import { PaymentsService } from "./payments.service.js";
 import { PaymentNotificationsService } from "./services/payment-notifications.service.js";
+import { PaymentReconciliationService } from "./services/payment-reconciliation.service.js";
 import { SignupLinkDeliveryService } from "./services/signup-link-delivery.service.js";
 
 /** Collaborators extracted from PaymentsService (see the payments.service.ts split). */
-const COLLABORATORS = [PaymentNotificationsService, SignupLinkDeliveryService];
+const COLLABORATORS = [
+  PaymentNotificationsService,
+  SignupLinkDeliveryService,
+  PaymentReconciliationService,
+];
 
 function createPaymentsService(): PaymentsService {
   process.env.FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
