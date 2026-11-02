@@ -380,12 +380,21 @@ function BooksEmptyState() {
       <p className="font-sans mt-2 max-w-md text-sm text-[#d0d0d0] md:text-base">
         {tDashboard("books_empty_description")}
       </p>
-      <Link
-        href="/dashboard/orders"
-        className="font-sans mt-6 inline-flex min-h-11 items-center justify-center rounded-full bg-accent-strong px-6 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-strong-hover focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
-      >
-        {tDashboard("books_empty_cta")}
-      </Link>
+      {/* Most people with no books have not ordered yet; orders stay one tap away. */}
+      <div className="mt-6 flex flex-col items-center gap-2">
+        <Link
+          href="/dashboard/new-book"
+          className="font-sans inline-flex min-h-11 items-center justify-center rounded-full bg-accent-strong px-6 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-strong-hover focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+        >
+          {tDashboard("print_new_book")}
+        </Link>
+        <Link
+          href="/dashboard/orders"
+          className="font-sans inline-flex min-h-11 items-center justify-center px-4 text-sm font-medium text-[#d0d0d0] underline-offset-4 transition-colors duration-150 hover:text-white hover:underline focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2"
+        >
+          {tDashboard("books_empty_cta")}
+        </Link>
+      </div>
     </section>
   );
 }

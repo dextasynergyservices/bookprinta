@@ -136,7 +136,11 @@ jest.mock("./dashboard-content-frame", () => ({
   DashboardContentFrame: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+// Locale-independent path the shell sees; tests default to a non-overview page.
+let mockPathname = "/dashboard/books";
+
 jest.mock("@/lib/i18n/navigation", () => ({
+  usePathname: () => mockPathname,
   Link: ({
     children,
     href,
@@ -240,6 +244,22 @@ describe("DashboardShell", () => {
     );
 
     expect(screen.queryByText("production_delay_banner")).not.toBeInTheDocument();
+  });
+
+  it("does not repeat the profile prompt as a banner on the overview", () => {
+    mockPathname = "/dashboard";
+    try {
+      render(
+        <DashboardShell>
+          <div>dashboard-content</div>
+        </DashboardShell>
+      );
+
+      expect(screen.queryByText("complete_profile_banner")).not.toBeInTheDocument();
+      expect(screen.getByText("production_delay_banner")).toBeInTheDocument();
+    } finally {
+      mockPathname = "/dashboard/books";
+    }
   });
 
   it("hides the complete profile banner when the backend profile is already complete", () => {

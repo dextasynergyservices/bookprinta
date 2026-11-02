@@ -844,6 +844,7 @@
     "notifications_item_action_hint": "Ouvre les détails.",
     "complete_profile_banner": "Complétez votre profil pour que les lecteurs puissent vous trouver et vous contacter depuis notre vitrine.",
     "complete_profile_cta": "Compléter le profil",
+    "complete_profile_banner_short": "pour que les lecteurs puissent vous contacter.",
     "complete_profile_banner_aria": "Rappel pour compléter le profil",
     "complete_profile_dismiss": "Masquer la bannière de profil incomplet",
     "bio": "À propos de vous",

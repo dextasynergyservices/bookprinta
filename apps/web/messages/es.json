@@ -844,6 +844,7 @@
     "notifications_item_action_hint": "Abre los detalles.",
     "complete_profile_banner": "Completa tu perfil para que los lectores puedan encontrarte y contactarte desde nuestra galería.",
     "complete_profile_cta": "Completar perfil",
+    "complete_profile_banner_short": "para que los lectores puedan contactarte.",
     "complete_profile_banner_aria": "Recordatorio para completar el perfil",
     "complete_profile_dismiss": "Ocultar el banner de completar perfil",
     "bio": "Sobre ti",

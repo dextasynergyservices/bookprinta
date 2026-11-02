@@ -844,6 +844,7 @@
     "notifications_item_action_hint": "Opens details.",
     "complete_profile_banner": "Complete your profile so readers can find and contact you from our showcase page.",
     "complete_profile_cta": "Complete Profile",
+    "complete_profile_banner_short": "so readers can contact you.",
     "complete_profile_banner_aria": "Complete profile reminder",
     "complete_profile_dismiss": "Dismiss complete profile banner",
     "bio": "About You",

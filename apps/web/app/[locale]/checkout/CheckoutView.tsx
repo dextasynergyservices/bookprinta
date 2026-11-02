@@ -3,9 +3,10 @@
 import { useMutation } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Loader2, ShieldCheck, X } from "lucide-react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddonCard } from "@/components/checkout/AddonCard";
 import { PaymentMethodModal } from "@/components/checkout/PaymentMethodModal";
 import { RecaptchaProvider } from "@/components/shared/RecaptchaProvider";
@@ -16,7 +17,7 @@ import { usePackages } from "@/hooks/usePackages";
 import { CouponValidationError, validateCouponCode } from "@/hooks/usePayments";
 import { trackCheckoutStarted } from "@/lib/analytics/posthog-events";
 import { RateLimitError, toRetryAfterMinutes } from "@/lib/api-error";
-import { useRouter } from "@/lib/i18n/navigation";
+import { Link, useRouter } from "@/lib/i18n/navigation";
 import {
   type AddonType,
   isPricingConfigurationComplete,
@@ -482,16 +483,13 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
   const isLoading = isLoadingPackages || isLoadingAddons;
 
   const PageWrapper = isDashboard ? "div" : "main";
-  const earlyReturnClass = isDashboard
-    ? "px-4 py-8 text-white md:px-6"
-    : "min-h-screen bg-black px-4 py-16 text-white md:px-6 lg:px-8";
   const mainContentClass = isDashboard
     ? "pb-32 text-white md:pb-12"
     : "min-h-screen bg-black pb-32 text-white md:pb-12";
 
   if (!packageSlug) {
     return (
-      <PageWrapper className={earlyReturnClass}>
+      <CheckoutStateFrame isDashboard={isDashboard}>
         <div className="mx-auto max-w-3xl rounded-3xl border border-[#2A2A2A] bg-[#0a0a0a] p-8 text-center">
           <p className="font-sans text-base text-white/70">{t("addons_missing_package")}</p>
           <button
@@ -502,13 +500,13 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
             {t("addons_back_to_pricing")}
           </button>
         </div>
-      </PageWrapper>
+      </CheckoutStateFrame>
     );
   }
 
   if (!isConfigurationComplete) {
     return (
-      <PageWrapper className={earlyReturnClass}>
+      <CheckoutStateFrame isDashboard={isDashboard}>
         <div className="mx-auto max-w-3xl rounded-3xl border border-[#2A2A2A] bg-[#0a0a0a] p-8 text-center">
           <p className="font-sans text-base text-white/70">{t("addons_configuration_required")}</p>
           <button
@@ -519,24 +517,24 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
             {t("addons_back_to_pricing")}
           </button>
         </div>
-      </PageWrapper>
+      </CheckoutStateFrame>
     );
   }
 
   if (isLoading) {
     return (
-      <PageWrapper className={earlyReturnClass}>
+      <CheckoutStateFrame isDashboard={isDashboard}>
         <div className="mx-auto flex max-w-3xl items-center justify-center gap-3 rounded-3xl border border-[#2A2A2A] bg-[#0a0a0a] p-10">
           <Loader2 className="size-4 animate-spin text-[#007eff]" aria-hidden="true" />
           <span className="font-sans text-sm text-white/65">{t("addons_loading")}</span>
         </div>
-      </PageWrapper>
+      </CheckoutStateFrame>
     );
   }
 
   if (!selectedPackage || isAddonsError) {
     return (
-      <PageWrapper className={earlyReturnClass}>
+      <CheckoutStateFrame isDashboard={isDashboard}>
         <div className="mx-auto max-w-3xl rounded-3xl border border-[#2A2A2A] bg-[#0a0a0a] p-8 text-center">
           <p className="font-sans text-base text-white/70">{t("addons_error")}</p>
           <button
@@ -547,7 +545,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
             {t("addons_retry")}
           </button>
         </div>
-      </PageWrapper>
+      </CheckoutStateFrame>
     );
   }
 
@@ -944,5 +942,40 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
         />
       </RecaptchaProvider>
     </PageWrapper>
+  );
+}
+
+/**
+ * Frame for checkout's loading and error states. The public checkout has no
+ * site header, so these states show the logo (a link home) above the card
+ * instead of a bare card on an empty page. In the dashboard, the dashboard
+ * shell already provides navigation.
+ */
+function CheckoutStateFrame({
+  isDashboard,
+  children,
+}: {
+  isDashboard: boolean;
+  children: ReactNode;
+}) {
+  if (isDashboard) {
+    return <div className="px-4 py-8 text-white md:px-6">{children}</div>;
+  }
+
+  return (
+    <main className="flex min-h-screen flex-col bg-black px-4 pb-16 text-white md:px-6 lg:px-8">
+      <header className="mx-auto flex h-16 w-full max-w-7xl items-center lg:h-20">
+        <Link href="/" className="shrink-0" aria-label="BookPrinta — Home">
+          <Image
+            src="/logo-main-white.png"
+            alt="BookPrinta"
+            width={180}
+            height={48}
+            className="h-8 w-auto lg:h-10"
+          />
+        </Link>
+      </header>
+      <div className="w-full pt-8 md:pt-16">{children}</div>
+    </main>
   );
 }

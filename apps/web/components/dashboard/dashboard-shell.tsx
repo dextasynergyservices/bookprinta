@@ -5,6 +5,7 @@ import { useNotificationBannerState, useReviewState } from "@/hooks/use-dashboar
 import { useLenis } from "@/hooks/use-lenis";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useMyProfile } from "@/hooks/use-user-profile";
+import { usePathname } from "@/lib/i18n/navigation";
 import { cn } from "@/lib/utils";
 import { DashboardCompleteProfileBanner } from "./dashboard-complete-profile-banner";
 import { DashboardContentFrame } from "./dashboard-content-frame";
@@ -60,6 +61,8 @@ export function DashboardShell({ children }: DashboardShellProps) {
   const { lenis } = useLenis();
   const prefersReducedMotion = useReducedMotion();
   const { hasProductionDelayBanner } = useNotificationBannerState();
+  // Locale-independent path, e.g. "/dashboard" for "/fr/dashboard".
+  const pathname = usePathname();
   const { pendingBooks } = useReviewState();
   const { profile } = useMyProfile();
   const submittedReviewBookIdRef = useRef<string | null>(null);
@@ -275,7 +278,9 @@ export function DashboardShell({ children }: DashboardShellProps) {
           />
 
           {hasProductionDelayBanner ? <DashboardProductionDelayBanner /> : null}
-          {shouldShowCompleteProfileBanner ? (
+          {/* The overview shows the profile prompt itself (next action and the
+              pending actions list), so the banner would repeat it there. */}
+          {shouldShowCompleteProfileBanner && pathname !== "/dashboard" ? (
             <DashboardCompleteProfileBanner onDismiss={dismissCompleteProfileBannerForSession} />
           ) : null}
 

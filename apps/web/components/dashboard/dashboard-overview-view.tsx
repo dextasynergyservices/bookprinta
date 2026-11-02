@@ -248,7 +248,7 @@ export function DashboardOverviewView() {
                 </div>
                 <h1
                   id={nextActionTitleId}
-                  className="font-display mt-5 max-w-[11ch] text-[clamp(3rem,14vw,6.1rem)] leading-[0.9] font-semibold tracking-[-0.06em] text-white"
+                  className="font-display mt-5 max-w-[16ch] text-[clamp(2.25rem,8vw,4rem)] leading-[0.95] font-semibold tracking-[-0.05em] text-white"
                 >
                   {nextAction.title}
                 </h1>
@@ -259,7 +259,7 @@ export function DashboardOverviewView() {
                   {nextAction.description}
                 </p>
               </div>
-              <div className="mt-8 flex flex-col gap-3">
+              <div className="mt-6 flex flex-col gap-3">
                 {nextAction.type === "REPRINT_AVAILABLE" && reprintReadyOrders.length > 0 ? (
                   <ReprintReadyCarousel
                     orders={reprintReadyOrders}
@@ -305,7 +305,7 @@ export function DashboardOverviewView() {
                   </p>
                   <h2
                     id={heroTitleId}
-                    className="font-display mt-5 max-w-[10ch] text-[2.6rem] leading-[0.94] font-semibold tracking-[-0.05em] text-white md:text-[3.3rem]"
+                    className="font-display mt-4 max-w-[18ch] text-2xl leading-tight font-semibold tracking-[-0.03em] text-white md:text-3xl"
                   >
                     {tDashboard("overview_editorial_title")}
                   </h2>
@@ -325,7 +325,7 @@ export function DashboardOverviewView() {
                 </span>
               </div>
 
-              <div className="mt-8 grid gap-3 md:grid-cols-3">
+              <div className="mt-6 grid gap-3 md:grid-cols-3">
                 <Metric
                   label={tDashboard("overview_metric_active_book")}
                   value={activeBook ? "1" : "0"}
