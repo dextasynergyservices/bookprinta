@@ -7,6 +7,7 @@ import {
   BellRing,
   ChevronRight,
   CreditCard,
+  Loader2,
   PackageCheck,
   Star,
   X,
@@ -24,9 +25,11 @@ import {
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotificationsList,
+  useOlderNotificationPages,
 } from "@/hooks/use-dashboard-shell-data";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useRouter } from "@/lib/i18n/navigation";
+import { translateNotificationCopy } from "@/lib/notifications/notification-copy";
 import { cn } from "@/lib/utils";
 
 const LOCALE_FORMAT_TAGS: Record<string, string> = {
@@ -90,16 +93,17 @@ function getNotificationIcon(type: NotificationItem["type"]) {
   }
 }
 
-function translateNotificationCopy(
-  translate: ReturnType<typeof useTranslations>,
-  key: string,
-  params: NotificationItem["data"]["params"] | undefined
-) {
-  try {
-    return translate(key as never, params as never);
-  } catch {
-    return key;
-  }
+/**
+ * Newest page first, then older pages; a notification that arrived between
+ * fetches can shift page boundaries, so an item seen twice is kept once.
+ */
+function mergeNotificationPages(
+  firstPage: NotificationItem[],
+  olderPages: NotificationItem[]
+): NotificationItem[] {
+  if (olderPages.length === 0) return firstPage;
+  const seen = new Set(firstPage.map((item) => item.id));
+  return [...firstPage, ...olderPages.filter((item) => !seen.has(item.id))];
 }
 
 function wait(milliseconds: number) {
@@ -170,8 +174,13 @@ function NotificationListItem({
 }: NotificationListItemProps) {
   const Icon = getNotificationIcon(item.type);
   const timestamp = formatNotificationTimestamp(item.createdAt, locale);
-  const title = translateNotificationCopy(translate, item.data.titleKey, item.data.params);
-  const message = translateNotificationCopy(translate, item.data.messageKey, item.data.params);
+  const title = translateNotificationCopy(translate, item.data.titleKey, item.data.params, "title");
+  const message = translateNotificationCopy(
+    translate,
+    item.data.messageKey,
+    item.data.params,
+    "message"
+  );
   const isWarning = item.type === "PRODUCTION_DELAY" || item.data.presentation?.tone === "warning";
   const hasAction = item.data.action && item.data.action.kind !== "none";
 
@@ -284,9 +293,26 @@ export function NotificationPanel({
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [pendingNotificationId, setPendingNotificationId] = useState<string | null>(null);
-  const { items, isInitialLoading, isError, isFetching, refetch } = useNotificationsList({
+  const {
+    items: firstPageItems,
+    pagination: firstPagePagination,
+    isInitialLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useNotificationsList({
     isOpen,
   });
+  // Pages loaded with "Load older"; back to the newest page each time it opens.
+  const [pageCount, setPageCount] = useState(1);
+  const olderPages = useOlderNotificationPages({ isOpen, pageCount });
+  const items = mergeNotificationPages(firstPageItems, olderPages.items);
+  const lastPagination = pageCount === 1 ? firstPagePagination : olderPages.lastPagination;
+  const canLoadOlder = Boolean(lastPagination?.hasNextPage) && !olderPages.isLoading;
+
+  useEffect(() => {
+    if (!isOpen) setPageCount(1);
+  }, [isOpen]);
   const { markAsRead } = useMarkNotificationRead();
   const { markAllAsRead, isPending: isMarkAllPending } = useMarkAllNotificationsRead();
   const hasUnreadItems = unreadCount > 0 || items.some((item) => !item.isRead);
@@ -511,6 +537,25 @@ export function NotificationPanel({
                       />
                     ))}
                   </ul>
+                ) : null}
+
+                {!isInitialLoading && items.length > 0 && (canLoadOlder || olderPages.isLoading) ? (
+                  <div className="mt-4 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setPageCount((count) => count + 1)}
+                      disabled={olderPages.isLoading}
+                      aria-busy={olderPages.isLoading}
+                      className="font-sans inline-flex min-h-11 items-center gap-2 rounded-full border border-[#2A2A2A] px-5 text-sm font-medium text-white transition-colors duration-150 hover:border-[#007eff] focus-visible:outline-2 focus-visible:outline-[#007eff] focus-visible:outline-offset-2 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {olderPages.isLoading ? (
+                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                      ) : null}
+                      {olderPages.isLoading
+                        ? tDashboard("notifications_loading_more")
+                        : tDashboard("notifications_load_more")}
+                    </button>
+                  </div>
                 ) : null}
               </div>
             </ScrollArea>

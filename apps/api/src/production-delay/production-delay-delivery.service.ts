@@ -65,7 +65,20 @@ export class ProductionDelayDeliveryService {
 
     if (this.isResolutionAction(result.action) && result.resolution.activeEvent?.id) {
       await this.createResolutionNotifications(result.resolution.activeEvent.id);
+      // The dashboard banner follows the event's status; clear every
+      // recipient's cached copy so it disappears on their next poll.
+      await this.invalidateEventRecipients(result.resolution.activeEvent.id);
     }
+  }
+
+  private async invalidateEventRecipients(eventId: string): Promise<void> {
+    const recipients = await this.prisma.productionDelayEventRecipient.findMany({
+      where: { eventId },
+      select: { userId: true },
+    });
+    await this.notificationsService.invalidateNotificationSummary(
+      recipients.map((recipient) => recipient.userId)
+    );
   }
 
   private async syncActiveEventDeliveries(params: {
@@ -107,6 +120,10 @@ export class ProductionDelayDeliveryService {
         select: ACTIVE_DELAY_RECIPIENT_SELECT,
       });
     });
+
+    // Newly affected users should see the banner on their next poll, whether
+    // or not they receive the in-app notification (preferences).
+    await this.notificationsService.invalidateNotificationSummary(userIds);
 
     const recipientsNeedingInAppNotification = recipientRows.filter(
       (row) => row.delayNotificationCreatedAt == null

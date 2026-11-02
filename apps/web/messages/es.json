@@ -732,6 +732,8 @@
     "notifications": "Notificaciones",
     "notifications_loading": "Cargando notificaciones...",
     "notifications_empty": "Aún no hay notificaciones",
+    "notifications_load_more": "Cargar notificaciones anteriores",
+    "notifications_loading_more": "Cargando…",
     "notifications_unavailable": "Las notificaciones no están disponibles ahora",
     "upload_manuscript": "Subir manuscrito",
     "book_status": "Estado del libro",
@@ -1547,6 +1549,14 @@
     "production_delay_resolved": {
       "title": "Actualización de producción",
       "message": "La demanda de producción se ha estabilizado y los tiempos de impresión están volviendo a la normalidad."
+    },
+    "job_failed": {
+      "title": "Falló una tarea en segundo plano: {queueName}",
+      "message": "La tarea para {jobLabel} falló definitivamente en «{queueName}»: {errorMessage}"
+    },
+    "generic": {
+      "title": "Notificación",
+      "message": "Tienes una nueva actualización."
     }
   },
   "auth": {

@@ -732,6 +732,8 @@
     "notifications": "Notifications",
     "notifications_loading": "Loading notifications...",
     "notifications_empty": "No notifications yet",
+    "notifications_load_more": "Load older notifications",
+    "notifications_loading_more": "Loading…",
     "notifications_unavailable": "Notifications unavailable right now",
     "upload_manuscript": "Upload Manuscript",
     "book_status": "Book Status",
@@ -1547,6 +1549,14 @@
     "production_delay_resolved": {
       "title": "Production update",
       "message": "Production demand has stabilized and printing timelines are returning to normal."
+    },
+    "job_failed": {
+      "title": "Background job failed: {queueName}",
+      "message": "The job for {jobLabel} failed permanently in \"{queueName}\": {errorMessage}"
+    },
+    "generic": {
+      "title": "Notification",
+      "message": "You have a new update."
     }
   },
   "auth": {

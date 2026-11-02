@@ -47,6 +47,7 @@ import {
   toDashboardStatusLabel,
 } from "@/lib/dashboard/dashboard-formatters";
 import { Link } from "@/lib/i18n/navigation";
+import { translateNotificationCopy } from "@/lib/notifications/notification-copy";
 import { openBookPdfPreview } from "@/lib/preview-helper";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
@@ -85,18 +86,6 @@ function getApiV1BaseUrl() {
 }
 
 const API_V1_BASE_URL = getApiV1BaseUrl();
-
-function translateNotificationCopy(
-  translate: ReturnType<typeof useTranslations>,
-  key: string,
-  params: NotificationItem["data"]["params"] | undefined
-) {
-  try {
-    return translate(key as never, params as never);
-  } catch {
-    return key;
-  }
-}
 
 function resolveNotificationFeedHref(item: NotificationItem): string | null {
   if (item.data.action?.kind === "navigate") {
@@ -906,11 +895,17 @@ export function DashboardOverviewDeferredSections({
                 {recentActivityItems.map((item) => {
                   const Icon = getNotificationFeedIcon(item.type);
                   const href = resolveNotificationFeedHref(item);
-                  const title = translateNotificationCopy(t, item.data.titleKey, item.data.params);
+                  const title = translateNotificationCopy(
+                    t,
+                    item.data.titleKey,
+                    item.data.params,
+                    "title"
+                  );
                   const message = translateNotificationCopy(
                     t,
                     item.data.messageKey,
-                    item.data.params
+                    item.data.params,
+                    "message"
                   );
                   const timestamp = formatNotificationTimestamp(item.createdAt, locale);
                   const isWarning =

@@ -732,6 +732,8 @@
     "notifications": "Notifications",
     "notifications_loading": "Chargement des notifications...",
     "notifications_empty": "Aucune notification pour le moment",
+    "notifications_load_more": "Charger les notifications plus anciennes",
+    "notifications_loading_more": "Chargement…",
     "notifications_unavailable": "Notifications indisponibles pour le moment",
     "upload_manuscript": "Télécharger le manuscrit",
     "book_status": "Statut du livre",
@@ -1547,6 +1549,14 @@
     "production_delay_resolved": {
       "title": "Mise à jour de production",
       "message": "La demande de production s'est stabilisée et les délais d'impression reviennent à la normale."
+    },
+    "job_failed": {
+      "title": "Échec d’une tâche en arrière-plan : {queueName}",
+      "message": "La tâche pour {jobLabel} a échoué définitivement dans « {queueName} » : {errorMessage}"
+    },
+    "generic": {
+      "title": "Notification",
+      "message": "Vous avez une nouvelle mise à jour."
     }
   },
   "auth": {

@@ -21,7 +21,6 @@ const ordersServiceMock = {
 
 const notificationsServiceMock = {
   getUnreadCount: jest.fn(),
-  hasProductionDelayBanner: jest.fn(),
 };
 
 const usersServiceMock = {
@@ -136,8 +135,8 @@ describe("DashboardService", () => {
     });
     notificationsServiceMock.getUnreadCount.mockResolvedValue({
       unreadCount: 4,
+      hasProductionDelayBanner: true,
     });
-    notificationsServiceMock.hasProductionDelayBanner.mockResolvedValue(true);
     usersServiceMock.getMyProfile.mockResolvedValue({
       bio: null,
       profileImageUrl: null,
@@ -254,8 +253,8 @@ describe("DashboardService", () => {
     });
     notificationsServiceMock.getUnreadCount.mockResolvedValue({
       unreadCount: 0,
+      hasProductionDelayBanner: false,
     });
-    notificationsServiceMock.hasProductionDelayBanner.mockResolvedValue(false);
     booksServiceMock.hasActiveReprint.mockResolvedValue(false);
     usersServiceMock.getMyProfile.mockResolvedValue({
       bio: "Complete",
