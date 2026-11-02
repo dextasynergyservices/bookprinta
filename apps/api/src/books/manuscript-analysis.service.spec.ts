@@ -46,11 +46,34 @@ const PROSE_SENTENCE =
   "certain that every chapter was bringing the finished book closer to the press. ";
 
 // ---------------------------------------------------------------------------
-// PDF mocking — pdf-parse is dynamically imported, so we mock at module level
+// PDF mocking — pdf-parse 2.x, in its real shape: a PDFParse class whose
+// getText() returns per-page text. (The 1.x shape, a parse function, is what
+// these mocks used to imitate while the real 2.x import silently failed.) The
+// real library is covered by test/integration/manuscript-pdf-analysis.spec.ts.
 // ---------------------------------------------------------------------------
 
-const mockPdfParse = jest.fn();
-jest.mock("pdf-parse", () => mockPdfParse);
+const mockGetText = jest.fn();
+const mockDestroy = jest.fn();
+const mockPdfParseConstructor = jest.fn();
+jest.mock("pdf-parse", () => ({
+  PDFParse: jest.fn().mockImplementation((options: unknown) => {
+    mockPdfParseConstructor(options);
+    return { getText: mockGetText, destroy: mockDestroy };
+  }),
+}));
+
+/** pdf-parse 2.x getText() result: per-page text, plus a joined text with page markers. */
+function pdfTextResult(pages: string[]) {
+  return {
+    pages: pages.map((text, index) => ({ text, num: index + 1 })),
+    total: pages.length,
+    text: pages
+      .map((text, index) => `${text}\n\n-- ${index + 1} of ${pages.length} --`)
+      .join("\n\n"),
+  };
+}
+
+const PDF = "application/pdf" as const;
 
 // mammoth is dynamically imported too. Mocked so these tests do not depend on
 // loading the real library (~460 modules, which under a busy parallel run can
@@ -78,40 +101,42 @@ describe("ManuscriptAnalysisService", () => {
 
   describe("extractDocumentPageCount", () => {
     describe("PDF files", () => {
-      it("returns numpages from pdf-parse result", async () => {
-        mockPdfParse.mockResolvedValue({ numpages: 42 });
+      beforeEach(() => {
+        mockDestroy.mockResolvedValue(undefined);
+      });
 
-        const buffer = Buffer.from("%PDF-1.4 dummy content");
-        const result = await service.extractDocumentPageCount(buffer, "application/pdf");
+      it("returns the page count from pdf-parse", async () => {
+        mockGetText.mockResolvedValue({ ...pdfTextResult(["One"]), total: 42 });
+
+        const result = await service.extractDocumentPageCount(Buffer.from("%PDF-1.4"), PDF);
 
         expect(result).toBe(42);
+        expect(mockPdfParseConstructor).toHaveBeenCalledWith({ data: expect.any(Buffer) });
       });
 
-      it("returns null when pdf-parse returns numpages = 0", async () => {
-        mockPdfParse.mockResolvedValue({ numpages: 0 });
+      it("falls back to counting page objects when pdf-parse reports no pages", async () => {
+        mockGetText.mockResolvedValue({ ...pdfTextResult([]), total: 0 });
 
-        const buffer = Buffer.from("%PDF-1.4 dummy content");
-        const result = await service.extractDocumentPageCount(buffer, "application/pdf");
+        const pdf = Buffer.from("%PDF-1.4 /Type /Page x /Type /Page y /Type /Pages z");
+        const result = await service.extractDocumentPageCount(pdf, PDF);
+
+        expect(result).toBe(2);
+      });
+
+      it("returns null when pdf-parse throws and no page objects are found", async () => {
+        mockGetText.mockRejectedValue(new Error("corrupt PDF"));
+
+        const result = await service.extractDocumentPageCount(Buffer.from("%PDF-1.4"), PDF);
 
         expect(result).toBeNull();
       });
 
-      it("returns null when pdf-parse throws", async () => {
-        mockPdfParse.mockRejectedValue(new Error("corrupt PDF"));
+      it("always releases the parser, even when parsing fails", async () => {
+        mockGetText.mockRejectedValue(new Error("corrupt PDF"));
 
-        const buffer = Buffer.from("%PDF-1.4 dummy content");
-        const result = await service.extractDocumentPageCount(buffer, "application/pdf");
+        await service.extractDocumentPageCount(Buffer.from("%PDF-1.4"), PDF);
 
-        expect(result).toBeNull();
-      });
-
-      it("returns null when numpages is not a number", async () => {
-        mockPdfParse.mockResolvedValue({ numpages: undefined });
-
-        const buffer = Buffer.from("%PDF-1.4 dummy content");
-        const result = await service.extractDocumentPageCount(buffer, "application/pdf");
-
-        expect(result).toBeNull();
+        expect(mockDestroy).toHaveBeenCalledTimes(1);
       });
     });
 
@@ -154,6 +179,87 @@ describe("ManuscriptAnalysisService", () => {
 
         expect(result).toBeNull();
       });
+    });
+  });
+
+  describe("PDF text", () => {
+    beforeEach(() => {
+      mockDestroy.mockResolvedValue(undefined);
+    });
+
+    it("counts words from the page texts, not pdf-parse's page markers", async () => {
+      mockGetText.mockResolvedValue(
+        pdfTextResult([PROSE_SENTENCE.repeat(2).trim(), PROSE_SENTENCE.repeat(2).trim()])
+      );
+
+      const analysis = await service.analyzeManuscript(Buffer.from("%PDF-1.4"), PDF);
+
+      // 25 words per sentence, four sentences; "-- 1 of 2 --" would add 3 per page.
+      expect(analysis.wordCount).toBe(100);
+    });
+
+    it("drops running headers, footers and page numbers repeated on most pages", async () => {
+      const topics = ["harvest", "river", "market", "lantern"];
+      const page = (n: number) =>
+        [
+          "THE GOOD NEWS",
+          `The ${topics[n - 1]} opened the chapter on a quiet note.`,
+          PROSE_SENTENCE.trim(),
+          `Every reader remembered the ${topics[n - 1]} long afterwards.`,
+          `Page ${n}`,
+        ].join("\n");
+      mockGetText.mockResolvedValue(pdfTextResult([page(1), page(2), page(3), page(4)]));
+
+      const text = await service.extractText(Buffer.from("%PDF-1.4"), PDF);
+
+      expect(text).not.toContain("THE GOOD NEWS");
+      expect(text).not.toMatch(/Page \d/);
+      // Body text is kept, including the line repeated mid-page on every page.
+      for (const topic of topics) expect(text).toContain(`The ${topic} opened`);
+      expect(text.split(PROSE_SENTENCE.trim()).length - 1).toBe(4);
+    });
+
+    it("rebuilds paragraphs from printed lines and re-joins hyphenated words", async () => {
+      const full = "x".repeat(60);
+      mockGetText.mockResolvedValue(
+        pdfTextResult([
+          [
+            "CHAPTER 1",
+            `${full} wonder-`,
+            `ful ${full}`,
+            "Short last line.",
+            "CHAPTER 2",
+            `${full} ${full}`,
+            "Another end.",
+          ].join("\n"),
+        ])
+      );
+
+      const analysis = await service.analyzeManuscript(Buffer.from("%PDF-1.4"), PDF);
+      const text = await service.extractText(Buffer.from("%PDF-1.4"), PDF);
+
+      // Two headings and two paragraphs of three and two printed lines.
+      expect(analysis.layout?.paragraphLengths).toHaveLength(4);
+      expect(analysis.layout?.sectionBreaks).toBe(2);
+      expect(text).toContain("wonderful");
+    });
+
+    it("parses a PDF once for both the text and the page count", async () => {
+      mockGetText.mockResolvedValue(pdfTextResult([PROSE_SENTENCE.trim()]));
+      const upload = Buffer.from("%PDF-1.4");
+
+      await service.analyzeManuscript(upload, PDF);
+      await service.extractDocumentPageCount(upload, PDF);
+
+      expect(mockPdfParseConstructor).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects a PDF with no extractable text as scanned", async () => {
+      mockGetText.mockResolvedValue(pdfTextResult(["", ""]));
+
+      await expect(service.analyzeManuscript(Buffer.from("%PDF-1.4"), PDF)).rejects.toThrow(
+        "scanned image"
+      );
     });
   });
 
