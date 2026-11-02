@@ -19,7 +19,7 @@ const mockRedisService = {
 function makeCategoryRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "cmcat00001",
-    name: "Author Lunch",
+    name: "Author Launch",
     slug: "author-lunch",
     description: "For author-focused publishing bundles with fixed default copies.",
     copies: 25,
@@ -73,7 +73,7 @@ function makeSerializedPackage(overrides: Record<string, unknown> = {}) {
     sortOrder: 1,
     category: {
       id: "cmcat00001",
-      name: "Author Lunch",
+      name: "Author Launch",
       slug: "author-lunch",
       description: "For author-focused publishing bundles with fixed default copies.",
       copies: 25,
@@ -87,7 +87,7 @@ function makeSerializedPackage(overrides: Record<string, unknown> = {}) {
 function makeSerializedCategory(overrides: Record<string, unknown> = {}) {
   return {
     id: "cmcat00001",
-    name: "Author Lunch",
+    name: "Author Launch",
     slug: "author-lunch",
     description: "For author-focused publishing bundles with fixed default copies.",
     copies: 25,
