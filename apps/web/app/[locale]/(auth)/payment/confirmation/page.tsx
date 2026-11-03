@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { ResendSignupLinkForm } from "@/components/checkout/ResendSignupLinkForm";
 import { Link, useRouter } from "@/lib/i18n/navigation";
+import { usePricingStore } from "@/stores/usePricingStore";
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 
@@ -224,6 +225,8 @@ function PaymentConfirmedContent() {
           }
 
           const data = (await response.json()) as VerifyResponse;
+          // Paid: the saved checkout choices belong to a finished order now.
+          if (data.verified) usePricingStore.getState().reset();
 
           if (data.signupUrl) {
             const params = new URLSearchParams();

@@ -20,7 +20,7 @@ function makeCategoryRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "cmcat00001",
     name: "Author Launch",
-    slug: "author-lunch",
+    slug: "author-launch",
     description: "For author-focused publishing bundles with fixed default copies.",
     copies: 25,
     isActive: true,
@@ -74,7 +74,7 @@ function makeSerializedPackage(overrides: Record<string, unknown> = {}) {
     category: {
       id: "cmcat00001",
       name: "Author Launch",
-      slug: "author-lunch",
+      slug: "author-launch",
       description: "For author-focused publishing bundles with fixed default copies.",
       copies: 25,
       isActive: true,
@@ -88,7 +88,7 @@ function makeSerializedCategory(overrides: Record<string, unknown> = {}) {
   return {
     id: "cmcat00001",
     name: "Author Launch",
-    slug: "author-lunch",
+    slug: "author-launch",
     description: "For author-focused publishing bundles with fixed default copies.",
     copies: 25,
     isActive: true,

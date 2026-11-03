@@ -18,7 +18,7 @@ describe("normalizeOrdersListPayload", () => {
             totalAmount: "125000",
             currency: "NGN",
             package: { name: "Legacy" },
-            book: { id: "book_1", status: "PRINTING" },
+            book: { id: "book_1", title: "The Lagos Chronicle", status: "PRINTING" },
           },
         ],
         pagination: {
@@ -43,6 +43,7 @@ describe("normalizeOrdersListPayload", () => {
       orderType: "STANDARD",
       orderStatus: "PAID",
       bookId: "book_1",
+      bookTitle: "The Lagos Chronicle",
       bookStatus: "PRINTING",
       bookProductionStatus: null,
       createdAt: "2026-03-01T08:30:00.000Z",

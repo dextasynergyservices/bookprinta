@@ -45,7 +45,7 @@ export class PackageCategorySummaryDto {
 
   @ApiProperty({
     description: "URL-safe category slug",
-    example: "author-lunch",
+    example: "author-launch",
   })
   slug!: string;
 

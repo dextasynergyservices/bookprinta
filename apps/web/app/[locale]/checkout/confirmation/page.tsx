@@ -41,9 +41,11 @@ export default async function CheckoutConfirmationPage({
         </div>
 
         <div className="mt-6 rounded-2xl border border-[#2A2A2A] bg-[#0d0d0d] px-4 py-4">
-          <p className="font-sans text-sm font-semibold text-white">Need help?</p>
+          <p className="font-sans text-sm font-semibold text-white">
+            {t("payment_confirmation_help_title")}
+          </p>
           <p className="mt-1 font-sans text-xs text-white/60">
-            Contact BookPrinta support through WhatsApp or email.
+            {t("payment_confirmation_help_subtitle")}
           </p>
           <div className="mt-3 flex flex-col gap-2 md:flex-row">
             <a
@@ -53,14 +55,14 @@ export default async function CheckoutConfirmationPage({
               className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-black px-4 font-sans text-sm font-semibold text-white transition-colors duration-150 hover:border-[#25D366]"
             >
               <MessageCircle className="mr-2 size-4" aria-hidden="true" />
-              WhatsApp: +2348103208297
+              {t("payment_confirmation_help_whatsapp", { number: "+2348103208297" })}
             </a>
             <a
-              href="mailto:info@bookprinta.com"
+              href="mailto:admin@bookprinta.com"
               className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-[#2A2A2A] bg-black px-4 font-sans text-sm font-semibold text-white transition-colors duration-150 hover:border-[#007eff]"
             >
               <Mail className="mr-2 size-4" aria-hidden="true" />
-              Email: info@bookprinta.com
+              {t("payment_confirmation_help_email", { email: "admin@bookprinta.com" })}
             </a>
           </div>
         </div>

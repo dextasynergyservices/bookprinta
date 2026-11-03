@@ -82,6 +82,8 @@ export type OrderPackageSummary = z.infer<typeof OrderPackageSummarySchema>;
 
 export const OrderBookSummarySchema = z.object({
   id: z.string().cuid(),
+  /** The book's title, so orders for the same package can be told apart. */
+  title: z.string().nullable().optional(),
   status: BookStatusSchema,
   productionStatus: BookStatusSchema.nullable().optional(),
 });
@@ -181,6 +183,8 @@ export const OrderTrackingResponseSchema = z.object({
   orderId: z.string().cuid(),
   orderNumber: z.string(),
   bookId: z.string().cuid().nullable(),
+  /** The book's title (null before the book has one). */
+  title: z.string().nullable().optional(),
   currentOrderStatus: OrderStatusSchema,
   currentBookStatus: BookStatusSchema.nullable(),
   rejectionReason: z.string().nullable(),

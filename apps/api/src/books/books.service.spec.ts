@@ -320,8 +320,41 @@ describe("BooksService", () => {
       });
       expect(result.estimatedPages).toBe(164);
       expect(result.wordCount).toBe(42_000);
-      // Derived from the uploaded file name and title-cased for display.
+      // An untitled book is named from the file, title-cased for display.
       expect(result.title).toBe("Novel");
+    });
+
+    it("keeps the title the author entered instead of the file name", async () => {
+      mockPrismaService.book.findFirst.mockResolvedValue({
+        id: "cm1111111111111111111111111",
+        status: "AWAITING_UPLOAD",
+        title: "My First Novel",
+        pageSize: "A5",
+        fontSize: 11,
+      });
+      mockManuscriptAnalysisService.detectMimeType.mockReturnValue(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      );
+      mockManuscriptAnalysisService.analyzeManuscript.mockResolvedValue({
+        wordCount: 42_000,
+        layout: null,
+      });
+      mockManuscriptAnalysisService.estimatePages.mockReturnValue(164);
+      mockFilesService.uploadFile.mockResolvedValue({
+        id: "file_123",
+        url: "https://cdn.example.com/manuscripts/file_123.docx",
+        fileName: "final-draft-v3.docx",
+        fileSize: 1024,
+      });
+      mockPrismaService.book.update.mockResolvedValue({});
+
+      const result = await service.uploadUserManuscript("user_1", "cm1111111111111111111111111", {
+        ...file,
+        originalname: "final-draft-v3.docx",
+      });
+
+      expect(mockPrismaService.book.update.mock.calls[0][0].data).not.toHaveProperty("title");
+      expect(result.title).toBe("My First Novel");
     });
 
     it("returns scanner unavailable message when scan provider is down", async () => {

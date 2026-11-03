@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 export type BookSize = "A4" | "A5" | "A6";
 export type PaperColor = "white" | "cream";
@@ -207,83 +209,134 @@ const INITIAL_STATE = {
   | "discountAmount"
 >;
 
-export const usePricingStore = create<PricingState>((set, get) => ({
-  ...INITIAL_STATE,
-  setSelectedPackage: (pkg) => set({ selectedPackage: pkg }),
-  setHasCoverDesign: (value) => set({ hasCoverDesign: value }),
-  setHasFormatting: (value) => set({ hasFormatting: value }),
-  setBookSize: (value) => set({ bookSize: value }),
-  setPaperColor: (value) => set({ paperColor: value }),
-  setLamination: (value) => set({ lamination: value }),
-  setSelectedAddons: (addons) =>
-    set({
-      selectedAddons: Array.from(new Map(addons.map((addon) => [addon.id, addon])).values()),
-    }),
-  toggleSelectedAddon: (addon) =>
-    set((state) => {
-      const exists = state.selectedAddons.some((item) => item.id === addon.id);
-      if (exists) {
-        return {
-          selectedAddons: state.selectedAddons.filter((item) => item.id !== addon.id),
-        };
-      }
-      return {
-        selectedAddons: [...state.selectedAddons, addon],
-      };
-    }),
-  removeSelectedAddon: (addonId) =>
-    set((state) => ({
-      selectedAddons: state.selectedAddons.filter((addon) => addon.id !== addonId),
-    })),
-  applyFormattingCost: (wordCount, pricePerWord) =>
-    set({
-      formattingWordCount: Math.max(0, Math.floor(wordCount)),
-      formattingPricePerWord: Math.max(0, pricePerWord),
-    }),
-  applyCoupon: (code, discountAmount) =>
-    set({
-      couponCode: code.trim() || null,
-      discountAmount: toCurrency(Math.max(0, discountAmount)),
-    }),
-  clearCoupon: () => set({ couponCode: null, discountAmount: 0 }),
-  getBasePrice: () => getBasePriceValue(get()),
-  getAddonBreakdown: () => getAddonBreakdownValue(get()),
-  getAddonTotal: () => getAddonTotalValue(get()),
-  getTotalPrice: () => getTotalPriceValue(get()),
-  toPaymentMetadata: () => {
-    const state = get();
-    const chargeLines = getChargeLines(state);
+/**
+ * The configuration lives in sessionStorage so it survives leaving the site for
+ * a payment provider: a payer who cancels on Paystack comes back to the same
+ * checkout instead of an empty one. Per tab, cleared when the tab closes, and
+ * only the choices are kept (the server re-prices every checkout anyway).
+ * Hydration is manual (see usePricingStoreHydrated) so the server render and
+ * the first client render agree.
+ */
+export const usePricingStore = create<PricingState>()(
+  persist(
+    (set, get) => ({
+      ...INITIAL_STATE,
+      setSelectedPackage: (pkg) => set({ selectedPackage: pkg }),
+      setHasCoverDesign: (value) => set({ hasCoverDesign: value }),
+      setHasFormatting: (value) => set({ hasFormatting: value }),
+      setBookSize: (value) => set({ bookSize: value }),
+      setPaperColor: (value) => set({ paperColor: value }),
+      setLamination: (value) => set({ lamination: value }),
+      setSelectedAddons: (addons) =>
+        set({
+          selectedAddons: Array.from(new Map(addons.map((addon) => [addon.id, addon])).values()),
+        }),
+      toggleSelectedAddon: (addon) =>
+        set((state) => {
+          const exists = state.selectedAddons.some((item) => item.id === addon.id);
+          if (exists) {
+            return {
+              selectedAddons: state.selectedAddons.filter((item) => item.id !== addon.id),
+            };
+          }
+          return {
+            selectedAddons: [...state.selectedAddons, addon],
+          };
+        }),
+      removeSelectedAddon: (addonId) =>
+        set((state) => ({
+          selectedAddons: state.selectedAddons.filter((addon) => addon.id !== addonId),
+        })),
+      applyFormattingCost: (wordCount, pricePerWord) =>
+        set({
+          formattingWordCount: Math.max(0, Math.floor(wordCount)),
+          formattingPricePerWord: Math.max(0, pricePerWord),
+        }),
+      applyCoupon: (code, discountAmount) =>
+        set({
+          couponCode: code.trim() || null,
+          discountAmount: toCurrency(Math.max(0, discountAmount)),
+        }),
+      clearCoupon: () => set({ couponCode: null, discountAmount: 0 }),
+      getBasePrice: () => getBasePriceValue(get()),
+      getAddonBreakdown: () => getAddonBreakdownValue(get()),
+      getAddonTotal: () => getAddonTotalValue(get()),
+      getTotalPrice: () => getTotalPriceValue(get()),
+      toPaymentMetadata: () => {
+        const state = get();
+        const chargeLines = getChargeLines(state);
 
-    return {
-      hasCover: state.hasCoverDesign ?? false,
-      hasFormatting: state.hasFormatting ?? false,
-      tier: state.selectedPackage?.slug ?? null,
-      packageId: state.selectedPackage?.id ?? null,
-      packageSlug: state.selectedPackage?.slug ?? null,
-      packageName: state.selectedPackage?.name ?? null,
-      includesISBN: state.selectedPackage?.includesISBN ?? false,
-      bookSize: state.bookSize,
-      paperColor: state.paperColor,
-      lamination: state.lamination,
-      formattingWordCount: state.formattingWordCount,
-      couponCode: state.couponCode,
-      discountAmount: state.discountAmount,
-      basePrice: getBasePriceValue(state),
-      addonTotal: getAddonTotalValue(state),
-      totalPrice: getTotalPriceValue(state),
-      addons: chargeLines.map((line) => ({
-        id: line.id,
-        slug: line.slug,
-        name: line.name,
-        price: line.price,
-        source: line.source,
-      })),
-      addonBreakdown: getAddonBreakdownValue(state),
-    };
-  },
-  reset: () => set(INITIAL_STATE),
-  resetConfiguration: () => set(INITIAL_STATE),
-}));
+        return {
+          hasCover: state.hasCoverDesign ?? false,
+          hasFormatting: state.hasFormatting ?? false,
+          tier: state.selectedPackage?.slug ?? null,
+          packageId: state.selectedPackage?.id ?? null,
+          packageSlug: state.selectedPackage?.slug ?? null,
+          packageName: state.selectedPackage?.name ?? null,
+          includesISBN: state.selectedPackage?.includesISBN ?? false,
+          bookSize: state.bookSize,
+          paperColor: state.paperColor,
+          lamination: state.lamination,
+          formattingWordCount: state.formattingWordCount,
+          couponCode: state.couponCode,
+          discountAmount: state.discountAmount,
+          basePrice: getBasePriceValue(state),
+          addonTotal: getAddonTotalValue(state),
+          totalPrice: getTotalPriceValue(state),
+          addons: chargeLines.map((line) => ({
+            id: line.id,
+            slug: line.slug,
+            name: line.name,
+            price: line.price,
+            source: line.source,
+          })),
+          addonBreakdown: getAddonBreakdownValue(state),
+        };
+      },
+      reset: () => set(INITIAL_STATE),
+      resetConfiguration: () => set(INITIAL_STATE),
+    }),
+    {
+      name: "bp_checkout_configuration",
+      version: 1,
+      storage: createJSONStorage(() => sessionStorage),
+      skipHydration: true,
+      partialize: (state) => ({
+        selectedPackage: state.selectedPackage,
+        hasCoverDesign: state.hasCoverDesign,
+        hasFormatting: state.hasFormatting,
+        bookSize: state.bookSize,
+        paperColor: state.paperColor,
+        lamination: state.lamination,
+        selectedAddons: state.selectedAddons,
+        formattingWordCount: state.formattingWordCount,
+        formattingPricePerWord: state.formattingPricePerWord,
+        couponCode: state.couponCode,
+        discountAmount: state.discountAmount,
+      }),
+    }
+  )
+);
+
+/**
+ * Restores the saved configuration after mount and reports when it is ready,
+ * so a page does not judge the configuration "incomplete" before it is loaded.
+ */
+export function usePricingStoreHydrated() {
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (usePricingStore.persist.hasHydrated()) {
+      setHydrated(true);
+      return;
+    }
+    const unsubscribe = usePricingStore.persist.onFinishHydration(() => setHydrated(true));
+    void usePricingStore.persist.rehydrate();
+    return unsubscribe;
+  }, []);
+
+  return hydrated;
+}
 
 export const selectBasePrice = (state: PricingState) => state.getBasePrice();
 export const selectAddonBreakdown = (state: PricingState) => state.getAddonBreakdown();

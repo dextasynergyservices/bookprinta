@@ -11,6 +11,7 @@ import { AddonCard } from "@/components/checkout/AddonCard";
 import { PaymentMethodModal } from "@/components/checkout/PaymentMethodModal";
 import { RecaptchaProvider } from "@/components/shared/RecaptchaProvider";
 import { TrustBadgesStrip } from "@/components/shared/TrustBadgesStrip";
+import { useExtraPagePrice } from "@/hooks/use-extra-page-price";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 import { type Addon, useAddons } from "@/hooks/useAddons";
 import { usePackages } from "@/hooks/usePackages";
@@ -26,6 +27,7 @@ import {
   selectBasePrice,
   selectTotalPrice,
   usePricingStore,
+  usePricingStoreHydrated,
 } from "@/stores/usePricingStore";
 
 type CheckoutAddon = Addon & {
@@ -186,6 +188,8 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
     return t(key);
   };
 
+  const isPricingHydrated = usePricingStoreHydrated();
+  const extraPagePrice = useExtraPagePrice();
   const isConfigurationComplete = isPricingConfigurationComplete({
     hasCoverDesign,
     hasFormatting,
@@ -480,7 +484,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
     });
   }, [pricingSelectedPackage, selectedPackage, setSelectedPackage]);
 
-  const isLoading = isLoadingPackages || isLoadingAddons;
+  const isLoading = !isPricingHydrated || isLoadingPackages || isLoadingAddons;
 
   const PageWrapper = isDashboard ? "div" : "main";
   const mainContentClass = isDashboard
@@ -504,7 +508,7 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
     );
   }
 
-  if (!isConfigurationComplete) {
+  if (isPricingHydrated && !isConfigurationComplete) {
     return (
       <CheckoutStateFrame isDashboard={isDashboard}>
         <div className="mx-auto max-w-3xl rounded-3xl border border-[#2A2A2A] bg-[#0a0a0a] p-8 text-center">
@@ -597,7 +601,9 @@ export function CheckoutView({ variant = "public" }: CheckoutViewProps) {
 
                   const notice =
                     addon.type === "formatting"
-                      ? t("addons_formatting_extra_page_notice")
+                      ? t("addons_formatting_extra_page_notice", {
+                          price: formatPrice(extraPagePrice),
+                        })
                       : undefined;
 
                   return (

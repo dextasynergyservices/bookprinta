@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 const DEFAULT_ORIGIN = "http://localhost:3000";
 
@@ -59,29 +60,8 @@ async function fulfillPreflight(page: Page, route: Parameters<Parameters<Page["r
   });
 }
 
-function createMockAccessToken() {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(
-    JSON.stringify({
-      sub: "cm_admin_resources_01",
-      role: "SUPER_ADMIN",
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    })
-  ).toString("base64url");
-
-  return `${header}.${payload}.mock-signature`;
-}
-
 async function seedAdminSession(page: Page) {
-  await page.context().addCookies([
-    {
-      name: "access_token",
-      value: createMockAccessToken(),
-      url: "http://localhost:3000",
-      httpOnly: false,
-      sameSite: "Lax",
-    },
-  ]);
+  await seedSession(page, "SUPER_ADMIN");
 }
 
 async function mockAdminResourcesApis(page: Page) {
@@ -382,7 +362,9 @@ test.describe("Admin Resources QA", () => {
     await page.getByLabel("Content").fill("## First pass\n- Tighten structure");
     await page.getByRole("button", { name: "Create Article" }).click();
 
-    await expect(page.getByText("The Editing Checklist")).toBeVisible();
+    // Articles render as a table and as mobile cards; check the desktop table.
+    const articlesTable = page.getByRole("table");
+    await expect(articlesTable.getByText("The Editing Checklist")).toBeVisible();
 
     const actionButtons = page.getByRole("button", { name: "Open article actions" });
     await actionButtons.first().click();
@@ -402,21 +384,22 @@ test.describe("Admin Resources QA", () => {
     await editDialog.getByLabel("Title").fill("The Editing Checklist v2");
     await editDialog.getByRole("button", { name: "Save Article" }).click();
 
-    await expect(page.getByText("The Editing Checklist v2")).toBeVisible();
+    await expect(articlesTable.getByText("The Editing Checklist v2")).toBeVisible();
 
     await actionButtons.first().click();
     await page.getByRole("menuitem", { name: "Publish" }).click();
-    await expect(page.getByText("Published")).toBeVisible();
+    await expect(articlesTable.getByText("Published")).toBeVisible();
 
     await actionButtons.first().click();
     await page.getByRole("menuitem", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Delete" }).click();
 
-    await expect(page.getByText("The Editing Checklist v2")).not.toBeVisible();
+    await expect(articlesTable.getByText("The Editing Checklist v2")).not.toBeVisible();
 
     await page.getByRole("button", { name: "Delete Category" }).click();
     await page.getByRole("button", { name: "Delete" }).click();
 
-    await expect(page.getByText("Publishing Guides")).not.toBeVisible();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(page.getByText("Publishing Guides", { exact: true })).not.toBeVisible();
   });
 });

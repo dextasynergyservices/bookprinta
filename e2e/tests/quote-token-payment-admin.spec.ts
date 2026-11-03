@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 const QUOTE_ID = "cmquote_phase9_0001";
 const TOKEN = "token_phase9_admin";
@@ -41,6 +42,7 @@ test.describe("Admin Quote Token Payment", () => {
   }) => {
     let paymentLinkGenerated = false;
 
+    await seedSession(page, "SUPER_ADMIN");
     await page.route("**/api/v1/auth/me*", async (route) => {
       if (route.request().method() === "OPTIONS") {
         await fulfillPreflight(page, route);
@@ -247,6 +249,9 @@ test.describe("Admin Quote Token Payment", () => {
 
     await expect(page.getByText(`/pay/${TOKEN}`)).toBeVisible();
 
+    // The customer pays from their own, signed-out browser. A signed-in payer
+    // skips signup and lands on the dashboard instead.
+    await page.context().clearCookies();
     await page.goto(`/pay/${TOKEN}`);
     await expect(page.getByRole("heading", { name: "Complete your quote payment" })).toBeVisible();
 

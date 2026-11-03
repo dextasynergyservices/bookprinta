@@ -108,9 +108,9 @@ const packageTemplates: PackageTemplateSeed[] = [
 const packageCategories: PackageCategorySeed[] = [
   {
     name: "Author Launch",
-    // Slug keeps the historical typo: seeding upserts by slug, so renaming it
-    // would create a duplicate category in existing databases.
-    slug: "author-lunch",
+    // Was "author-lunch" until migration 20261103120000 renamed it; migrations
+    // run before seeding, so the upsert below finds the renamed row.
+    slug: "author-launch",
     description: "For author-focused publishing bundles with fixed default copies.",
     copies: 25,
     sortOrder: 0,
@@ -120,7 +120,7 @@ const packageCategories: PackageCategorySeed[] = [
   },
   {
     name: "Dexta Launch",
-    slug: "dexta-lunch",
+    slug: "dexta-launch",
     description: "For Dexta-focused publishing bundles with fixed default copies.",
     copies: 35,
     tierPrices: {

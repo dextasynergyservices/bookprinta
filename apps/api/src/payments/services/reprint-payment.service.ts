@@ -480,7 +480,9 @@ export class ReprintPaymentService {
         amountPaid: formatNaira(params.amount),
         addons: [],
         bookTitle:
-          deriveTitleFromFileName(sourceManuscript?.fileName) ?? sourceBook.title ?? "Untitled",
+          sourceBook.title?.trim() ||
+          deriveTitleFromFileName(sourceManuscript?.fileName) ||
+          "Untitled",
         copies: reprint.copies,
         costPerCopy: formatNaira(pageCount > 0 ? params.amount / reprint.copies : 0),
         bookSize,

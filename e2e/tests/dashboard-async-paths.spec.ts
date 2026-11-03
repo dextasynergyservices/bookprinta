@@ -5,6 +5,7 @@
  * and background polling keeps data fresh without blanking content.
  */
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 const DASHBOARD_PATH = "/dashboard";
 
@@ -131,6 +132,10 @@ async function gotoDashboard(page: Page) {
 }
 
 test.describe("Dashboard async paths", () => {
+  test.beforeEach(async ({ page }) => {
+    await seedSession(page, "USER");
+  });
+
   /* ─── 1. Loading skeleton → content (no blank frame) ─── */
 
   test("375px: initial load shows skeleton then overview content — never a blank screen", async ({

@@ -1,49 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 type UserRole = "USER" | "ADMIN";
 
-function toBase64Url(value: string): string {
-  return Buffer.from(value)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function createJwtWithRole(role: UserRole, expMsFromNow = 5 * 60_000): string {
-  const header = toBase64Url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = toBase64Url(
-    JSON.stringify({
-      sub: role === "ADMIN" ? "admin-1" : "user-1",
-      role,
-      exp: Math.floor((Date.now() + expMsFromNow) / 1000),
-    })
-  );
-
-  return `${header}.${payload}.signature`;
-}
-
 async function setAccessTokenCookie(page: Parameters<typeof test>[0]["page"], role: UserRole) {
-  const baseURL = test.info().project.use.baseURL ?? "http://localhost:3000";
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
-  const cookieValue = createJwtWithRole(role);
-
-  await page.context().addCookies([
-    {
-      name: "access_token",
-      value: cookieValue,
-      url: baseURL,
-      httpOnly: true,
-      sameSite: "Lax",
-    },
-    {
-      name: "access_token",
-      value: cookieValue,
-      url: apiBaseUrl,
-      httpOnly: true,
-      sameSite: "Lax",
-    },
-  ]);
+  await seedSession(page, role);
 }
 
 async function mockAuthSession(page: Parameters<typeof test>[0]["page"], role: UserRole) {

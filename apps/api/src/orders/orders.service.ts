@@ -125,6 +125,7 @@ export class OrdersService {
     book: {
       select: {
         id: true,
+        title: true,
         status: true,
         productionStatus: true,
       },
@@ -160,6 +161,7 @@ export class OrdersService {
     book: {
       select: {
         id: true,
+        title: true,
         status: true,
         productionStatus: true,
       },
@@ -221,6 +223,7 @@ export class OrdersService {
     book: {
       select: {
         id: true,
+        title: true,
         status: true,
         productionStatus: true,
         productionStatusUpdatedAt: true,
@@ -1671,6 +1674,7 @@ export class OrdersService {
       orderId: row.id,
       orderNumber: row.orderNumber,
       bookId: row.book?.id ?? null,
+      title: row.book?.title?.trim() || null,
       currentOrderStatus: row.status,
       currentBookStatus: productionBookStatus,
       rejectionReason: row.book?.rejectionReason ?? null,
@@ -2196,6 +2200,7 @@ export class OrdersService {
       book: row.book
         ? {
             id: row.book.id,
+            title: row.book.title?.trim() || null,
             status: row.book.status,
             productionStatus: row.book.productionStatus ?? null,
           }

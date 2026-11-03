@@ -486,12 +486,12 @@ export function PaymentMethodModal({
       }
 
       setCopiedFieldKey(key);
-      toast.success("Copied");
+      toast.success(t("payment_modal_bank_copied"));
       window.setTimeout(() => {
         setCopiedFieldKey((current) => (current === key ? null : current));
       }, 1200);
     } catch {
-      toast.error("Could not copy");
+      toast.error(t("payment_modal_bank_copy_failed"));
     }
   };
 
@@ -863,6 +863,9 @@ export function PaymentMethodModal({
                                         </p>
                                         <button
                                           type="button"
+                                          aria-label={t("payment_modal_bank_copy_label", {
+                                            field: t("payment_modal_bank_account_name"),
+                                          })}
                                           onClick={() =>
                                             copyToClipboard(
                                               account.accountName,
@@ -875,12 +878,12 @@ export function PaymentMethodModal({
                                           `${account.bank}-${account.accountNumber}-account-name` ? (
                                             <>
                                               <Check className="size-3.5" aria-hidden="true" />
-                                              Copied
+                                              {t("payment_modal_bank_copied")}
                                             </>
                                           ) : (
                                             <>
                                               <Copy className="size-3.5" aria-hidden="true" />
-                                              Copy
+                                              {t("payment_modal_bank_copy")}
                                             </>
                                           )}
                                         </button>
@@ -891,6 +894,9 @@ export function PaymentMethodModal({
                                         </p>
                                         <button
                                           type="button"
+                                          aria-label={t("payment_modal_bank_copy_label", {
+                                            field: t("payment_modal_bank_name"),
+                                          })}
                                           onClick={() =>
                                             copyToClipboard(
                                               account.bank,
@@ -903,12 +909,12 @@ export function PaymentMethodModal({
                                           `${account.bank}-${account.accountNumber}-bank` ? (
                                             <>
                                               <Check className="size-3.5" aria-hidden="true" />
-                                              Copied
+                                              {t("payment_modal_bank_copied")}
                                             </>
                                           ) : (
                                             <>
                                               <Copy className="size-3.5" aria-hidden="true" />
-                                              Copy
+                                              {t("payment_modal_bank_copy")}
                                             </>
                                           )}
                                         </button>
@@ -919,6 +925,9 @@ export function PaymentMethodModal({
                                         </p>
                                         <button
                                           type="button"
+                                          aria-label={t("payment_modal_bank_copy_label", {
+                                            field: t("payment_modal_bank_account_number"),
+                                          })}
                                           onClick={() =>
                                             copyToClipboard(
                                               account.accountNumber,
@@ -931,12 +940,12 @@ export function PaymentMethodModal({
                                           `${account.bank}-${account.accountNumber}-number` ? (
                                             <>
                                               <Check className="size-3.5" aria-hidden="true" />
-                                              Copied
+                                              {t("payment_modal_bank_copied")}
                                             </>
                                           ) : (
                                             <>
                                               <Copy className="size-3.5" aria-hidden="true" />
-                                              Copy
+                                              {t("payment_modal_bank_copy")}
                                             </>
                                           )}
                                         </button>

@@ -84,6 +84,7 @@ describe("OrdersService", () => {
           },
           book: {
             id: "cm3333333333333333333333333",
+            title: "The Lagos Chronicle",
             status: "PRINTING",
             productionStatus: null,
           },
@@ -113,6 +114,7 @@ describe("OrdersService", () => {
             },
             book: {
               id: "cm3333333333333333333333333",
+              title: "The Lagos Chronicle",
               status: "PRINTING",
               productionStatus: null,
             },
@@ -429,6 +431,7 @@ describe("OrdersService", () => {
         shippingProvider: "DHL",
         book: {
           id: "cm3333333333333333333333333",
+          title: "The Lagos Chronicle",
           status: "DELIVERED",
           productionStatus: "DELIVERED",
           rejectionReason: null,
@@ -441,6 +444,7 @@ describe("OrdersService", () => {
       const result = await service.getUserOrderTracking("user_1", "cm1111111111111111111111111");
 
       expect(result.bookId).toBe("cm3333333333333333333333333");
+      expect(result.title).toBe("The Lagos Chronicle");
       expect(result.currentBookStatus).toBe("DELIVERED");
       expect(result.rejectionReason).toBeNull();
       expect(result.timeline.some((entry) => entry.status === "DELIVERED")).toBe(true);
