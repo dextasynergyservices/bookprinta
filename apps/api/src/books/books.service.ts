@@ -668,7 +668,11 @@ export class BooksService {
     })();
 
     const shouldMarkUploaded = book.status === "AWAITING_UPLOAD" || book.status === "REJECTED";
-    const newTitle = this.deriveTitleFromFileName(uploadedFile.fileName ?? file.originalname);
+    // The author's title (set with the size and font) wins; the file name only
+    // names a book that has no title yet.
+    const newTitle = book.title?.trim()
+      ? null
+      : this.deriveTitleFromFileName(uploadedFile.fileName ?? file.originalname);
     await this.prisma.book.update({
       where: { id: book.id },
       data: {
@@ -678,7 +682,6 @@ export class BooksService {
         documentPageCount,
         pageSize,
         fontSize,
-        // Update the title to match the latest uploaded manuscript file name.
         ...(newTitle ? { title: newTitle } : {}),
         // Clear stale pipeline URLs so the previous manuscript's outputs
         // are never shown while the new pipeline processes.
@@ -708,10 +711,7 @@ export class BooksService {
 
     return {
       bookId: book.id,
-      title:
-        newTitle ??
-        book.title ??
-        this.deriveTitleFromFileName(uploadedFile.fileName ?? file.originalname),
+      title: newTitle ?? book.title ?? null,
       fileId: uploadedFile.id,
       fileUrl: uploadedFile.url,
       fileName: uploadedFile.fileName ?? file.originalname,
@@ -836,8 +836,8 @@ export class BooksService {
     const latestFileTitle = this.deriveTitleFromFileName(row.files[0]?.fileName ?? null);
 
     // For reprints, resolve the source book's title when this book has no files
-    let resolvedTitle = latestFileTitle ?? row.title ?? null;
-    if (!latestFileTitle && row.order.orderType === "REPRINT" && row.order.originalBookId) {
+    let resolvedTitle = this.resolveBookTitle(row.title, latestFileTitle);
+    if (!resolvedTitle && row.order.orderType === "REPRINT" && row.order.originalBookId) {
       const sourceTitles = await this.resolveReprintSourceTitles([row]);
       resolvedTitle = sourceTitles.get(row.order.originalBookId) ?? row.title ?? null;
     }
@@ -1000,15 +1000,12 @@ export class BooksService {
     const timelineUpdatedAt =
       row.productionStatusUpdatedAt ?? row.rejectedAt ?? row.updatedAt ?? row.createdAt;
 
-    // Derive the display title from the latest RAW_MANUSCRIPT file name so the
-    // admin header always reflects the most-recently-uploaded manuscript, even
-    // for books where the stored book.title still holds the first upload's name.
     const latestManuscript = row.files.find((f) => f.fileType === "RAW_MANUSCRIPT");
     const latestFileTitle = this.deriveTitleFromFileName(latestManuscript?.fileName ?? null);
 
     // For reprints, resolve the source book's title when this book has no manuscript files
-    let adminResolvedTitle = latestFileTitle ?? row.title ?? null;
-    if (!latestFileTitle && row.order.orderType === "REPRINT" && row.order.originalBookId) {
+    let adminResolvedTitle = this.resolveBookTitle(row.title, latestFileTitle);
+    if (!adminResolvedTitle && row.order.orderType === "REPRINT" && row.order.originalBookId) {
       const sourceTitles = await this.resolveReprintSourceTitles([
         { id: row.id, order: row.order },
       ]);
@@ -2099,9 +2096,6 @@ export class BooksService {
       hasActiveReprint,
     });
 
-    // Derive the display title from the latest RAW_MANUSCRIPT file name so it
-    // always reflects the most-recently-uploaded manuscript (same pattern as
-    // admin book detail), falling back to the stored book.title.
     const latestManuscriptFileName = book.files[0]?.fileName ?? null;
     const latestFileTitle = this.deriveTitleFromFileName(latestManuscriptFileName);
 
@@ -2113,7 +2107,7 @@ export class BooksService {
       finalPdfUrlPresent: Boolean(book.finalPdfUrl),
       pageCount,
       costPerCopy,
-      bookTitle: latestFileTitle ?? book.title ?? null,
+      bookTitle: this.resolveBookTitle(book.title, latestFileTitle),
       bookSize: book.order.bookSize ?? null,
       paperColor: book.order.paperColor ?? null,
       lamination: book.order.lamination ?? null,
@@ -2533,7 +2527,7 @@ export class BooksService {
 
     for (const source of sourceBooks) {
       const fileTitle = this.deriveTitleFromFileName(source.files[0]?.fileName ?? null);
-      const resolvedTitle = fileTitle ?? source.title ?? null;
+      const resolvedTitle = this.resolveBookTitle(source.title, fileTitle);
       if (resolvedTitle) {
         titleMap.set(source.id, resolvedTitle);
       }
@@ -2559,7 +2553,7 @@ export class BooksService {
 
     return {
       id: row.id,
-      title: latestFileTitle ?? reprintSourceTitle ?? row.title ?? null,
+      title: this.resolveBookTitle(row.title, null) ?? reprintSourceTitle ?? latestFileTitle,
       author: this.serializeAdminBookAuthor(row.user),
       order: {
         id: row.order.id,
@@ -2596,7 +2590,7 @@ export class BooksService {
     return {
       id: row.id,
       orderId: row.orderId,
-      title: latestFileTitle ?? reprintSourceTitle ?? row.title ?? null,
+      title: this.resolveBookTitle(row.title, null) ?? reprintSourceTitle ?? latestFileTitle,
       status: row.status,
       productionStatus,
       orderType: row.order.orderType ?? null,
@@ -3559,6 +3553,18 @@ export class BooksService {
    *   "a tale of two cities.docx"   → "A Tale of Two Cities"
    *   "McDonald's story.docx"       → "McDonald's Story"  (mixed case preserved)
    */
+  /**
+   * The title the author gave the book; the manuscript file name only names a
+   * book that has none (e.g. uploaded before titles were asked for).
+   */
+  private resolveBookTitle(
+    storedTitle: string | null | undefined,
+    fileTitle: string | null
+  ): string | null {
+    const stored = storedTitle?.trim();
+    return stored ? stored : fileTitle;
+  }
+
   private deriveTitleFromFileName(fileName: string | null | undefined): string | null {
     if (typeof fileName !== "string") return null;
     const trimmed = fileName.trim();

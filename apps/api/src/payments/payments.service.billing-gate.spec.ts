@@ -3,15 +3,18 @@ import { BadRequestException, ServiceUnavailableException } from "@nestjs/common
 import { PaymentsService } from "./payments.service.js";
 
 type PaymentsServicePrivate = {
-  createPaymentFromWebhook: (data: {
-    provider: "PAYSTACK" | "STRIPE" | "PAYPAL";
-    providerRef: string;
-    amount: number;
-    currency: string;
-    payerEmail: string | null;
-    gatewayResponse: Record<string, unknown>;
-    metadata: Record<string, unknown> | null;
-  }) => Promise<void>;
+  // Checkout fulfilment lives in CheckoutFulfillmentService.
+  checkoutFulfillment: {
+    createPaymentFromWebhook: (data: {
+      provider: "PAYSTACK" | "STRIPE" | "PAYPAL";
+      providerRef: string;
+      amount: number;
+      currency: string;
+      payerEmail: string | null;
+      gatewayResponse: Record<string, unknown>;
+      metadata: Record<string, unknown> | null;
+    }) => Promise<void>;
+  };
 };
 
 function createService() {
@@ -292,7 +295,9 @@ describe("PaymentsService billing gate", () => {
     });
     prisma.order.update.mockResolvedValue({});
 
-    await (service as unknown as PaymentsServicePrivate).createPaymentFromWebhook({
+    await (
+      service as unknown as PaymentsServicePrivate
+    ).checkoutFulfillment.createPaymentFromWebhook({
       provider: "PAYSTACK",
       providerRef: "ep_ref_1",
       amount: 200,
@@ -333,7 +338,9 @@ describe("PaymentsService billing gate", () => {
     });
     prisma.order.update.mockResolvedValue({});
 
-    await (service as unknown as PaymentsServicePrivate).createPaymentFromWebhook({
+    await (
+      service as unknown as PaymentsServicePrivate
+    ).checkoutFulfillment.createPaymentFromWebhook({
       provider: "PAYSTACK",
       providerRef: "ep_ref_2",
       amount: 100,
@@ -366,7 +373,9 @@ describe("PaymentsService billing gate", () => {
     });
     prisma.payment.updateMany.mockResolvedValue({ count: 0 });
 
-    await (service as unknown as PaymentsServicePrivate).createPaymentFromWebhook({
+    await (
+      service as unknown as PaymentsServicePrivate
+    ).checkoutFulfillment.createPaymentFromWebhook({
       provider: "PAYSTACK",
       providerRef: "ep_ref_race",
       amount: 200,

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 type MockDashboardApiOptions = {
   unreadCount?: number;
@@ -212,6 +213,10 @@ function contrastRatio(foreground: [number, number, number], background: [number
 }
 
 test.describe("Dashboard Quality Gates", () => {
+  test.beforeEach(async ({ page }) => {
+    await seedSession(page, "USER");
+  });
+
   test("375px: mobile drawer, skip link, and keyboard controls", async ({ page }) => {
     test.slow();
     await page.setViewportSize({ width: 375, height: 812 });

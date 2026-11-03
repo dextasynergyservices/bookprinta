@@ -332,12 +332,9 @@ describe("BooksService admin workflows", () => {
         orderId: "cm2222222222222222222222222",
         displayStatus: "FORMATTING_REVIEW",
         statusSource: "production",
-        // The admin detail title is deliberately derived from the latest
-        // RAW_MANUSCRIPT file name ("lagos-chronicle.docx"), not the stored
-        // book.title, so the admin header always reflects the most recent
-        // upload even when book.title still holds an earlier upload's name.
-        // The derived value is title-cased for display.
-        title: "Lagos Chronicle",
+        // The author's stored title, not the manuscript file name
+        // ("lagos-chronicle.docx"); the file name only names an untitled book.
+        title: "The Lagos Chronicle",
         uploadedAt: "2026-03-10T09:31:00.000Z",
         version: 7,
         author: {

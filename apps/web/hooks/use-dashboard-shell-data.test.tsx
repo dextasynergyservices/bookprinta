@@ -10,6 +10,7 @@ import {
   useMarkNotificationRead,
   useNotificationBannerState,
   useNotificationUnreadCount,
+  useOlderNotificationPages,
 } from "./use-dashboard-shell-data";
 
 const unreadNotification = {
@@ -45,24 +46,6 @@ const productionDelayNotification = {
     presentation: {
       tone: "warning" as const,
       persistentBanner: "production_delay" as const,
-    },
-  },
-};
-
-const resolvedSystemNotification = {
-  id: "cm4444444444444444444444444",
-  type: "SYSTEM" as const,
-  isRead: false,
-  createdAt: "2026-03-03T11:00:00.000Z",
-  data: {
-    titleKey: "notifications.production_delay_resolved.title",
-    messageKey: "notifications.production_delay_resolved.message",
-    action: {
-      kind: "navigate" as const,
-      href: "/dashboard",
-    },
-    presentation: {
-      tone: "default" as const,
     },
   },
 };
@@ -424,77 +407,120 @@ describe("useNotificationBannerState", () => {
     global.fetch = fetchMock as unknown as typeof fetch;
   });
 
-  it("derives the production delay banner from notification presentation metadata", async () => {
+  function renderBannerState() {
     const client = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
       },
     });
-
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: jest.fn().mockResolvedValue({
-        items: [productionDelayNotification],
-        pagination: {
-          page: 1,
-          pageSize: 50,
-          totalItems: 1,
-          totalPages: 1,
-          hasPreviousPage: false,
-          hasNextPage: false,
-        },
-      }),
-    } as unknown as Response);
-
-    const { result } = renderHook(() => useNotificationBannerState(), {
+    return renderHook(() => useNotificationBannerState(), {
       wrapper: createWrapper(client),
     });
+  }
+
+  it("shows the banner when the server says the user has an active production delay", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ unreadCount: 2, hasProductionDelayBanner: true }),
+    } as unknown as Response);
+
+    const { result } = renderBannerState();
 
     await waitFor(() => {
-      expect(result.current.items).toHaveLength(1);
+      expect(result.current.hasProductionDelayBanner).toBe(true);
     });
-
-    expect(result.current.hasProductionDelayBanner).toBe(true);
+    // One cached request shared with the unread badge; the notification list
+    // (previously 50 rows every 30 s) is no longer fetched for the banner.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/notifications?page=1&limit=50"),
-      expect.objectContaining({
-        method: "GET",
-        credentials: "include",
-      })
+      expect.stringContaining("/notifications/unread-count"),
+      expect.objectContaining({ method: "GET", credentials: "include" })
     );
   });
 
-  it("does not show the banner when notifications do not carry the persistent banner marker", async () => {
-    const client = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-      },
-    });
-
+  it("hides the banner once the delay is resolved, whatever the notification history", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: jest.fn().mockResolvedValue({
-        items: [resolvedSystemNotification],
-        pagination: {
-          page: 1,
-          pageSize: 50,
-          totalItems: 1,
-          totalPages: 1,
-          hasPreviousPage: false,
-          hasNextPage: false,
-        },
-      }),
+      json: jest.fn().mockResolvedValue({ unreadCount: 0, hasProductionDelayBanner: false }),
     } as unknown as Response);
 
-    const { result } = renderHook(() => useNotificationBannerState(), {
-      wrapper: createWrapper(client),
-    });
+    const { result } = renderBannerState();
 
     await waitFor(() => {
-      expect(result.current.items).toHaveLength(1);
+      expect(result.current.isFallback).toBe(false);
     });
-
     expect(result.current.hasProductionDelayBanner).toBe(false);
+  });
+
+  it("treats a response without the flag as no banner", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ unreadCount: 1 }),
+    } as unknown as Response);
+
+    const { result } = renderBannerState();
+
+    await waitFor(() => {
+      expect(result.current.isFallback).toBe(false);
+    });
+    expect(result.current.hasProductionDelayBanner).toBe(false);
+  });
+});
+
+describe("useOlderNotificationPages", () => {
+  const fetchMock = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  function listPage(page: number, hasNextPage: boolean) {
+    return {
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        items: [{ ...unreadNotification, id: `cmpage${page}notification00000000` }],
+        pagination: {
+          page,
+          pageSize: 20,
+          totalItems: 60,
+          totalPages: 3,
+          hasPreviousPage: page > 1,
+          hasNextPage,
+        },
+      }),
+    } as unknown as Response;
+  }
+
+  function renderOlderPages(props: { isOpen: boolean; pageCount: number }) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return renderHook(() => useOlderNotificationPages(props), {
+      wrapper: createWrapper(client),
+    });
+  }
+
+  it("loads pages 2..pageCount and reports whether more remain", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(url.includes("page=2") ? listPage(2, true) : listPage(3, false))
+    );
+
+    const { result } = renderOlderPages({ isOpen: true, pageCount: 3 });
+
+    await waitFor(() => {
+      expect(result.current.items).toHaveLength(2);
+    });
+    expect(fetchMock.mock.calls.map(([url]) => String(url).match(/page=(\d+)/)?.[1])).toEqual([
+      "2",
+      "3",
+    ]);
+    expect(result.current.lastPagination?.hasNextPage).toBe(false);
+  });
+
+  it("fetches nothing while the panel is closed or only the first page is shown", () => {
+    renderOlderPages({ isOpen: false, pageCount: 3 });
+    renderOlderPages({ isOpen: true, pageCount: 1 });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

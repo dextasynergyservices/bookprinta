@@ -247,7 +247,19 @@ export function PayByTokenView({ token }: { token: string }) {
   const subtitle =
     errorMessage ||
     resolved?.message ||
-    (resolved?.tokenStatus === "VALID" ? t("valid_subtitle") : t("invalid_subtitle"));
+    (() => {
+      switch (resolved?.tokenStatus) {
+        case "VALID":
+          return t("valid_subtitle");
+        case "PAID":
+          return t("paid_subtitle");
+        case "EXPIRED":
+          return t("expired_subtitle");
+        default:
+          return t("invalid_subtitle");
+      }
+    })();
+  const isPaid = resolved?.tokenStatus === "PAID";
 
   const isBankFormComplete =
     bankFullName.trim().length >= 2 &&
@@ -604,16 +616,16 @@ export function PayByTokenView({ token }: { token: string }) {
         {!isValid ? (
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link
-              href="/contact"
+              href={isPaid ? "/login" : "/contact"}
               className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
             >
-              {t("contact_support")}
+              {isPaid ? t("paid_cta") : t("contact_support")}
             </Link>
             <Link
-              href="/pricing"
+              href={isPaid ? "/contact" : "/pricing"}
               className="rounded-xl border border-black/20 px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-black/[0.03]"
             >
-              {t("go_pricing")}
+              {isPaid ? t("contact_support") : t("go_pricing")}
             </Link>
           </div>
         ) : null}

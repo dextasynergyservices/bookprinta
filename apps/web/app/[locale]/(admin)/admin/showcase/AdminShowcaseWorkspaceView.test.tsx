@@ -289,8 +289,10 @@ describe("AdminShowcaseWorkspaceView", () => {
     createDefaultHooks();
   });
 
-  it("creates an entry after upload and supports edit/delete/featured toggle", async () => {
-    const user = userEvent.setup();
+  // Create and edit/delete/feature are separate tests: together they ran 9-13 s
+  // against the 15 s limit and timed out when the whole suite loaded the machine.
+  it("creates an entry after uploading the cover and author image", async () => {
+    const user = userEvent.setup({ delay: null });
     const createEntryMutateAsync = jest.fn().mockResolvedValue({ id: "entry_2" });
     const updateEntryMutateAsync = jest.fn().mockResolvedValue({ id: "entry_1" });
 
@@ -373,6 +375,18 @@ describe("AdminShowcaseWorkspaceView", () => {
       });
       expect(toastSuccessMock).toHaveBeenCalledWith("Showcase entry created successfully.");
     });
+  });
+
+  it("edits, deletes and toggles featured on an existing entry", async () => {
+    const user = userEvent.setup({ delay: null });
+    const updateEntryMutateAsync = jest.fn().mockResolvedValue({ id: "entry_1" });
+
+    useUpdateAdminShowcaseEntryMutationMock.mockReturnValue({
+      isPending: false,
+      mutateAsync: updateEntryMutateAsync,
+    });
+
+    render(<AdminShowcaseWorkspaceView />);
 
     await user.click(screen.getByRole("button", { name: "Edit Showcase Entry" }));
     const editDialog = await screen.findByRole("dialog");

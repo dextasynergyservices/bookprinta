@@ -9,12 +9,21 @@ import { PayPalProvider } from "./providers/paypal.provider.js";
 import { PaystackProvider } from "./providers/paystack.provider.js";
 import { StripeProvider } from "./providers/stripe.provider.js";
 import { AdminPaymentListService } from "./services/admin-payment-list.service.js";
+import { BankTransferService } from "./services/bank-transfer.service.js";
+import { CheckoutFulfillmentService } from "./services/checkout-fulfillment.service.js";
+import { CheckoutIdentityService } from "./services/checkout-identity.service.js";
+import { CheckoutMetadataPricingService } from "./services/checkout-metadata-pricing.service.js";
+import { CheckoutPricingService } from "./services/checkout-pricing.service.js";
+import { CustomQuoteFulfillmentService } from "./services/custom-quote-fulfillment.service.js";
 import { ExtraPagesPaymentService } from "./services/extra-pages-payment.service.js";
 import { GatewayService } from "./services/gateway.service.js";
+import { PaymentNotificationsService } from "./services/payment-notifications.service.js";
+import { PaymentReconciliationService } from "./services/payment-reconciliation.service.js";
 import { PayPalService } from "./services/paypal.service.js";
 import { PaystackService } from "./services/paystack.service.js";
 import { RefundService } from "./services/refund.service.js";
 import { ReprintPaymentService } from "./services/reprint-payment.service.js";
+import { SignupLinkDeliveryService } from "./services/signup-link-delivery.service.js";
 import { StripeService } from "./services/stripe.service.js";
 
 /**
@@ -55,6 +64,15 @@ import { StripeService } from "./services/stripe.service.js";
     RefundService,
     ReprintPaymentService,
     ExtraPagesPaymentService,
+    PaymentNotificationsService,
+    SignupLinkDeliveryService,
+    PaymentReconciliationService,
+    CheckoutPricingService,
+    CheckoutMetadataPricingService,
+    CheckoutIdentityService,
+    CustomQuoteFulfillmentService,
+    CheckoutFulfillmentService,
+    BankTransferService,
 
     // Orchestrator (facade — delegates to sub-services above)
     PaymentsService,

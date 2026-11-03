@@ -286,6 +286,10 @@ jest.mock("@/hooks/useBookResources", () => ({
   useBookFiles: (...args: unknown[]) => useBookFilesMock(...args),
 }));
 
+jest.mock("@/hooks/use-refresh-after-manuscript-upload", () => ({
+  useRefreshAfterManuscriptUpload: () => jest.fn(),
+}));
+
 jest.mock("@/hooks/use-online-status", () => ({
   useOnlineStatus: () => useOnlineStatusMock(),
 }));

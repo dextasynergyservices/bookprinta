@@ -18,6 +18,9 @@ const mockPrismaService = {
   user: {
     findMany: jest.fn(),
   },
+  productionDelayEventRecipient: {
+    findFirst: jest.fn(),
+  },
 };
 
 // Minimal Redis pipeline mock
@@ -61,37 +64,62 @@ describe("NotificationsService", () => {
   });
 
   describe("getUnreadCount", () => {
-    it("returns cached count from Redis when key exists", async () => {
-      mockRedisClient.get.mockResolvedValue("3");
+    it("returns the cached summary from Redis without querying the DB", async () => {
+      mockRedisClient.get.mockResolvedValue(
+        JSON.stringify({ unreadCount: 3, hasProductionDelayBanner: true })
+      );
 
-      await expect(service.getUnreadCount("user_1")).resolves.toEqual({ unreadCount: 3 });
-      expect(mockRedisClient.get).toHaveBeenCalledWith("bp:notif:unread:user_1");
-      // DB should NOT be queried on cache hit
+      await expect(service.getUnreadCount("user_1")).resolves.toEqual({
+        unreadCount: 3,
+        hasProductionDelayBanner: true,
+      });
+      expect(mockRedisClient.get).toHaveBeenCalledWith("bp:notif:summary:user_1");
       expect(mockPrismaService.notification.count).not.toHaveBeenCalled();
+      expect(mockPrismaService.productionDelayEventRecipient.findFirst).not.toHaveBeenCalled();
     });
 
-    it("falls back to DB and seeds Redis on cache miss", async () => {
-      mockRedisClient.get.mockResolvedValue(null); // cache miss
+    it("re-derives both values from the DB and seeds Redis on a cache miss", async () => {
+      mockRedisClient.get.mockResolvedValue(null);
       mockPrismaService.notification.count.mockResolvedValue(3);
+      mockPrismaService.productionDelayEventRecipient.findFirst.mockResolvedValue(null);
 
-      await expect(service.getUnreadCount("user_1")).resolves.toEqual({ unreadCount: 3 });
+      await expect(service.getUnreadCount("user_1")).resolves.toEqual({
+        unreadCount: 3,
+        hasProductionDelayBanner: false,
+      });
       expect(mockPrismaService.notification.count).toHaveBeenCalledWith({
-        where: {
-          userId: "user_1",
-          isRead: false,
-        },
+        where: { userId: "user_1", isRead: false },
       });
       // Seeded WITH a TTL: the backstop that bounds staleness if an
-      // invalidation is ever lost (see UNREAD_CACHE_TTL_SECONDS).
-      expect(mockRedisClient.set).toHaveBeenCalledWith("bp:notif:unread:user_1", 3, "EX", 300);
+      // invalidation is ever lost (see SUMMARY_CACHE_TTL_SECONDS).
+      expect(mockRedisClient.set).toHaveBeenCalledWith(
+        "bp:notif:summary:user_1",
+        JSON.stringify({ unreadCount: 3, hasProductionDelayBanner: false }),
+        "EX",
+        1800
+      );
     });
 
-    it("falls back to DB when Redis is unavailable", async () => {
+    it("treats an unreadable cached value as a miss", async () => {
+      mockRedisClient.get.mockResolvedValue("3"); // e.g. the old integer-only format
+      mockPrismaService.notification.count.mockResolvedValue(4);
+      mockPrismaService.productionDelayEventRecipient.findFirst.mockResolvedValue({ id: "r1" });
+
+      await expect(service.getUnreadCount("user_1")).resolves.toEqual({
+        unreadCount: 4,
+        hasProductionDelayBanner: true,
+      });
+    });
+
+    it("falls back to the DB when Redis is unavailable", async () => {
       mockRedisService.getClient.mockReturnValue(null);
       mockPrismaService.notification.count.mockResolvedValue(5);
+      mockPrismaService.productionDelayEventRecipient.findFirst.mockResolvedValue(null);
 
-      await expect(service.getUnreadCount("user_1")).resolves.toEqual({ unreadCount: 5 });
-      expect(mockPrismaService.notification.count).toHaveBeenCalled();
+      await expect(service.getUnreadCount("user_1")).resolves.toEqual({
+        unreadCount: 5,
+        hasProductionDelayBanner: false,
+      });
     });
   });
 
@@ -337,7 +365,7 @@ describe("NotificationsService", () => {
       // no-TTL key drifted permanently when a DECRBY failed: the key still
       // existed, so getUnreadCount treated it as a hit and never re-read the
       // DB, leaving the badge too high forever.
-      expect(mockRedisClient.del).toHaveBeenCalledWith("bp:notif:unread:user_1");
+      expect(mockRedisClient.del).toHaveBeenCalledWith("bp:notif:summary:user_1");
       expect(mockRedisClient.eval).not.toHaveBeenCalled();
     });
 
@@ -421,27 +449,69 @@ describe("NotificationsService", () => {
       });
       // Invalidated rather than set to 0 — the next read re-derives the count
       // from the DB, which is correct even if rows changed concurrently.
-      expect(mockRedisClient.del).toHaveBeenCalledWith("bp:notif:unread:user_1");
+      expect(mockRedisClient.del).toHaveBeenCalledWith("bp:notif:summary:user_1");
     });
   });
 
   describe("hasProductionDelayBanner", () => {
-    it("returns true when a PRODUCTION_DELAY notification exists for the user", async () => {
-      mockPrismaService.notification.findFirst.mockResolvedValue({
-        id: "cmnotif_delay_1111111111111111",
-      });
+    it("is true while the user is a recipient of an active delay event", async () => {
+      mockPrismaService.productionDelayEventRecipient.findFirst.mockResolvedValue({ id: "r1" });
 
       await expect(service.hasProductionDelayBanner("user_1")).resolves.toBe(true);
-      expect(mockPrismaService.notification.findFirst).toHaveBeenCalledWith({
-        where: { userId: "user_1", type: "PRODUCTION_DELAY" },
+      expect(mockPrismaService.productionDelayEventRecipient.findFirst).toHaveBeenCalledWith({
+        where: { userId: "user_1", event: { status: "ACTIVE" } },
         select: { id: true },
       });
     });
 
-    it("returns false when no PRODUCTION_DELAY notification exists for the user", async () => {
-      mockPrismaService.notification.findFirst.mockResolvedValue(null);
+    // The bug this replaced: the banner followed PRODUCTION_DELAY notifications,
+    // which stay in the user's history after the delay is resolved.
+    it("is false once the delay event is resolved, even with old delay notifications", async () => {
+      mockPrismaService.productionDelayEventRecipient.findFirst.mockResolvedValue(null);
+      mockPrismaService.notification.findFirst.mockResolvedValue({ id: "old_delay_notice" });
 
       await expect(service.hasProductionDelayBanner("user_1")).resolves.toBe(false);
+      expect(mockPrismaService.notification.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("cache invalidation after writes", () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("invalidates again after a transaction would have committed", async () => {
+      jest.useFakeTimers();
+      const tx = {
+        notification: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        user: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+
+      await service.createOrderStatusNotification(
+        { userId: "user_1", orderId: "order_1", orderNumber: "BP-2026-0001", status: "PAID" },
+        tx as never
+      );
+      expect(mockRedisClient.del).toHaveBeenCalledTimes(1);
+
+      // A poll during the transaction could have re-cached the old values.
+      await jest.advanceTimersByTimeAsync(2000);
+      expect(mockRedisClient.del).toHaveBeenCalledTimes(2);
+      expect(mockRedisClient.del).toHaveBeenLastCalledWith("bp:notif:summary:user_1");
+    });
+
+    it("invalidates once for writes outside a transaction", async () => {
+      jest.useFakeTimers();
+      mockPrismaService.notification.createMany.mockResolvedValue({ count: 1 });
+
+      await service.createOrderStatusNotification({
+        userId: "user_1",
+        orderId: "order_1",
+        orderNumber: "BP-2026-0001",
+        status: "PAID",
+      });
+      await jest.advanceTimersByTimeAsync(2000);
+
+      expect(mockRedisClient.del).toHaveBeenCalledTimes(1);
     });
   });
 

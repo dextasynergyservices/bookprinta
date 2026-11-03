@@ -215,3 +215,44 @@ describe("usePricingStore pricing", () => {
     expect(store.getAddonBreakdown()).toEqual([{ name: "Formatting", price: 3_000 }]);
   });
 });
+
+describe("usePricingStore persistence", () => {
+  beforeEach(() => {
+    usePricingStore.getState().reset();
+    window.sessionStorage.clear();
+  });
+
+  it("restores the configuration after the page is reloaded (e.g. returning from Paystack)", async () => {
+    const store = usePricingStore.getState();
+    store.setSelectedPackage(PACKAGE_WITHOUT_ISBN);
+    store.setHasCoverDesign(false);
+    store.setHasFormatting(true);
+    store.setBookSize("A5");
+    store.setPaperColor("cream");
+    store.setLamination("matt");
+    store.setSelectedAddons([COVER_ADDON]);
+
+    // A full page load starts from an empty store.
+    const saved = window.sessionStorage.getItem("bp_checkout_configuration");
+    usePricingStore.setState({ selectedPackage: null, bookSize: null, selectedAddons: [] });
+    window.sessionStorage.setItem("bp_checkout_configuration", saved ?? "");
+
+    await usePricingStore.persist.rehydrate();
+
+    const restored = usePricingStore.getState();
+    expect(restored.selectedPackage?.slug).toBe("first-draft");
+    expect(restored.bookSize).toBe("A5");
+    expect(restored.paperColor).toBe("cream");
+    expect(restored.selectedAddons.map((addon) => addon.id)).toEqual(["addon_cover"]);
+    expect(restored.getTotalPrice()).toBe(145_000);
+  });
+
+  it("clears the saved configuration on reset", async () => {
+    usePricingStore.getState().setBookSize("A4");
+    usePricingStore.getState().reset();
+
+    await usePricingStore.persist.rehydrate();
+
+    expect(usePricingStore.getState().bookSize).toBeNull();
+  });
+});

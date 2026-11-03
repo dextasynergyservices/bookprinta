@@ -51,6 +51,7 @@ export interface OrdersListItem {
   orderType: OrderType;
   orderStatus: OrderStatus | null;
   bookId: string | null;
+  bookTitle: string | null;
   bookStatus: BookStatus | null;
   bookProductionStatus: BookStatus | null;
   createdAt: string | null;

@@ -135,12 +135,19 @@ function OrdersDesktopTable({
         id: "reference",
         header: () => tDashboard("orders_table_ref"),
         cell: ({ row }) => (
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <OrderReferenceText>{row.original.orderNumber}</OrderReferenceText>
-            <ReprintBadge
-              orderType={row.original.orderType}
-              label={tDashboard("orders_reprint_badge")}
-            />
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <OrderReferenceText>{row.original.orderNumber}</OrderReferenceText>
+              <ReprintBadge
+                orderType={row.original.orderType}
+                label={tDashboard("orders_reprint_badge")}
+              />
+            </div>
+            {row.original.bookTitle ? (
+              <OrderMetaText className="max-w-[16rem] truncate">
+                {row.original.bookTitle}
+              </OrderMetaText>
+            ) : null}
           </div>
         ),
       }),
@@ -308,7 +315,12 @@ function OrdersMobileCards({
           className="overflow-hidden rounded-2xl border border-[#2A2A2A] bg-[#111111] p-4"
         >
           <div className="flex items-start justify-between gap-3">
-            <OrderReferenceText>{order.orderNumber}</OrderReferenceText>
+            <div className="flex min-w-0 flex-col gap-1">
+              <OrderReferenceText>{order.orderNumber}</OrderReferenceText>
+              {order.bookTitle ? (
+                <OrderMetaText className="truncate">{order.bookTitle}</OrderMetaText>
+              ) : null}
+            </div>
             <div className="flex shrink-0 flex-wrap justify-end gap-2">
               <ReprintBadge
                 orderType={order.orderType}

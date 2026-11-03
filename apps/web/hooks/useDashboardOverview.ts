@@ -2,7 +2,10 @@
 
 import type { BookStatus, DashboardOverviewResponse } from "@bookprinta/shared";
 import { useQuery } from "@tanstack/react-query";
-import { normalizeDashboardOverviewPayload } from "@/lib/api/dashboard-overview-contract";
+import {
+  normalizeDashboardOverviewPayload,
+  parseDashboardOverviewPayload,
+} from "@/lib/api/dashboard-overview-contract";
 import { throwApiError } from "@/lib/api-error";
 import {
   DASHBOARD_HEARTBEAT_POLL_INTERVAL_MS,
@@ -84,7 +87,14 @@ export async function fetchDashboardOverview({ signal }: { signal?: AbortSignal 
   }
 
   const payload = (await response.json().catch(() => null)) as unknown;
-  return normalizeDashboardOverviewPayload(payload);
+  const overview = parseDashboardOverviewPayload(payload);
+  // An unexpected shape means the API and web disagree. Showing the empty
+  // overview would tell the author they have no book or orders; failing shows
+  // the retry state instead and reports the mismatch to Sentry.
+  if (!overview) {
+    throw new Error("Unable to load your dashboard overview");
+  }
+  return overview;
 }
 
 export function useDashboardOverview({ enabled = true }: { enabled?: boolean } = {}) {

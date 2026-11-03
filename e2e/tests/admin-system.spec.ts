@@ -4,6 +4,7 @@
  *         audit log filter + expand, analytics range switch.
  */
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 const DEFAULT_ORIGIN = "http://localhost:3000";
 
@@ -44,29 +45,8 @@ async function fulfillPreflight(page: Page, route: Parameters<Parameters<Page["r
   });
 }
 
-function createMockAccessToken() {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(
-    JSON.stringify({
-      sub: "cmadmin000000000000000001",
-      role: "SUPER_ADMIN",
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    })
-  ).toString("base64url");
-
-  return `${header}.${payload}.mock-signature`;
-}
-
 async function seedAdminSession(page: Page) {
-  await page.context().addCookies([
-    {
-      name: "access_token",
-      value: createMockAccessToken(),
-      url: DEFAULT_ORIGIN,
-      httpOnly: false,
-      sameSite: "Lax",
-    },
-  ]);
+  await seedSession(page, "SUPER_ADMIN");
 }
 
 // ─── mock data ────────────────────────────────────────────────────────────────
@@ -229,22 +209,25 @@ async function mockSystemSettingsApis(
   page: Page,
   patchSettingResponse: unknown = { key: "comms_sender_name", value: "BookPrinta Pro" }
 ) {
-  await page.route("**/**/admin/system/settings", async (route) => {
+  await page.route("**/api/v1/admin/system/settings", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
     return fulfillJson(page, route, { items: MOCK_SETTINGS });
   });
 
-  await page.route("**/**/admin/system/settings/*", async (route) => {
+  await page.route("**/api/v1/admin/system/settings/*", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
     return fulfillJson(page, route, patchSettingResponse);
   });
 
-  await page.route("**/**/admin/system/payment-gateways", async (route) => {
+  await page.route("**/api/v1/admin/system/payment-gateways", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
-    return fulfillJson(page, route, { items: MOCK_GATEWAYS });
+    return fulfillJson(page, route, {
+      gateways: MOCK_GATEWAYS,
+      refreshedAt: "2026-03-19T12:00:00.000Z",
+    });
   });
 
-  await page.route("**/**/admin/system/payment-gateways/*", async (route) => {
+  await page.route("**/api/v1/admin/system/payment-gateways/*", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
     if (route.request().method() === "PATCH") {
       const body = JSON.parse(route.request().postData() ?? "{}");
@@ -254,12 +237,12 @@ async function mockSystemSettingsApis(
     return fulfillJson(page, route, MOCK_GATEWAYS[0]);
   });
 
-  await page.route("**/**/admin/system/production-status", async (route) => {
+  await page.route("**/api/v1/admin/system/production-status", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
     return fulfillJson(page, route, MOCK_PRODUCTION_STATUS);
   });
 
-  await page.route("**/**/admin/system/production-delay", async (route) => {
+  await page.route("**/api/v1/admin/system/production-delay", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
     return fulfillJson(page, route, {
       ...MOCK_PRODUCTION_STATUS,
@@ -270,24 +253,24 @@ async function mockSystemSettingsApis(
 }
 
 async function mockAnalyticsApis(page: Page) {
-  await page.route("**/**/admin/system/dashboard/stats**", async (route) => {
+  await page.route("**/api/v1/admin/system/dashboard/stats**", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
     return fulfillJson(page, route, MOCK_ANALYTICS_STATS);
   });
 
-  await page.route("**/**/admin/system/dashboard/charts**", async (route) => {
+  await page.route("**/api/v1/admin/system/dashboard/charts**", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
     return fulfillJson(page, route, MOCK_ANALYTICS_CHARTS);
   });
 }
 
 async function mockAuditLogsApis(page: Page) {
-  await page.route("**/**/admin/audit-logs**", async (route) => {
+  await page.route("**/api/v1/admin/system/audit-logs**", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
     return fulfillJson(page, route, MOCK_AUDIT_LOGS);
   });
 
-  await page.route("**/**/admin/error-logs**", async (route) => {
+  await page.route("**/api/v1/admin/system/error-logs**", async (route) => {
     if (route.request().method() === "OPTIONS") return fulfillPreflight(page, route);
     return fulfillJson(page, route, { items: [], nextCursor: null, hasMore: false, totalItems: 0 });
   });
@@ -344,7 +327,8 @@ test.describe("Admin Analytics", () => {
 
     // There must be at least 4 chart containers with role=img
     const chartRegions = page.getByRole("img");
-    await expect(chartRegions).toHaveCount({ minimum: 4 });
+    // toHaveCount takes an exact number; poll for "at least 4" instead.
+    await expect.poll(() => chartRegions.count()).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -365,7 +349,7 @@ test.describe("Admin Audit Logs", () => {
     const auditTab = tabList.getByRole("tab", { name: /audit/i });
     await expect(auditTab).toHaveAttribute("aria-selected", "true");
 
-    const errorsTab = tabList.getByRole("tab", { name: /errors/i });
+    const errorsTab = tabList.getByRole("tab", { name: /error/i });
     await expect(errorsTab).toHaveAttribute("aria-selected", "false");
   });
 
@@ -373,7 +357,7 @@ test.describe("Admin Audit Logs", () => {
     await page.goto("/admin/audit-logs");
 
     const tabList = page.getByRole("tablist", { name: "Log viewer" });
-    const errorsTab = tabList.getByRole("tab", { name: /errors/i });
+    const errorsTab = tabList.getByRole("tab", { name: /error/i });
     await errorsTab.click();
 
     await expect(errorsTab).toHaveAttribute("aria-selected", "true");
@@ -457,7 +441,7 @@ test.describe("Admin System Settings", () => {
   test("saving a text setting triggers PATCH and shows success toast", async ({ page }) => {
     let patchedKey: string | null = null;
 
-    await page.route("**/**/admin/system/settings/*", async (route) => {
+    await page.route("**/api/v1/admin/system/settings/*", async (route) => {
       if (route.request().method() === "PATCH") {
         patchedKey = new URL(route.request().url()).pathname.split("/").pop() ?? null;
         return route.fulfill({
@@ -492,7 +476,7 @@ test.describe("Admin System Settings", () => {
   test("payment gateway test mode toggle fires PATCH with isTestMode update", async ({ page }) => {
     const patchBodies: unknown[] = [];
 
-    await page.route("**/**/admin/system/payment-gateways/*", async (route) => {
+    await page.route("**/api/v1/admin/system/payment-gateways/*", async (route) => {
       if (route.request().method() === "PATCH") {
         patchBodies.push(JSON.parse(route.request().postData() ?? "{}"));
         return route.fulfill({
@@ -508,19 +492,22 @@ test.describe("Admin System Settings", () => {
 
     await page.goto("/admin/system-settings");
 
-    // Find the test mode switch associated with Paystack
-    const testModeSwitch = page.locator("[role='switch']").first();
+    // The switch edits a draft; the gateway section saves it with one PATCH.
+    const gatewaysSection = page
+      .locator("article")
+      .filter({ has: page.getByRole("heading", { name: "Payment Gateways", level: 2 }) });
+    await gatewaysSection.getByRole("switch", { name: "Paystack: Mode" }).click();
+    await gatewaysSection
+      .getByRole("textbox", { name: "Change Reason" })
+      .fill("Switching Paystack to live for launch");
+    await gatewaysSection.getByRole("button", { name: "Save Changes" }).click();
 
-    if (await testModeSwitch.isVisible()) {
-      await testModeSwitch.click();
-
-      await page.waitForTimeout(300);
-
-      // Verify a PATCH was made with isTestMode in the payload
-      const hasTestModeUpdate = patchBodies.some(
-        (body) => typeof body === "object" && body !== null && "isTestMode" in body
-      );
-      expect(hasTestModeUpdate).toBe(true);
-    }
+    await expect
+      .poll(() =>
+        patchBodies.some(
+          (body) => typeof body === "object" && body !== null && "isTestMode" in body
+        )
+      )
+      .toBe(true);
   });
 });

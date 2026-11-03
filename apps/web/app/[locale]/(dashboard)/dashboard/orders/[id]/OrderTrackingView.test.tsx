@@ -269,6 +269,7 @@ describe("OrderTrackingView route integration", () => {
       currentOrderStatus: "IN_PRODUCTION",
       currentBookStatus: "SHIPPING",
       bookId: "book_1",
+      title: "The Lagos Chronicle",
       isInitialLoading: false,
       isError: false,
       isFetching: false,
@@ -279,6 +280,7 @@ describe("OrderTrackingView route integration", () => {
     render(<OrderTrackingView orderId="ord_1" />);
 
     expect(screen.getByText("Order Journey")).toBeInTheDocument();
+    expect(screen.getByText("The Lagos Chronicle")).toBeInTheDocument();
     expect(screen.getByText("Order Ref: BP-2026-0001")).toBeInTheDocument();
     expect(screen.getByTestId("order-journey-tracker")).toBeInTheDocument();
     expect(screen.getByText("Payment Provider")).toBeInTheDocument();

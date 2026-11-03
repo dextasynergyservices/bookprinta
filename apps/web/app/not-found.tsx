@@ -9,6 +9,7 @@ export default function RootNotFound() {
   return (
     <html lang="en">
       <body
+        suppressHydrationWarning
         style={{
           margin: 0,
           fontFamily:

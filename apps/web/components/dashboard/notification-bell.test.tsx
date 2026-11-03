@@ -16,6 +16,12 @@ jest.mock("next-intl", () => ({
 jest.mock("@/hooks/use-dashboard-shell-data", () => ({
   useNotificationUnreadCount: () => useNotificationUnreadCountMock(),
   useNotificationsList: (options: unknown) => useNotificationsListMock(options),
+  useOlderNotificationPages: () => ({
+    items: [],
+    lastPagination: null,
+    isLoading: false,
+    isError: false,
+  }),
   useMarkNotificationRead: () => useMarkNotificationReadMock(),
   useMarkAllNotificationsRead: () => useMarkAllNotificationsReadMock(),
 }));

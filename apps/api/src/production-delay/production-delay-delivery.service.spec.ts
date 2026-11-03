@@ -49,6 +49,7 @@ const mockPrismaService = {
 const mockNotificationsService = {
   createProductionDelayNotifications: jest.fn(),
   createSystemNotification: jest.fn(),
+  invalidateNotificationSummary: jest.fn(),
 };
 
 const originalResendApiKey = process.env.RESEND_API_KEY;
@@ -118,6 +119,10 @@ describe("ProductionDelayDeliveryService", () => {
       ],
       skipDuplicates: true,
     });
+    // The newly affected user's cached banner flag is refreshed.
+    expect(mockNotificationsService.invalidateNotificationSummary).toHaveBeenCalledWith([
+      "cmuser1",
+    ]);
     expect(txRecipientUpdateMany).toHaveBeenNthCalledWith(1, {
       where: {
         eventId: "cmevent1",
@@ -298,6 +303,14 @@ describe("ProductionDelayDeliveryService", () => {
       })
     );
 
+    // Every recipient's cached banner flag is cleared when the event ends.
+    expect(topLevelRecipientFindMany).toHaveBeenCalledWith({
+      where: { eventId: "cmevent1" },
+      select: { userId: true },
+    });
+    expect(mockNotificationsService.invalidateNotificationSummary).toHaveBeenCalledWith([
+      "cmuser1",
+    ]);
     expect(mockNotificationsService.createSystemNotification).toHaveBeenCalledTimes(1);
     expect(mockNotificationsService.createSystemNotification).toHaveBeenCalledWith(
       {

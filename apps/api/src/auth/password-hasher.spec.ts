@@ -28,13 +28,16 @@ describe("password hasher", () => {
     await expect(verifyPassword("wrong", hash)).resolves.toBe(false);
   });
 
+  // Real cost-12 work (hash + verify, ~0.8 s alone): production still holds
+  // hashes made at the old default of 12. Under a busy parallel run that can
+  // approach Jest's 5 s default, so the test sets its own limit.
   it("verifies legacy cost-12 hashes and flags them for rehash", async () => {
     const legacy = await bcrypt.hash("legacy-pass", 12);
     await expect(verifyPassword("legacy-pass", legacy)).resolves.toBe(true);
     expect(needsRehash(legacy)).toBe(true);
     expect(needsRehash(await hashPassword("x"))).toBe(false);
     expect(needsRehash("not-a-bcrypt-hash")).toBe(false);
-  });
+  }, 20_000);
 
   it("runs at most BCRYPT_MAX_CONCURRENCY operations at once, in order", async () => {
     process.env.BCRYPT_MAX_CONCURRENCY = "1";

@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronDown } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { BookProgressTracker } from "@/components/dashboard/book-progress-tracker";
 import { DashboardErrorState } from "@/components/dashboard/dashboard-async-primitives";
 import { ManuscriptPreviewPanel } from "@/components/dashboard/manuscript-preview-panel";
@@ -14,6 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useBookReprintConfig } from "@/hooks/use-book-reprint-config";
 import { useExtraPagePrice } from "@/hooks/use-extra-page-price";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { useRefreshAfterManuscriptUpload } from "@/hooks/use-refresh-after-manuscript-upload";
 import {
   approveBookForProduction,
   reprocessBookManuscript,
@@ -842,6 +844,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
   const [resourceActionError, setResourceActionError] = useState<string | null>(null);
   const [isPayingExtra, setIsPayingExtra] = useState(false);
   const [isApprovingBook, setIsApprovingBook] = useState(false);
+  const refreshAfterUpload = useRefreshAfterManuscriptUpload();
   const [isLayoutReprocessing, setIsLayoutReprocessing] = useState(false);
   const [isRetryingProcessing, setIsRetryingProcessing] = useState(false);
   const [isOpeningPreview, setIsOpeningPreview] = useState(false);
@@ -1180,6 +1183,9 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
       trackBookApproved(activeBookId);
       await Promise.allSettled([refetch(), refetchOrderDetail()]);
       setActionSuccess(tDashboard("book_progress_billing_gate_success"));
+      // The panel holding that message closes once the book is approved, so
+      // confirm with a toast too.
+      toast.success(tDashboard("book_progress_billing_gate_success"));
     } catch (actionErrorValue) {
       setActionSuccess(null);
       setActionError(
@@ -1324,8 +1330,7 @@ export function BooksDetailView({ bookId }: { bookId: string }) {
                     setActionError(null);
                     setActionSuccess(null);
                     setResourceActionError(null);
-                    void refetch();
-                    void refetchOrderDetail();
+                    void refreshAfterUpload();
                   }}
                 />
               )}

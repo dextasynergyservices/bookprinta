@@ -135,6 +135,22 @@ describe("useInstallPrompt", () => {
     expect(typeof record.dismissedAt).toBe("number");
   });
 
+  it("stays hidden after a dismissal when the browser fires beforeinstallprompt again", () => {
+    render(<InstallPromptProbe />);
+
+    act(() => {
+      fireBeforeInstallPrompt();
+    });
+    act(() => {
+      screen.getByTestId("dismiss").click();
+    });
+    act(() => {
+      fireBeforeInstallPrompt();
+    });
+
+    expect(screen.getByTestId("canShow")).toHaveTextContent("false");
+  });
+
   it("increments the dismiss count on repeated dismissals", () => {
     localStorage.setItem(
       "bookprinta_pwa_install_dismissed",

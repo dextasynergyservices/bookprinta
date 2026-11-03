@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("Custom Quote", () => {
-  test("shows estimator section on the standard (no special requirements) path", async ({
+  // The estimated-price panel is commented out in QuoteView.tsx for now, so the
+  // standard path goes straight to contact details without an estimate.
+  test("reaches contact details on the standard (no special requirements) path", async ({
     page,
   }) => {
     const corsHeaders = {
@@ -67,7 +69,8 @@ test.describe("Custom Quote", () => {
 
     await page.getByRole("button", { name: "Next", exact: true }).click();
 
-    await expect(page.getByText("Estimated Cost")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Contact Information" })).toBeVisible();
+    await expect(page.getByText("Estimated Cost")).not.toBeVisible();
     await expect(
       page.getByText("Our team will provide a custom price for your special requirements.")
     ).not.toBeVisible();

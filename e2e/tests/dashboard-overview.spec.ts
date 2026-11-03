@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 const DASHBOARD_PATH = "/dashboard";
 const ACTIVE_BOOK_ID = "cmbook11111111111111111111111";
@@ -38,6 +39,7 @@ function createActiveBook(overrides: Record<string, unknown> = {}) {
   return {
     id: ACTIVE_BOOK_ID,
     orderId: ACTIVE_ORDER_ID,
+    orderType: "STANDARD",
     title: "The Lagos Chronicle",
     status: "PREVIEW_READY",
     productionStatus: "REVIEW",
@@ -49,6 +51,7 @@ function createActiveBook(overrides: Record<string, unknown> = {}) {
     pageCount: 180,
     wordCount: 52000,
     estimatedPages: 176,
+    documentPageCount: null,
     fontSize: 12,
     pageSize: "A5",
     previewPdfUrlPresent: true,
@@ -228,6 +231,10 @@ async function mockDashboardOverviewApis(
 }
 
 test.describe("Dashboard overview action paths", () => {
+  test.beforeEach(async ({ page }) => {
+    await seedSession(page, "USER");
+  });
+
   test("375px: incomplete-profile next action opens the profile workspace", async ({ page }) => {
     test.slow();
     await page.setViewportSize({ width: 375, height: 812 });
@@ -286,7 +293,7 @@ test.describe("Dashboard overview action paths", () => {
 
     await expect(page.getByRole("heading", { name: "Review your preview" })).toBeVisible();
     await Promise.all([
-      page.waitForURL(new RegExp(`/dashboard/books\\?bookId=${ACTIVE_BOOK_ID}`)),
+      page.waitForURL(new RegExp(`/dashboard/books/${ACTIVE_BOOK_ID}$`)),
       page.getByRole("link", { name: "Review Preview: Review your preview" }).click(),
     ]);
   });

@@ -1,10 +1,11 @@
 import { PaymentsService } from "./payments.service.js";
 
 /**
- * Expose the private verifyRecaptcha method for direct unit testing.
+ * Expose the private verifyRecaptcha method for direct unit testing. Payment
+ * forms reach it through bank-transfer submission (BankTransferService).
  */
 type PaymentsServicePrivate = {
-  verifyRecaptcha: (token: string) => Promise<boolean>;
+  bankTransfers: { verifyRecaptcha: (token: string) => Promise<boolean> };
 };
 
 function createService() {
@@ -56,7 +57,7 @@ describe("PaymentsService verifyRecaptcha", () => {
     process.env.NODE_ENV = "production";
     const { service } = createService();
 
-    const result = await getPrivate(service).verifyRecaptcha("any-token");
+    const result = await getPrivate(service).bankTransfers.verifyRecaptcha("any-token");
 
     expect(result).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -67,7 +68,7 @@ describe("PaymentsService verifyRecaptcha", () => {
     process.env.NODE_ENV = "production";
     const { service } = createService();
 
-    const result = await getPrivate(service).verifyRecaptcha("   ");
+    const result = await getPrivate(service).bankTransfers.verifyRecaptcha("   ");
 
     expect(result).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -78,7 +79,7 @@ describe("PaymentsService verifyRecaptcha", () => {
     process.env.NODE_ENV = "development";
     const { service } = createService();
 
-    const result = await getPrivate(service).verifyRecaptcha("any-token");
+    const result = await getPrivate(service).bankTransfers.verifyRecaptcha("any-token");
 
     expect(result).toBe(true);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -93,7 +94,7 @@ describe("PaymentsService verifyRecaptcha", () => {
       json: jest.fn().mockResolvedValue({ success: true, score: 0.9 }),
     } as unknown as Response);
 
-    const result = await getPrivate(service).verifyRecaptcha("valid-token");
+    const result = await getPrivate(service).bankTransfers.verifyRecaptcha("valid-token");
 
     expect(result).toBe(true);
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -113,7 +114,7 @@ describe("PaymentsService verifyRecaptcha", () => {
       json: jest.fn().mockResolvedValue({ success: true, score: 0.2 }),
     } as unknown as Response);
 
-    const result = await getPrivate(service).verifyRecaptcha("suspicious-token");
+    const result = await getPrivate(service).bankTransfers.verifyRecaptcha("suspicious-token");
 
     expect(result).toBe(false);
   });
@@ -127,7 +128,7 @@ describe("PaymentsService verifyRecaptcha", () => {
       json: jest.fn().mockResolvedValue({ success: false }),
     } as unknown as Response);
 
-    const result = await getPrivate(service).verifyRecaptcha("invalid-token");
+    const result = await getPrivate(service).bankTransfers.verifyRecaptcha("invalid-token");
 
     expect(result).toBe(false);
   });
@@ -141,7 +142,7 @@ describe("PaymentsService verifyRecaptcha", () => {
       json: jest.fn().mockResolvedValue({ success: true }),
     } as unknown as Response);
 
-    const result = await getPrivate(service).verifyRecaptcha("v2-token");
+    const result = await getPrivate(service).bankTransfers.verifyRecaptcha("v2-token");
 
     expect(result).toBe(true);
   });
@@ -153,7 +154,7 @@ describe("PaymentsService verifyRecaptcha", () => {
 
     fetchSpy.mockRejectedValueOnce(new Error("Network error"));
 
-    const result = await getPrivate(service).verifyRecaptcha("token");
+    const result = await getPrivate(service).bankTransfers.verifyRecaptcha("token");
 
     expect(result).toBe(false);
   });

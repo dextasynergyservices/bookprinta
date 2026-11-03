@@ -130,13 +130,27 @@ const NOTIFICATION_TRANSLATION_KEYS = {
 } as const;
 
 /**
- * TTL on the cached unread counter.
+ * TTL on the cached notification summary (unread count + delay banner flag).
  *
- * Only a backstop — mutations invalidate the key explicitly, so this bounds how
- * long a *lost* invalidation can show a wrong badge. Five minutes keeps the
- * badge honest without re-counting on every poll.
+ * Only a backstop: every mutation invalidates the key explicitly, so this
+ * bounds how long a *lost* invalidation can show a wrong badge or banner. It is
+ * long on purpose: each re-seed is a database query, and Neon's free compute
+ * suspends only after 5 minutes without one, so a short TTL kept the database
+ * awake for every open dashboard tab.
  */
-const UNREAD_CACHE_TTL_SECONDS = 300;
+const SUMMARY_CACHE_TTL_SECONDS = 1800;
+
+/**
+ * Delay before the second invalidation for writes made inside a transaction.
+ * The first invalidation runs before the transaction commits, so a poll in
+ * between can re-cache the pre-commit count; the second one clears it.
+ */
+const POST_COMMIT_INVALIDATION_DELAY_MS = 2000;
+
+type NotificationSummary = {
+  unreadCount: number;
+  hasProductionDelayBanner: boolean;
+};
 
 const DEFAULT_ADMIN_PAYMENTS_HREF = "/admin/payments";
 const DEFAULT_DASHBOARD_HREF = "/dashboard";
@@ -155,127 +169,120 @@ export class NotificationsService {
     @Optional() private readonly redis?: RedisService
   ) {}
 
-  // ─── Redis unread counter helpers ──────────────────────────────────────────
+  // ─── Cached notification summary ──────────────────────────────────────────
   //
-  // Key: `bp:notif:unread:{userId}` — a CACHE of the DB count, never the source
-  // of truth. The DB (`isRead`) is authoritative.
+  // Key: `bp:notif:summary:{userId}` — a CACHE of what the dashboard polls every
+  // 30 s: the unread count and whether the production-delay banner shows. The
+  // DB is authoritative (`isRead`; ProductionDelayEventRecipient + event status).
   //
-  // This was previously maintained by arithmetic (INCR on create, DECRBY on
-  // read) on a key with no expiry, which could drift permanently:
+  // Mutations INVALIDATE (DEL) the key rather than adjusting it, so the next read
+  // re-derives both values from the DB and is exactly right; a failed
+  // invalidation degrades to staleness bounded by SUMMARY_CACHE_TTL_SECONDS.
+  // (The counter used to be maintained by INCR/DECR on a key with no expiry,
+  // which drifted permanently when one of those calls failed.)
   //
-  //   mark-as-read -> DB row updated -> Redis DECRBY fails (Upstash
-  //   rate-limited, or the client is unavailable) -> the helper only warns ->
-  //   the key still EXISTS holding the old value -> getUnreadCount() treats a
-  //   present key as a cache hit and never re-reads the DB -> the badge stays
-  //   too high forever.
-  //
-  // The visible symptom is a notification that will not clear: the frontend
-  // optimistically shows count-1, then the next poll returns the stale Redis
-  // value and the badge jumps back up.
-  //
-  // Two changes make that self-correcting:
-  //   1. Mutations INVALIDATE (DEL) the key instead of adjusting it, so the next
-  //      read re-seeds from the DB and is exactly right.
-  //   2. Seeded values carry a TTL, so even a failed invalidation only causes
-  //      staleness bounded by UNREAD_CACHE_TTL_SECONDS rather than forever.
-  //
-  // The cache still absorbs the repeated badge polling that motivated it — it is
-  // only re-seeded after an actual change, or once per TTL window.
+  // The banner state changes when a user is added to, or resolved out of, a
+  // production delay event; ProductionDelayDeliveryService invalidates then.
 
-  private unreadKey(userId: string): string {
-    return `bp:notif:unread:${userId}`;
+  private summaryKey(userId: string): string {
+    return `bp:notif:summary:${userId}`;
   }
 
-  /**
-   * Drop the cached counter so the next read re-derives it from the DB.
-   *
-   * Used for every mutation (create, mark read, mark all read). Correct by
-   * construction: there is no arithmetic to get out of step, and a failure to
-   * invalidate degrades to TTL-bounded staleness instead of permanent drift.
-   */
-  private async invalidateUnread(userIds: string[]): Promise<void> {
+  /** Drop cached summaries so the next read re-derives them from the DB. */
+  async invalidateNotificationSummary(userIds: string[]): Promise<void> {
     const client = this.redis?.getClient();
     if (!client || userIds.length === 0) return;
     try {
-      await client.del(...userIds.map((id) => this.unreadKey(id)));
+      await client.del(...userIds.map((id) => this.summaryKey(id)));
     } catch (err) {
       // Safe to swallow: the TTL on the seeded value bounds how long a stale
-      // count can survive, and the DB remains correct either way.
+      // summary can survive, and the DB remains correct either way.
       this.logger.warn(
-        `Redis unread invalidation failed — counter may be stale for up to ` +
-          `${UNREAD_CACHE_TTL_SECONDS}s: ${err}`
+        `Redis notification summary invalidation failed — may be stale for up to ` +
+          `${SUMMARY_CACHE_TTL_SECONDS}s: ${err}`
       );
     }
   }
 
-  private async incrUnread(userIds: string[]): Promise<void> {
-    // Creating a notification invalidates rather than increments: an INCR on a
-    // key that failed to be created elsewhere compounds the drift, whereas a
-    // DEL always leaves the cache in a state the DB can correct.
-    await this.invalidateUnread(userIds);
+  /**
+   * Invalidate after a write. A write made through a transaction client is not
+   * visible until the caller commits, and a poll in between would re-cache the
+   * old values, so those are invalidated again shortly after.
+   */
+  private async invalidateAfterWrite(
+    userIds: string[],
+    executor: NotificationWriteExecutor
+  ): Promise<void> {
+    await this.invalidateNotificationSummary(userIds);
+    if (executor === this.prisma) return;
+    const timer = setTimeout(() => {
+      void this.invalidateNotificationSummary(userIds);
+    }, POST_COMMIT_INVALIDATION_DELAY_MS);
+    timer.unref?.();
   }
 
-  private async decrUnread(userId: string): Promise<void> {
-    await this.invalidateUnread([userId]);
-  }
-
-  private async resetUnread(userId: string): Promise<void> {
-    await this.invalidateUnread([userId]);
-  }
-
-  private async getUnreadFromRedis(userId: string): Promise<number | null> {
+  private async getSummaryFromRedis(userId: string): Promise<NotificationSummary | null> {
     const client = this.redis?.getClient();
     if (!client) return null;
     try {
-      const val = await client.get(this.unreadKey(userId));
+      const val = await client.get(this.summaryKey(userId));
       if (val === null) return null; // cache miss
-      const parsed = Number.parseInt(val, 10);
-      return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+      const parsed = JSON.parse(val) as Partial<NotificationSummary>;
+      if (
+        typeof parsed.unreadCount !== "number" ||
+        !Number.isFinite(parsed.unreadCount) ||
+        typeof parsed.hasProductionDelayBanner !== "boolean"
+      ) {
+        return null;
+      }
+      return {
+        unreadCount: Math.max(0, Math.floor(parsed.unreadCount)),
+        hasProductionDelayBanner: parsed.hasProductionDelayBanner,
+      };
     } catch {
-      return null; // degrade to DB on any Redis error
+      return null; // degrade to DB on any Redis or parse error
     }
   }
 
-  private async seedUnreadCache(userId: string): Promise<number> {
-    const count = await this.prisma.notification.count({
-      where: { userId, isRead: false },
-    });
+  private async seedSummaryCache(userId: string): Promise<NotificationSummary> {
+    const [unreadCount, hasProductionDelayBanner] = await Promise.all([
+      this.prisma.notification.count({ where: { userId, isRead: false } }),
+      this.hasProductionDelayBanner(userId),
+    ]);
+    const summary = { unreadCount, hasProductionDelayBanner };
     const client = this.redis?.getClient();
     if (client) {
       try {
-        // TTL is the backstop: if an invalidation is ever lost (Redis briefly
-        // unavailable or rate-limited at exactly the wrong moment), staleness is
-        // bounded by this window instead of lasting until the key is evicted.
-        await client.set(this.unreadKey(userId), count, "EX", UNREAD_CACHE_TTL_SECONDS);
+        await client.set(
+          this.summaryKey(userId),
+          JSON.stringify(summary),
+          "EX",
+          SUMMARY_CACHE_TTL_SECONDS
+        );
       } catch {
-        // Non-critical — DB count is still returned
+        // Non-critical — the DB values are still returned
       }
     }
-    return count;
+    return summary;
   }
   // ───────────────────────────────────────────────────────────────────────────
 
+  /** Unread count and production-delay banner flag (cached; see above). */
   async getUnreadCount(userId: string): Promise<NotificationUnreadCountResponse> {
-    const cached = await this.getUnreadFromRedis(userId);
-    if (cached !== null) {
-      return { unreadCount: cached };
-    }
-    // Cache miss — query DB and re-seed Redis
-    const unreadCount = await this.seedUnreadCache(userId);
-    return { unreadCount };
+    return (await this.getSummaryFromRedis(userId)) ?? this.seedSummaryCache(userId);
   }
 
   /**
-   * Fix 1.5 — cheap banner flag for the dashboard overview.
+   * Whether the user is affected by a production delay that is still active.
    *
-   * Replaces the old `findUserNotifications(limit: 50)` fan-out which fetched a full
-   * 50-row notification list just to derive a single boolean.  This issues one
-   * `SELECT id … WHERE userId=$1 AND type='PRODUCTION_DELAY' LIMIT 1` — covered by
-   * the `@@index([userId, type])` composite index so it's an O(1) index seek.
+   * The event, not the notification, decides: a delay notification stays in
+   * the user's history after the delay is resolved, and older notifications
+   * drop off any recent-items page while the delay is still on. Indexed lookup
+   * (ProductionDelayEventRecipient @@unique([eventId, userId]) + event status).
    */
   async hasProductionDelayBanner(userId: string): Promise<boolean> {
-    const found = await this.prisma.notification.findFirst({
-      where: { userId, type: "PRODUCTION_DELAY" },
+    const found = await this.prisma.productionDelayEventRecipient.findFirst({
+      where: { userId, event: { status: "ACTIVE" } },
       select: { id: true },
     });
     return found !== null;
@@ -345,8 +352,7 @@ export class NotificationsService {
       select: NOTIFICATION_SELECT,
     });
 
-    // Decrement Redis counter by 1
-    await this.decrUnread(userId);
+    await this.invalidateNotificationSummary([userId]);
 
     return {
       notification: this.serializeNotification(updated),
@@ -364,8 +370,7 @@ export class NotificationsService {
       },
     });
 
-    // Reset Redis counter to 0
-    await this.resetUnread(userId);
+    await this.invalidateNotificationSummary([userId]);
 
     return {
       updatedCount: result.count,
@@ -709,9 +714,10 @@ export class NotificationsService {
       data: eligibleRecords.map((record) => this.toNotificationCreateManyInput(record)),
     });
 
-    // Increment Redis unread counters for every user that received a notification
-    const recipientIds = eligibleRecords.map((r) => r.userId);
-    await this.incrUnread(recipientIds);
+    await this.invalidateAfterWrite(
+      Array.from(new Set(eligibleRecords.map((record) => record.userId))),
+      executor
+    );
   }
 
   private toNotificationCreateManyInput(

@@ -1,5 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { getInstallBannerMotionProps, PwaInstallBanner } from "./pwa-install-banner";
+import {
+  getInstallBannerMotionProps,
+  isInstallBannerRoute,
+  PwaInstallBanner,
+} from "./pwa-install-banner";
 
 // ─── Mocks ──────────────────────────────────────────────────────
 const installMock = jest.fn();
@@ -8,6 +12,11 @@ let hookState = { canShow: false, isIOS: false, install: installMock, dismiss: d
 
 jest.mock("@/hooks/use-install-prompt", () => ({
   useInstallPrompt: () => hookState,
+}));
+
+let pathname = "/dashboard";
+jest.mock("@/lib/i18n/navigation", () => ({
+  usePathname: () => pathname,
 }));
 
 jest.mock("@/hooks/use-reduced-motion", () => ({
@@ -71,6 +80,16 @@ describe("PwaInstallBanner", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     hookState = { canShow: false, isIOS: false, install: installMock, dismiss: dismissMock };
+    pathname = "/dashboard";
+  });
+
+  it("renders nothing outside the dashboard, even when it could show", () => {
+    hookState = { ...hookState, canShow: true };
+    pathname = "/pricing";
+
+    render(<PwaInstallBanner />);
+
+    expect(screen.queryByText("Install BookPrinta")).not.toBeInTheDocument();
   });
 
   it("renders nothing when canShow is false", () => {
@@ -138,6 +157,17 @@ describe("PwaInstallBanner", () => {
     const icon = screen.getByAltText("BookPrinta");
     expect(icon).toBeInTheDocument();
     expect(icon).toHaveAttribute("src", "/icons/icon-192.png");
+  });
+});
+
+describe("isInstallBannerRoute", () => {
+  it("matches the dashboard and its pages only", () => {
+    expect(isInstallBannerRoute("/dashboard")).toBe(true);
+    expect(isInstallBannerRoute("/dashboard/books/abc")).toBe(true);
+    expect(isInstallBannerRoute("/")).toBe(false);
+    expect(isInstallBannerRoute("/checkout")).toBe(false);
+    expect(isInstallBannerRoute("/dashboards")).toBe(false);
+    expect(isInstallBannerRoute("/admin")).toBe(false);
   });
 });
 

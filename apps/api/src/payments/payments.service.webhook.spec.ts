@@ -101,10 +101,15 @@ type CreatePaymentArgs = {
   currency: string;
 };
 
-/** Stubs the private create path so these tests isolate the dispatch rules. */
+/**
+ * Stubs the create path (CheckoutFulfillmentService.createPaymentFromWebhook)
+ * so these tests isolate the dispatch rules in PaymentsService.
+ */
 function stubCreatePath(service: PaymentsService, impl: () => Promise<void>) {
   const spy = jest.fn<Promise<void>, [CreatePaymentArgs]>(impl);
-  (service as unknown as { createPaymentFromWebhook: unknown }).createPaymentFromWebhook = spy;
+  (
+    service as unknown as { checkoutFulfillment: { createPaymentFromWebhook: unknown } }
+  ).checkoutFulfillment.createPaymentFromWebhook = spy;
   return spy;
 }
 

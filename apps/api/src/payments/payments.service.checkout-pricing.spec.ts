@@ -19,14 +19,17 @@ const PACKAGE = {
 };
 
 type Private = {
-  createCheckoutEntitiesFromMetadata: (params: {
-    paymentId: string;
-    payerEmail: string | null;
-    metadata: Record<string, unknown> | null;
-    amount: number;
-    currency: string;
-    existingUserId?: string | null;
-  }) => Promise<unknown>;
+  // Checkout fulfilment lives in CheckoutFulfillmentService.
+  checkoutFulfillment: {
+    createCheckoutEntitiesFromMetadata: (params: {
+      paymentId: string;
+      payerEmail: string | null;
+      metadata: Record<string, unknown> | null;
+      amount: number;
+      currency: string;
+      existingUserId?: string | null;
+    }) => Promise<unknown>;
+  };
 };
 
 function createService() {
@@ -73,9 +76,10 @@ function createService() {
     service,
     prisma,
     paystackService,
-    createEntities: (service as unknown as Private).createCheckoutEntitiesFromMetadata.bind(
-      service
-    ),
+    createEntities: (() => {
+      const { checkoutFulfillment } = service as unknown as Private;
+      return checkoutFulfillment.createCheckoutEntitiesFromMetadata.bind(checkoutFulfillment);
+    })(),
   };
 }
 

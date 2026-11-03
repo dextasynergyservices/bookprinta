@@ -13,6 +13,7 @@ import {
   keepPreviousData,
   type QueryKey,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -23,7 +24,6 @@ import {
   createEmptyNotificationsListResponse,
   DEFAULT_NOTIFICATIONS_PAGE,
   DEFAULT_NOTIFICATIONS_PAGE_SIZE,
-  hasPersistentNotificationBanner,
   markAllNotificationsReadInListResponse,
   markNotificationReadInListResponse,
   normalizeNotificationMarkAllReadPayload,
@@ -45,8 +45,6 @@ import {
   dashboardRealtimeQueryOptions,
 } from "@/lib/dashboard/query-defaults";
 import { fetchApiV1WithRefresh } from "@/lib/fetch-with-refresh";
-
-const DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE = 50;
 
 export const dashboardNotificationsQueryKeys = {
   all: ["dashboard", "notifications"] as const,
@@ -128,6 +126,7 @@ async function fetchNotificationUnreadCount({
 
     return {
       unreadCount: 0,
+      hasProductionDelayBanner: false,
       isFallback: true,
     };
   }
@@ -332,7 +331,8 @@ function updateUnreadCountCache(
 ) {
   queryClient.setQueryData<QueryDataWithFallback<NotificationUnreadCountResponse>>(
     DASHBOARD_UNREAD_COUNT_QUERY_KEY,
-    (current) => updater(current ?? { unreadCount: 0, isFallback: true })
+    (current) =>
+      updater(current ?? { unreadCount: 0, hasProductionDelayBanner: false, isFallback: true })
   );
 }
 
@@ -403,6 +403,10 @@ export function useNotificationUnreadCount() {
     },
     queryFn: ({ signal }) => fetchNotificationUnreadCount({ signal }),
     ...dashboardRealtimeQueryOptions,
+    // A hidden tab does not need a live badge, and each poll that misses the
+    // API's cache queries the database (which keeps Neon from scaling to zero).
+    // Focusing the tab refetches immediately.
+    refetchIntervalInBackground: false,
   });
 
   const unreadCount = query.data?.unreadCount ?? 0;
@@ -460,7 +464,50 @@ export function useNotificationsList({
     isInitialLoading,
     isRefreshing,
     hasUnreadItems: data.items.some((item) => !item.isRead),
-    hasProductionDelayBanner: hasPersistentNotificationBanner(data.items, "production_delay"),
+  };
+}
+
+/**
+ * Pages 2..pageCount of the notification list, behind "Load older" in the
+ * panel. Separate page queries (not an infinite query) so the mark-as-read
+ * optimistic updates, which rewrite every cached list page, cover them too.
+ * Only page 1 polls; older pages change only when the user acts on them.
+ */
+export function useOlderNotificationPages({
+  isOpen,
+  pageCount,
+  pageSize,
+}: {
+  isOpen: boolean;
+  pageCount: number;
+  pageSize?: number;
+}) {
+  const resolvedPageSize = coerceNotificationsPageSize(pageSize ?? DEFAULT_NOTIFICATIONS_PAGE_SIZE);
+  const pages = isOpen
+    ? Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => index + 2)
+    : [];
+
+  const results = useQueries({
+    queries: pages.map((page) => ({
+      queryKey: dashboardNotificationsQueryKeys.list(page, resolvedPageSize),
+      meta: {
+        sentryName: "fetchNotificationsList",
+        sentryEndpoint: "/api/v1/notifications",
+      },
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        fetchNotificationsPage({ page, pageSize: resolvedPageSize, signal }),
+      ...createDashboardConditionalRealtimeQueryOptions(false),
+      enabled: isOpen,
+    })),
+  });
+
+  const lastPage = results.at(-1)?.data;
+
+  return {
+    items: results.flatMap((result) => result.data?.items ?? []),
+    lastPagination: lastPage?.pagination ?? null,
+    isLoading: results.some((result) => result.isPending),
+    isError: results.some((result) => result.isError),
   };
 }
 
@@ -468,30 +515,17 @@ export function useNotifications(params: UseNotificationsListParams = {}) {
   return useNotificationsList(params);
 }
 
+/**
+ * Whether to show the production-delay banner. Served with the unread count
+ * (same cached request, same query), decided on the server by whether the user
+ * is affected by a production delay that is still active.
+ */
 export function useNotificationBannerState() {
-  const query = useQuery({
-    queryKey: dashboardNotificationsQueryKeys.list(1, DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE),
-    meta: {
-      sentryName: "fetchNotificationBannerState",
-      sentryEndpoint: "/api/v1/notifications",
-    },
-    queryFn: ({ signal }) =>
-      fetchNotificationsPage({
-        page: 1,
-        pageSize: DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE,
-        signal,
-      }),
-    ...dashboardRealtimeQueryOptions,
-  });
-
-  const data =
-    query.data ?? createEmptyNotificationsListResponse(1, DASHBOARD_NOTIFICATION_BANNER_PAGE_SIZE);
+  const query = useNotificationUnreadCount();
 
   return {
     ...query,
-    data,
-    items: data.items,
-    hasProductionDelayBanner: hasPersistentNotificationBanner(data.items, "production_delay"),
+    hasProductionDelayBanner: query.data?.hasProductionDelayBanner ?? false,
   };
 }
 

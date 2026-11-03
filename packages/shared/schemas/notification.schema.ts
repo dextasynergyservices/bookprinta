@@ -113,9 +113,14 @@ export type NotificationsListResponse = z.infer<typeof NotificationsListResponse
 
 /**
  * GET /api/v1/notifications/unread-count
+ *
+ * Also carries the production-delay banner flag: both are polled by every
+ * dashboard page, and both are served from the same cache.
  */
 export const NotificationUnreadCountResponseSchema = z.object({
   unreadCount: z.number().int().min(0),
+  /** True while the user is affected by an active production delay event. */
+  hasProductionDelayBanner: z.boolean().default(false),
 });
 export type NotificationUnreadCountResponse = z.infer<typeof NotificationUnreadCountResponseSchema>;
 
