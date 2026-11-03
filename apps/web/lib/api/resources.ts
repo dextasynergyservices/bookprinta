@@ -22,6 +22,9 @@ function isNextProductionBuildPhase(): boolean {
   return process.env.NEXT_PHASE === "phase-production-build";
 }
 
+/** 8 s cap prevents Render cold-starts from hanging the build (same as showcase/packages). */
+export const RESOURCES_SERVER_FETCH_TIMEOUT_MS = 8_000;
+
 function isBuildSafeFallbackEnabled(): boolean {
   return isNextProductionBuildPhase();
 }
@@ -113,12 +116,17 @@ export async function fetchResourceDetailForServer(slug: string): Promise<Resour
     throw new Error("Resource slug is required");
   }
 
-  const response = await fetch(
-    `${API_V1_BASE_URL}/resources/${encodeURIComponent(normalizedSlug)}`,
-    {
+  let response: Response;
+  try {
+    response = await fetch(`${API_V1_BASE_URL}/resources/${encodeURIComponent(normalizedSlug)}`, {
       next: { revalidate: 30 },
-    }
-  );
+      signal: AbortSignal.timeout(RESOURCES_SERVER_FETCH_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // A timed-out or unreachable API must not stall or abort `next build`.
+    if (isBuildSafeFallbackEnabled()) return null;
+    throw error;
+  }
 
   if (response.status === 404) {
     return null;
@@ -153,7 +161,11 @@ export async function fetchPublishedResourceSlugsForStaticParams(): Promise<stri
     let page: ResourcesListResponse;
 
     try {
-      page = await fetchResourcesPage({ limit: 30 }, cursor);
+      page = await fetchResourcesPage(
+        { limit: 30 },
+        cursor,
+        AbortSignal.timeout(RESOURCES_SERVER_FETCH_TIMEOUT_MS)
+      );
     } catch (error) {
       // During production build, a rate-limited page fetch should not fail deployment.
       if (error instanceof RateLimitError && isBuildSafeFallbackEnabled()) {

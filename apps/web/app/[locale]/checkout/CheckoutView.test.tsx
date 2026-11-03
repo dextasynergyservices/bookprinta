@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { RateLimitError } from "@/lib/api-error";
 import { usePricingStore } from "@/stores/usePricingStore";
 import { CheckoutView } from "./CheckoutView";
@@ -23,6 +24,9 @@ jest.mock("next-intl", () => ({
 }));
 
 jest.mock("@/lib/i18n/navigation", () => ({
+  Link: ({ children, href }: { children: ReactNode; href: string }) => (
+    <a href={href}>{children}</a>
+  ),
   useRouter: () => ({
     push: pushMock,
   }),
@@ -233,6 +237,26 @@ describe("CheckoutView coupon display", () => {
         })
       );
     });
+  });
+
+  it("keeps old links working when the category slug in the URL has since been renamed", async () => {
+    // e.g. ?category=author-lunch from before the slug was corrected to author-launch
+    currentSearchParams = new URLSearchParams([
+      ["package", "first-draft"],
+      ["category", "a-renamed-category-slug"],
+    ]);
+
+    renderWithProviders();
+
+    await waitFor(() => {
+      expect(paymentMethodModalMock.mock.lastCall?.[0]).toEqual(
+        expect.objectContaining({
+          packageName: "First Draft",
+          paymentMetadata: expect.objectContaining({ packageSlug: "first-draft" }),
+        })
+      );
+    });
+    expect(screen.queryByText("addons_error")).not.toBeInTheDocument();
   });
 
   it("auto-revalidates persisted coupons and blocks continue until revalidation completes", async () => {

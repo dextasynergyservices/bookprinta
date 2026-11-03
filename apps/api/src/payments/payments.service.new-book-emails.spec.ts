@@ -19,24 +19,28 @@ jest.mock("@bookprinta/emails/render", () => ({
 }));
 
 type PaymentsServicePrivate = {
-  createPaymentFromWebhook: (data: {
-    provider: "PAYSTACK" | "STRIPE" | "PAYPAL";
-    providerRef: string;
-    amount: number;
-    currency: string;
-    payerEmail: string | null;
-    gatewayResponse: Record<string, unknown>;
-    metadata: Record<string, unknown> | null;
-  }) => Promise<void>;
-  resolvePackageFromCheckoutMetadata: (...args: never[]) => Promise<{
-    id: string;
-    name: string;
-    basePrice: number;
-  }>;
-  generateOrderNumber: (...args: never[]) => Promise<string>;
-  resolveAppliedCouponForOrder: (...args: never[]) => Promise<null>;
-  createOrderAddonsFromMetadata: (...args: never[]) => Promise<void>;
-  resolveAddonNamesFromMetadata: (...args: never[]) => Promise<string[]>;
+  // Coupon resolution lives in CheckoutMetadataPricingService.
+  metadataPricing: { resolveAppliedCouponForOrder: (...args: never[]) => Promise<null> };
+  // Checkout fulfilment lives in CheckoutFulfillmentService.
+  checkoutFulfillment: {
+    createPaymentFromWebhook: (data: {
+      provider: "PAYSTACK" | "STRIPE" | "PAYPAL";
+      providerRef: string;
+      amount: number;
+      currency: string;
+      payerEmail: string | null;
+      gatewayResponse: Record<string, unknown>;
+      metadata: Record<string, unknown> | null;
+    }) => Promise<void>;
+    resolvePackageFromCheckoutMetadata: (...args: never[]) => Promise<{
+      id: string;
+      name: string;
+      basePrice: number;
+    }>;
+    generateOrderNumber: (...args: never[]) => Promise<string>;
+    createOrderAddonsFromMetadata: (...args: never[]) => Promise<void>;
+    resolveAddonNamesFromMetadata: (...args: never[]) => Promise<string[]>;
+  };
 };
 
 function getPaymentsServicePrivate(service: PaymentsService) {
@@ -147,15 +151,23 @@ function createService() {
 
 function stubCheckoutFinalizationHelpers(service: PaymentsService) {
   const servicePrivate = getPaymentsServicePrivate(service);
-  servicePrivate.resolvePackageFromCheckoutMetadata = jest.fn().mockResolvedValue({
-    id: "pkg_1",
-    name: "Legacy",
-    basePrice: 125000,
-  });
-  servicePrivate.generateOrderNumber = jest.fn().mockResolvedValue("BP-2026-0042");
-  servicePrivate.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
-  servicePrivate.createOrderAddonsFromMetadata = jest.fn().mockResolvedValue(undefined);
-  servicePrivate.resolveAddonNamesFromMetadata = jest.fn().mockResolvedValue(["ISBN Registration"]);
+  servicePrivate.checkoutFulfillment.resolvePackageFromCheckoutMetadata = jest
+    .fn()
+    .mockResolvedValue({
+      id: "pkg_1",
+      name: "Legacy",
+      basePrice: 125000,
+    });
+  servicePrivate.checkoutFulfillment.generateOrderNumber = jest
+    .fn()
+    .mockResolvedValue("BP-2026-0042");
+  servicePrivate.metadataPricing.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
+  servicePrivate.checkoutFulfillment.createOrderAddonsFromMetadata = jest
+    .fn()
+    .mockResolvedValue(undefined);
+  servicePrivate.checkoutFulfillment.resolveAddonNamesFromMetadata = jest
+    .fn()
+    .mockResolvedValue(["ISBN Registration"]);
 }
 
 describe("PaymentsService new-book order emails", () => {
@@ -231,7 +243,7 @@ describe("PaymentsService new-book order emails", () => {
     tx.auditLog.createMany.mockResolvedValue({ count: 2 });
     tx.auditLog.create.mockResolvedValue({ id: "audit_1" });
 
-    await getPaymentsServicePrivate(service).createPaymentFromWebhook({
+    await getPaymentsServicePrivate(service).checkoutFulfillment.createPaymentFromWebhook({
       provider: "PAYSTACK",
       providerRef: "ps_dashboard_order_1",
       amount: 125000,

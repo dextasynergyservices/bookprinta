@@ -11,6 +11,13 @@ describe("GeminiFormattingService", () => {
 
   beforeEach(() => {
     service = new GeminiFormattingService();
+    // Retry backoff and Retry-After waits are real sleeps (1.2 s to 120 s).
+    // These tests check retry and fallback decisions, not wall-clock waiting,
+    // so backoff is instant; otherwise several tests sleep for seconds and can
+    // hit Jest's 5 s timeout on a busy machine.
+    Object.defineProperty(service, "delay", {
+      value: jest.fn<Promise<void>, [number]>().mockResolvedValue(undefined),
+    });
     process.env.GEMINI_API_KEY = "test-key";
     delete process.env.GEMINI_MODEL;
     delete process.env.GEMINI_FALLBACK_MODEL;
@@ -278,9 +285,6 @@ describe("GeminiFormattingService", () => {
 
   it("fails on repeated 429 with rate-limit message (does not show quota exhausted)", async () => {
     process.env.GEMINI_MODEL = "gemini-2.5-flash-lite";
-    // Stub delay to make test instant (actual waits would be 60-120s)
-    const delaySpy = jest.fn<Promise<void>, [number]>().mockResolvedValue(undefined);
-    Object.defineProperty(service, "delay", { value: delaySpy });
     // Mock enough 429 responses to exhaust all retry layers:
     // MAX_429_RETRIES (3) + 1 initial = 4 per transient attempt,
     // MAX_TRANSIENT_RETRIES_PER_MODEL (2) = 8 total fetches.

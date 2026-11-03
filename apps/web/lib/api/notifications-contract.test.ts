@@ -1,6 +1,5 @@
 import {
   createEmptyNotificationsListResponse,
-  hasPersistentNotificationBanner,
   markAllNotificationsReadInListResponse,
   normalizeNotificationMarkReadPayload,
   normalizeNotificationsListPayload,
@@ -71,10 +70,21 @@ describe("notifications contract helpers", () => {
   it("normalizes unread count payloads with legacy wrappers", () => {
     expect(normalizeNotificationUnreadCountPayload({ unreadCount: 4 })).toEqual({
       unreadCount: 4,
+      hasProductionDelayBanner: false,
     });
 
     expect(normalizeNotificationUnreadCountPayload({ data: { count: "7" } })).toEqual({
       unreadCount: 7,
+      hasProductionDelayBanner: false,
+    });
+
+    expect(
+      normalizeNotificationUnreadCountPayload({
+        data: { count: 1, hasProductionDelayBanner: true },
+      })
+    ).toEqual({
+      unreadCount: 1,
+      hasProductionDelayBanner: true,
     });
   });
 
@@ -139,6 +149,9 @@ describe("notifications contract helpers", () => {
     const updated = markAllNotificationsReadInListResponse(response);
 
     expect(updated.items.every((item) => item.isRead)).toBe(true);
-    expect(hasPersistentNotificationBanner(updated.items, "production_delay")).toBe(true);
+    // Marking read keeps each item's presentation data intact.
+    expect(
+      updated.items.some((item) => item.data.presentation?.persistentBanner === "production_delay")
+    ).toBe(true);
   });
 });

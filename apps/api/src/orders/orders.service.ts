@@ -26,6 +26,7 @@ import {
   NotFoundException,
   Optional,
 } from "@nestjs/common";
+import * as Sentry from "@sentry/node";
 import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
@@ -124,6 +125,7 @@ export class OrdersService {
     book: {
       select: {
         id: true,
+        title: true,
         status: true,
         productionStatus: true,
       },
@@ -159,6 +161,7 @@ export class OrdersService {
     book: {
       select: {
         id: true,
+        title: true,
         status: true,
         productionStatus: true,
       },
@@ -220,6 +223,7 @@ export class OrdersService {
     book: {
       select: {
         id: true,
+        title: true,
         status: true,
         productionStatus: true,
         productionStatusUpdatedAt: true,
@@ -1225,72 +1229,82 @@ export class OrdersService {
       };
     }
 
-    const headerVariants = this.buildGotenbergHeaderVariants();
+    // Credentials are always sent when configured. There is no unauthenticated
+    // retry: one would hide an internet-open Gotenberg (which can fetch
+    // arbitrary URLs) behind a configuration mistake.
+    const headers = this.buildGotenbergAuthHeaders();
+    const hasAuthHeader = typeof headers.Authorization === "string";
     const maxAttemptsPerEndpoint = 3;
 
     for (const gotenbergBaseUrl of gotenbergBaseUrls) {
-      for (const headers of headerVariants) {
-        const hasAuthHeader = typeof headers.Authorization === "string";
+      for (let attempt = 1; attempt <= maxAttemptsPerEndpoint; attempt += 1) {
+        const form = new FormData();
+        form.append("files", new Blob([html], { type: "text/html;charset=utf-8" }), "index.html");
+        form.append("paperWidth", "8.27");
+        form.append("paperHeight", "11.69");
+        form.append("marginTop", "0.4");
+        form.append("marginBottom", "0.4");
+        form.append("marginLeft", "0.35");
+        form.append("marginRight", "0.35");
+        form.append("printBackground", "true");
 
-        for (let attempt = 1; attempt <= maxAttemptsPerEndpoint; attempt += 1) {
-          const form = new FormData();
-          form.append("files", new Blob([html], { type: "text/html;charset=utf-8" }), "index.html");
-          form.append("paperWidth", "8.27");
-          form.append("paperHeight", "11.69");
-          form.append("marginTop", "0.4");
-          form.append("marginBottom", "0.4");
-          form.append("marginLeft", "0.35");
-          form.append("marginRight", "0.35");
-          form.append("printBackground", "true");
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8_000);
 
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 8_000);
+        let response: Response | null = null;
+        try {
+          response = await fetch(`${gotenbergBaseUrl}/forms/chromium/convert/html`, {
+            method: "POST",
+            body: form,
+            signal: controller.signal,
+            headers,
+          });
+        } catch (error) {
+          this.logger.error(
+            `Gotenberg request failed on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${gotenbergBaseUrl}`,
+            error
+          );
+        } finally {
+          clearTimeout(timeout);
+        }
 
-          let response: Response | null = null;
-          try {
-            response = await fetch(`${gotenbergBaseUrl}/forms/chromium/convert/html`, {
-              method: "POST",
-              body: form,
-              signal: controller.signal,
-              headers,
-            });
-          } catch (error) {
-            this.logger.error(
-              `Gotenberg request failed on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${gotenbergBaseUrl}`,
-              error
-            );
-          } finally {
-            clearTimeout(timeout);
-          }
+        if (response?.ok) {
+          const pdfArrayBuffer = await response.arrayBuffer();
+          return {
+            buffer: Buffer.from(pdfArrayBuffer),
+            renderEngine: "gotenberg",
+          };
+        }
 
-          if (response?.ok) {
-            const pdfArrayBuffer = await response.arrayBuffer();
-            return {
-              buffer: Buffer.from(pdfArrayBuffer),
-              renderEngine: "gotenberg",
-            };
-          }
+        if (response && (response.status === 401 || response.status === 403)) {
+          const msg = hasAuthHeader
+            ? `Gotenberg rejected the configured basic-auth credentials (HTTP ${response.status})`
+            : `Gotenberg requires authentication (HTTP ${response.status}) but GOTENBERG_USERNAME/GOTENBERG_PASSWORD are not set`;
+          this.logger.error(
+            `${msg} via ${gotenbergBaseUrl} while generating invoice PDF. Not retrying — fix the credentials.`
+          );
+          // Pino logs never reach Sentry, so capture explicitly: invoices use
+          // the plain fallback renderer until someone fixes the env vars.
+          Sentry.captureMessage(msg, {
+            level: "error",
+            tags: { service: "gotenberg", reason: "basic_auth_rejected", area: "invoice" },
+            extra: { baseUrl: gotenbergBaseUrl, status: response.status },
+          });
+          break; // Credentials will not start working on retry.
+        }
 
-          if (response && hasAuthHeader && (response.status === 401 || response.status === 403)) {
-            this.logger.warn(
-              `Gotenberg rejected configured basic auth via ${gotenbergBaseUrl}; retrying without auth headers.`
-            );
-            break;
-          }
+        if (response) {
+          const bodySnippet = await response
+            .text()
+            .then((value) => value.slice(0, 400))
+            .catch(() => "");
+          this.logger.error(
+            `Gotenberg returned ${response.status} on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${gotenbergBaseUrl} while generating invoice PDF. ${bodySnippet}`
+          );
+        }
 
-          if (response) {
-            const bodySnippet = await response
-              .text()
-              .then((value) => value.slice(0, 400))
-              .catch(() => "");
-            this.logger.error(
-              `Gotenberg returned ${response.status} on attempt ${attempt}/${maxAttemptsPerEndpoint} via ${gotenbergBaseUrl} while generating invoice PDF. ${bodySnippet}`
-            );
-          }
-
-          if (attempt < maxAttemptsPerEndpoint) {
-            await this.delay(400 * attempt);
-          }
+        if (attempt < maxAttemptsPerEndpoint) {
+          await this.delay(400 * attempt);
         }
       }
     }
@@ -1427,16 +1441,6 @@ export class OrdersService {
     return [primary, backup].filter(
       (url, index, all) => Boolean(url) && all.indexOf(url) === index
     );
-  }
-
-  private buildGotenbergHeaderVariants(): Array<Record<string, string>> {
-    const authHeaders = this.buildGotenbergAuthHeaders();
-    if (Object.keys(authHeaders).length === 0) {
-      return [{}];
-    }
-
-    // Local Gotenberg typically runs without auth; retrying without headers prevents false fallbacks.
-    return [authHeaders, {}];
   }
 
   private renderFallbackInvoicePdf(input: FallbackInvoicePdfInput): Buffer {
@@ -1670,6 +1674,7 @@ export class OrdersService {
       orderId: row.id,
       orderNumber: row.orderNumber,
       bookId: row.book?.id ?? null,
+      title: row.book?.title?.trim() || null,
       currentOrderStatus: row.status,
       currentBookStatus: productionBookStatus,
       rejectionReason: row.book?.rejectionReason ?? null,
@@ -2195,6 +2200,7 @@ export class OrdersService {
       book: row.book
         ? {
             id: row.book.id,
+            title: row.book.title?.trim() || null,
             status: row.book.status,
             productionStatus: row.book.productionStatus ?? null,
           }

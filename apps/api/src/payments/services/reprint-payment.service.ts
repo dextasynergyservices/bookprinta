@@ -11,7 +11,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from "@nestjs/common";
 import { Resend } from "resend";
 import type { Prisma } from "../../generated/prisma/client.js";
@@ -25,6 +24,21 @@ import {
 } from "../../generated/prisma/enums.js";
 import { NotificationsService } from "../../notifications/notifications.service.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
+import { generateOrderNumber } from "../order-number.js";
+import {
+  resolveAdminEmailRecipients,
+  resolveAdminNotificationsFromEmail,
+  resolveCustomerFacingFromEmail,
+} from "../payment-config.js";
+import {
+  deriveTitleFromFileName,
+  extractReprintMetadata,
+  formatNaira,
+  generatePaymentReference,
+  REPRINT_MIN_COPIES,
+  resolveLocale,
+  toCurrency,
+} from "../payment-metadata.js";
 import { GatewayService } from "./gateway.service.js";
 
 // ──────────────────────────────────────────────
@@ -35,7 +49,6 @@ import { GatewayService } from "./gateway.service.js";
 // Extracted from the PaymentsService monolith.
 // ──────────────────────────────────────────────
 
-const REPRINT_MIN_COPIES = 1;
 const DEFAULT_REPRINT_COST_PER_PAGE = 15;
 const DEFAULT_REPRINT_COVER_COST = 300;
 const REPRINT_COST_PER_PAGE_SETTING_KEY = "reprint_cost_per_page";
@@ -45,17 +58,6 @@ const REPRINT_ELIGIBLE_BOOK_STATUSES = new Set<BookStatus>([
   BookStatus.DELIVERED,
   BookStatus.COMPLETED,
 ]);
-
-type ReprintMetadata = {
-  sourceBookId: string;
-  sourceOrderId: string | null;
-  copies: number;
-  bookSize: string | null;
-  paperColor: string | null;
-  lamination: string | null;
-  pageCount: number | null;
-  finalPdfUrl: string | null;
-};
 
 @Injectable()
 export class ReprintPaymentService {
@@ -74,9 +76,9 @@ export class ReprintPaymentService {
     this.resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     const raw = process.env.FRONTEND_URL?.trim();
     this.frontendBaseUrl = raw ? raw.replace(/\/+$/, "") : "http://localhost:3000";
-    this.customerPaymentsFromEmail = this.resolveCustomerFacingFromEmail();
-    this.adminNotificationsFromEmail = this.resolveAdminNotificationsFromEmail();
-    this.adminEmailRecipients = this.resolveAdminEmailRecipients();
+    this.customerPaymentsFromEmail = resolveCustomerFacingFromEmail();
+    this.adminNotificationsFromEmail = resolveAdminNotificationsFromEmail();
+    this.adminEmailRecipients = resolveAdminEmailRecipients();
   }
 
   /**
@@ -169,8 +171,8 @@ export class ReprintPaymentService {
 
     const [costPerPage, coverCost] = await this.resolveReprintCostSettings();
     const costPerCopy = sourceBook.pageCount * costPerPage + coverCost;
-    const amount = this.toCurrency(costPerCopy * params.copies);
-    const reference = this.generateReference("rp");
+    const amount = toCurrency(costPerCopy * params.copies);
+    const reference = generatePaymentReference("rp");
 
     const bookSize = sourceBook.order.bookSize ?? "A5";
     const paperColor = sourceBook.order.paperColor ?? "white";
@@ -232,8 +234,10 @@ export class ReprintPaymentService {
 
   /**
    * Create the Order, Book, and audit logs after a reprint payment succeeds.
-   * Called from PaymentsService.createPaymentFromWebhook when reprint entity
-   * creation is needed.
+   * The only implementation, used by every path that confirms a reprint
+   * payment: the webhook (CheckoutFulfillmentService.createPaymentFromWebhook),
+   * the redirect and reconciliation (PaymentsService.verify), and bank-transfer
+   * approval (BankTransferService).
    */
   async createReprintEntitiesFromMetadata(params: {
     paymentId: string;
@@ -263,7 +267,7 @@ export class ReprintPaymentService {
       throw new ConflictException("Authenticated reprint payments require a linked user.");
     }
 
-    const reprint = this.extractReprintMetadata(params.metadata);
+    const reprint = extractReprintMetadata(params.metadata);
     if (!reprint) {
       this.logger.warn(
         `Webhook payment ${params.paymentId}: reprint metadata is incomplete, skipping order creation`
@@ -349,8 +353,8 @@ export class ReprintPaymentService {
       const paperColor = sourceBook.order.paperColor ?? reprint.paperColor ?? "white";
       const lamination = sourceBook.order.lamination ?? reprint.lamination ?? "gloss";
 
-      const orderNumber = await this.generateOrderNumber(tx);
-      const amount = this.toCurrency(params.amount);
+      const orderNumber = await generateOrderNumber(tx);
+      const amount = toCurrency(params.amount);
       const now = new Date();
 
       const order = await tx.order.create({
@@ -468,19 +472,19 @@ export class ReprintPaymentService {
       return {
         email: params.payerEmail ?? sourceBook.user.email,
         name: sourceBook.user.firstName,
-        locale: this.resolveLocale(sourceBook.user.preferredLanguage),
+        locale: resolveLocale(sourceBook.user.preferredLanguage),
         phone: sourceBook.user.phoneNumber ?? null,
         whatsAppNotificationsEnabled: sourceBook.user.whatsAppNotificationsEnabled,
         orderNumber,
         packageName: sourceBook.order.package.name,
-        amountPaid: this.formatNaira(params.amount),
+        amountPaid: formatNaira(params.amount),
         addons: [],
         bookTitle:
-          this.deriveTitleFromFileName(sourceManuscript?.fileName) ??
-          sourceBook.title ??
+          sourceBook.title?.trim() ||
+          deriveTitleFromFileName(sourceManuscript?.fileName) ||
           "Untitled",
         copies: reprint.copies,
-        costPerCopy: this.formatNaira(pageCount > 0 ? params.amount / reprint.copies : 0),
+        costPerCopy: formatNaira(pageCount > 0 ? params.amount / reprint.copies : 0),
         bookSize,
         paperColor,
         lamination,
@@ -490,7 +494,7 @@ export class ReprintPaymentService {
 
   /**
    * Send reprint confirmation emails to the user and an admin notification.
-   * Called from PaymentsService.createPaymentFromWebhook after entity creation.
+   * Called after createReprintEntitiesFromMetadata.
    */
   async sendReprintConfirmationEmails(params: {
     locale: Locale;
@@ -594,28 +598,6 @@ export class ReprintPaymentService {
   // Private helpers
   // ─────────────────────────────────────────────
 
-  private extractReprintMetadata(metadata: Record<string, unknown> | null): ReprintMetadata | null {
-    if (!metadata || typeof metadata !== "object") return null;
-
-    const sourceBookId = this.asString(metadata.sourceBookId);
-    const copies = this.asInteger(metadata.copies);
-
-    if (!sourceBookId || typeof copies !== "number" || copies < REPRINT_MIN_COPIES) {
-      return null;
-    }
-
-    return {
-      sourceBookId,
-      sourceOrderId: this.asString(metadata.sourceOrderId) ?? null,
-      copies,
-      bookSize: this.asString(metadata.bookSize) ?? null,
-      paperColor: this.asString(metadata.paperColor) ?? null,
-      lamination: this.asString(metadata.lamination) ?? null,
-      pageCount: this.asInteger(metadata.pageCount) ?? null,
-      finalPdfUrl: this.asString(metadata.finalPdfUrl) ?? null,
-    };
-  }
-
   private async resolveReprintCostSettings(): Promise<[number, number]> {
     const settings = await this.prisma.systemSetting.findMany({
       where: {
@@ -629,8 +611,8 @@ export class ReprintPaymentService {
     const costPerPageRaw = settings.find((s) => s.key === REPRINT_COST_PER_PAGE_SETTING_KEY)?.value;
     const coverCostRaw = settings.find((s) => s.key === REPRINT_COVER_COST_SETTING_KEY)?.value;
 
-    const costPerPage = this.toCurrency(costPerPageRaw);
-    const coverCost = this.toCurrency(coverCostRaw);
+    const costPerPage = toCurrency(costPerPageRaw);
+    const coverCost = toCurrency(coverCostRaw);
 
     return [
       costPerPage > 0 ? costPerPage : DEFAULT_REPRINT_COST_PER_PAGE,
@@ -638,140 +620,7 @@ export class ReprintPaymentService {
     ];
   }
 
-  private async generateOrderNumber(tx: Prisma.TransactionClient): Promise<string> {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const randomPart = Math.random().toString(36).slice(2, 8).toUpperCase();
-      const candidate = `BP-${new Date().getFullYear()}-${randomPart}`;
-
-      const existing = await tx.order.findUnique({
-        where: { orderNumber: candidate },
-        select: { id: true },
-      });
-      if (!existing) return candidate;
-    }
-
-    throw new ServiceUnavailableException("Unable to generate a unique order number");
-  }
-
-  private generateReference(prefix = "bp"): string {
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 10);
-    return `${prefix}_${timestamp}_${random}`;
-  }
-
-  private deriveTitleFromFileName(fileName: string | null | undefined): string | null {
-    if (typeof fileName !== "string") return null;
-    const trimmed = fileName.trim();
-    if (!trimmed) return null;
-    return (
-      trimmed
-        .replace(/\.[^.]+$/, "")
-        .replace(/[_-]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim() || null
-    );
-  }
-
-  private asString(value: unknown): string | undefined {
-    if (typeof value !== "string") return undefined;
-    const normalized = value.trim();
-    return normalized.length > 0 ? normalized : undefined;
-  }
-
-  private asNumber(value: unknown): number | undefined {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (
-      value &&
-      typeof value === "object" &&
-      "toNumber" in value &&
-      typeof (value as { toNumber: unknown }).toNumber === "function"
-    ) {
-      const parsed = (value as { toNumber: () => number }).toNumber();
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    if (typeof value === "string" && value.trim().length > 0) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    return undefined;
-  }
-
-  private asInteger(value: unknown): number | undefined {
-    const parsed = this.asNumber(value);
-    if (parsed === undefined) return undefined;
-    return Math.max(0, Math.floor(parsed));
-  }
-
-  private toCurrency(value: unknown): number {
-    const amount = this.asNumber(value) ?? 0;
-    if (!Number.isFinite(amount)) return 0;
-    return Number(Math.max(0, amount).toFixed(2));
-  }
-
-  private formatNaira(amount: number): string {
-    return new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency: "NGN",
-      maximumFractionDigits: 0,
-    }).format(this.toCurrency(amount));
-  }
-
-  private resolveLocale(value: unknown): Locale {
-    const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-    if (normalized === "fr" || normalized === "es") return normalized;
-    return "en";
-  }
-
   private buildLocalizedDashboardUrl(locale: Locale): string {
     return `${this.frontendBaseUrl}/${locale}/dashboard`;
-  }
-
-  private resolveCustomerFacingFromEmail(): string {
-    const configured =
-      process.env.CONTACT_FROM_EMAIL ||
-      process.env.DEFAULT_FROM_EMAIL ||
-      process.env.ADMIN_FROM_EMAIL ||
-      "BookPrinta <info@bookprinta.com>";
-    const normalized = configured.trim();
-    return normalized.length > 0 ? normalized : "BookPrinta <info@bookprinta.com>";
-  }
-
-  private resolveAdminNotificationsFromEmail(): string {
-    const configured =
-      process.env.ADMIN_FROM_EMAIL ||
-      process.env.CONTACT_FROM_EMAIL ||
-      process.env.DEFAULT_FROM_EMAIL ||
-      "BookPrinta <info@bookprinta.com>";
-    const normalized = configured.trim();
-    return normalized.length > 0 ? normalized : "BookPrinta <info@bookprinta.com>";
-  }
-
-  private resolveAdminEmailRecipients(): string[] {
-    const sources = [
-      process.env.PAYMENT_ADMIN_EMAILS,
-      process.env.ADMIN_NOTIFICATION_EMAIL,
-      process.env.CONTACT_ADMIN_EMAIL,
-      process.env.ADMIN_FROM_EMAIL,
-      process.env.CONTACT_FROM_EMAIL,
-    ];
-
-    const recipients = sources
-      .filter((value): value is string => Boolean(value && value.trim().length > 0))
-      .flatMap((value) => value.split(","))
-      .map((value) => this.extractEmailAddress(value))
-      .filter((value): value is string => Boolean(value))
-      .map((value) => value.toLowerCase());
-
-    const unique = Array.from(new Set(recipients));
-    return unique.length > 0 ? unique : ["info@bookprinta.com"];
-  }
-
-  private extractEmailAddress(value: string): string | null {
-    const normalized = value.trim();
-    if (!normalized) return null;
-    const bracketMatch = normalized.match(/<([^>]+)>/);
-    const candidate = bracketMatch?.[1]?.trim() || normalized;
-    if (!candidate.includes("@")) return null;
-    return candidate;
   }
 }

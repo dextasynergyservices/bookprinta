@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 type MockNotificationAction =
   | { kind: "none" }
@@ -164,7 +165,13 @@ async function mockDashboardApis(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ unreadCount }),
+      // The API flags an active production delay itself, read or not.
+      body: JSON.stringify({
+        unreadCount,
+        hasProductionDelayBanner: currentNotifications.some(
+          (notification) => notification.type === "PRODUCTION_DELAY"
+        ),
+      }),
     });
   });
 
@@ -367,6 +374,10 @@ async function dismissAutoOpenedReviewDialogIfPresent(page: Page, timeout = 1_00
 }
 
 test.describe("Dashboard notification center", () => {
+  test.beforeEach(async ({ page }) => {
+    await seedSession(page, "USER");
+  });
+
   test("375px: badge accuracy, translated copy, and single-item read state", async ({ page }) => {
     test.slow();
     await page.setViewportSize({ width: 375, height: 812 });

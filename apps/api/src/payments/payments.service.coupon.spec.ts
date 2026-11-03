@@ -22,13 +22,16 @@ type CouponTransactionClient = {
   };
 };
 
+// Coupon resolution for an order lives in CheckoutMetadataPricingService.
 type PaymentsServiceCouponPrivate = {
-  resolveAppliedCouponForOrder: (
-    tx: CouponTransactionClient,
-    checkout: CouponCheckoutMetadata,
-    amountPaid: number
-  ) => Promise<{ id: string; discountAmount: number } | null>;
+  metadataPricing: { resolveAppliedCouponForOrder: CouponResolver };
 };
+
+type CouponResolver = (
+  tx: CouponTransactionClient,
+  checkout: CouponCheckoutMetadata,
+  amountPaid: number
+) => Promise<{ id: string; discountAmount: number } | null>;
 
 function createService() {
   process.env.FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
@@ -53,11 +56,9 @@ async function resolveAppliedCouponForOrder(
   checkout: CouponCheckoutMetadata,
   amountPaid: number
 ) {
-  return (service as unknown as PaymentsServiceCouponPrivate).resolveAppliedCouponForOrder(
-    tx,
-    checkout,
-    amountPaid
-  );
+  return (
+    service as unknown as PaymentsServiceCouponPrivate
+  ).metadataPricing.resolveAppliedCouponForOrder(tx, checkout, amountPaid);
 }
 
 function makeCouponRow(overrides: Record<string, unknown> = {}) {

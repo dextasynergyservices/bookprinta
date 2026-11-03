@@ -6,6 +6,7 @@ import {
   fetchPublishedResourceSlugsForStaticParams,
   fetchResourceDetailForServer,
   fetchResourcesPage,
+  RESOURCES_SERVER_FETCH_TIMEOUT_MS,
 } from "@/lib/api/resources";
 import { getSafeResourceImageUrl } from "@/lib/resources-media";
 import { sanitizeArticleHtml } from "@/lib/sanitize-article-html";
@@ -42,10 +43,11 @@ const getRelatedArticlesCached = cache(
 
     try {
       if (article.category?.slug) {
-        const sameCategoryPage = await fetchResourcesPage({
-          category: article.category.slug,
-          limit: 9,
-        });
+        const sameCategoryPage = await fetchResourcesPage(
+          { category: article.category.slug, limit: 9 },
+          undefined,
+          AbortSignal.timeout(RESOURCES_SERVER_FETCH_TIMEOUT_MS)
+        );
 
         for (const item of sameCategoryPage.items) {
           const normalizedSlug = normalizeSlug(item.slug);
@@ -56,7 +58,11 @@ const getRelatedArticlesCached = cache(
         }
       }
 
-      const fallbackPage = await fetchResourcesPage({ limit: 9 });
+      const fallbackPage = await fetchResourcesPage(
+        { limit: 9 },
+        undefined,
+        AbortSignal.timeout(RESOURCES_SERVER_FETCH_TIMEOUT_MS)
+      );
       for (const item of fallbackPage.items) {
         const normalizedSlug = normalizeSlug(item.slug);
         if (seenSlugs.has(normalizedSlug)) continue;

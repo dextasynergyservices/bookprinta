@@ -46,7 +46,12 @@ export default async function LocaleLayout({
 
   return (
     <html lang={locale}>
-      <body className={`${spaceGrotesk.variable} ${dmSans.variable} antialiased`}>
+      {/* Extensions such as Grammarly add attributes to <body> before React
+          hydrates; this ignores attribute differences on <body> only. */}
+      <body
+        className={`${spaceGrotesk.variable} ${dmSans.variable} antialiased`}
+        suppressHydrationWarning
+      >
         <NextIntlClientProvider messages={messages}>
           <Providers>
             <OfflineStatusBanner />

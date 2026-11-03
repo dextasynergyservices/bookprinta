@@ -83,7 +83,7 @@ export type InstallPromptState = {
   isIOS: boolean;
   /** Trigger the native install prompt (Chromium browsers only). */
   install: () => Promise<void>;
-  /** Dismiss the banner for 7 days. */
+  /** Dismiss the banner for 3 days. */
   dismiss: () => void;
 };
 
@@ -96,7 +96,7 @@ export function useInstallPrompt(): InstallPromptState {
     // Already running as installed PWA — never show.
     if (isStandalone() || wasInstalledPreviously()) return;
 
-    // Still within the 7-day dismiss cooldown — don't show yet.
+    // Still within the 3-day dismiss cooldown — don't show yet.
     if (isDismissCooldownActive()) return;
 
     // iOS: no beforeinstallprompt, show manual instructions.
@@ -110,6 +110,8 @@ export function useInstallPrompt(): InstallPromptState {
       // Prevent the browser's default mini-infobar.
       e.preventDefault();
       deferredPromptRef.current = e as BeforeInstallPromptEvent;
+      // Chrome can fire this again later in the session; a dismissal still stands.
+      if (isDismissCooldownActive()) return;
       setCanShow(true);
     };
 

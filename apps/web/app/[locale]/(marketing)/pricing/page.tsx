@@ -45,7 +45,7 @@ export default async function PricingPage({ params }: PricingPageProps) {
         <PricingHero />
 
         {/* Package cards — grouped by category */}
-        <section className="relative z-10 w-full pb-10 pt-10 md:pt-14">
+        <section className="relative z-10 w-full pb-10 pt-8 md:pt-10">
           <Suspense>
             <PricingCards />
           </Suspense>

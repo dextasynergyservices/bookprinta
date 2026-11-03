@@ -1,8 +1,17 @@
 /// <reference types="jest" />
 import { HtmlValidationService } from "./html-validation.service.js";
 
+/** Loading htmlparser2 the first time; slow only when every Jest worker is busy. */
+const PARSER_LOAD_TIMEOUT_MS = 30_000;
+
 describe("HtmlValidationService", () => {
   let service: HtmlValidationService;
+
+  // The service imports htmlparser2 on first use. Load it here so that cost is
+  // not charged to (and cannot time out) whichever test happens to run first.
+  beforeAll(async () => {
+    await import("htmlparser2");
+  }, PARSER_LOAD_TIMEOUT_MS);
 
   beforeEach(() => {
     service = new HtmlValidationService();

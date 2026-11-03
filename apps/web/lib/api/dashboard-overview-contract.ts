@@ -28,7 +28,8 @@ export function createEmptyDashboardOverviewResponse(): DashboardOverviewRespons
   };
 }
 
-export function normalizeDashboardOverviewPayload(payload: unknown): DashboardOverviewResponse {
+/** The overview in the payload (bare or nested), or null when none matches the schema. */
+export function parseDashboardOverviewPayload(payload: unknown): DashboardOverviewResponse | null {
   const root = toRecord(payload);
   const candidates: unknown[] = [payload, root?.data, root?.overview];
 
@@ -39,5 +40,9 @@ export function normalizeDashboardOverviewPayload(payload: unknown): DashboardOv
     }
   }
 
-  return createEmptyDashboardOverviewResponse();
+  return null;
+}
+
+export function normalizeDashboardOverviewPayload(payload: unknown): DashboardOverviewResponse {
+  return parseDashboardOverviewPayload(payload) ?? createEmptyDashboardOverviewResponse();
 }

@@ -13,11 +13,11 @@ type CreateCheckoutEntitiesFromMetadata = (params: {
 function getCreateCheckoutEntitiesFromMetadata(
   service: PaymentsService
 ): CreateCheckoutEntitiesFromMetadata {
-  return (
-    service as unknown as {
-      createCheckoutEntitiesFromMetadata: CreateCheckoutEntitiesFromMetadata;
-    }
-  ).createCheckoutEntitiesFromMetadata.bind(service);
+  // Checkout fulfilment lives in CheckoutFulfillmentService.
+  const { checkoutFulfillment } = service as unknown as {
+    checkoutFulfillment: { createCheckoutEntitiesFromMetadata: CreateCheckoutEntitiesFromMetadata };
+  };
+  return checkoutFulfillment.createCheckoutEntitiesFromMetadata.bind(checkoutFulfillment);
 }
 
 function createService() {

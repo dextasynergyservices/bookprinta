@@ -456,26 +456,23 @@ function PendingTransferDesktopTable({
   const tAdmin = useTranslations("admin");
 
   return (
-    <DashboardTableViewport minWidthClassName="md:min-w-[1120px]">
+    <DashboardTableViewport minWidthClassName="md:min-w-[840px]">
       <Table>
         <TableHeader>
           <TableRow className="border-[#1D1D1D] bg-[#0A0A0A] hover:bg-[#0A0A0A]">
-            <TableHead className="h-12 min-w-[15rem] px-4 font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
+            <TableHead className="h-12 min-w-[13rem] px-4 font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
               {tAdmin("payments_pending_table_payer")}
             </TableHead>
-            <TableHead className="h-12 min-w-[9rem] px-4 font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
+            <TableHead className="h-12 min-w-[8rem] px-4 font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
               {tAdmin("payments_pending_table_amount")}
             </TableHead>
-            <TableHead className="h-12 min-w-[8rem] px-4 font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
+            <TableHead className="h-12 min-w-[7rem] px-4 font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
               {tAdmin("payments_pending_waiting")}
             </TableHead>
-            <TableHead className="h-12 min-w-[12rem] px-4 font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
+            <TableHead className="h-12 min-w-[10rem] px-4 font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
               {tAdmin("payments_pending_table_receipt")}
             </TableHead>
-            <TableHead className="h-12 min-w-[16rem] px-4 font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
-              {tAdmin("payments_pending_table_context")}
-            </TableHead>
-            <TableHead className="h-12 min-w-[16rem] px-4 text-right font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
+            <TableHead className="h-12 w-[14rem] min-w-[14rem] px-4 text-right font-sans text-[11px] font-medium tracking-[0.12em] text-[#9A9A9A] uppercase">
               {tAdmin("payments_pending_table_actions")}
             </TableHead>
           </TableRow>
@@ -519,6 +516,28 @@ function PendingTransferDesktopTable({
                       {item.customer.phoneNumber || tAdmin("payments_pending_phone_missing")}
                     </p>
                     <p className="mt-2 font-sans text-xs text-[#7D7D7D]">{item.orderReference}</p>
+                    {/* Provider ref, admin note and signup delivery sit under the payer
+                        (not in their own column) so the table fits beside the sidebar
+                        at 1280px with the actions in view. */}
+                    <div className="mt-3 space-y-2 font-sans text-xs text-[#B4B4B4]">
+                      <p className="break-all">
+                        {tAdmin("payments_pending_provider_ref", {
+                          reference:
+                            item.providerRef || tAdmin("payments_pending_provider_ref_missing"),
+                        })}
+                      </p>
+                      {item.hasAdminNote && item.adminNote ? (
+                        <div className="rounded-2xl border border-[#4A3915] bg-[#171108] px-3 py-2 text-sm text-[#E9DFB0]">
+                          <span className="block text-[11px] font-medium uppercase tracking-[0.12em] text-[#EAB308]">
+                            {tAdmin("payments_pending_meta_admin_note")}
+                          </span>
+                          <span className="mt-1 block leading-6">{item.adminNote}</span>
+                        </div>
+                      ) : null}
+                      {item.signupLinkDelivery ? (
+                        <SignupLinkDeliveryBadge delivery={item.signupLinkDelivery} />
+                      ) : null}
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell className="px-4 py-4 align-top">
@@ -549,33 +568,12 @@ function PendingTransferDesktopTable({
                   />
                 </TableCell>
                 <TableCell className="px-4 py-4 align-top">
-                  <div className="space-y-2 font-sans text-sm text-[#B4B4B4]">
-                    <p>
-                      {tAdmin("payments_pending_provider_ref", {
-                        reference:
-                          item.providerRef || tAdmin("payments_pending_provider_ref_missing"),
-                      })}
-                    </p>
-                    {item.hasAdminNote && item.adminNote ? (
-                      <div className="rounded-2xl border border-[#4A3915] bg-[#171108] px-3 py-2 text-[#E9DFB0]">
-                        <span className="block text-[11px] font-medium uppercase tracking-[0.12em] text-[#EAB308]">
-                          {tAdmin("payments_pending_meta_admin_note")}
-                        </span>
-                        <span className="mt-1 block leading-6">{item.adminNote}</span>
-                      </div>
-                    ) : null}
-                    {item.signupLinkDelivery ? (
-                      <SignupLinkDeliveryBadge delivery={item.signupLinkDelivery} />
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell className="px-4 py-4 align-top">
-                  <div className="flex items-center justify-end gap-3">
+                  <div className="flex flex-col items-stretch gap-2">
                     <Button
                       type="button"
                       onClick={() => onApprove(item)}
                       disabled={isApproveLoading || isRejectLoading}
-                      className="min-h-11 rounded-full bg-accent-strong px-4 font-sans text-sm font-bold text-white hover:bg-accent-strong-hover"
+                      className="h-auto min-h-11 whitespace-normal rounded-full bg-accent-strong px-4 font-sans text-sm font-bold text-white hover:bg-accent-strong-hover"
                     >
                       {isApproveLoading
                         ? tAdmin("payments_pending_approve_loading")
@@ -586,7 +584,7 @@ function PendingTransferDesktopTable({
                       variant="ghost"
                       onClick={() => onReject(item)}
                       disabled={isApproveLoading || isRejectLoading}
-                      className="min-h-11 rounded-full border border-[#2A2A2A] bg-[#0A0A0A] px-4 font-sans text-sm font-semibold text-[#D5D5D5] hover:border-[#EF4444]/55 hover:bg-[#1A0C0E] hover:text-[#EF4444]"
+                      className="h-auto min-h-11 whitespace-normal rounded-full border border-[#2A2A2A] bg-[#0A0A0A] px-4 font-sans text-sm font-semibold text-[#D5D5D5] hover:border-[#EF4444]/55 hover:bg-[#1A0C0E] hover:text-[#EF4444]"
                     >
                       {tAdmin("payments_pending_reject_action")}
                     </Button>
@@ -614,7 +612,7 @@ function PendingTransferSkeletons() {
         </div>
       ))}
       desktopTable={
-        <DashboardTableViewport minWidthClassName="md:min-w-[1120px]">
+        <DashboardTableViewport minWidthClassName="md:min-w-[840px]">
           <div className="space-y-3 p-4">
             {PENDING_TRANSFER_ROW_SKELETON_KEYS.map((key) => (
               <Skeleton key={key} className="h-20 rounded-[1rem] bg-[#121212]" />
@@ -634,6 +632,7 @@ export function AdminPaymentsView() {
   const rejectMutation = useAdminRejectBankTransferMutation();
 
   const [activeApprovalId, setActiveApprovalId] = useState<string | null>(null);
+  const [approveTarget, setApproveTarget] = useState<PendingBankTransferWithLiveSla | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<PaymentReceiptPreviewTarget | null>(null);
   const [rejectTarget, setRejectTarget] = useState<PendingBankTransferWithLiveSla | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -665,7 +664,16 @@ export function AdminPaymentsView() {
     setReceiptPreview(null);
   };
 
-  const handleApprove = async (item: PendingBankTransferWithLiveSla) => {
+  const closeApproveDialog = () => {
+    if (approveMutation.isPending) return;
+    setApproveTarget(null);
+  };
+
+  // Approving creates the order and emails the registration link, and cannot be
+  // undone, so it is confirmed in a dialog like a rejection.
+  const handleApproveConfirm = async () => {
+    const item = approveTarget;
+    if (!item) return;
     setActiveApprovalId(item.id);
 
     try {
@@ -677,6 +685,7 @@ export function AdminPaymentsView() {
       toast.success(tAdmin("payments_pending_toast_approved_title"), {
         description: tAdmin("payments_pending_toast_approved_description"),
       });
+      setApproveTarget(null);
     } catch (error) {
       toast.error(tAdmin("payments_pending_toast_error_title"), {
         description:
@@ -817,7 +826,7 @@ export function AdminPaymentsView() {
                     approveLoading={activeApprovalId === item.id}
                     rejectLoading={activeRejectId === item.id}
                     onViewReceipt={setReceiptPreview}
-                    onApprove={handleApprove}
+                    onApprove={setApproveTarget}
                     onReject={(nextTarget) => {
                       setRejectTarget(nextTarget);
                       setRejectReason("");
@@ -831,7 +840,7 @@ export function AdminPaymentsView() {
                     activeApprovalId={activeApprovalId}
                     activeRejectId={activeRejectId}
                     onViewReceipt={setReceiptPreview}
-                    onApprove={handleApprove}
+                    onApprove={setApproveTarget}
                     onReject={(nextTarget) => {
                       setRejectTarget(nextTarget);
                       setRejectReason("");
@@ -859,6 +868,84 @@ export function AdminPaymentsView() {
           />
         </Suspense>
       ) : null}
+
+      <Dialog
+        open={Boolean(approveTarget)}
+        onOpenChange={(open) => (!open ? closeApproveDialog() : undefined)}
+      >
+        <DialogContent className="max-w-[calc(100%-1.5rem)] rounded-[1.5rem] border border-[#1D1D1D] bg-[#0A0A0A] p-0 text-white sm:max-w-xl">
+          <div className="p-6">
+            <DialogHeader>
+              <DialogTitle className="font-display text-2xl font-semibold tracking-[-0.03em] text-white">
+                {tAdmin("payments_pending_approve_dialog_title")}
+              </DialogTitle>
+              <DialogDescription className="font-sans text-sm leading-6 text-[#B4B4B4]">
+                {tAdmin("payments_pending_approve_dialog_description", {
+                  email:
+                    approveTarget?.customer.email ||
+                    approveTarget?.payerEmail ||
+                    tAdmin("payments_pending_email_missing"),
+                })}
+              </DialogDescription>
+            </DialogHeader>
+
+            {approveTarget ? (
+              <dl className="mt-5 space-y-3 rounded-[1.25rem] border border-[#2A2A2A] bg-[#080808] p-4 font-sans text-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-[#8F8F8F]">{tAdmin("payments_pending_table_payer")}</dt>
+                  <dd className="text-right font-semibold text-white">
+                    {resolvePendingTransferPayerName(
+                      approveTarget,
+                      tAdmin("payments_pending_payer_unknown")
+                    )}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-[#8F8F8F]">{tAdmin("payments_pending_table_amount")}</dt>
+                  <dd className="text-right font-semibold text-white">
+                    {formatAdminCurrency(
+                      approveTarget.amount,
+                      approveTarget.currency,
+                      locale,
+                      tAdmin("payments_total_unavailable")
+                    )}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-[#8F8F8F]">
+                    {tAdmin("payments_pending_approve_dialog_reference")}
+                  </dt>
+                  <dd className="break-all text-right text-[#D8D8D8]">
+                    {approveTarget.orderReference}
+                  </dd>
+                </div>
+              </dl>
+            ) : null}
+
+            <DialogFooter className="mt-6">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeApproveDialog}
+                disabled={approveMutation.isPending}
+                className="min-h-11 rounded-full border-[#2A2A2A] bg-[#080808] px-4 font-sans text-sm text-white hover:border-[#3A3A3A] hover:bg-[#101010]"
+              >
+                {tAdmin("payments_pending_reject_cancel")}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleApproveConfirm()}
+                disabled={approveMutation.isPending}
+                className="h-auto min-h-11 whitespace-normal rounded-full bg-accent-strong px-4 font-sans text-sm font-bold text-white hover:bg-accent-strong-hover"
+              >
+                {approveMutation.isPending
+                  ? tAdmin("payments_pending_approve_loading")
+                  : tAdmin("payments_pending_approve_dialog_confirm")}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(rejectTarget)}

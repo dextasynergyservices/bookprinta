@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 const DEFAULT_ORIGIN = "http://localhost:3000";
 
@@ -66,29 +67,8 @@ async function fulfillPreflight(page: Page, route: Parameters<Parameters<Page["r
   });
 }
 
-function createMockAccessToken() {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(
-    JSON.stringify({
-      sub: "cm_admin_showcase_01",
-      role: "SUPER_ADMIN",
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    })
-  ).toString("base64url");
-
-  return `${header}.${payload}.mock-signature`;
-}
-
 async function seedAdminSession(page: Page) {
-  await page.context().addCookies([
-    {
-      name: "access_token",
-      value: createMockAccessToken(),
-      url: "http://localhost:3000",
-      httpOnly: false,
-      sameSite: "Lax",
-    },
-  ]);
+  await seedSession(page, "SUPER_ADMIN");
 }
 
 async function mockAdminShowcaseApis(page: Page) {
@@ -369,7 +349,8 @@ test.describe("Admin Showcase QA", () => {
     await expect(page.getByRole("button", { name: /Ada User/i })).toBeVisible();
     await page.getByRole("button", { name: /Ada User/i }).click();
 
-    const coverInput = page.locator('input[type="file"]').first();
+    // The author-image input now comes first, so find the cover input by label.
+    const coverInput = page.getByLabel("Choose Cover").first();
     await coverInput.setInputFiles({
       name: "cover.jpg",
       mimeType: "image/jpeg",

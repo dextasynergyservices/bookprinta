@@ -47,6 +47,17 @@ describe("useDashboardOverview data layer", () => {
     expect(result.notifications.unreadCount).toBe(1);
   });
 
+  it("fails instead of showing an empty dashboard when the response has an unexpected shape", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: jest.fn().mockResolvedValue({ activeBook: { id: "book_1" }, recentOrders: [] }),
+    } as unknown as Response);
+
+    await expect(fetchDashboardOverview()).rejects.toThrow(
+      "Unable to load your dashboard overview"
+    );
+  });
+
   it("delegates non-ok responses to throwApiError and exposes stable query keys", async () => {
     const expectedError = new Error("Unable to load your dashboard overview");
     throwApiErrorMock.mockRejectedValueOnce(expectedError);

@@ -22,24 +22,15 @@ export function PricingHero() {
         opacity: 0,
         duration: 0.9,
         stagger: 0.12,
-      })
-        .from(
-          ".pricing-hero-subtitle",
-          {
-            y: 30,
-            opacity: 0,
-            duration: 0.7,
-          },
-          "-=0.4"
-        )
-        .from(
-          ".pricing-hero-line",
-          {
-            scaleX: 0,
-            duration: 0.6,
-          },
-          "-=0.3"
-        );
+      }).from(
+        ".pricing-hero-subtitle",
+        {
+          y: 30,
+          opacity: 0,
+          duration: 0.7,
+        },
+        "-=0.4"
+      );
 
       gsap.fromTo(
         ".pricing-hero-divider-progress",
@@ -75,30 +66,23 @@ export function PricingHero() {
         }}
       />
 
-      <div className="relative mx-auto w-full max-w-7xl px-5 pt-28 pb-12 md:px-8 md:pt-36 md:pb-16 lg:pt-44 lg:pb-20">
+      {/* Kept short so the packages, the reason people open this page, are in
+          the first screen. On desktop the subtitle sits beside the heading. */}
+      <div className="relative mx-auto w-full max-w-7xl px-5 pt-24 pb-8 md:px-8 md:pt-32 md:pb-10 lg:grid lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-end lg:gap-12 lg:pt-32 lg:pb-12">
         <h1
           id="pricing-hero-heading"
-          className="max-w-3xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-primary-foreground md:text-6xl lg:text-7xl"
+          className="max-w-3xl font-display text-4xl font-bold leading-[1.08] tracking-tight text-primary-foreground md:text-5xl lg:text-6xl"
         >
           <span className="pricing-hero-title block">{t("hero_title_line1")}</span>
           <span className="pricing-hero-title block">{t("hero_title_line2")}</span>
           <span className="pricing-hero-title block text-accent">{t("hero_title_line3")}</span>
         </h1>
 
-        <p className="pricing-hero-subtitle mt-6 max-w-xl font-serif text-lg leading-relaxed text-primary-foreground/50 md:mt-8 md:text-xl">
+        <p className="pricing-hero-subtitle mt-5 max-w-xl font-serif text-lg leading-relaxed text-primary-foreground/50 md:mt-6 md:text-xl lg:mt-0 lg:pb-2">
           {t("hero_subtitle")}
         </p>
-
-        <div
-          className="pricing-hero-line mt-10 h-px w-full max-w-xs origin-left bg-white/10 md:mt-14"
-          aria-hidden="true"
-        />
       </div>
 
-      <div
-        className="pointer-events-none absolute right-0 bottom-0 left-0 h-px bg-gradient-to-r from-white/0 via-white/15 to-white/0"
-        aria-hidden="true"
-      />
       <div
         className="pricing-hero-divider-progress pointer-events-none absolute right-0 bottom-0 left-0 h-px origin-left bg-gradient-to-r from-white/0 via-white/20 to-white/0"
         aria-hidden="true"

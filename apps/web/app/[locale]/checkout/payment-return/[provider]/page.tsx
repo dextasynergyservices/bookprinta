@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useRouter } from "@/lib/i18n/navigation";
+import { usePricingStore } from "@/stores/usePricingStore";
 
 type VerificationState = "loading" | "waiting" | "cancelled" | "error";
 type OnlineProvider = "PAYSTACK" | "STRIPE" | "PAYPAL";
@@ -176,6 +177,8 @@ function PaymentReturnPageContent() {
           }
 
           const data = (await response.json()) as VerifyResponse;
+          // Paid: the saved checkout choices belong to a finished order now.
+          if (data.verified) usePricingStore.getState().reset();
 
           if (data.signupUrl) {
             const params = new URLSearchParams();

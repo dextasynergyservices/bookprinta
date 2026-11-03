@@ -41,26 +41,24 @@ export class DashboardService {
   ) {}
 
   async getUserDashboardOverview(userId: string): Promise<DashboardOverviewResponse> {
-    // Fix 1.5: collapsed from 6 parallel queries to 5.
-    // `findUserNotifications(limit:50)` was fetched solely to derive a single boolean flag
-    // (`hasProductionDelayBanner`). Replaced with a dedicated EXISTS check backed by the
-    // `@@index([userId, type])` composite index — O(1) vs O(N) full-list scan.
+    // The unread count and the production-delay banner flag come from one
+    // cached summary (NotificationsService.getUnreadCount).
     //
     // Fix 4.6: replaced `findUserBooks(page:1, limit:10)` (10 rows with full
     // joins fetched in JS, then reduced to 1) with `findActiveBook(userId)` —
     // a dedicated two-query DB path that returns exactly 1 book.
-    const [activeBook, recentOrders, unreadCount, hasDelayBanner, profile, reviewState] =
-      await Promise.all([
+    const [activeBook, recentOrders, notificationSummary, profile, reviewState] = await Promise.all(
+      [
         this.booksService.findActiveBook(userId),
         this.ordersService.findUserOrders(userId, {
           page: 1,
           limit: 3,
         }),
         this.notificationsService.getUnreadCount(userId),
-        this.notificationsService.hasProductionDelayBanner(userId),
         this.usersService.getMyProfile(userId),
         this.reviewsService.getMyReviews(userId),
-      ]);
+      ]
+    );
 
     // Check if the active book already has an in-progress reprint so we
     // don't surface a misleading "Reprint Available" action.
@@ -82,8 +80,8 @@ export class DashboardService {
       activeBook,
       recentOrders: recentOrders.items,
       notifications: {
-        unreadCount: unreadCount.unreadCount,
-        hasProductionDelayBanner: hasDelayBanner,
+        unreadCount: notificationSummary.unreadCount,
+        hasProductionDelayBanner: notificationSummary.hasProductionDelayBanner,
       },
       profile: {
         isProfileComplete: profile.isProfileComplete,

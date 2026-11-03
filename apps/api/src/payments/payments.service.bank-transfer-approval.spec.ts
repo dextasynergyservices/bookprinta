@@ -10,15 +10,19 @@ import {
 import { PaymentsService } from "./payments.service.js";
 
 type PaymentsServicePrivate = {
-  resolvePackageFromCheckoutMetadata: (...args: never[]) => Promise<{
-    id: string;
-    name: string;
-    basePrice: number;
-  }>;
-  generateOrderNumber: () => Promise<string>;
-  resolveAppliedCouponForOrder: (...args: never[]) => Promise<null>;
-  createOrderAddonsFromMetadata: (...args: never[]) => Promise<void>;
-  resolveAddonNamesFromMetadata: (...args: never[]) => Promise<string[]>;
+  // Coupon resolution lives in CheckoutMetadataPricingService.
+  metadataPricing: { resolveAppliedCouponForOrder: (...args: never[]) => Promise<null> };
+  // Checkout fulfilment lives in CheckoutFulfillmentService.
+  checkoutFulfillment: {
+    resolvePackageFromCheckoutMetadata: (...args: never[]) => Promise<{
+      id: string;
+      name: string;
+      basePrice: number;
+    }>;
+    generateOrderNumber: () => Promise<string>;
+    createOrderAddonsFromMetadata: (...args: never[]) => Promise<void>;
+    resolveAddonNamesFromMetadata: (...args: never[]) => Promise<string[]>;
+  };
 };
 
 function getPaymentsServicePrivate(service: PaymentsService) {
@@ -309,15 +313,21 @@ describe("PaymentsService bank transfer approval", () => {
       whatsappDelivered: false,
     });
 
-    servicePrivate.resolvePackageFromCheckoutMetadata = jest.fn().mockResolvedValue({
-      id: "pkg_1",
-      name: "Legacy",
-      basePrice: 125000,
-    });
-    servicePrivate.generateOrderNumber = jest.fn().mockResolvedValue("BP-2026-0002");
-    servicePrivate.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
-    servicePrivate.createOrderAddonsFromMetadata = jest.fn().mockResolvedValue(undefined);
-    servicePrivate.resolveAddonNamesFromMetadata = jest
+    servicePrivate.checkoutFulfillment.resolvePackageFromCheckoutMetadata = jest
+      .fn()
+      .mockResolvedValue({
+        id: "pkg_1",
+        name: "Legacy",
+        basePrice: 125000,
+      });
+    servicePrivate.checkoutFulfillment.generateOrderNumber = jest
+      .fn()
+      .mockResolvedValue("BP-2026-0002");
+    servicePrivate.metadataPricing.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
+    servicePrivate.checkoutFulfillment.createOrderAddonsFromMetadata = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    servicePrivate.checkoutFulfillment.resolveAddonNamesFromMetadata = jest
       .fn()
       .mockResolvedValue(["ISBN Registration"]);
 
@@ -491,15 +501,23 @@ describe("PaymentsService bank transfer approval", () => {
       whatsappDelivered: false,
     });
 
-    servicePrivate.resolvePackageFromCheckoutMetadata = jest.fn().mockResolvedValue({
-      id: "pkg_1",
-      name: "Legacy",
-      basePrice: 98000,
-    });
-    servicePrivate.generateOrderNumber = jest.fn().mockResolvedValue("BP-2026-0003");
-    servicePrivate.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
-    servicePrivate.createOrderAddonsFromMetadata = jest.fn().mockResolvedValue(undefined);
-    servicePrivate.resolveAddonNamesFromMetadata = jest.fn().mockResolvedValue([]);
+    servicePrivate.checkoutFulfillment.resolvePackageFromCheckoutMetadata = jest
+      .fn()
+      .mockResolvedValue({
+        id: "pkg_1",
+        name: "Legacy",
+        basePrice: 98000,
+      });
+    servicePrivate.checkoutFulfillment.generateOrderNumber = jest
+      .fn()
+      .mockResolvedValue("BP-2026-0003");
+    servicePrivate.metadataPricing.resolveAppliedCouponForOrder = jest.fn().mockResolvedValue(null);
+    servicePrivate.checkoutFulfillment.createOrderAddonsFromMetadata = jest
+      .fn()
+      .mockResolvedValue(undefined);
+    servicePrivate.checkoutFulfillment.resolveAddonNamesFromMetadata = jest
+      .fn()
+      .mockResolvedValue([]);
 
     const result = await service.approveBankTransfer({
       paymentId: "payment_3",

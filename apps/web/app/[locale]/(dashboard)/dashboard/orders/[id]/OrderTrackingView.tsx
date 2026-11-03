@@ -530,6 +530,11 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
         <h1 className="font-display text-2xl font-semibold tracking-tight text-white md:text-3xl">
           {tDashboard("order_journey_title")}
         </h1>
+        {tracking.title ? (
+          <p className="font-display text-lg font-semibold text-[#9fbce0] md:text-xl">
+            {tracking.title}
+          </p>
+        ) : null}
         <p className="font-sans text-sm text-[#d0d0d0] md:text-base">
           {tDashboard("order_journey_subtitle")}
         </p>

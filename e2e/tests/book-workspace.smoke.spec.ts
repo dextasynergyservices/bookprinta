@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 const BOOK_ID = "cmbook_smoke_1";
 const ORDER_ID = "cmorder_smoke_1";
@@ -16,6 +17,7 @@ type FlowState = {
 };
 
 async function mockDashboardShellApis(page: Page) {
+  await seedSession(page, "USER");
   await page.route("**/api/v1/auth/me", async (route) => {
     await route.fulfill({
       status: 200,
@@ -155,6 +157,7 @@ test.describe("Book Workspace Smoke", () => {
     await page.route(`**/api/v1/books/${BOOK_ID}/settings`, async (route) => {
       settingsPatchCount += 1;
       const payload = route.request().postDataJSON() as {
+        title?: string;
         pageSize?: FlowState["pageSize"];
         fontSize?: FlowState["fontSize"];
       };
@@ -166,6 +169,7 @@ test.describe("Book Workspace Smoke", () => {
         contentType: "application/json",
         body: JSON.stringify({
           id: BOOK_ID,
+          title: payload.title ?? null,
           pageSize: state.pageSize,
           fontSize: state.fontSize,
           wordCount: null,
@@ -317,6 +321,7 @@ test.describe("Book Workspace Smoke", () => {
     ).toBeVisible();
     await expect(page.getByRole("heading", { name: "Manuscript Upload", level: 2 })).toBeVisible();
 
+    await page.getByRole("textbox", { name: "Book title" }).fill("The Smoke Manuscript");
     await page.getByRole("button", { name: /^A5/ }).click();
     await page.getByRole("button", { name: "12pt" }).click();
     await page.getByRole("button", { name: "Save Settings" }).click();
@@ -333,14 +338,22 @@ test.describe("Book Workspace Smoke", () => {
     });
 
     await expect(page.getByRole("button", { name: "Upload Another File" })).toBeVisible();
-    await expect(page.getByText("Word count: 42,000")).toBeVisible();
+    await expect(page.getByText("42,000", { exact: true })).toBeVisible();
+    await expect(page.getByText("Words in your manuscript")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Live layout preview", level: 2 })
     ).toBeVisible();
+    // Paged.js loads its polyfill and paginates inside the iframe before the
+    // heading exists, which can outlast the default 5 s on a cold dev server.
     await expect(
       page.frameLocator("iframe").getByRole("heading", { name: "Smoke Preview" })
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: "Blocked", level: 2 })).toBeVisible();
+    await expect(
+      page.getByText(
+        "This manuscript exceeds your package limit. Extra-page payment is required before approval."
+      )
     ).toBeVisible();
-    await expect(page.getByText("Extra-page payment required")).toBeVisible();
     await expect(page.getByRole("button", { name: "Pay Extra Pages" })).toBeVisible();
     expect(uploadCount).toBe(1);
     expect(sawMultipartUpload).toBe(true);
@@ -355,17 +368,18 @@ test.describe("Book Workspace Smoke", () => {
 
     await page.goto(BOOKS_PATH);
 
-    await expect(page.getByText("Approval is unlocked")).toBeVisible();
+    await expect(
+      page.getByText("Extra-page payment is complete. You can approve the book now.")
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Approve for Production" })).toBeVisible();
 
     await page.getByRole("button", { name: "Approve for Production" }).click();
 
+    // The billing panel closes on approval; the confirmation arrives as a toast.
     await expect(
       page.getByText("Book approved. Final PDF generation has been queued.")
     ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Approved for production", level: 2 })
-    ).toBeVisible();
+    await expect(page.getByText("Current stage: Approved")).toBeVisible();
     expect(approveCount).toBe(1);
   });
 });

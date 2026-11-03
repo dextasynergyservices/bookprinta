@@ -6,6 +6,11 @@ on:
   push:
     branches: [develop]
 
+# A newer push to the same branch or PR cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   BUN_VERSION: '1.3.8'  # keep in step with packageManager in package.json
 
@@ -16,6 +21,7 @@ jobs:
   lint:
     name: Lint & Type Check
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # normally ~1 min; fail fast instead of hanging
     env:
       DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"  # Prisma generate needs this to load config (no DB connection made)
     steps:
@@ -44,6 +50,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # normally ~2-3 min; a hung build fails instead of running for hours
     needs: lint
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -73,4 +80,6 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: cd apps/api && bunx prisma generate   # MUST run before build
-      - run: bun run build
+      # Stream task output live: on GitHub Actions turbo otherwise prints a task's
+      # log only when it finishes, which hides which task is stuck.
+      - run: bun run build --log-order=stream

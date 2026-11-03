@@ -1,4 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 const DEFAULT_ORIGIN = "http://localhost:3000";
 
@@ -116,29 +117,23 @@ function sortByOrderThenName<T extends { sortOrder: number; name: string }>(item
   });
 }
 
-function createMockAccessToken() {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(
-    JSON.stringify({
-      sub: "cmadmin000000000000000001",
-      role: "SUPER_ADMIN",
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    })
-  ).toString("base64url");
-
-  return `${header}.${payload}.mock-signature`;
+/**
+ * Open a row's Actions menu and pick an item. Right after a save the list
+ * refreshes and can re-render the row, closing the menu under the click, so
+ * retry the whole open-and-pick, as a person would click again.
+ */
+async function chooseRowAction(page: Page, row: Locator, item: string) {
+  const menuItem = page.getByRole("menuitem", { name: item });
+  await expect(async () => {
+    if (!(await menuItem.isVisible())) {
+      await row.getByRole("button", { name: "Actions" }).click();
+    }
+    // A click that times out did nothing, so retrying cannot act twice.
+    await menuItem.click({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
 }
-
 async function seedAdminSession(page: Page) {
-  await page.context().addCookies([
-    {
-      name: "access_token",
-      value: createMockAccessToken(),
-      url: "http://localhost:3000",
-      httpOnly: false,
-      sameSite: "Lax",
-    },
-  ]);
+  await seedSession(page, "SUPER_ADMIN");
 }
 
 async function mockAdminPackagesApis(page: Page) {
@@ -649,8 +644,7 @@ test.describe("Admin Packages QA", () => {
     await expect(page.getByText("Category created successfully.")).toBeVisible();
 
     const categoryRow = page.getByRole("row", { name: /Memoir/i }).first();
-    await categoryRow.getByRole("button", { name: "Actions" }).click();
-    await page.getByRole("menuitem", { name: "Edit" }).click();
+    await chooseRowAction(page, categoryRow, "Edit");
     await page.locator("#category-cat-memoir-sort:visible").fill("0");
     await page
       .locator("article", { has: page.locator("#category-cat-memoir-sort:visible") })
@@ -658,8 +652,7 @@ test.describe("Admin Packages QA", () => {
       .click();
     await expect(page.getByText("Category updated successfully.")).toBeVisible();
 
-    await categoryRow.getByRole("button", { name: "Actions" }).click();
-    await page.getByRole("menuitem", { name: "Delete Category" }).click();
+    await chooseRowAction(page, categoryRow, "Delete Category");
 
     const categoryDeleteDialog = page.getByRole("alertdialog");
     await expect(
@@ -678,8 +671,7 @@ test.describe("Admin Packages QA", () => {
     await expect(page.getByText("Cannot delete category")).toBeVisible();
 
     const addonRow = page.getByRole("row", { name: /Word Polish/i }).first();
-    await addonRow.getByRole("button", { name: "Actions" }).click();
-    await page.getByRole("menuitem", { name: "Edit" }).click();
+    await chooseRowAction(page, addonRow, "Edit");
     await page.locator("#addon-addon-word-polish-sort-order:visible").fill("0");
     await page
       .locator("article", { has: page.locator("#addon-addon-word-polish-sort-order:visible") })
@@ -691,8 +683,7 @@ test.describe("Admin Packages QA", () => {
     await expect(firstAddonRow).toContainText("0");
 
     const packageRow = page.getByRole("row", { name: /Signature Memoir/i }).first();
-    await packageRow.getByRole("button", { name: "Actions" }).click();
-    await page.getByRole("menuitem", { name: "Delete Permanently" }).click();
+    await chooseRowAction(page, packageRow, "Delete Permanently");
 
     const permanentDeleteDialog = page.getByRole("alertdialog");
     await expect(
@@ -714,8 +705,7 @@ test.describe("Admin Packages QA", () => {
     await expect(page.getByText("Package deleted permanently.")).toBeVisible();
 
     const addonPermanentDeleteRow = page.getByRole("row", { name: /Cover Design/i }).first();
-    await addonPermanentDeleteRow.getByRole("button", { name: "Actions" }).click();
-    await page.getByRole("menuitem", { name: "Delete Permanently" }).click();
+    await chooseRowAction(page, addonPermanentDeleteRow, "Delete Permanently");
 
     await expect(
       permanentDeleteDialog.getByRole("heading", { name: "Confirm Permanent Deletion" })
@@ -728,8 +718,7 @@ test.describe("Admin Packages QA", () => {
     await confirmDeleteButton.click();
     await expect(page.getByText("Addon deleted permanently.")).toBeVisible();
 
-    await addonRow.getByRole("button", { name: "Actions" }).click();
-    await page.getByRole("menuitem", { name: "Deactivate" }).click();
+    await chooseRowAction(page, addonRow, "Deactivate");
     await expect(page.getByText("Addon updated successfully.")).toBeVisible();
 
     await page.fill("#category-create-copies:visible", "");

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { seedSession } from "../fixtures/session";
 
 const ORDER_ID = "cmadminorder00000000000000001";
 const SECOND_ORDER_ID = "cmadminorder00000000000000002";
@@ -169,6 +170,7 @@ function buildAdminOrdersList() {
       totalAmount: 100000,
       currency: "NGN",
       detailUrl: `/admin/orders/${ORDER_ID}`,
+      actions: { canArchive: true },
     },
     {
       id: SECOND_ORDER_ID,
@@ -193,6 +195,7 @@ function buildAdminOrdersList() {
       totalAmount: 150000,
       currency: "NGN",
       detailUrl: `/admin/orders/${SECOND_ORDER_ID}`,
+      actions: { canArchive: true },
     },
   ];
 }
@@ -594,6 +597,7 @@ async function mockAdminApis(page: Page, options: MockAdminApiOptions = {}) {
   let lastStatusPayload: Record<string, unknown> | null = null;
   let lastRefundPayload: Record<string, unknown> | null = null;
 
+  await seedSession(page, "SUPER_ADMIN");
   await page.route("**/auth/me*", async (route) => {
     if (route.request().method() === "OPTIONS") {
       await fulfillPreflight(page, route);
@@ -924,6 +928,7 @@ async function mockAdminUserApis(page: Page, options: MockAdminUserApiOptions = 
   let lastUpdatePayload: Record<string, unknown> | null = null;
   let lastAuditAction: string | null = null;
 
+  await seedSession(page, "SUPER_ADMIN");
   await page.route("**/auth/me*", async (route) => {
     if (route.request().method() === "OPTIONS") {
       await fulfillPreflight(page, route);
@@ -1324,14 +1329,17 @@ test.describe("Admin Users", () => {
       await expect(card).toHaveCount(1);
       await expect(page.locator("article").filter({ hasText: "Grace Bello" })).toHaveCount(0);
       await expect(page.locator("article").filter({ hasText: "John Duru" })).toHaveCount(0);
-      await card.getByRole("link", { name: /Manage User/ }).click();
+      // The card renders the same actions menu as the desktop row.
+      await card.getByRole("button", { name: "User actions menu" }).click();
+      await page.getByRole("menuitem", { name: /Manage User/ }).click();
     } else {
       const table = page.getByRole("table");
       const userRow = table.getByRole("row").filter({ hasText: "Ada Okafor" });
       await expect(userRow).toHaveCount(1);
       await expect(table.getByRole("row").filter({ hasText: "Grace Bello" })).toHaveCount(0);
       await expect(table.getByRole("row").filter({ hasText: "John Duru" })).toHaveCount(0);
-      await userRow.getByRole("link", { name: /Manage User/ }).click();
+      await userRow.getByRole("button", { name: "User actions menu" }).click();
+      await page.getByRole("menuitem", { name: /Manage User/ }).click();
     }
 
     await expect(page).toHaveURL(new RegExp(`/admin/users/${USER_ID}$`));

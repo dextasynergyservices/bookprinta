@@ -60,6 +60,7 @@ async function fetchAdminNotificationUnreadCount({
 
     return {
       unreadCount: 0,
+      hasProductionDelayBanner: false,
       isFallback: true,
     };
   }

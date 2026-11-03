@@ -26,7 +26,6 @@ const translations: Record<string, string> = {
   payments_pending_table_payer: "Payer",
   payments_pending_table_amount: "Amount",
   payments_pending_table_receipt: "Receipt",
-  payments_pending_table_context: "Context",
   payments_pending_table_actions: "Actions",
   payments_pending_payer_unknown: "Payer unavailable",
   payments_pending_amount: "Amount: {amount}",
@@ -42,6 +41,11 @@ const translations: Record<string, string> = {
   payments_pending_meta_admin_note: "Admin Note",
   payments_pending_approve_loading: "Approving & sending registration link",
   payments_pending_approve_action: "Approve & Send Registration Link",
+  payments_pending_approve_dialog_title: "Approve this bank transfer?",
+  payments_pending_approve_dialog_description:
+    "Check the receipt matches the amount first. Approving creates the order and emails a registration link to {email}. This cannot be undone.",
+  payments_pending_approve_dialog_reference: "Reference",
+  payments_pending_approve_dialog_confirm: "Approve & Send Link",
   payments_pending_reject_action: "Reject Transfer",
   payments_pending_error_title: "Unable to load pending bank transfers",
   payments_pending_error_description:
@@ -421,6 +425,41 @@ describe("AdminPaymentsView", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("asks for confirmation before approving, and approves only on confirm", async () => {
+    const user = userEvent.setup();
+    const approveMutation = jest.fn().mockResolvedValue({ id: "pay_1", status: "SUCCESS" });
+    useAdminApproveBankTransferMutationMock.mockReturnValue({
+      mutateAsync: approveMutation,
+      isPending: false,
+    });
+
+    render(<AdminPaymentsView />);
+
+    // Cancelling sends nothing.
+    await user.click(screen.getByRole("button", { name: "Approve & Send Registration Link" }));
+    let dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Approve this bank transfer?")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/emails a registration link to ada@example.com/)
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("BP-REF-001")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(approveMutation).not.toHaveBeenCalled();
+
+    // Confirming approves once and closes the dialog.
+    await user.click(screen.getByRole("button", { name: "Approve & Send Registration Link" }));
+    dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Approve & Send Link" }));
+
+    await waitFor(() =>
+      expect(approveMutation).toHaveBeenCalledWith({ paymentId: "pay_1", orderId: "ord_1" })
+    );
+    expect(approveMutation).toHaveBeenCalledTimes(1);
+    expect(toastSuccessMock).toHaveBeenCalledWith("Bank transfer approved", expect.anything());
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 

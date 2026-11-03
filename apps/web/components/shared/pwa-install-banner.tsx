@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useInstallPrompt } from "@/hooks/use-install-prompt";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
+import { usePathname } from "@/lib/i18n/navigation";
 
 export function getInstallBannerMotionProps(prefersReducedMotion: boolean) {
   if (prefersReducedMotion) {
@@ -25,15 +26,22 @@ export function getInstallBannerMotionProps(prefersReducedMotion: boolean) {
   };
 }
 
+/** The install banner belongs to the signed-in app only, not marketing or checkout. */
+export function isInstallBannerRoute(pathname: string): boolean {
+  return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
+}
+
 export function PwaInstallBanner() {
   const tCommon = useTranslations("common");
   const prefersReducedMotion = useReducedMotion();
   const motionProps = getInstallBannerMotionProps(prefersReducedMotion);
   const { canShow, isIOS, install, dismiss } = useInstallPrompt();
+  const pathname = usePathname();
+  const visible = canShow && isInstallBannerRoute(pathname);
 
   return (
     <AnimatePresence initial={false}>
-      {canShow ? (
+      {visible ? (
         <motion.div
           {...motionProps}
           role="complementary"

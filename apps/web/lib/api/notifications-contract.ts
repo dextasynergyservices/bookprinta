@@ -105,9 +105,12 @@ export function normalizeNotificationUnreadCountPayload(
     toInt(root?.count) ??
     toInt(data?.unreadCount) ??
     toInt(data?.count);
+  const hasProductionDelayBanner =
+    root?.hasProductionDelayBanner === true || data?.hasProductionDelayBanner === true;
 
   return {
     unreadCount: unreadCount ?? 0,
+    hasProductionDelayBanner,
   };
 }
 
@@ -197,11 +200,4 @@ export function markAllNotificationsReadInListResponse(
   });
 
   return didChange ? { ...response, items } : response;
-}
-
-export function hasPersistentNotificationBanner(
-  items: NotificationItem[],
-  banner: "production_delay"
-): boolean {
-  return items.some((item) => item.data.presentation?.persistentBanner === banner);
 }

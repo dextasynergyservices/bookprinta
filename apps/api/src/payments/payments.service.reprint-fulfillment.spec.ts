@@ -17,15 +17,18 @@ jest.mock("@bookprinta/emails/render", () => ({
 }));
 
 type PaymentsServicePrivate = {
-  createPaymentFromWebhook: (data: {
-    provider: "PAYSTACK" | "STRIPE" | "PAYPAL";
-    providerRef: string;
-    amount: number;
-    currency: string;
-    payerEmail: string | null;
-    gatewayResponse: Record<string, unknown>;
-    metadata: Record<string, unknown> | null;
-  }) => Promise<void>;
+  // Checkout fulfilment lives in CheckoutFulfillmentService.
+  checkoutFulfillment: {
+    createPaymentFromWebhook: (data: {
+      provider: "PAYSTACK" | "STRIPE" | "PAYPAL";
+      providerRef: string;
+      amount: number;
+      currency: string;
+      payerEmail: string | null;
+      gatewayResponse: Record<string, unknown>;
+      metadata: Record<string, unknown> | null;
+    }) => Promise<void>;
+  };
 };
 
 function createService() {
@@ -170,7 +173,9 @@ describe("PaymentsService reprint fulfillment", () => {
     tx.auditLog.createMany.mockResolvedValue({ count: 2 });
     notificationsService.createOrderStatusNotification.mockResolvedValue(undefined);
 
-    await (service as unknown as PaymentsServicePrivate).createPaymentFromWebhook({
+    await (
+      service as unknown as PaymentsServicePrivate
+    ).checkoutFulfillment.createPaymentFromWebhook({
       provider: "PAYSTACK",
       providerRef: "rp_ref_1",
       amount: 76800,
@@ -292,7 +297,9 @@ describe("PaymentsService reprint fulfillment", () => {
     });
     prisma.payment.updateMany.mockResolvedValue({ count: 1 });
 
-    await (service as unknown as PaymentsServicePrivate).createPaymentFromWebhook({
+    await (
+      service as unknown as PaymentsServicePrivate
+    ).checkoutFulfillment.createPaymentFromWebhook({
       provider: "PAYSTACK",
       providerRef: "rp_ref_1",
       amount: 76800,
@@ -370,7 +377,9 @@ describe("PaymentsService reprint fulfillment", () => {
     tx.payment.update.mockResolvedValue({});
     tx.auditLog.createMany.mockResolvedValue({ count: 2 });
 
-    await (service as unknown as PaymentsServicePrivate).createPaymentFromWebhook({
+    await (
+      service as unknown as PaymentsServicePrivate
+    ).checkoutFulfillment.createPaymentFromWebhook({
       provider: "PAYSTACK",
       providerRef: "rp_ref_2",
       amount: 76800,

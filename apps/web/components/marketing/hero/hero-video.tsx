@@ -6,7 +6,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 const VIDEO_SRC =
-  "https://res.cloudinary.com/domwvt0rk/video/upload/q_auto/f_auto/v1780939346/BookPrinta_vid_othwsb_ulkywa.mp4";
+  "https://res.cloudinary.com/dxoorukfj/video/upload/q_auto,w_1280/f_auto/v1793286516/Bookprinta_WEBSITE_VIDEO_ywcpcf.mp4";
 
 interface HeroVideoProps {
   /** Additional container classes */

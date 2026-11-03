@@ -1,6 +1,7 @@
 import { gunzipSync, inflateRawSync, inflateSync } from "node:zlib";
 import type { BookFontSize, BookPageSize } from "@bookprinta/shared";
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import type { PDFParse } from "pdf-parse";
 
 const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const PDF_MIME_TYPE = "application/pdf";
@@ -50,6 +51,20 @@ const WORDS_PER_ASSUMED_SECTION = 2500;
 const MAX_PLAUSIBLE_SECTIONS = 80;
 
 const SECTION_KEYWORD_PATTERN = /^(chapter|part|day|lesson|section|book)\b[\s\d.:IVXLC-]/i;
+
+/*
+ * Rebuilding paragraphs from PDF text (one line per printed line). Chosen by a
+ * grid search against the same measured renders as the coefficients above.
+ */
+/** A line shorter than this share of a full line ends its paragraph. */
+const PDF_PARAGRAPH_END_RATIO = 0.8;
+/** "Full line" length: this percentile of the document's line lengths. */
+const PDF_FULL_LINE_PERCENTILE = 0.85;
+/** Lines this close to the top or bottom of a page can be running headers/footers. */
+const PDF_RUNNING_LINE_EDGE = 2;
+
+/** pdf-parse 2.x output we use: the text of each page, and the page count. */
+type ParsedPdf = { pageTexts: string[]; pageCount: number };
 
 /** Structure visible at upload time, used by the page estimate. */
 export type ManuscriptLayoutProfile = {
@@ -112,8 +127,8 @@ export class ManuscriptAnalysisService {
     buffer: Buffer,
     mimeType: ManuscriptMimeType
   ): Promise<ManuscriptAnalysis> {
-    const rawText = await this.extractRawText(buffer, mimeType);
-    const text = this.normalizeText(rawText);
+    const raw = await this.extractRawText(buffer, mimeType);
+    const text = this.normalizeText(raw.text);
     const wordCount = this.countWords(text);
 
     if (wordCount <= 0) {
@@ -143,30 +158,41 @@ export class ManuscriptAnalysisService {
 
     return {
       wordCount,
-      layout:
-        mimeType === DOCX_MIME_TYPE ? this.buildLayoutProfile(rawText, buffer, wordCount) : null,
+      layout: raw.paragraphPerLine
+        ? this.buildLayoutProfile(raw.text, buffer, mimeType, wordCount)
+        : null,
     };
   }
 
   async extractText(buffer: Buffer, mimeType: ManuscriptMimeType): Promise<string> {
-    return this.normalizeText(await this.extractRawText(buffer, mimeType));
+    return this.normalizeText((await this.extractRawText(buffer, mimeType)).text);
   }
 
-  private async extractRawText(buffer: Buffer, mimeType: ManuscriptMimeType): Promise<string> {
-    return mimeType === DOCX_MIME_TYPE
-      ? await this.extractDocxText(buffer)
-      : await this.extractPdfText(buffer);
+  /**
+   * Raw manuscript text. `paragraphPerLine` is true when each line is one
+   * paragraph (DOCX, and PDFs read by pdf-parse); the page estimate needs that
+   * structure, and falls back to the word count without it.
+   */
+  private async extractRawText(
+    buffer: Buffer,
+    mimeType: ManuscriptMimeType
+  ): Promise<{ text: string; paragraphPerLine: boolean }> {
+    if (mimeType === DOCX_MIME_TYPE) {
+      return { text: await this.extractDocxText(buffer), paragraphPerLine: true };
+    }
+    return this.extractPdfText(buffer);
   }
 
   /**
    * Paragraph lengths come from the raw text (one paragraph per line). Section
    * breaks use the most specific signal available: "Chapter/Day/Part…" lines,
-   * then Word heading styles, then short all-caps lines, then an assumed
-   * section length.
+   * then Word heading styles (DOCX only), then short all-caps lines, then an
+   * assumed section length.
    */
   private buildLayoutProfile(
     rawText: string,
     buffer: Buffer,
+    mimeType: ManuscriptMimeType,
     wordCount: number
   ): ManuscriptLayoutProfile | null {
     const paragraphs = rawText
@@ -183,7 +209,7 @@ export class ManuscriptAnalysisService {
 
     let sectionBreaks: number | null = keywordHeadings >= 2 ? keywordHeadings : null;
 
-    if (sectionBreaks === null) {
+    if (sectionBreaks === null && mimeType === DOCX_MIME_TYPE) {
       const styles = this.countDocxHeadingStyles(buffer);
       sectionBreaks = [styles.heading1, styles.heading2].find(isPlausible) ?? null;
     }
@@ -317,32 +343,10 @@ export class ManuscriptAnalysisService {
   }
 
   private async extractPdfPageCount(buffer: Buffer): Promise<number | null> {
-    // Try pdf-parse first (most accurate)
-    try {
-      const moduleName = "pdf-parse";
-      const loadedModule = (await import(moduleName)) as unknown;
-
-      let parseFn: ((input: Buffer) => Promise<{ numpages?: unknown }>) | null = null;
-      if (typeof loadedModule === "function") {
-        parseFn = loadedModule as (input: Buffer) => Promise<{ numpages?: unknown }>;
-      } else if (loadedModule && typeof loadedModule === "object") {
-        const defaultExport = (loadedModule as { default?: unknown }).default;
-        if (typeof defaultExport === "function") {
-          parseFn = defaultExport as (input: Buffer) => Promise<{ numpages?: unknown }>;
-        }
-      }
-
-      if (parseFn) {
-        const result = await parseFn(buffer);
-        if (typeof result.numpages === "number" && result.numpages > 0) {
-          this.logger.log(`PDF page count from pdf-parse: ${result.numpages}`);
-          return result.numpages;
-        }
-      }
-    } catch (error) {
-      this.logger.warn(
-        `pdf-parse page count failed, trying binary fallback: ${error instanceof Error ? error.message : String(error)}`
-      );
+    const parsed = await this.parsePdf(buffer);
+    if (parsed && parsed.pageCount > 0) {
+      this.logger.log(`PDF page count from pdf-parse: ${parsed.pageCount}`);
+      return parsed.pageCount;
     }
 
     // Fallback: count /Type /Page objects in the raw PDF binary.
@@ -561,52 +565,141 @@ export class ManuscriptAnalysisService {
     }
   }
 
-  private async extractPdfText(buffer: Buffer): Promise<string> {
-    const parsedText = await this.tryExtractPdfWithLibrary(buffer);
-    if (parsedText) {
-      return parsedText;
+  private async extractPdfText(
+    buffer: Buffer
+  ): Promise<{ text: string; paragraphPerLine: boolean }> {
+    const parsed = await this.parsePdf(buffer);
+    if (parsed) {
+      const text = this.pdfTextAsParagraphs(parsed.pageTexts);
+      if (text.trim().length > 0) {
+        return { text, paragraphPerLine: true };
+      }
+      this.logger.warn("pdf-parse returned empty text (scanned/image-based PDF?)");
     }
 
     this.logger.warn("pdf-parse returned no text; falling back to heuristic extraction");
-    const heuristicText = this.extractPdfTextHeuristically(buffer);
-    return heuristicText;
+    return { text: this.extractPdfTextHeuristically(buffer), paragraphPerLine: false };
   }
 
-  private async tryExtractPdfWithLibrary(buffer: Buffer): Promise<string | null> {
+  /** One parse per uploaded file: the upload reads both the text and the page count. */
+  private readonly pdfParses = new WeakMap<Buffer, Promise<ParsedPdf | null>>();
+
+  /**
+   * Parse a PDF with pdf-parse 2.x (one PDFParse per document, released with
+   * destroy()). Imported on first use so pdf.js is not loaded into the API
+   * until a PDF is uploaded.
+   *
+   * 1.x exported a parse function; calling 2.x that way silently failed, so
+   * every PDF fell through to the heuristic extractor, which reads compressed
+   * streams as text (word counts off by up to 2.5x, and that text was sent to
+   * the AI formatter).
+   */
+  private parsePdf(buffer: Buffer): Promise<ParsedPdf | null> {
+    const cached = this.pdfParses.get(buffer);
+    if (cached) return cached;
+    const parse = this.parsePdfUncached(buffer);
+    this.pdfParses.set(buffer, parse);
+    return parse;
+  }
+
+  private async parsePdfUncached(buffer: Buffer): Promise<ParsedPdf | null> {
+    let parser: PDFParse | null = null;
     try {
-      const moduleName = "pdf-parse";
-      const loadedModule = (await import(moduleName)) as unknown;
-
-      let parseFn: ((input: Buffer) => Promise<{ text?: unknown }>) | null = null;
-      if (typeof loadedModule === "function") {
-        parseFn = loadedModule as (input: Buffer) => Promise<{ text?: unknown }>;
-      } else if (loadedModule && typeof loadedModule === "object") {
-        const defaultExport = (loadedModule as { default?: unknown }).default;
-        if (typeof defaultExport === "function") {
-          parseFn = defaultExport as (input: Buffer) => Promise<{ text?: unknown }>;
-        }
-      }
-
-      if (!parseFn) {
-        this.logger.warn("pdf-parse module loaded but no parse function found");
-        return null;
-      }
-      const result = await parseFn(buffer);
-      if (typeof result.text !== "string") {
-        this.logger.warn("pdf-parse returned non-string text field");
-        return null;
-      }
-      const text = result.text.trim();
-      if (text.length === 0) {
-        this.logger.warn("pdf-parse returned empty text (scanned/image-based PDF?)");
-      }
-      return text.length > 0 ? text : null;
+      const { PDFParse } = await import("pdf-parse");
+      parser = new PDFParse({ data: buffer });
+      const result = await parser.getText();
+      return {
+        pageTexts: result.pages.map((page) => page.text ?? ""),
+        pageCount: result.total,
+      };
     } catch (error) {
       this.logger.error(
         `pdf-parse failed: ${error instanceof Error ? error.message : String(error)}`
       );
       return null;
+    } finally {
+      await parser?.destroy().catch(() => undefined);
     }
+  }
+
+  /**
+   * A PDF's text as one paragraph per line, so the page estimate can read it
+   * like a DOCX. pdf-parse gives one line per printed line, so: running headers
+   * and footers (and page numbers) repeated on most pages are dropped, a line
+   * that stops well short of a full line ends its paragraph, and words
+   * hyphenated across a line break are re-joined.
+   */
+  private pdfTextAsParagraphs(pageTexts: string[]): string {
+    const lines = this.stripRunningHeadersAndFooters(pageTexts).flatMap((page) =>
+      page.split("\n").map((line) => line.trim())
+    );
+
+    const lengths = lines
+      .filter((line) => line.length > 0)
+      .map((line) => line.length)
+      .sort((a, b) => a - b);
+    const fullLine =
+      lengths.length > 0
+        ? lengths[
+            Math.min(lengths.length - 1, Math.floor(lengths.length * PDF_FULL_LINE_PERCENTILE))
+          ]
+        : 80;
+
+    const paragraphs: string[] = [];
+    let current = "";
+    for (const line of lines) {
+      if (line.length === 0) {
+        if (current) paragraphs.push(current);
+        current = "";
+        continue;
+      }
+      if (current.endsWith("-")) current = current.slice(0, -1) + line;
+      else current = current ? `${current} ${line}` : line;
+      if (line.length < PDF_PARAGRAPH_END_RATIO * fullLine) {
+        paragraphs.push(current);
+        current = "";
+      }
+    }
+    if (current) paragraphs.push(current);
+    return paragraphs.join("\n");
+  }
+
+  /**
+   * Drop lines that repeat at the top or bottom of most pages (book title,
+   * chapter title, page numbers). Digits are ignored when comparing, so
+   * "Page 3" and "Page 4" count as the same line.
+   */
+  private stripRunningHeadersAndFooters(pageTexts: string[]): string[] {
+    if (pageTexts.length < 3) return pageTexts;
+
+    const key = (line: string) => line.trim().toLowerCase().replace(/\d+/g, "#");
+    const edgeIndexes = (lines: string[]) => {
+      const nonEmpty = lines.flatMap((line, index) => (line.trim() ? [index] : []));
+      return new Set([
+        ...nonEmpty.slice(0, PDF_RUNNING_LINE_EDGE),
+        ...nonEmpty.slice(-PDF_RUNNING_LINE_EDGE),
+      ]);
+    };
+
+    const pages = pageTexts.map((text) => text.split("\n"));
+    const seenOnPages = new Map<string, number>();
+    for (const lines of pages) {
+      const keys = new Set([...edgeIndexes(lines)].map((index) => key(lines[index])));
+      for (const k of keys) seenOnPages.set(k, (seenOnPages.get(k) ?? 0) + 1);
+    }
+
+    const minPages = Math.max(3, Math.floor(pageTexts.length / 2));
+    const running = new Set(
+      [...seenOnPages].filter(([, count]) => count >= minPages).map(([k]) => k)
+    );
+    if (running.size === 0) return pageTexts;
+
+    return pages.map((lines) => {
+      const edges = edgeIndexes(lines);
+      return lines
+        .filter((line, index) => !(edges.has(index) && running.has(key(line))))
+        .join("\n");
+    });
   }
 
   private extractPdfTextHeuristically(buffer: Buffer): string {
