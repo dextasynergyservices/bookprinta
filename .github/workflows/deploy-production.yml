@@ -11,6 +11,7 @@ jobs:
   deploy:
     name: Deploy Production
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # normally ~2-3 min; a hung build fails instead of running for hours
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
@@ -39,7 +40,8 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: cd apps/api && bunx prisma generate
-      - run: bun run build
+      # Stream task output live (turbo otherwise holds each task's log until it ends).
+      - run: bun run build --log-order=stream
       # Vercel auto-deploys from main for frontend
       # Render auto-deploys from main for backend
       # This job validates the build succeeds
